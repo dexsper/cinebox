@@ -1,6 +1,7 @@
 //! Explorer-style torrent list: movie card on the left, results on the right.
 
 mod explorer;
+mod files;
 mod list;
 mod state;
 
@@ -9,10 +10,13 @@ use iced::{Color, Element, Fill};
 
 use crate::app::Message;
 use crate::ui::home::{ExtraImages, PosterMap};
+use crate::ui::scroll::ScrollFlash;
 
 use cinebox_core::PosterSize;
 
-pub use state::{Event, TorrentHits, TorrentState, update};
+pub use state::{
+    Event, FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState, update,
+};
 
 pub(super) const MUTED: Color = Color::from_rgb(0.78, 0.78, 0.82);
 pub(super) const LABEL: Color = Color::from_rgb(0.92, 0.92, 0.94);
@@ -32,9 +36,20 @@ pub fn view<'a>(
     images: &'a ExtraImages,
     poster_size: PosterSize,
     intro: f32,
-    flashing: bool,
+    scroll: &'a ScrollFlash,
 ) -> Element<'a, Message> {
-    explorer::view(state, posters, images, poster_size, intro, flashing)
+    explorer::view(state, posters, images, poster_size, intro, scroll)
+}
+
+pub fn files_overlay<'a>(
+    state: &'a TorrentState,
+    images: &'a ExtraImages,
+    posters: &'a PosterMap,
+    poster_size: PosterSize,
+    flashing: bool,
+    spin_tick: u64,
+) -> Element<'a, Message> {
+    files::modal(state, images, posters, poster_size, flashing, spin_tick)
 }
 
 pub fn loading<'a>() -> Element<'a, Message> {

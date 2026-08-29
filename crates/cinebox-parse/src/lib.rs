@@ -2,9 +2,12 @@
 
 #![forbid(unsafe_code)]
 
+mod episode;
 mod filter;
 mod title;
 mod voices;
+
+pub use episode::{FileEpisode, file_display_name, parse_file_episode};
 
 pub use filter::{
     AudioLang, QualityBand, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind,

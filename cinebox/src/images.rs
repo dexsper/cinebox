@@ -106,6 +106,14 @@ pub(crate) fn queue_person_assets(
     Task::batch([posters_task, queue_urls(images, settings, urls)])
 }
 
+pub(crate) fn queue_plain_urls(
+    images: &ExtraImages,
+    settings: &Settings,
+    urls: impl IntoIterator<Item = String>,
+) -> Task<Message> {
+    queue_urls(images, settings, urls.into_iter().map(ImageJob::Plain))
+}
+
 fn queue_items<'a>(
     posters: &PosterMap,
     settings: &Settings,

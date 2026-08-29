@@ -4,16 +4,20 @@ use std::time::{Duration, Instant};
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
     HomeCatalog, MediaDetails, MediaKind, PersonDetails, PosterSize, Settings, SettingsStore,
-    TmdbId,
+    TmdbId, tmdb_image_url,
 };
 use iced::animation::Easing;
 use iced::{Animation, Element, Subscription, Task};
 use tracing::{error, info, warn};
 
 use crate::images::{
-    insert_image, insert_poster, queue_media_assets, queue_person_assets, queue_posters,
+    insert_image, insert_poster, queue_media_assets, queue_person_assets, queue_plain_urls,
+    queue_posters,
 };
-use crate::loaders::{load_home_task, load_media_task, load_person_task, load_torrents_task};
+use crate::loaders::{
+    load_home_task, load_media_task, load_person_task, load_torrents_task, open_magnet_task,
+    wait_stream_task,
+};
 use crate::nav::{Nav, Screen};
 use crate::ui;
 use crate::ui::card::MediaState;
@@ -21,7 +25,7 @@ use crate::ui::home::{ExtraImages, HomeState, PosterMap};
 use crate::ui::person::PersonState;
 use crate::ui::scroll::{self, ScrollFlash};
 use crate::ui::settings::Probes;
-use crate::ui::torrents::{TorrentHits, TorrentState};
+use crate::ui::torrents::{Event as TorrentEvent, FilesPane, TorrentHits, TorrentState};
 
 pub use crate::message::Message;
 
@@ -59,6 +63,7 @@ impl TmdbView {
         if key_changed || language_changed || proxy_changed {
             return TmdbChange::Catalog;
         }
+
         if next.poster_size != self.poster_size {
             return TmdbChange::PosterSize;
         }
@@ -83,6 +88,7 @@ pub struct App {
     last_tmdb: TmdbView,
     scroll: ScrollFlash,
     torrent_intro: Animation<bool>,
+    spin_tick: u64,
 }
 
 fn open_settings_store() -> (Option<SettingsStore>, Settings, Option<String>) {
@@ -138,6 +144,7 @@ impl App {
                 last_tmdb,
                 scroll: ScrollFlash::default(),
                 torrent_intro: Animation::new(true),
+                spin_tick: 0,
             },
             task,
         )
@@ -150,9 +157,11 @@ impl App {
     pub fn subscription(&self) -> Subscription<Message> {
         let intro = matches!(self.nav.current(), Screen::Torrents { .. })
             && self.torrent_intro.is_animating(Instant::now());
-        if self.scroll.needs_tick() || intro {
+
+        if self.scroll.needs_tick() || intro || self.files_spinning() {
             return iced::time::every(Duration::from_millis(16)).map(Message::ScrollFrame);
         }
+
         Subscription::none()
     }
 
@@ -168,6 +177,10 @@ impl App {
                 Task::none()
             }
             Message::GoBack => {
+                if self.leave_files_if_open() {
+                    self.scroll.reset();
+                    return Task::none();
+                }
                 self.scroll.reset();
                 self.nav.pop();
                 self.sync_screen()
@@ -201,15 +214,23 @@ impl App {
                 self.open_person(id)
             }
             Message::WatchTorrents => self.open_torrents(),
-            Message::Torrents(event) => {
-                if let Some(state) = &mut self.torrents {
-                    ui::torrents::update(state, event, self.settings.player.default_quality);
-                }
-                Task::none()
-            }
+            Message::Torrents(event) => self.on_torrent_event(event),
             Message::TorrentsLoaded { kind, id, result } => {
                 self.on_torrents_loaded(kind, id, result)
             }
+            Message::TorrentOpened {
+                kind,
+                id,
+                seq,
+                result,
+            } => self.on_torrent_opened(kind, id, seq, result),
+            Message::StreamReady {
+                kind,
+                id,
+                seq,
+                file_id,
+                result,
+            } => self.on_stream_ready(kind, id, seq, file_id, result),
             Message::OpenUrl(url) => {
                 if let Err(error) = open::that(&url) {
                     warn!(%error, "failed to open url");
@@ -223,9 +244,11 @@ impl App {
                     &mut self.speed_mb,
                     msg,
                 );
+
                 if persist {
                     self.persist();
                 }
+
                 task.map(Message::Settings)
             }
             Message::HomeLoaded(result) => self.on_home_loaded(result),
@@ -257,6 +280,9 @@ impl App {
                 Task::none()
             }
             Message::ScrollFrame(now) => {
+                if self.files_spinning() {
+                    self.spin_tick = self.spin_tick.wrapping_add(1);
+                }
                 let motions = self.scroll.step(now);
                 Task::batch(
                     motions
@@ -302,7 +328,7 @@ impl App {
                     &self.images,
                     self.settings.tmdb.poster_size,
                     self.torrent_intro.interpolate(0.0, 1.0, Instant::now()),
-                    self.scroll.page(),
+                    &self.scroll,
                 ),
                 None => ui::torrents::loading(),
             },
@@ -318,7 +344,28 @@ impl App {
             }
             _ => None,
         };
-        ui::chrome::view(self.nav.current(), body, wallpaper)
+        let overlay = self.files_overlay();
+        ui::chrome::view(self.nav.current(), body, wallpaper, overlay)
+    }
+
+    fn files_overlay(&self) -> Option<Element<'_, Message>> {
+        if !matches!(self.nav.current(), Screen::Torrents { .. }) {
+            return None;
+        }
+
+        let state = self.torrents.as_ref()?;
+        if !state.files.is_open() {
+            return None;
+        }
+
+        Some(ui::torrents::files_overlay(
+            state,
+            &self.images,
+            &self.posters,
+            self.settings.tmdb.poster_size,
+            self.scroll.files(),
+            self.spin_tick,
+        ))
     }
 
     fn showing_media(&self, kind: MediaKind, id: TmdbId) -> bool {
@@ -342,6 +389,7 @@ impl App {
         let Some(store) = &self.store else {
             return;
         };
+
         if let Err(error) = store.save(&self.settings) {
             error!(%error, "failed to save settings");
             self.save_error = Some(error.to_string());
@@ -410,6 +458,7 @@ impl App {
         self.torrent_intro = Animation::new(false)
             .duration(Duration::from_millis(480))
             .easing(Easing::EaseOutCubic);
+
         self.torrent_intro.go_mut(true, Instant::now());
     }
 
@@ -425,19 +474,265 @@ impl App {
             let Some(MediaState::Ready(details)) = &self.media else {
                 return Task::none();
             };
+
             if details.kind != kind || details.id != id {
                 return Task::none();
             }
+
             let state = TorrentState::from_details(details);
             let has_parser = !self.settings.parser.url.trim().is_empty();
             let task = has_parser.then(|| load_torrents_task(&self.settings, details));
             (state, task)
         };
+
         if task.is_none() {
             state.hits = TorrentHits::Failed(Msg::NeedParser.en().to_owned());
         }
+
         self.torrents = Some(state);
         task.unwrap_or_else(Task::none)
+    }
+
+    fn leave_files_if_open(&mut self) -> bool {
+        let on_torrents = matches!(self.nav.current(), Screen::Torrents { .. });
+        let Some(state) = &mut self.torrents else {
+            return false;
+        };
+
+        if !on_torrents || !state.files.is_open() {
+            return false;
+        }
+
+        state.files.close();
+        true
+    }
+
+    fn files_spinning(&self) -> bool {
+        if !matches!(self.nav.current(), Screen::Torrents { .. }) {
+            return false;
+        }
+
+        self.torrents
+            .as_ref()
+            .is_some_and(|state| state.files.is_spinning())
+    }
+
+    fn on_torrent_event(&mut self, event: TorrentEvent) -> Task<Message> {
+        match event {
+            TorrentEvent::Pick(index) => self.pick_torrent(index),
+            TorrentEvent::PickFile(file_id) => self.pick_file(file_id),
+            TorrentEvent::CloseFiles => {
+                if let Some(state) = &mut self.torrents {
+                    state.files.close();
+                }
+                Task::none()
+            }
+            TorrentEvent::KeepOpen => Task::none(),
+            TorrentEvent::RetryFiles => self.retry_files(),
+            other => {
+                if let Some(state) = &mut self.torrents {
+                    ui::torrents::update(state, other, self.settings.player.default_quality);
+                }
+                Task::none()
+            }
+        }
+    }
+
+    fn pick_torrent(&mut self, index: usize) -> Task<Message> {
+        let Some(state) = &mut self.torrents else {
+            return Task::none();
+        };
+
+        let TorrentHits::Ready(hits) = &state.hits else {
+            return Task::none();
+        };
+
+        let Some(hit) = hits.get(index) else {
+            return Task::none();
+        };
+
+        if hit.magnet.is_empty() {
+            return Task::none();
+        }
+
+        let url_missing = self.settings.torrserver.url.trim().is_empty();
+        if url_missing {
+            state.files = FilesPane::Failed(Msg::NeedTorrServer.en().to_owned());
+            return Task::none();
+        }
+
+        let category = match state.kind {
+            MediaKind::Tv => "tv",
+            MediaKind::Movie | MediaKind::Person => "movie",
+        };
+
+        let poster = tmdb_image_url(
+            state.movie.poster_path.as_deref(),
+            self.settings.tmdb.poster_size.tmdb_path(),
+        )
+        .unwrap_or_default();
+
+        let spec = cinebox_torrserver::AddSpec {
+            link: hit.magnet.clone(),
+            title: state.movie.title.clone(),
+            poster,
+            category: category.to_owned(),
+            save_to_db: self.settings.torrserver.save_to_db,
+        };
+        state.pending_add = Some(spec.clone());
+        state.pick_gen += 1;
+        let seq = state.pick_gen;
+        let kind = state.kind;
+        let id = state.id;
+        let movie = state.movie.clone();
+        let runtime = state.runtime_minutes;
+        state.files = FilesPane::Loading;
+        open_magnet_task(&self.settings, spec, movie, kind, id, runtime, seq)
+    }
+
+    fn retry_files(&mut self) -> Task<Message> {
+        let Some(state) = &mut self.torrents else {
+            return Task::none();
+        };
+
+        let Some(spec) = state.pending_add.clone() else {
+            return Task::none();
+        };
+
+        let url_missing = self.settings.torrserver.url.trim().is_empty();
+        if url_missing {
+            state.files = FilesPane::Failed(Msg::NeedTorrServer.en().to_owned());
+            return Task::none();
+        }
+
+        state.pick_gen += 1;
+        let seq = state.pick_gen;
+        let kind = state.kind;
+        let id = state.id;
+        let movie = state.movie.clone();
+        let runtime = state.runtime_minutes;
+        state.files = FilesPane::Loading;
+        open_magnet_task(&self.settings, spec, movie, kind, id, runtime, seq)
+    }
+
+    fn pick_file(&mut self, file_id: i32) -> Task<Message> {
+        let Some(state) = &mut self.torrents else {
+            return Task::none();
+        };
+
+        let wait = self.settings.torrserver.wait_preload;
+        let (path, hash, files) = {
+            let Some(ready) = state.files.ready_or_preload() else {
+                return Task::none();
+            };
+            let Some(file) = ready.files.iter().find(|file| file.id == file_id) else {
+                return Task::none();
+            };
+            let files = wait.then(|| ready.clone());
+            (file.path.clone(), ready.hash.clone(), files)
+        };
+
+        let kind = state.kind;
+        let id = state.id;
+        let seq = state.pick_gen;
+        if let Some(files) = files {
+            state.files = FilesPane::Preloading { files, file_id };
+        }
+
+        wait_stream_task(&self.settings, path, hash, file_id, kind, id, seq)
+    }
+
+    fn on_torrent_opened(
+        &mut self,
+        kind: MediaKind,
+        id: TmdbId,
+        seq: u64,
+        result: Result<ui::torrents::ReadyFiles, String>,
+    ) -> Task<Message> {
+        if !self.showing_torrents(kind, id) {
+            return Task::none();
+        }
+
+        let Some(state) = &mut self.torrents else {
+            return Task::none();
+        };
+
+        if state.pick_gen != seq {
+            return Task::none();
+        }
+
+        let ready = match result {
+            Ok(ready) => ready,
+            Err(error) => {
+                error!(%error, "failed to add torrent");
+                state.files = FilesPane::Failed(error);
+                return Task::none();
+            }
+        };
+
+        info!(n = ready.files.len(), "torrent files ready");
+        let stills: Vec<String> = ready
+            .files
+            .iter()
+            .filter_map(|file| file.still_url.clone())
+            .collect();
+        let scroll_y = ready.resume_index().unwrap_or(0) as f32 * 110.0;
+        state.files = FilesPane::Ready(ready);
+        let images = queue_plain_urls(&self.images, &self.settings, stills);
+        if scroll_y <= 0.0 {
+            return images;
+        }
+
+        Task::batch([
+            images,
+            scroll::scroll_by(scroll::ScrollPane::Files, 0.0, scroll_y),
+        ])
+    }
+
+    fn on_stream_ready(
+        &mut self,
+        kind: MediaKind,
+        id: TmdbId,
+        seq: u64,
+        file_id: i32,
+        result: Result<String, String>,
+    ) -> Task<Message> {
+        if !self.showing_torrents(kind, id) {
+            return Task::none();
+        }
+
+        let Some(state) = &mut self.torrents else {
+            return Task::none();
+        };
+
+        if state.pick_gen != seq {
+            return Task::none();
+        }
+
+        let url = match result {
+            Ok(url) => url,
+            Err(error) => {
+                error!(%error, "stream not ready");
+                state.files = FilesPane::Failed(error);
+                return Task::none();
+            }
+        };
+
+        info!(file_id, "stream url ready");
+        let mut files = match &state.files {
+            FilesPane::Ready(files) => files.clone(),
+            FilesPane::Preloading { files, .. } => files.clone(),
+            FilesPane::Closed | FilesPane::Loading | FilesPane::Failed(_) => {
+                return Task::none();
+            }
+        };
+
+        files.selected_id = Some(file_id);
+        files.player_soon = true;
+        files.play_url = Some(url);
+        state.files = FilesPane::Ready(files);
+
+        Task::none()
     }
 
     fn on_home_loaded(&mut self, result: Result<HomeCatalog, String>) -> Task<Message> {
@@ -449,6 +744,7 @@ impl App {
                 return Task::none();
             }
         };
+
         info!("home catalog loaded");
         let task = queue_posters(&self.posters, &self.settings, &catalog);
         self.home = HomeState::Ready(catalog);
@@ -464,6 +760,7 @@ impl App {
         if !self.showing_media(kind, id) {
             return Task::none();
         }
+
         let details = match result {
             Ok(details) => details,
             Err(error) => {
@@ -472,6 +769,7 @@ impl App {
                 return Task::none();
             }
         };
+
         info!(id = id.get(), "media details loaded");
         let task = queue_media_assets(&self.posters, &self.images, &self.settings, &details);
         self.media = Some(MediaState::Ready(details));
@@ -486,6 +784,7 @@ impl App {
         if !self.showing_person(id) {
             return Task::none();
         }
+
         let details = match result {
             Ok(details) => details,
             Err(error) => {
@@ -494,6 +793,7 @@ impl App {
                 return Task::none();
             }
         };
+
         info!(id = id.get(), "person details loaded");
         let task = queue_person_assets(&self.posters, &self.images, &self.settings, &details);
         self.person = Some(PersonState::Ready(details));
@@ -509,9 +809,11 @@ impl App {
         if !self.showing_torrents(kind, id) {
             return Task::none();
         }
+
         let Some(state) = &mut self.torrents else {
             return Task::none();
         };
+
         match result {
             Ok(hits) => {
                 info!(
@@ -528,6 +830,7 @@ impl App {
                 state.hits = TorrentHits::Failed(error);
             }
         }
+
         Task::none()
     }
 
@@ -539,9 +842,11 @@ impl App {
             self.last_tmdb = next;
             return Task::none();
         }
+
         let change = self.last_tmdb.change_from(&next);
         let need_catalog = matches!(self.home, HomeState::NeedKey);
         self.last_tmdb = next;
+
         match change {
             TmdbChange::Catalog => self.reload_home(),
             _ if need_catalog => self.reload_home(),
@@ -563,6 +868,7 @@ impl App {
             self.posters.clear();
             return Task::none();
         }
+
         self.home = HomeState::Loading;
         self.posters.clear();
         self.last_tmdb = TmdbView::from_settings(&self.settings);

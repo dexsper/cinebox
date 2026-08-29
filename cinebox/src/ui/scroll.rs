@@ -27,6 +27,7 @@ const MAX_SPEED: f32 = 4200.0;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ScrollPane {
     Page,
+    Files,
     Row(u8),
 }
 
@@ -34,6 +35,7 @@ impl ScrollPane {
     fn widget_id(self) -> iced::widget::Id {
         match self {
             Self::Page => iced::widget::Id::new("cinebox-scroll-page"),
+            Self::Files => iced::widget::Id::new("cinebox-scroll-files"),
             Self::Row(index) => iced::widget::Id::from(format!("cinebox-scroll-row-{index}")),
         }
     }
@@ -59,6 +61,10 @@ impl ScrollFlash {
 
     pub fn page(&self) -> bool {
         self.is_active(ScrollPane::Page)
+    }
+
+    pub fn files(&self) -> bool {
+        self.is_active(ScrollPane::Files)
     }
 
     pub fn row(&self, index: u8) -> bool {
@@ -162,13 +168,21 @@ pub fn vertical<'a>(
     flashing: bool,
     content: impl Into<Element<'a, Message>>,
 ) -> Element<'a, Message> {
+    vertical_on(ScrollPane::Page, flashing, content)
+}
+
+pub fn vertical_on<'a>(
+    pane: ScrollPane,
+    flashing: bool,
+    content: impl Into<Element<'a, Message>>,
+) -> Element<'a, Message> {
     let inner = Element::new(Smooth {
-        pane: ScrollPane::Page,
+        pane,
         drag: false,
         content: content.into(),
     });
     iced::widget::scrollable(inner)
-        .id(ScrollPane::Page.widget_id())
+        .id(pane.widget_id())
         .direction(scrollable::Direction::Vertical(overlay_bar(flashing)))
         .style(overlay_style(flashing))
         .width(Fill)
@@ -418,7 +432,7 @@ fn capture_horizontal_wheel(
         dy: 0.0,
         gain: wheel_gain(delta),
     });
-    
+
     shell.capture_event();
     true
 }

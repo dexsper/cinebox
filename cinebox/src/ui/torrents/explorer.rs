@@ -8,6 +8,7 @@ use iced::{Alignment, Color, Element, Fill, padding};
 use crate::app::Message;
 use crate::ui::card::{self, POSTER_H, POSTER_W};
 use crate::ui::home::{ExtraImages, PosterMap};
+use crate::ui::scroll::ScrollFlash;
 
 use super::list::files_column;
 use super::state::{MovieBits, TorrentState};
@@ -19,7 +20,7 @@ pub(super) fn view<'a>(
     images: &'a ExtraImages,
     poster_size: PosterSize,
     intro: f32,
-    flashing: bool,
+    scroll: &'a ScrollFlash,
 ) -> Element<'a, Message> {
     let t = intro.clamp(0.0, 1.0);
     let poster_w = lerp(POSTER_W, EXPLORER_POSTER_W, t);
@@ -44,7 +45,7 @@ pub(super) fn view<'a>(
     let files: Element<'a, Message> = if files_alpha <= 0.02 {
         Space::new().width(Fill).height(Fill).into()
     } else {
-        files_column(state, flashing)
+        files_column(state, scroll.page())
     };
 
     let mut layers: Vec<Element<'a, Message>> = vec![

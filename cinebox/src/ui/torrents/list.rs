@@ -50,10 +50,6 @@ pub(super) fn files_column<'a>(state: &'a TorrentState, flashing: bool) -> Eleme
         head = head.push(filters_panel(state));
     }
 
-    if state.pick_hint {
-        head = head.push(text(Msg::PickSoon.en()).size(13).color(MUTED));
-    }
-
     let body = match &state.hits {
         TorrentHits::Loading => status(Msg::LoadingTorrents.en(), LABEL),
         TorrentHits::Failed(error) => failed(error),

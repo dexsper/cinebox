@@ -7,6 +7,7 @@ mod details;
 mod details_dto;
 mod details_map;
 mod home;
+mod seasons;
 
 use std::time::Duration;
 
@@ -154,6 +155,23 @@ pub async fn fetch_person(
 ) -> Result<cinebox_core::PersonDetails, Error> {
     details::fetch_person(api_key, id, language, use_system_proxy).await
 }
+
+/// TV season episodes: names and `still_path` (Lampa file-list preview).
+///
+/// # Errors
+///
+/// Empty key or HTTP/JSON failures. Unknown seasons are omitted.
+pub async fn fetch_season_episodes(
+    api_key: &str,
+    tv_id: cinebox_core::TmdbId,
+    seasons: &[u32],
+    language: Option<&str>,
+    use_system_proxy: bool,
+) -> Result<Vec<seasons::SeasonEpisode>, Error> {
+    seasons::fetch_season_episodes(api_key, tv_id, seasons, language, use_system_proxy).await
+}
+
+pub use seasons::SeasonEpisode;
 
 /// Download a poster (or any image URL). Do not pass authenticated query strings.
 ///
