@@ -16,8 +16,8 @@ const MUTED: Color = Color::from_rgb(0.65, 0.65, 0.68);
 const ERR: Color = Color::from_rgb(0.92, 0.38, 0.38);
 const TITLE: Color = Color::from_rgb(0.96, 0.96, 0.97);
 const RATE: Color = Color::from_rgb(1.0, 0.85, 0.25);
-const POSTER_W: f32 = 200.0;
-const POSTER_H: f32 = 300.0;
+pub(crate) const POSTER_W: f32 = 200.0;
+pub(crate) const POSTER_H: f32 = 300.0;
 
 pub enum MediaState {
     Loading {
@@ -48,15 +48,12 @@ pub fn view<'a>(
     posters: &'a PosterMap,
     images: &'a ExtraImages,
     poster_size: PosterSize,
-    torrent_hint: bool,
     scroll: &'a ScrollFlash,
 ) -> Element<'a, Message> {
     match state {
         MediaState::Loading { .. } => loading(),
         MediaState::Failed { error, .. } => failed(error),
-        MediaState::Ready(details) => {
-            ready(details, posters, images, poster_size, torrent_hint, scroll)
-        }
+        MediaState::Ready(details) => ready(details, posters, images, poster_size, scroll),
     }
 }
 
@@ -100,11 +97,10 @@ fn ready<'a>(
     posters: &'a PosterMap,
     images: &'a ExtraImages,
     poster_size: PosterSize,
-    torrent_hint: bool,
     scroll: &'a ScrollFlash,
 ) -> Element<'a, Message> {
     let mut body = column![].spacing(22);
-    body = body.push(header(details, posters, images, poster_size, torrent_hint));
+    body = body.push(header(details, posters, images, poster_size));
     if let Some(overview) = details.overview.as_deref() {
         body = body.push(
             container(in_detail(overview))
@@ -184,13 +180,12 @@ fn header<'a>(
     posters: &'a PosterMap,
     images: &'a ExtraImages,
     poster_size: PosterSize,
-    torrent_hint: bool,
 ) -> Element<'a, Message> {
     let poster_url = tmdb_image_url(details.poster_path.as_deref(), poster_size.tmdb_path());
     let poster_handle = posters
         .get(&(details.kind, details.id))
         .or_else(|| poster_url.as_deref().and_then(|url| images.get(url)));
-    let poster = image_or_placeholder(poster_handle, POSTER_W, POSTER_H);
+    let poster = poster_art(poster_handle, POSTER_W, POSTER_H);
 
     let mut meta = column![].spacing(10).width(Fill);
     let head = details.head_line();
@@ -218,14 +213,6 @@ fn header<'a>(
         meta = meta.push(details_line);
     }
     meta = meta.push(button(text(Msg::WatchTorrents.en())).on_press(Message::WatchTorrents));
-    if torrent_hint {
-        meta = meta.push(
-            text(Msg::TorrentsSoon.en())
-                .size(13)
-                .color(MUTED)
-                .wrapping(Wrapping::Word),
-        );
-    }
 
     row![poster, meta]
         .spacing(28)
@@ -327,7 +314,7 @@ fn people_row<'a>(
 ) -> Element<'a, Message> {
     let tiles = iced::widget::Row::with_children(people.iter().map(|person| {
         let url = tmdb_image_url(person.profile_path.as_deref(), "w185");
-        let photo = image_or_placeholder(url.as_deref().and_then(|u| images.get(u)), 100.0, 150.0);
+        let photo = poster_art(url.as_deref().and_then(|u| images.get(u)), 100.0, 150.0);
         mouse_area(
             column![
                 photo,
@@ -390,7 +377,7 @@ fn trailers(items: &[Trailer]) -> Element<'_, Message> {
     col.into()
 }
 
-fn image_or_placeholder<'a>(
+pub(crate) fn poster_art<'a>(
     handle: Option<&'a ImageHandle>,
     width: f32,
     height: f32,

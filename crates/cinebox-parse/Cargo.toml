@@ -4,7 +4,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "Release-title parser and torrent filters (stub until Phase 5)"
+description = "Release-title parser, voices, and torrent filters"
+
+[dependencies]
+cinebox-core.workspace = true
+regex.workspace = true
 
 [lints]
 workspace = true

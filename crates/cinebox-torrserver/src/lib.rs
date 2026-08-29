@@ -32,6 +32,8 @@ pub enum Error {
     BadSize,
     #[error("speed test received no data")]
     NoData,
+    #[error("torrserver returned unexpected json")]
+    BadJson(#[source] serde_json::Error),
 }
 
 /// Result of `GET /download/{size}`.
@@ -158,6 +160,55 @@ pub async fn speed_test(
         bytes,
         elapsed: started.elapsed(),
     })
+}
+
+#[derive(Debug, Clone, serde::Deserialize)]
+struct ListedRaw {
+    hash: Option<String>,
+    title: Option<String>,
+}
+
+/// One torrent already on TorrServer (`POST /torrents` action `list`).
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListedTorrent {
+    pub hash: String,
+    pub title: String,
+}
+
+/// `POST /torrents` with `action: list`. Failures here must not block indexer search.
+///
+/// # Errors
+///
+/// Empty URL, HTTP failures, or JSON that is not an array of torrent objects.
+pub async fn list(
+    base_url: &str,
+    username: &str,
+    password: &str,
+) -> Result<Vec<ListedTorrent>, Error> {
+    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+    let url = join_url(&base, "torrents");
+    let client = http_client(Duration::from_secs(15))?;
+    let response = apply_basic_auth(client.post(&url), username, password)
+        .json(&serde_json::json!({ "action": "list" }))
+        .send()
+        .await
+        .map_err(Error::Request)?;
+    let status = response.status();
+    if !status.is_success() {
+        return Err(Error::Http(status.as_u16()));
+    }
+    let body = response.bytes().await.map_err(Error::Request)?;
+    let parsed: Vec<ListedRaw> = serde_json::from_slice(&body).map_err(Error::BadJson)?;
+    Ok(parsed
+        .into_iter()
+        .filter_map(|row| {
+            let hash = row.hash.filter(|h| !h.is_empty())?;
+            Some(ListedTorrent {
+                title: row.title.unwrap_or_default(),
+                hash,
+            })
+        })
+        .collect())
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ pub enum Screen {
     Settings,
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
+    Torrents { kind: MediaKind, id: TmdbId },
 }
 
 #[derive(Debug, Clone)]
@@ -83,5 +84,23 @@ mod tests {
         assert_eq!(nav.current(), movie);
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
+    }
+
+    #[test]
+    fn torrents_stack_on_media() {
+        let mut nav = Nav::new();
+        let movie = Screen::Media {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
+        let torrents = Screen::Torrents {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
+        nav.push(movie);
+        nav.push(torrents);
+        assert_eq!(nav.current(), torrents);
+        nav.pop();
+        assert_eq!(nav.current(), movie);
     }
 }

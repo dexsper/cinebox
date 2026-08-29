@@ -10,6 +10,8 @@ description = "TorrServer HTTP client (echo and speed test in Phase 2)"
 cinebox-core.workspace = true
 futures-util.workspace = true
 reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
 thiserror.workspace = true
 
 [dev-dependencies]

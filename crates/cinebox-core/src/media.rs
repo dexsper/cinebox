@@ -34,6 +34,7 @@ pub struct MediaDetails {
     pub kind: MediaKind,
     pub title: String,
     pub original_title: Option<String>,
+    pub original_language: Option<String>,
     pub tagline: Option<String>,
     pub overview: Option<String>,
     pub year: Option<u16>,
@@ -41,6 +42,7 @@ pub struct MediaDetails {
     pub runtime_minutes: Option<u32>,
     pub vote: Option<f32>,
     pub budget: Option<u64>,
+    pub genre_ids: Vec<u32>,
     pub genres: Vec<String>,
     pub countries: Vec<String>,
     pub poster_path: Option<String>,
@@ -83,6 +85,24 @@ impl MediaDetails {
         }
         bits.extend(self.genres.iter().take(5).cloned());
         bits
+    }
+
+    /// Jackett/Prowlarr anime category (TMDB animation + ja/zh).
+    #[must_use]
+    pub fn is_anime(&self) -> bool {
+        const ANIMATION: u32 = 16;
+        matches!(self.original_language.as_deref(), Some("ja" | "zh"))
+            && self.genre_ids.contains(&ANIMATION)
+    }
+
+    /// Default indexer query: original title (year is a separate Jackett param).
+    #[must_use]
+    pub fn torrent_query(&self) -> String {
+        self.original_title
+            .as_deref()
+            .filter(|s| !s.is_empty())
+            .unwrap_or(&self.title)
+            .to_owned()
     }
 }
 
@@ -177,6 +197,7 @@ mod tests {
             kind: MediaKind::Movie,
             title: String::from("Dune"),
             original_title: None,
+            original_language: None,
             tagline: None,
             overview: None,
             year: Some(2021),
@@ -184,6 +205,7 @@ mod tests {
             runtime_minutes: Some(155),
             vote: Some(8.1),
             budget: None,
+            genre_ids: Vec::new(),
             genres: vec![String::from("Sci-Fi"), String::from("Adventure")],
             countries: vec![String::from("United States")],
             poster_path: None,
@@ -200,6 +222,8 @@ mod tests {
         };
         assert_eq!(details.head_line(), "2021, United States");
         assert_eq!(details.detail_bits(), vec!["2h 35m", "Sci-Fi", "Adventure"]);
+        assert_eq!(details.torrent_query(), "Dune");
+        assert!(!details.is_anime());
         assert_eq!(
             details.trailers[0].watch_url(),
             "https://www.youtube.com/watch?v=abc"

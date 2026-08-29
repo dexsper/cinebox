@@ -1,11 +1,15 @@
-//! Jackett / Prowlarr connectivity check. Full search is Phase 5.
+//! Jackett / Prowlarr connectivity and search.
 
 #![forbid(unsafe_code)]
+
+mod search;
 
 use std::time::Duration;
 
 use cinebox_core::{ParserKind, join_url, normalize_base_url};
 use serde::Deserialize;
+
+pub use search::{Hit, SearchQuery, search};
 
 /// Failures talking to a parser. Never includes the API key.
 #[derive(Debug, thiserror::Error)]
@@ -33,7 +37,10 @@ struct ProwlarrStatus {
     version: Option<String>,
 }
 
-fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest::ClientBuilder {
+pub(crate) fn apply_system_proxy(
+    builder: reqwest::ClientBuilder,
+    enabled: bool,
+) -> reqwest::ClientBuilder {
     if enabled { builder } else { builder.no_proxy() }
 }
 

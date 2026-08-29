@@ -14,9 +14,10 @@ pub fn view<'a>(
 ) -> Element<'a, Message> {
     let nav_button = match screen {
         Screen::Home => button(text(Msg::NavSettings.en())).on_press(Message::OpenSettings),
-        Screen::Settings | Screen::Media { .. } | Screen::Person { .. } => {
-            button(text(Msg::NavBack.en())).on_press(Message::GoBack)
-        }
+        Screen::Settings
+        | Screen::Media { .. }
+        | Screen::Person { .. }
+        | Screen::Torrents { .. } => button(text(Msg::NavBack.en())).on_press(Message::GoBack),
     };
 
     let header = container(

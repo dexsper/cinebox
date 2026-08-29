@@ -14,6 +14,7 @@ const MAX_PERSON_CREDITS: usize = 40;
 
 #[derive(Deserialize)]
 struct Named {
+    id: Option<u32>,
     name: Option<String>,
 }
 
@@ -86,6 +87,7 @@ struct MediaBody {
     name: Option<String>,
     original_title: Option<String>,
     original_name: Option<String>,
+    original_language: Option<String>,
     tagline: Option<String>,
     overview: Option<String>,
     release_date: Option<String>,
@@ -278,12 +280,18 @@ fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Op
     let collection_id = body
         .belongs_to_collection
         .and_then(|c| c.id.filter(|id| *id > 0));
+    let genre_rows = body.genres.unwrap_or_default();
+    let genre_ids = genre_rows
+        .iter()
+        .filter_map(|g| g.id.filter(|id| *id > 0))
+        .collect();
     Ok((
         MediaDetails {
             id: TmdbId::new(id),
             kind,
             title,
             original_title: original,
+            original_language: nonempty(body.original_language),
             tagline: nonempty(body.tagline),
             overview: nonempty(body.overview),
             year: date.and_then(year_from_date),
@@ -291,12 +299,8 @@ fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Op
             runtime_minutes: runtime,
             vote: body.vote_average.filter(|v| *v > 0.0),
             budget: body.budget.filter(|b| *b > 0),
-            genres: names(
-                body.genres
-                    .unwrap_or_default()
-                    .into_iter()
-                    .filter_map(|g| g.name),
-            ),
+            genre_ids,
+            genres: names(genre_rows.into_iter().filter_map(|g| g.name)),
             countries,
             poster_path: nonempty(body.poster_path),
             backdrop_path: nonempty(body.backdrop_path),
@@ -482,13 +486,14 @@ mod tests {
             "id": 42,
             "title": "Dune",
             "original_title": "Dune: Part One",
+            "original_language": "en",
             "overview": "Sand.",
             "release_date": "2021-10-22",
             "runtime": 155,
             "vote_average": 8.1,
             "budget": 165000000,
             "poster_path": "/x.jpg",
-            "genres": [{"name": "Sci-Fi"}],
+            "genres": [{"id": 878, "name": "Sci-Fi"}],
             "production_countries": [{"name": "United States"}],
             "credits": {
                 "cast": [{"id": 1, "name": "Tim", "character": "Paul", "order": 0}],
@@ -510,6 +515,8 @@ mod tests {
         assert_eq!(details.id.get(), 42);
         assert_eq!(details.title, "Dune");
         assert_eq!(details.original_title.as_deref(), Some("Dune: Part One"));
+        assert_eq!(details.original_language.as_deref(), Some("en"));
+        assert_eq!(details.genre_ids, vec![878]);
         assert_eq!(details.year, Some(2021));
         assert_eq!(details.released.as_deref(), Some("2021-10-22"));
         assert_eq!(details.directors.len(), 1);

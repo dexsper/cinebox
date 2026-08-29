@@ -1,12 +1,15 @@
 use std::collections::{HashMap, HashSet};
+use std::time::{Duration, Instant};
 
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
     CatalogItem, HomeCatalog, MediaDetails, MediaKind, PersonDetails, PosterSize, Settings,
     SettingsStore, TmdbId, tmdb_image_url,
 };
+use cinebox_parse::{Listing, SortMode, TorrentHit, sort_hits};
+use iced::animation::Easing;
 use iced::widget::image::Handle as ImageHandle;
-use iced::{Element, Subscription, Task};
+use iced::{Animation, Element, Subscription, Task};
 use tracing::{error, info, warn};
 
 use crate::nav::{Nav, Screen};
@@ -16,6 +19,7 @@ use crate::ui::home::{ExtraImages, HomeState, PosterMap};
 use crate::ui::person::PersonState;
 use crate::ui::scroll::{self, ScrollFlash, ScrollPane};
 use crate::ui::settings::Probes;
+use crate::ui::torrents::{TorrentHits, TorrentState};
 
 #[derive(Debug, Clone)]
 pub enum Message {
@@ -32,6 +36,13 @@ pub enum Message {
         id: TmdbId,
     },
     WatchTorrents,
+    RetryTorrents,
+    Torrents(ui::torrents::Event),
+    TorrentsLoaded {
+        kind: MediaKind,
+        id: TmdbId,
+        result: Result<Vec<TorrentHit>, String>,
+    },
     OpenUrl(String),
     Settings(ui::settings::Message),
     HomeLoaded(Result<HomeCatalog, String>),
@@ -104,11 +115,12 @@ pub struct App {
     home: HomeState,
     media: Option<MediaState>,
     person: Option<PersonState>,
+    torrents: Option<TorrentState>,
     posters: PosterMap,
     images: ExtraImages,
-    torrent_hint: bool,
     last_tmdb: TmdbView,
     scroll: ScrollFlash,
+    torrent_intro: Animation<bool>,
 }
 
 impl App {
@@ -154,11 +166,12 @@ impl App {
                 home,
                 media: None,
                 person: None,
+                torrents: None,
                 posters: PosterMap::new(),
                 images: HashMap::new(),
-                torrent_hint: false,
                 last_tmdb,
                 scroll: ScrollFlash::default(),
+                torrent_intro: Animation::new(true),
             },
             task,
         )
@@ -169,8 +182,10 @@ impl App {
     }
 
     pub fn subscription(&self) -> Subscription<Message> {
-        if self.scroll.needs_tick() {
-            iced::time::every(std::time::Duration::from_millis(16)).map(Message::ScrollFrame)
+        let intro = matches!(self.nav.current(), Screen::Torrents { .. })
+            && self.torrent_intro.is_animating(Instant::now());
+        if self.scroll.needs_tick() || intro {
+            iced::time::every(Duration::from_millis(16)).map(Message::ScrollFrame)
         } else {
             Subscription::none()
         }
@@ -201,6 +216,10 @@ impl App {
                 Screen::Person { id } => self.load_person(id),
                 _ => Task::none(),
             },
+            Message::RetryTorrents => match self.nav.current() {
+                Screen::Torrents { kind, id } => self.load_torrents(kind, id),
+                _ => Task::none(),
+            },
             Message::OpenMedia { kind, id } => {
                 if self.scroll.suppress_click {
                     Task::none()
@@ -217,8 +236,35 @@ impl App {
                     self.open_person(id)
                 }
             }
-            Message::WatchTorrents => {
-                self.torrent_hint = true;
+            Message::WatchTorrents => self.open_torrents(),
+            Message::Torrents(event) => {
+                if let Some(state) = &mut self.torrents {
+                    ui::torrents::update(state, event, self.settings.player.default_quality);
+                }
+                Task::none()
+            }
+            Message::TorrentsLoaded { kind, id, result } => {
+                if !self
+                    .torrents
+                    .as_ref()
+                    .is_some_and(|state| state.matches(kind, id))
+                {
+                    return Task::none();
+                }
+                match result {
+                    Ok(hits) => {
+                        info!(n = hits.len(), "torrents loaded");
+                        if let Some(state) = &mut self.torrents {
+                            state.hits = TorrentHits::Ready(hits);
+                        }
+                    }
+                    Err(error) => {
+                        error!(%error, "failed to search torrents");
+                        if let Some(state) = &mut self.torrents {
+                            state.hits = TorrentHits::Failed(error);
+                        }
+                    }
+                }
                 Task::none()
             }
             Message::OpenUrl(url) => {
@@ -350,7 +396,6 @@ impl App {
                     &self.posters,
                     &self.images,
                     self.settings.tmdb.poster_size,
-                    self.torrent_hint,
                     &self.scroll,
                 ),
                 None => ui::card::loading(),
@@ -361,12 +406,28 @@ impl App {
                 }
                 None => ui::person::loading(),
             },
+            Screen::Torrents { .. } => match &self.torrents {
+                Some(state) => ui::torrents::view(
+                    state,
+                    &self.posters,
+                    &self.images,
+                    self.settings.tmdb.poster_size,
+                    self.torrent_intro.interpolate(0.0, 1.0, Instant::now()),
+                    self.scroll.page(),
+                ),
+                None => ui::torrents::loading(),
+            },
         };
         ui::chrome::view(
             self.nav.current(),
             body,
             match &self.media {
-                Some(state) if matches!(self.nav.current(), Screen::Media { .. }) => {
+                Some(state)
+                    if matches!(
+                        self.nav.current(),
+                        Screen::Media { .. } | Screen::Torrents { .. }
+                    ) =>
+                {
                     ui::card::wallpaper(state, &self.images)
                 }
                 _ => None,
@@ -391,13 +452,13 @@ impl App {
             Screen::Settings => Task::none(),
             Screen::Media { kind, id } => self.ensure_media(kind, id),
             Screen::Person { id } => self.ensure_person(id),
+            Screen::Torrents { kind, id } => self.ensure_torrents(kind, id),
         }
     }
 
     fn open_media(&mut self, kind: MediaKind, id: TmdbId) -> Task<Message> {
         self.scroll.reset();
         self.nav.push(Screen::Media { kind, id });
-        self.torrent_hint = false;
         self.ensure_media(kind, id)
     }
 
@@ -429,13 +490,68 @@ impl App {
 
     fn load_media(&mut self, kind: MediaKind, id: TmdbId) -> Task<Message> {
         self.media = Some(MediaState::Loading { kind, id });
-        self.torrent_hint = false;
         load_media_task(&self.settings, kind, id)
     }
 
     fn load_person(&mut self, id: TmdbId) -> Task<Message> {
         self.person = Some(PersonState::Loading { id });
         load_person_task(&self.settings, id)
+    }
+
+    fn open_torrents(&mut self) -> Task<Message> {
+        let Some(MediaState::Ready(details)) = &self.media else {
+            return Task::none();
+        };
+        let kind = details.kind;
+        let id = details.id;
+        self.scroll.reset();
+        self.play_torrent_intro();
+        self.nav.push(Screen::Torrents { kind, id });
+        self.load_torrents(kind, id)
+    }
+
+    fn play_torrent_intro(&mut self) {
+        self.torrent_intro = Animation::new(false)
+            .duration(Duration::from_millis(480))
+            .easing(Easing::EaseOutCubic);
+        self.torrent_intro.go_mut(true, Instant::now());
+    }
+
+    fn ensure_torrents(&mut self, kind: MediaKind, id: TmdbId) -> Task<Message> {
+        if self
+            .torrents
+            .as_ref()
+            .is_some_and(|state| state.matches(kind, id))
+        {
+            Task::none()
+        } else {
+            self.load_torrents(kind, id)
+        }
+    }
+
+    fn load_torrents(&mut self, kind: MediaKind, id: TmdbId) -> Task<Message> {
+        let (mut state, task) = {
+            let Some(MediaState::Ready(details)) = &self.media else {
+                return Task::none();
+            };
+            if details.kind != kind || details.id != id {
+                return Task::none();
+            }
+            let state = TorrentState::from_details(details);
+            if self.settings.parser.url.trim().is_empty() {
+                (state, None)
+            } else {
+                (state, Some(load_torrents_task(&self.settings, details)))
+            }
+        };
+        if task.is_none() {
+            state.hits = TorrentHits::Failed(Msg::NeedParser.en().to_owned());
+        }
+        self.torrents = Some(state);
+        match task {
+            Some(task) => task,
+            None => Task::none(),
+        }
     }
 
     fn sync_home(&mut self) -> Task<Message> {
@@ -621,5 +737,66 @@ fn load_person_task(settings: &Settings, id: TmdbId) -> Task<Message> {
                 .map_err(|error| error.to_string())
         },
         move |result| Message::PersonLoaded { id, result },
+    )
+}
+
+fn load_torrents_task(settings: &Settings, details: &MediaDetails) -> Task<Message> {
+    let kind = details.kind;
+    let id = details.id;
+    let query = cinebox_indexer::SearchQuery {
+        query: details.torrent_query(),
+        title: details.title.clone(),
+        original_title: details.original_title.clone().unwrap_or_default(),
+        year: details.year,
+        kind: details.kind,
+        is_anime: details.is_anime(),
+        genres: details.genres.clone(),
+    };
+    let runtime = details.runtime_minutes;
+    let parser_kind = settings.parser.kind;
+    let parser_url = settings.parser.url.clone();
+    let parser_key = settings.parser.api_key.expose().to_owned();
+    let use_system_proxy = settings.interface.use_system_proxy;
+    let ts_url = settings.torrserver.url.clone();
+    let ts_user = settings.torrserver.username.clone();
+    let ts_pass = settings.torrserver.password.expose().to_owned();
+    let preferred = settings.player.default_quality;
+    Task::perform(
+        async move {
+            let raw = cinebox_indexer::search(
+                parser_kind,
+                &parser_url,
+                &parser_key,
+                &query,
+                use_system_proxy,
+            )
+            .await
+            .map_err(|error| error.to_string())?;
+            let started = cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass)
+                .await
+                .unwrap_or_default();
+            let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
+            let mut hits: Vec<TorrentHit> = raw
+                .into_iter()
+                .map(|hit| {
+                    TorrentHit::new(
+                        Listing {
+                            title: hit.title,
+                            tracker: hit.tracker,
+                            size_bytes: hit.size_bytes,
+                            seeders: hit.seeders,
+                            peers: hit.peers,
+                            magnet: hit.magnet,
+                            published: hit.published,
+                        },
+                        runtime,
+                        &hashes,
+                    )
+                })
+                .collect();
+            sort_hits(&mut hits, kind, preferred, SortMode::Popular);
+            Ok(hits)
+        },
+        move |result| Message::TorrentsLoaded { kind, id, result },
     )
 }
