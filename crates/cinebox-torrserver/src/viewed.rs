@@ -36,7 +36,7 @@ pub async fn viewed_list(
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
     let url = join_url(&base, "viewed");
     let client = http_client(Duration::from_secs(10))?;
-    
+
     let request =
         apply_basic_auth(client.post(&url), username, password).json(&serde_json::json!({
             "action": "list",

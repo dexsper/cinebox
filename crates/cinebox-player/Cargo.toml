@@ -4,7 +4,32 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
-description = "libmpv2 playback with a child HWND (stub until Phase 7)"
+description = "libmpv2 playback with a child HWND"
+
+[dependencies]
+cinebox-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[target.'cfg(windows)'.dependencies]
+libmpv2 = { version = "6.0.0", features = ["build_libmpv"] }
+windows-sys = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Gdi",
+    "Win32_System_LibraryLoader",
+    "Win32_UI_HiDpi",
+    "Win32_UI_WindowsAndMessaging",
+] }
+
+[target.'cfg(not(windows))'.dependencies]
+libmpv2 = "6.0.0"
+
+[build-dependencies]
+cc = "1.2"
+goblin = { version = "0.10", default-features = false, features = ["std", "pe64"] }
+sevenz-rust2 = "0.22"
+sha2 = "0.10"
+ureq = { version = "2.12", default-features = false, features = ["tls"] }
 
 [lints]
 workspace = true

@@ -7,6 +7,7 @@ pub enum Screen {
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
     Torrents { kind: MediaKind, id: TmdbId },
+    Player { kind: MediaKind, id: TmdbId },
 }
 
 #[derive(Debug, Clone)]
@@ -102,5 +103,23 @@ mod tests {
         assert_eq!(nav.current(), torrents);
         nav.pop();
         assert_eq!(nav.current(), movie);
+    }
+
+    #[test]
+    fn player_stacks_on_torrents() {
+        let mut nav = Nav::new();
+        let torrents = Screen::Torrents {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
+        let player = Screen::Player {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
+        nav.push(torrents);
+        nav.push(player);
+        assert_eq!(nav.current(), player);
+        nav.pop();
+        assert_eq!(nav.current(), torrents);
     }
 }

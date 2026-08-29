@@ -7,6 +7,10 @@ use cinebox_core::{
     TmdbId, tmdb_image_url,
 };
 use iced::animation::Easing;
+use iced::event::{self, Event as IcedEvent, Status as EventStatus};
+use iced::keyboard::key::Named;
+use iced::keyboard::{self, Key};
+use iced::window::{self, Window};
 use iced::{Animation, Element, Subscription, Task};
 use tracing::{error, info, warn};
 
@@ -23,6 +27,7 @@ use crate::ui;
 use crate::ui::card::MediaState;
 use crate::ui::home::{ExtraImages, HomeState, PosterMap};
 use crate::ui::person::PersonState;
+use crate::ui::player::{self, Event as PlayerEvent, PlayerState};
 use crate::ui::scroll::{self, ScrollFlash};
 use crate::ui::settings::Probes;
 use crate::ui::torrents::{Event as TorrentEvent, FilesPane, TorrentHits, TorrentState};
@@ -89,6 +94,8 @@ pub struct App {
     scroll: ScrollFlash,
     torrent_intro: Animation<bool>,
     spin_tick: u64,
+    player: Option<PlayerState>,
+    engine: Option<cinebox_player::Engine>,
 }
 
 fn open_settings_store() -> (Option<SettingsStore>, Settings, Option<String>) {
@@ -145,6 +152,8 @@ impl App {
                 scroll: ScrollFlash::default(),
                 torrent_intro: Animation::new(true),
                 spin_tick: 0,
+                player: None,
+                engine: None,
             },
             task,
         )
@@ -157,12 +166,16 @@ impl App {
     pub fn subscription(&self) -> Subscription<Message> {
         let intro = matches!(self.nav.current(), Screen::Torrents { .. })
             && self.torrent_intro.is_animating(Instant::now());
-
-        if self.scroll.needs_tick() || intro || self.files_spinning() {
-            return iced::time::every(Duration::from_millis(16)).map(Message::ScrollFrame);
+        let on_player = matches!(self.nav.current(), Screen::Player { .. });
+        let mut subs = Vec::new();
+        if on_player {
+            subs.push(iced::time::every(Duration::from_millis(250)).map(|_| Message::PlayerTick));
+            subs.push(event::listen_with(player_window_events));
         }
-
-        Subscription::none()
+        if self.scroll.needs_tick() || intro || self.files_spinning() {
+            subs.push(iced::time::every(Duration::from_millis(16)).map(Message::ScrollFrame));
+        }
+        Subscription::batch(subs)
     }
 
     pub fn theme(&self) -> iced::Theme {
@@ -177,6 +190,12 @@ impl App {
                 Task::none()
             }
             Message::GoBack => {
+                if matches!(self.nav.current(), Screen::Player { .. }) {
+                    self.stop_player();
+                    self.scroll.reset();
+                    self.nav.pop();
+                    return Task::none();
+                }
                 if self.leave_files_if_open() {
                     self.scroll.reset();
                     return Task::none();
@@ -231,6 +250,15 @@ impl App {
                 file_id,
                 result,
             } => self.on_stream_ready(kind, id, seq, file_id, result),
+            Message::Player(event) => self.on_player_event(event),
+            Message::PlayerAttach(hwnd) => self.on_player_attach(hwnd),
+            Message::PlayerTick => self.on_player_tick(),
+            Message::PlayerResized => {
+                if let Some(engine) = &self.engine {
+                    engine.relayout();
+                }
+                Task::none()
+            }
             Message::OpenUrl(url) => {
                 if let Err(error) = open::that(&url) {
                     warn!(%error, "failed to open url");
@@ -332,6 +360,10 @@ impl App {
                 ),
                 None => ui::torrents::loading(),
             },
+            Screen::Player { .. } => match &self.player {
+                Some(state) => player::view(state),
+                None => ui::torrents::loading(),
+            },
         };
         let wallpaper = match &self.media {
             Some(state)
@@ -403,6 +435,7 @@ impl App {
             Screen::Media { kind, id } => self.ensure_media(kind, id),
             Screen::Person { id } => self.ensure_person(id),
             Screen::Torrents { kind, id } => self.ensure_torrents(kind, id),
+            Screen::Player { .. } => Task::none(),
         }
     }
 
@@ -728,9 +761,225 @@ impl App {
         };
 
         files.selected_id = Some(file_id);
-        files.player_soon = true;
-        files.play_url = Some(url);
+        let file_index = files
+            .files
+            .iter()
+            .position(|file| file.id == file_id)
+            .unwrap_or(0);
+
+        let row = files.files.get(file_index);
+        let title = row
+            .map(|file| file.title.clone())
+            .unwrap_or_else(|| state.movie.title.clone());
+
+        let start = row.map(|file| file.timecode).unwrap_or(0.0);
+        let hash = files.hash.clone();
+        let rows = files.files.clone();
+
         state.files = FilesPane::Ready(files);
+        state.files.close();
+
+        self.stop_player();
+        self.player = Some(PlayerState {
+            title,
+            hash,
+            files: rows,
+            file_index,
+            paused: false,
+            time: start,
+            duration: 0.0,
+            error: None,
+            aid: 0,
+            sid: 0,
+            play_url: url,
+        });
+
+        self.nav.push(Screen::Player { kind, id });
+        grab_parent_hwnd()
+    }
+
+    fn stop_player(&mut self) {
+        self.engine = None;
+        self.player = None;
+    }
+
+    fn on_player_attach(&mut self, hwnd: Option<isize>) -> Task<Message> {
+        if !matches!(self.nav.current(), Screen::Player { .. }) {
+            return Task::none();
+        }
+
+        let Some(hwnd) = hwnd else {
+            if let Some(state) = &mut self.player {
+                state.error = Some(String::from("Could not get the window handle."));
+            }
+            return Task::none();
+        };
+
+        match cinebox_player::Engine::attach(hwnd) {
+            Ok(engine) => {
+                let url = self.player.as_ref().map(|s| s.play_url.clone());
+                let start = self.player.as_ref().map(|s| s.time).unwrap_or(0.0);
+                self.engine = Some(engine);
+                let Some(url) = url else {
+                    return Task::none();
+                };
+                self.apply_load(&url, start)
+            }
+            Err(error) => {
+                error!(%error, "mpv attach failed");
+                if let Some(state) = &mut self.player {
+                    state.error = Some(error.to_string());
+                }
+                Task::none()
+            }
+        }
+    }
+
+    fn apply_load(&mut self, url: &str, start: f64) -> Task<Message> {
+        let header = cinebox_torrserver::mpv_http_header_fields(
+            &self.settings.torrserver.username,
+            self.settings.torrserver.password.expose(),
+        );
+
+        let opts = cinebox_player::PlayOpts {
+            http_header_fields: header.as_deref(),
+            loudnorm: self.settings.player.loudnorm,
+            scale: self.settings.player.scale,
+            start_seconds: start,
+        };
+
+        let Some(engine) = &self.engine else {
+            return Task::none();
+        };
+
+        if let Err(error) = engine.load(url, opts) {
+            error!(%error, "mpv load failed");
+            if let Some(state) = &mut self.player {
+                state.error = Some(error.to_string());
+            }
+        }
+
+        Task::none()
+    }
+
+    fn on_player_event(&mut self, event: PlayerEvent) -> Task<Message> {
+        match event {
+            PlayerEvent::TogglePause => self.player_toggle(),
+            PlayerEvent::SeekBack => self.player_seek(-cinebox_player::SEEK_SECS),
+            PlayerEvent::SeekFwd => self.player_seek(cinebox_player::SEEK_SECS),
+            PlayerEvent::CycleAudio => self.player_cmd(|engine| engine.cycle_audio()),
+            PlayerEvent::CycleSubs => self.player_cmd(|engine| engine.cycle_subs()),
+            PlayerEvent::Next => self.player_next(),
+        }
+    }
+
+    fn player_toggle(&mut self) -> Task<Message> {
+        let Some(engine) = &self.engine else {
+            return Task::none();
+        };
+
+        match engine.toggle_pause() {
+            Ok(paused) => {
+                if let Some(state) = &mut self.player {
+                    state.paused = paused;
+                }
+            }
+            Err(error) => {
+                error!(%error, "mpv pause failed");
+            }
+        }
+        Task::none()
+    }
+
+    fn player_seek(&mut self, delta: f64) -> Task<Message> {
+        let Some(engine) = &self.engine else {
+            return Task::none();
+        };
+
+        if let Err(error) = engine.seek(delta) {
+            error!(%error, "mpv seek failed");
+        }
+
+        Task::none()
+    }
+
+    fn player_cmd(
+        &mut self,
+        op: impl FnOnce(&cinebox_player::Engine) -> Result<(), cinebox_player::Error>,
+    ) -> Task<Message> {
+        let Some(engine) = &self.engine else {
+            return Task::none();
+        };
+
+        if let Err(error) = op(engine) {
+            error!(%error, "mpv command failed");
+        }
+
+        Task::none()
+    }
+
+    fn player_next(&mut self) -> Task<Message> {
+        let next = {
+            let Some(state) = &mut self.player else {
+                return Task::none();
+            };
+
+            if !state.has_next() {
+                return Task::none();
+            }
+
+            state.file_index += 1;
+            let Some(file) = state.files.get(state.file_index).cloned() else {
+                return Task::none();
+            };
+
+            state.title = file.title.clone();
+            state.time = file.timecode;
+            let hash = state.hash.clone();
+            let url = match cinebox_torrserver::stream_url(
+                &self.settings.torrserver.url,
+                &file.path,
+                &hash,
+                file.id,
+                cinebox_torrserver::StreamFlag::Play,
+            ) {
+                Ok(url) => url,
+                Err(error) => {
+                    state.error = Some(error.to_string());
+                    return Task::none();
+                }
+            };
+
+            state.play_url = url.clone();
+            (url, file.timecode)
+        };
+        self.apply_load(&next.0, next.1)
+    }
+
+    fn on_player_tick(&mut self) -> Task<Message> {
+        let Some(engine) = &self.engine else {
+            return Task::none();
+        };
+
+        let snap = engine.snapshot();
+        let auto = self.settings.player.auto_next;
+
+        let go_next = {
+            let Some(state) = &mut self.player else {
+                return Task::none();
+            };
+            state.paused = snap.paused;
+            state.time = snap.time;
+            state.duration = snap.duration;
+            state.aid = snap.aid;
+            state.sid = snap.sid;
+            let ended = snap.eof && snap.duration > 1.0;
+            ended && auto && state.has_next()
+        };
+
+        if go_next {
+            return self.player_next();
+        }
 
         Task::none()
     }
@@ -873,5 +1122,40 @@ impl App {
         self.posters.clear();
         self.last_tmdb = TmdbView::from_settings(&self.settings);
         load_home_task(&self.settings)
+    }
+}
+
+fn grab_parent_hwnd() -> Task<Message> {
+    window::latest().then(|id| {
+        let Some(id) = id else {
+            return Task::done(Message::PlayerAttach(None));
+        };
+        window::run(id, parent_hwnd).map(Message::PlayerAttach)
+    })
+}
+
+fn parent_hwnd(window: &dyn Window) -> Option<isize> {
+    use window::raw_window_handle::RawWindowHandle;
+    let handle = window.window_handle().ok()?;
+    match handle.as_raw() {
+        RawWindowHandle::Win32(win) => Some(win.hwnd.get()),
+        _ => None,
+    }
+}
+
+fn player_window_events(event: IcedEvent, status: EventStatus, _id: window::Id) -> Option<Message> {
+    if status == EventStatus::Captured {
+        return None;
+    }
+    match event {
+        IcedEvent::Window(window::Event::Resized(_)) => Some(Message::PlayerResized),
+        IcedEvent::Keyboard(keyboard::Event::KeyPressed { key, .. }) => match key {
+            Key::Named(Named::Space) => Some(Message::Player(PlayerEvent::TogglePause)),
+            Key::Named(Named::ArrowLeft) => Some(Message::Player(PlayerEvent::SeekBack)),
+            Key::Named(Named::ArrowRight) => Some(Message::Player(PlayerEvent::SeekFwd)),
+            Key::Named(Named::Escape) => Some(Message::GoBack),
+            _ => None,
+        },
+        _ => None,
     }
 }

@@ -110,8 +110,6 @@ pub struct ReadyFiles {
     pub files: Vec<TorrentFileRow>,
     pub resume_id: Option<i32>,
     pub selected_id: Option<i32>,
-    pub player_soon: bool,
-    pub play_url: Option<String>,
 }
 
 impl ReadyFiles {
@@ -121,8 +119,6 @@ impl ReadyFiles {
             files,
             resume_id,
             selected_id: resume_id,
-            player_soon: false,
-            play_url: None,
         }
     }
 

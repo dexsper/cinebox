@@ -1,0 +1,5 @@
+# libmpv2's `build_libmpv` feature reads this at crate-build time (before
+# cinebox-player's build.rs). The directory is created and filled by
+# crates/cinebox-player/build.rs (shinchiro mpv-dev, then MSVC mpv.lib).
+[env]
+MPV_SOURCE = { value = "crates/cinebox-player/mpv-src", relative = true }

@@ -117,12 +117,6 @@ fn status_line(pane: &FilesPane) -> Option<&'static str> {
     if matches!(pane, FilesPane::Preloading { .. }) {
         return Some(Msg::Preloading.en());
     }
-    let FilesPane::Ready(files) = pane else {
-        return None;
-    };
-    if files.player_soon {
-        return Some(Msg::PlayerSoon.en());
-    }
     None
 }
 

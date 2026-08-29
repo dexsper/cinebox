@@ -15,6 +15,9 @@ pub fn view<'a>(
 ) -> Element<'a, Message> {
     let nav_button = match screen {
         Screen::Home => button(text(Msg::NavSettings.en())).on_press(Message::OpenSettings),
+        Screen::Player { .. } => {
+            return wrap(body, wallpaper, overlay);
+        }
         Screen::Settings
         | Screen::Media { .. }
         | Screen::Person { .. }
@@ -47,6 +50,24 @@ pub fn view<'a>(
         return page;
     };
 
+    iced::widget::stack![page, overlay]
+        .width(Fill)
+        .height(Fill)
+        .into()
+}
+
+fn wrap<'a>(
+    body: Element<'a, Message>,
+    wallpaper: Option<&'a ImageHandle>,
+    overlay: Option<Element<'a, Message>>,
+) -> Element<'a, Message> {
+    let page = match wallpaper {
+        Some(handle) => backdrop::stage(handle, body),
+        None => body,
+    };
+    let Some(overlay) = overlay else {
+        return page;
+    };
     iced::widget::stack![page, overlay]
         .width(Fill)
         .height(Fill)

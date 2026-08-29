@@ -321,7 +321,7 @@ mod tests {
                 },
             ],
         };
-        
+
         let viewed = vec![Viewed {
             hash: String::from("ab"),
             file_index: 2,

@@ -4,6 +4,7 @@
 .vscode/
 *.pdb
 .cursor/
+crates/cinebox-player/mpv-src/
 
 findings.md
 progress.md
