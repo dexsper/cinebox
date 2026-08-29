@@ -1,0 +1,141 @@
+//! Home catalog rows and tiles.
+
+use serde::{Deserialize, Serialize};
+
+use crate::ids::{MediaKind, TmdbId};
+use crate::settings::PosterSize;
+
+const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
+
+/// A home-screen shelf.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum HomeRowId {
+    RecentlyWatched,
+    NowPlaying,
+    TrendingDay,
+    TrendingWeek,
+    PopularMovies,
+    PopularTv,
+    TopRatedMovies,
+    TopRatedTv,
+}
+
+impl HomeRowId {
+    pub const ALL: [Self; 8] = [
+        Self::RecentlyWatched,
+        Self::NowPlaying,
+        Self::TrendingDay,
+        Self::TrendingWeek,
+        Self::PopularMovies,
+        Self::PopularTv,
+        Self::TopRatedMovies,
+        Self::TopRatedTv,
+    ];
+
+    /// Rows fetched from TMDB (not local history).
+    pub const REMOTE: [Self; 7] = [
+        Self::NowPlaying,
+        Self::TrendingDay,
+        Self::TrendingWeek,
+        Self::PopularMovies,
+        Self::PopularTv,
+        Self::TopRatedMovies,
+        Self::TopRatedTv,
+    ];
+
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        match self {
+            Self::RecentlyWatched => "Recently watched",
+            Self::NowPlaying => "Now playing",
+            Self::TrendingDay => "Trending today",
+            Self::TrendingWeek => "Trending this week",
+            Self::PopularMovies => "Popular movies",
+            Self::PopularTv => "Popular TV",
+            Self::TopRatedMovies => "Top rated movies",
+            Self::TopRatedTv => "Top rated TV",
+        }
+    }
+}
+
+/// One movie/TV tile on the home screen.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct CatalogItem {
+    pub id: TmdbId,
+    pub kind: MediaKind,
+    pub title: String,
+    pub year: Option<u16>,
+    pub vote: Option<f32>,
+    pub poster_path: Option<String>,
+}
+
+impl CatalogItem {
+    /// Full TMDB image URL, or `None` if there is no poster.
+    #[must_use]
+    pub fn poster_url(&self, size: PosterSize) -> Option<String> {
+        let path = self.poster_path.as_deref()?.trim();
+        if path.is_empty() {
+            return None;
+        }
+        let path = path.trim_start_matches('/');
+        Some(format!("{IMAGE_BASE}/{}/{path}", size.tmdb_path()))
+    }
+}
+
+/// Parse `YYYY-MM-DD` (or any string starting with a year) into a year.
+#[must_use]
+pub fn year_from_date(date: &str) -> Option<u16> {
+    date.get(..4)?.parse().ok()
+}
+
+/// One home shelf: items and/or a row-level error.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomeRow {
+    pub id: HomeRowId,
+    pub items: Vec<CatalogItem>,
+    pub error: Option<String>,
+}
+
+impl HomeRow {
+    #[must_use]
+    pub fn empty(id: HomeRowId) -> Self {
+        Self {
+            id,
+            items: Vec::new(),
+            error: None,
+        }
+    }
+}
+
+/// Full home payload.
+#[derive(Debug, Clone, PartialEq)]
+pub struct HomeCatalog {
+    pub rows: Vec<HomeRow>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn poster_url_uses_size_and_strips_slash() {
+        let item = CatalogItem {
+            id: TmdbId::new(1),
+            kind: MediaKind::Movie,
+            title: String::from("Test"),
+            year: Some(2024),
+            vote: Some(8.1),
+            poster_path: Some(String::from("/abc.jpg")),
+        };
+        assert_eq!(
+            item.poster_url(PosterSize::W342).as_deref(),
+            Some("https://image.tmdb.org/t/p/w342/abc.jpg")
+        );
+    }
+
+    #[test]
+    fn year_parses_iso_date() {
+        assert_eq!(year_from_date("2024-12-01"), Some(2024));
+        assert_eq!(year_from_date(""), None);
+    }
+}

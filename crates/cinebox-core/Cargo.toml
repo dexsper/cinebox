@@ -1,0 +1,16 @@
+[package]
+name = "cinebox-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Shared models, settings, and i18n keys for Cinebox"
+
+[dependencies]
+directories.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+
+[lints]
+workspace = true

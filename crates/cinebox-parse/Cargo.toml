@@ -1,0 +1,10 @@
+[package]
+name = "cinebox-parse"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Release-title parser and torrent filters (stub until Phase 5)"
+
+[lints]
+workspace = true

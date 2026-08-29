@@ -1,0 +1,10 @@
+/target
+**/*.rs.bk
+.idea/
+.vscode/
+*.pdb
+.cursor/
+
+findings.md
+progress.md
+task_plan.md

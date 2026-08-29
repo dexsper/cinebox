@@ -1,0 +1,19 @@
+[package]
+name = "cinebox-torrserver"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "TorrServer HTTP client (echo and speed test in Phase 2)"
+
+[dependencies]
+cinebox-core.workspace = true
+futures-util.workspace = true
+reqwest.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[lints]
+workspace = true

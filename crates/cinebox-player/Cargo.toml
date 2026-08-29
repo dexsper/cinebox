@@ -1,0 +1,10 @@
+[package]
+name = "cinebox-player"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "libmpv2 playback with a child HWND (stub until Phase 7)"
+
+[lints]
+workspace = true

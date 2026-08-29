@@ -1,0 +1,20 @@
+[package]
+name = "cinebox"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Native Windows-first desktop movie theater"
+
+[dependencies]
+cinebox-core.workspace = true
+cinebox-indexer.workspace = true
+cinebox-tmdb.workspace = true
+cinebox-torrserver.workspace = true
+iced.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+
+[lints]
+workspace = true

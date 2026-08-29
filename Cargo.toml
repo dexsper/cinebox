@@ -1,0 +1,55 @@
+[workspace]
+resolver = "3"
+members = [
+    "cinebox",
+    "crates/cinebox-core",
+    "crates/cinebox-tmdb",
+    "crates/cinebox-parse",
+    "crates/cinebox-indexer",
+    "crates/cinebox-torrserver",
+    "crates/cinebox-player",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.88"
+license = "MIT"
+
+[workspace.dependencies]
+cinebox-core = { path = "crates/cinebox-core" }
+cinebox-tmdb = { path = "crates/cinebox-tmdb" }
+cinebox-parse = { path = "crates/cinebox-parse" }
+cinebox-indexer = { path = "crates/cinebox-indexer" }
+cinebox-torrserver = { path = "crates/cinebox-torrserver" }
+cinebox-player = { path = "crates/cinebox-player" }
+
+iced = { version = "0.14.0", features = ["tokio", "image"] }
+thiserror = "2"
+anyhow = "1"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+directories = "6"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream", "charset", "http2", "system-proxy"] }
+futures-util = { version = "0.3", default-features = false, features = ["std"] }
+
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+unused_must_use = "deny"
+
+[workspace.lints.clippy]
+unwrap_used = "deny"
+expect_used = "warn"
+dbg_macro = "warn"
+
+[profile.release]
+opt-level = 3
+lto = "fat"
+codegen-units = 1
+panic = "unwind"
+strip = true
+
+[profile.dev.package."*"]
+opt-level = 3
