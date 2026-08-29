@@ -8,7 +8,7 @@ use serde::Deserialize;
 
 use crate::{Error, http_client};
 
-const API_BASE: &str = "https://api.themoviedb.org/3";
+const API_BASE: &str = crate::API_BASE;
 pub const MAX_ROW_ITEMS: usize = 20;
 
 #[derive(Debug, Deserialize)]
@@ -51,10 +51,7 @@ fn default_kind(id: HomeRowId) -> Option<MediaKind> {
     }
 }
 
-fn items_from_list(
-    items: &[ListItem],
-    fallback_kind: Option<MediaKind>,
-) -> Vec<CatalogItem> {
+fn items_from_list(items: &[ListItem], fallback_kind: Option<MediaKind>) -> Vec<CatalogItem> {
     let mut out = Vec::with_capacity(items.len().min(MAX_ROW_ITEMS));
     for raw in items {
         if out.len() >= MAX_ROW_ITEMS {

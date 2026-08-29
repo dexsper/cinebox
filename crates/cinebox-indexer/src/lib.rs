@@ -34,11 +34,7 @@ struct ProwlarrStatus {
 }
 
 fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest::ClientBuilder {
-    if enabled {
-        builder
-    } else {
-        builder.no_proxy()
-    }
+    if enabled { builder } else { builder.no_proxy() }
 }
 
 fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
@@ -70,11 +66,7 @@ pub async fn ping(
     }
 }
 
-async fn ping_jackett(
-    base: &str,
-    api_key: &str,
-    use_system_proxy: bool,
-) -> Result<String, Error> {
+async fn ping_jackett(base: &str, api_key: &str, use_system_proxy: bool) -> Result<String, Error> {
     let url = join_url(base, "api/v2.0/indexers/all/results");
     let client = http_client(use_system_proxy)?;
     let response = client
@@ -92,11 +84,7 @@ async fn ping_jackett(
     Ok(format!("Jackett ok ({n} results for test query)"))
 }
 
-async fn ping_prowlarr(
-    base: &str,
-    api_key: &str,
-    use_system_proxy: bool,
-) -> Result<String, Error> {
+async fn ping_prowlarr(base: &str, api_key: &str, use_system_proxy: bool) -> Result<String, Error> {
     let url = join_url(base, "api/v1/system/status");
     let client = http_client(use_system_proxy)?;
     let response = client

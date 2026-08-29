@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+mod details;
 mod home;
 
 use std::time::Duration;
@@ -11,7 +12,8 @@ use cinebox_core::HomeCatalog;
 pub use home::MAX_ROW_ITEMS;
 
 const CONFIG_URL: &str = "https://api.themoviedb.org/3/configuration";
-const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
+pub(crate) const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
+pub(crate) const API_BASE: &str = "https://api.themoviedb.org/3";
 
 /// Failures talking to TMDB. Never includes the API key.
 #[derive(Debug, thiserror::Error)]
@@ -53,14 +55,13 @@ pub(crate) fn prepare_api_key(api_key: &str) -> Result<&str, Error> {
 }
 
 fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest::ClientBuilder {
-    if enabled {
-        builder
-    } else {
-        builder.no_proxy()
-    }
+    if enabled { builder } else { builder.no_proxy() }
 }
 
-fn http_client(timeout: Duration, use_system_proxy: bool) -> Result<reqwest::Client, Error> {
+pub(crate) fn http_client(
+    timeout: Duration,
+    use_system_proxy: bool,
+) -> Result<reqwest::Client, Error> {
     apply_system_proxy(
         reqwest::Client::builder()
             .user_agent(USER_AGENT)
@@ -107,6 +108,35 @@ pub async fn fetch_home(
     use_system_proxy: bool,
 ) -> Result<HomeCatalog, Error> {
     home::fetch_home(api_key, language, use_system_proxy).await
+}
+
+/// Movie/TV card: details, credits, videos, recs, similar, collection.
+///
+/// # Errors
+///
+/// Empty key, HTTP failures, or unexpected JSON.
+pub async fn fetch_media(
+    api_key: &str,
+    kind: cinebox_core::MediaKind,
+    id: cinebox_core::TmdbId,
+    language: Option<&str>,
+    use_system_proxy: bool,
+) -> Result<cinebox_core::MediaDetails, Error> {
+    details::fetch_media(api_key, kind, id, language, use_system_proxy).await
+}
+
+/// Person bio + combined credits.
+///
+/// # Errors
+///
+/// Empty key, HTTP failures, or unexpected JSON.
+pub async fn fetch_person(
+    api_key: &str,
+    id: cinebox_core::TmdbId,
+    language: Option<&str>,
+    use_system_proxy: bool,
+) -> Result<cinebox_core::PersonDetails, Error> {
+    details::fetch_person(api_key, id, language, use_system_proxy).await
 }
 
 /// Download a poster (or any image URL). Do not pass authenticated query strings.

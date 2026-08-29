@@ -1,9 +1,11 @@
-//! Navigation stack. Home is always the root.
+use cinebox_core::{MediaKind, TmdbId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Home,
     Settings,
+    Media { kind: MediaKind, id: TmdbId },
+    Person { id: TmdbId },
 }
 
 #[derive(Debug, Clone)]
@@ -55,6 +57,30 @@ mod tests {
         assert_eq!(nav.current(), Screen::Settings);
         nav.push(Screen::Settings);
         assert_eq!(nav.stack.len(), 2);
+        nav.pop();
+        assert_eq!(nav.current(), Screen::Home);
+    }
+
+    #[test]
+    fn media_and_person_stack() {
+        let mut nav = Nav::new();
+        let movie = Screen::Media {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
+        let person = Screen::Person { id: TmdbId::new(7) };
+        let other = Screen::Media {
+            kind: MediaKind::Tv,
+            id: TmdbId::new(2),
+        };
+        nav.push(movie);
+        nav.push(person);
+        nav.push(other);
+        assert_eq!(nav.current(), other);
+        nav.pop();
+        assert_eq!(nav.current(), person);
+        nav.pop();
+        assert_eq!(nav.current(), movie);
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
     }

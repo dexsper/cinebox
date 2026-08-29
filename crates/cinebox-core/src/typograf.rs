@@ -55,7 +55,10 @@ fn replace_number_ranges(text: &str) -> String {
                 i += 1;
             }
             let left: String = chars[start..i].iter().collect();
-            if i < chars.len() && chars[i] == '-' && i + 1 < chars.len() && chars[i + 1].is_ascii_digit()
+            if i < chars.len()
+                && chars[i] == '-'
+                && i + 1 < chars.len()
+                && chars[i + 1].is_ascii_digit()
             {
                 i += 1;
                 let right_start = i;
@@ -100,12 +103,17 @@ fn squeeze_space_before_punct(text: &str) -> String {
 }
 
 fn has_cyrillic(text: &str) -> bool {
-    text.chars().any(|ch| matches!(ch, '\u{0400}'..='\u{04FF}' | '\u{0500}'..='\u{052F}'))
+    text.chars()
+        .any(|ch| matches!(ch, '\u{0400}'..='\u{04FF}' | '\u{0500}'..='\u{052F}'))
 }
 
 fn educate_quotes(text: &str) -> String {
     let ru = has_cyrillic(text);
-    let (open, close) = if ru { ('«', '»') } else { ('\u{201C}', '\u{201D}') };
+    let (open, close) = if ru {
+        ('«', '»')
+    } else {
+        ('\u{201C}', '\u{201D}')
+    };
     let mut out = String::with_capacity(text.len());
     let mut opening = true;
     for ch in text.chars() {
@@ -194,7 +202,10 @@ mod tests {
     fn english_article_nbsp_and_quotes() {
         let out = typograph("The \"Matrix\"");
         assert!(out.starts_with("The\u{00A0}"), "{out:?}");
-        assert!(out.contains('\u{201C}') && out.contains('\u{201D}'), "{out:?}");
+        assert!(
+            out.contains('\u{201C}') && out.contains('\u{201D}'),
+            "{out:?}"
+        );
     }
 
     #[test]

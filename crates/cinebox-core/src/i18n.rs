@@ -15,6 +15,21 @@ pub enum Msg {
     EmptyRow,
     NeedTmdbKey,
     LoadingHome,
+    LoadingCard,
+    WatchTorrents,
+    TorrentsSoon,
+    Trailers,
+    Directors,
+    Cast,
+    Collection,
+    Recommendations,
+    Similar,
+    Overview,
+    InDetail,
+    Budget,
+    Credits,
+    Release,
+    Countries,
 }
 
 impl Msg {
@@ -34,6 +49,21 @@ impl Msg {
             Self::EmptyRow => "Nothing here yet",
             Self::NeedTmdbKey => "Set a TMDB API key in Settings to load the catalog.",
             Self::LoadingHome => "Loading catalog…",
+            Self::LoadingCard => "Loading…",
+            Self::WatchTorrents => "Watch",
+            Self::TorrentsSoon => "Torrent search lands in the next phase. Trailers are below.",
+            Self::Trailers => "Trailers",
+            Self::Directors => "Directors",
+            Self::Cast => "Cast",
+            Self::Collection => "Collection",
+            Self::Recommendations => "Recommendations",
+            Self::Similar => "Similar",
+            Self::Overview => "Overview",
+            Self::InDetail => "In Detail",
+            Self::Budget => "Budget",
+            Self::Credits => "Known for",
+            Self::Release => "Release",
+            Self::Countries => "Countries",
         }
     }
 }

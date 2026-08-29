@@ -4,17 +4,32 @@ use cinebox_core::i18n::Msg;
 use cinebox_core::{CatalogItem, HomeCatalog, HomeRow, MediaKind, TmdbId, typograph};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::Wrapping;
-use iced::widget::{Row, button, column, container, scrollable, stack, text};
+use iced::widget::{Row, button, column, container, mouse_area, stack, text};
 use iced::{Alignment, Color, ContentFit, Element, Fill};
 
 use crate::app::Message;
+use crate::ui::scroll::{self, ScrollFlash, ScrollPane};
 
 const MUTED: Color = Color::from_rgb(0.65, 0.65, 0.68);
 const ERR: Color = Color::from_rgb(0.92, 0.38, 0.38);
 const TILE_WIDTH: f32 = 140.0;
 const POSTER_HEIGHT: f32 = 210.0;
+pub const POSTER_RADIUS: f32 = 12.0;
+
+pub fn tile_metrics() -> (f32, f32) {
+    (TILE_WIDTH, POSTER_HEIGHT)
+}
+
+/// Shared catalog tile (home rows and card shelves).
+pub fn catalog_tile<'a>(
+    item: &'a CatalogItem,
+    poster: Option<&'a ImageHandle>,
+) -> Element<'a, Message> {
+    tile(item, poster)
+}
 
 pub type PosterMap = HashMap<(MediaKind, TmdbId), ImageHandle>;
+pub type ExtraImages = HashMap<String, ImageHandle>;
 
 pub enum HomeState {
     NeedKey,
@@ -23,12 +38,16 @@ pub enum HomeState {
     Failed(String),
 }
 
-pub fn view<'a>(state: &'a HomeState, posters: &'a PosterMap) -> Element<'a, Message> {
+pub fn view<'a>(
+    state: &'a HomeState,
+    posters: &'a PosterMap,
+    scroll: &'a ScrollFlash,
+) -> Element<'a, Message> {
     match state {
         HomeState::NeedKey => need_key(),
         HomeState::Loading => centered_status(Msg::LoadingHome.en()),
         HomeState::Failed(error) => failed(error),
-        HomeState::Ready(catalog) => catalog_view(catalog, posters),
+        HomeState::Ready(catalog) => catalog_view(catalog, posters, scroll),
     }
 }
 
@@ -76,19 +95,29 @@ fn failed(error: &str) -> Element<'static, Message> {
     .into()
 }
 
-fn catalog_view<'a>(catalog: &'a HomeCatalog, posters: &'a PosterMap) -> Element<'a, Message> {
+fn catalog_view<'a>(
+    catalog: &'a HomeCatalog,
+    posters: &'a PosterMap,
+    scroll: &'a ScrollFlash,
+) -> Element<'a, Message> {
     let mut body = column![text(Msg::HomeTitle.en()).size(20)].spacing(20);
-    for row in &catalog.rows {
-        body = body.push(shelf(row, posters));
+    for (index, row) in catalog.rows.iter().enumerate() {
+        let row_index = u8::try_from(index).unwrap_or(u8::MAX);
+        body = body.push(shelf(row, posters, row_index, scroll.row(row_index)));
     }
-    container(scrollable(body.padding([0, 8])).width(Fill).height(Fill))
+    container(scroll::vertical(scroll.page(), body.padding([0, 8])))
         .padding(16)
         .width(Fill)
         .height(Fill)
         .into()
 }
 
-fn shelf<'a>(row: &'a HomeRow, posters: &'a PosterMap) -> Element<'a, Message> {
+fn shelf<'a>(
+    row: &'a HomeRow,
+    posters: &'a PosterMap,
+    index: u8,
+    flashing: bool,
+) -> Element<'a, Message> {
     let mut block = column![text(row.id.title()).size(16)].spacing(8);
     if let Some(error) = &row.error {
         block = block.push(text(error.clone()).size(13).color(ERR));
@@ -101,12 +130,12 @@ fn shelf<'a>(row: &'a HomeRow, posters: &'a PosterMap) -> Element<'a, Message> {
                 .iter()
                 .map(|item| tile(item, posters.get(&(item.kind, item.id)))),
         );
-        block = block.push(
-            scrollable(tiles.spacing(12).padding(4))
-                .horizontal()
-                .width(Fill)
-                .height(POSTER_HEIGHT + 72.0),
-        );
+        block = block.push(scroll::horizontal(
+            ScrollPane::Row(index),
+            flashing,
+            POSTER_HEIGHT + 72.0,
+            tiles.spacing(12).padding(4),
+        ));
     }
     block.into()
 }
@@ -117,21 +146,27 @@ fn tile<'a>(item: &'a CatalogItem, poster: Option<&'a ImageHandle>) -> Element<'
         .year
         .map(|year| year.to_string())
         .unwrap_or_else(|| String::from("—"));
-    column![
-        poster,
-        text(typograph(&item.title))
-            .size(13)
-            .width(TILE_WIDTH)
-            .wrapping(Wrapping::Word),
-        text(year)
-            .size(12)
-            .color(MUTED)
-            .width(TILE_WIDTH)
-            .align_x(Alignment::Start),
-    ]
-    .spacing(4)
-    .width(TILE_WIDTH)
-    .align_x(Alignment::Start)
+    mouse_area(
+        column![
+            poster,
+            text(typograph(&item.title))
+                .size(13)
+                .width(TILE_WIDTH)
+                .wrapping(Wrapping::Word),
+            text(year)
+                .size(12)
+                .color(MUTED)
+                .width(TILE_WIDTH)
+                .align_x(Alignment::Start),
+        ]
+        .spacing(4)
+        .width(TILE_WIDTH)
+        .align_x(Alignment::Start),
+    )
+    .on_release(Message::OpenMedia {
+        kind: item.kind,
+        id: item.id,
+    })
     .into()
 }
 
@@ -141,12 +176,14 @@ fn poster_block<'a>(poster: Option<&'a ImageHandle>, vote: Option<f32>) -> Eleme
             .width(TILE_WIDTH)
             .height(POSTER_HEIGHT)
             .content_fit(ContentFit::Cover)
+            .border_radius(POSTER_RADIUS)
             .into(),
         None => container(text(" ").size(1))
             .width(TILE_WIDTH)
             .height(POSTER_HEIGHT)
             .style(|_| container::Style {
                 background: Some(Color::from_rgb(0.16, 0.16, 0.18).into()),
+                border: iced::border::rounded(POSTER_RADIUS),
                 ..container::Style::default()
             })
             .into(),
@@ -164,7 +201,11 @@ fn poster_block<'a>(poster: Option<&'a ImageHandle>, vote: Option<f32>) -> Eleme
                 .into(),
         );
     }
-    stack(layers).width(TILE_WIDTH).height(POSTER_HEIGHT).into()
+    stack(layers)
+        .width(TILE_WIDTH)
+        .height(POSTER_HEIGHT)
+        .clip(true)
+        .into()
 }
 
 fn vote_badge<'a>(vote: f32) -> Element<'a, Message> {

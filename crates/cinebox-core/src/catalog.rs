@@ -7,6 +7,17 @@ use crate::settings::PosterSize;
 
 const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 
+/// Build a TMDB image URL from a `poster_path` / `profile_path` / `backdrop_path`.
+#[must_use]
+pub fn tmdb_image_url(path: Option<&str>, size: &str) -> Option<String> {
+    let path = path?.trim();
+    if path.is_empty() {
+        return None;
+    }
+    let path = path.trim_start_matches('/');
+    Some(format!("{IMAGE_BASE}/{size}/{path}"))
+}
+
 /// A home-screen shelf.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HomeRowId {
@@ -73,12 +84,7 @@ impl CatalogItem {
     /// Full TMDB image URL, or `None` if there is no poster.
     #[must_use]
     pub fn poster_url(&self, size: PosterSize) -> Option<String> {
-        let path = self.poster_path.as_deref()?.trim();
-        if path.is_empty() {
-            return None;
-        }
-        let path = path.trim_start_matches('/');
-        Some(format!("{IMAGE_BASE}/{}/{path}", size.tmdb_path()))
+        tmdb_image_url(self.poster_path.as_deref(), size.tmdb_path())
     }
 }
 

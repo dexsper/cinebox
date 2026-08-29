@@ -1,14 +1,22 @@
 use cinebox_core::i18n::Msg;
+use iced::widget::image::Handle as ImageHandle;
 use iced::widget::{Space, button, container, row, text};
-use iced::{Element, Fill};
+use iced::{Color, Element, Fill};
 
 use crate::app::Message;
 use crate::nav::Screen;
+use crate::ui::backdrop;
 
-pub fn view<'a>(screen: Screen, body: Element<'a, Message>) -> Element<'a, Message> {
+pub fn view<'a>(
+    screen: Screen,
+    body: Element<'a, Message>,
+    wallpaper: Option<&'a ImageHandle>,
+) -> Element<'a, Message> {
     let nav_button = match screen {
         Screen::Home => button(text(Msg::NavSettings.en())).on_press(Message::OpenSettings),
-        Screen::Settings => button(text(Msg::NavBack.en())).on_press(Message::GoBack),
+        Screen::Settings | Screen::Media { .. } | Screen::Person { .. } => {
+            button(text(Msg::NavBack.en())).on_press(Message::GoBack)
+        }
     };
 
     let header = container(
@@ -21,10 +29,16 @@ pub fn view<'a>(screen: Screen, body: Element<'a, Message>) -> Element<'a, Messa
         .align_y(iced::Alignment::Center),
     )
     .padding(16)
-    .width(Fill);
+    .width(Fill)
+    .style(|_| container::Style {
+        background: Some(Color::TRANSPARENT.into()),
+        ..container::Style::default()
+    });
 
-    iced::widget::column![header, body]
-        .width(Fill)
-        .height(Fill)
-        .into()
+    let chrome = iced::widget::column![header, body].width(Fill).height(Fill);
+
+    match wallpaper {
+        Some(handle) => backdrop::stage(handle, chrome.into()),
+        None => chrome.into(),
+    }
 }

@@ -3,12 +3,11 @@ use std::path::Path;
 use cinebox_core::{
     DefaultQuality, ParserKind, PosterSize, SecretString, Settings, UiLanguage, VideoScale,
 };
-use iced::widget::{
-    button, checkbox, column, container, pick_list, row, scrollable, text, text_input,
-};
+use iced::widget::{button, checkbox, column, container, pick_list, row, text, text_input};
 use iced::{Color, Element, Fill, Task};
 
 use crate::app::Message as AppMessage;
+use crate::ui::scroll;
 
 const OK_COLOR: Color = Color::from_rgb(0.45, 0.82, 0.55);
 const ERR_COLOR: Color = Color::from_rgb(0.92, 0.38, 0.38);
@@ -296,8 +295,16 @@ pub fn view<'a>(
     settings: &'a Settings,
     probes: &'a Probes,
     speed_mb: u32,
+    page_flashing: bool,
 ) -> Element<'a, AppMessage> {
-    inner(path, load_error, save_error, settings, probes, speed_mb).map(AppMessage::Settings)
+    container(scroll::vertical(
+        page_flashing,
+        inner(path, load_error, save_error, settings, probes, speed_mb).map(AppMessage::Settings),
+    ))
+    .padding(16)
+    .width(Fill)
+    .height(Fill)
+    .into()
 }
 
 fn inner<'a>(
@@ -508,11 +515,7 @@ fn inner<'a>(
         ))
         .push(probe_row("Check API key", Message::PingTmdb, &probes.tmdb));
 
-    container(scrollable(form.padding([0, 8])).width(Fill).height(Fill))
-        .padding(16)
-        .width(Fill)
-        .height(Fill)
-        .into()
+    form.padding([0, 8]).width(Fill).into()
 }
 
 fn section<'a>(title: &'static str) -> Element<'a, Message> {
