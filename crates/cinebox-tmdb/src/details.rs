@@ -2,7 +2,7 @@
 
 use cinebox_core::{
     CatalogItem, CreditPerson, MediaDetails, MediaKind, PersonDetails, TmdbId, Trailer,
-    year_from_date,
+    decode_certification, year_from_date,
 };
 use serde::Deserialize;
 
@@ -94,6 +94,10 @@ struct MediaBody {
     first_air_date: Option<String>,
     runtime: Option<u32>,
     episode_run_time: Option<Vec<u32>>,
+    number_of_seasons: Option<u32>,
+    number_of_episodes: Option<u32>,
+    last_episode_to_air: Option<EpisodeAir>,
+    next_episode_to_air: Option<EpisodeAir>,
     vote_average: Option<f32>,
     budget: Option<u64>,
     poster_path: Option<String>,
@@ -106,6 +110,40 @@ struct MediaBody {
     videos: Option<VideosBlock>,
     recommendations: Option<ListBlock>,
     similar: Option<ListBlock>,
+    release_dates: Option<ReleaseDatesBlock>,
+    content_ratings: Option<ContentRatingsBlock>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseDatesBlock {
+    results: Option<Vec<ReleaseCountry>>,
+}
+
+#[derive(Deserialize)]
+struct ReleaseCountry {
+    iso_3166_1: Option<String>,
+    release_dates: Option<Vec<CertDate>>,
+}
+
+#[derive(Deserialize)]
+struct CertDate {
+    certification: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct ContentRatingsBlock {
+    results: Option<Vec<ContentRating>>,
+}
+
+#[derive(Deserialize)]
+struct ContentRating {
+    iso_3166_1: Option<String>,
+    rating: Option<String>,
+}
+
+#[derive(Deserialize)]
+struct EpisodeAir {
+    runtime: Option<u32>,
 }
 
 #[derive(Deserialize)]
@@ -146,14 +184,14 @@ pub async fn fetch_media(
         ("api_key", api_key),
         (
             "append_to_response",
-            "credits,videos,recommendations,similar",
+            "credits,videos,recommendations,similar,release_dates,content_ratings",
         ),
     ]);
     if let Some(language) = language.filter(|s| !s.is_empty()) {
         request = request.query(&[("language", language)]);
     }
     let body: MediaBody = send_json(request).await?;
-    let (mut details, collection_id) = media_from_body(body, kind)?;
+    let (mut details, collection_id) = media_from_body(body, kind, language)?;
     if let Some(col_id) = collection_id
         && let Ok(items) = fetch_collection(&client, api_key, col_id, language).await
     {
@@ -215,10 +253,16 @@ async fn fetch_collection(
     ))
 }
 
-fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Option<u32>), Error> {
+fn media_from_body(
+    body: MediaBody,
+    kind: MediaKind,
+    language: Option<&str>,
+) -> Result<(MediaDetails, Option<u32>), Error> {
     let Some(id) = body.id.filter(|id| *id > 0) else {
         return Err(Error::Http(404));
     };
+    let runtime = pick_runtime(&body);
+    let certification = pick_certification(&body, language);
     let title = match kind {
         MediaKind::Movie => body.title.or(body.name),
         MediaKind::Tv => body.name.or(body.title),
@@ -235,14 +279,6 @@ fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Op
     let date = match kind {
         MediaKind::Movie => body.release_date.as_deref(),
         MediaKind::Tv => body.first_air_date.as_deref(),
-        MediaKind::Person => None,
-    };
-    let runtime = match kind {
-        MediaKind::Movie => body.runtime.filter(|m| *m > 0),
-        MediaKind::Tv => body
-            .episode_run_time
-            .as_ref()
-            .and_then(|v| v.iter().copied().find(|m| *m > 0)),
         MediaKind::Person => None,
     };
     let countries = if kind == MediaKind::Tv {
@@ -297,6 +333,9 @@ fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Op
             year: date.and_then(year_from_date),
             released: date.and_then(|d| nonempty(Some(d.to_owned()))),
             runtime_minutes: runtime,
+            number_of_seasons: body.number_of_seasons.filter(|n| *n > 0),
+            number_of_episodes: body.number_of_episodes.filter(|n| *n > 0),
+            certification,
             vote: body.vote_average.filter(|v| *v > 0.0),
             budget: body.budget.filter(|b| *b > 0),
             genre_ids,
@@ -324,6 +363,101 @@ fn media_from_body(body: MediaBody, kind: MediaKind) -> Result<(MediaDetails, Op
         },
         collection_id,
     ))
+}
+
+fn pick_certification(body: &MediaBody, language: Option<&str>) -> Option<String> {
+    let tv = body
+        .content_ratings
+        .as_ref()
+        .and_then(|block| block.results.as_deref())
+        .unwrap_or(&[]);
+    let movie = body
+        .release_dates
+        .as_ref()
+        .and_then(|block| block.results.as_deref())
+        .unwrap_or(&[]);
+    for region in preferred_regions(language) {
+        if let Some(rating) = tv.iter().find_map(|row| rating_for_region(row, &region)) {
+            return decode_certification(&rating);
+        }
+        if let Some(cert) = movie
+            .iter()
+            .find_map(|row| movie_cert_for_region(row, &region))
+        {
+            return decode_certification(&cert);
+        }
+    }
+    tv.iter()
+        .find_map(|row| nonempty(row.rating.clone()))
+        .or_else(|| {
+            movie.iter().find_map(|row| {
+                row.release_dates
+                    .as_ref()
+                    .and_then(|dates| first_cert(dates))
+            })
+        })
+        .and_then(|raw| decode_certification(&raw))
+}
+
+fn preferred_regions(language: Option<&str>) -> Vec<String> {
+    let mut out = Vec::new();
+    if let Some(tag) = language.map(str::trim).filter(|s| !s.is_empty()) {
+        if let Some((_, region)) = tag.split_once(['-', '_']) {
+            if region.len() == 2 {
+                out.push(region.to_ascii_uppercase());
+            }
+        } else if tag.len() == 2 {
+            out.push(tag.to_ascii_uppercase());
+        }
+    }
+    if !out.iter().any(|code| code == "US") {
+        out.push(String::from("US"));
+    }
+    out
+}
+
+fn rating_for_region(row: &ContentRating, region: &str) -> Option<String> {
+    row.iso_3166_1
+        .as_deref()
+        .filter(|code| code.eq_ignore_ascii_case(region))
+        .and_then(|_| nonempty(row.rating.clone()))
+}
+
+fn movie_cert_for_region(row: &ReleaseCountry, region: &str) -> Option<String> {
+    row.iso_3166_1
+        .as_deref()
+        .filter(|code| code.eq_ignore_ascii_case(region))
+        .and_then(|_| {
+            row.release_dates
+                .as_ref()
+                .and_then(|dates| first_cert(dates))
+        })
+}
+
+fn first_cert(dates: &[CertDate]) -> Option<String> {
+    dates
+        .iter()
+        .find_map(|date| nonempty(date.certification.clone()))
+}
+
+fn pick_runtime(body: &MediaBody) -> Option<u32> {
+    body.runtime
+        .filter(|mins| *mins > 0)
+        .or_else(|| {
+            body.episode_run_time
+                .as_ref()
+                .and_then(|times| times.iter().copied().find(|mins| *mins > 0))
+        })
+        .or_else(|| {
+            body.last_episode_to_air
+                .as_ref()
+                .and_then(|ep| ep.runtime.filter(|mins| *mins > 0))
+        })
+        .or_else(|| {
+            body.next_episode_to_air
+                .as_ref()
+                .and_then(|ep| ep.runtime.filter(|mins| *mins > 0))
+        })
 }
 
 fn names(iter: impl Iterator<Item = String>) -> Vec<String> {
@@ -502,13 +636,16 @@ mod tests {
             "videos": {"results": [{"name": "Official", "key": "abc", "site": "YouTube", "type": "Trailer"}]},
             "recommendations": {"results": [{"id": 9, "title": "Other", "media_type": "movie"}]},
             "similar": {"results": []},
-            "belongs_to_collection": {"id": 77}
+            "belongs_to_collection": {"id": 77},
+            "release_dates": {"results": [
+                {"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}
+            ]}
         }"#;
         let body = match serde_json::from_str::<MediaBody>(json) {
             Ok(body) => body,
             Err(error) => panic!("{error}"),
         };
-        let (details, collection_id) = match media_from_body(body, MediaKind::Movie) {
+        let (details, collection_id) = match media_from_body(body, MediaKind::Movie, None) {
             Ok(value) => value,
             Err(error) => panic!("{error}"),
         };
@@ -518,12 +655,68 @@ mod tests {
         assert_eq!(details.original_language.as_deref(), Some("en"));
         assert_eq!(details.genre_ids, vec![878]);
         assert_eq!(details.year, Some(2021));
+        assert_eq!(details.runtime_minutes, Some(155));
+        assert_eq!(details.certification.as_deref(), Some("13+"));
         assert_eq!(details.released.as_deref(), Some("2021-10-22"));
         assert_eq!(details.directors.len(), 1);
         assert_eq!(details.cast[0].role, "Paul");
         assert_eq!(details.trailers.len(), 1);
         assert_eq!(details.recommendations.len(), 1);
         assert_eq!(collection_id, Some(77));
+    }
+
+    #[test]
+    fn tv_runtime_falls_back_to_last_episode() {
+        let json = r#"{
+            "id": 1396,
+            "name": "Breaking Bad",
+            "episode_run_time": [],
+            "last_episode_to_air": {"runtime": 47},
+            "number_of_seasons": 5,
+            "number_of_episodes": 62,
+            "content_ratings": {"results": [
+                {"iso_3166_1": "US", "rating": "TV-MA"}
+            ]},
+            "genres": []
+        }"#;
+        let body = match serde_json::from_str::<MediaBody>(json) {
+            Ok(body) => body,
+            Err(error) => panic!("{error}"),
+        };
+        let (details, _) = match media_from_body(body, MediaKind::Tv, None) {
+            Ok(value) => value,
+            Err(error) => panic!("{error}"),
+        };
+        assert_eq!(details.runtime_minutes, Some(47));
+        assert_eq!(details.number_of_seasons, Some(5));
+        assert_eq!(details.number_of_episodes, Some(62));
+        assert_eq!(details.certification.as_deref(), Some("17+"));
+    }
+
+    #[test]
+    fn certification_prefers_ui_region_then_us() {
+        let json = r#"{
+            "id": 1,
+            "title": "X",
+            "release_dates": {"results": [
+                {"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]},
+                {"iso_3166_1": "RU", "release_dates": [{"certification": "16+"}]}
+            ]}
+        }"#;
+        let parse = || match serde_json::from_str::<MediaBody>(json) {
+            Ok(body) => body,
+            Err(error) => panic!("{error}"),
+        };
+        let ru = match media_from_body(parse(), MediaKind::Movie, Some("ru")) {
+            Ok((details, _)) => details,
+            Err(error) => panic!("{error}"),
+        };
+        assert_eq!(ru.certification.as_deref(), Some("16+"));
+        let us = match media_from_body(parse(), MediaKind::Movie, Some("en-US")) {
+            Ok((details, _)) => details,
+            Err(error) => panic!("{error}"),
+        };
+        assert_eq!(us.certification.as_deref(), Some("13+"));
     }
 
     #[test]

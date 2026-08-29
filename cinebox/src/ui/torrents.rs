@@ -6,7 +6,7 @@ use cinebox_core::{
 };
 use cinebox_parse::{
     AudioLang, QualityBand, SortMode, TorrentFilter, TorrentHit, TriChoice, VoiceFilter,
-    matches_filter, sort_hits, studios_in_catalog_order,
+    hit_bitrate_mbps, matches_filter, sort_hits, studios_in_catalog_order,
 };
 use iced::widget::text::Wrapping;
 use iced::widget::{Space, button, column, container, grid, pick_list, row, stack, text};
@@ -94,6 +94,7 @@ pub struct TorrentState {
     pub id: TmdbId,
     pub movie: MovieBits,
     pub year: Option<u16>,
+    pub runtime_minutes: Option<u32>,
     pub hits: TorrentHits,
     pub filter: TorrentFilter,
     pub sort: SortMode,
@@ -108,6 +109,7 @@ impl TorrentState {
             id: details.id,
             movie: MovieBits::from_details(details),
             year: details.year,
+            runtime_minutes: details.runtime_minutes,
             hits: TorrentHits::Loading,
             filter: TorrentFilter::default(),
             sort: SortMode::Popular,
@@ -490,7 +492,7 @@ fn list_body<'a>(
         col = col.push(text(Msg::NoTorrents.en()).size(14).color(LABEL));
     } else {
         for (index, hit) in visible {
-            col = col.push(hit_row(index, hit));
+            col = col.push(hit_row(index, hit, state.kind, state.runtime_minutes));
         }
     }
     scroll::vertical(flashing, col)
@@ -518,7 +520,12 @@ fn failed(error: &str) -> Element<'static, Message> {
     .into()
 }
 
-fn hit_row(index: usize, hit: &TorrentHit) -> Element<'_, Message> {
+fn hit_row(
+    index: usize,
+    hit: &TorrentHit,
+    kind: MediaKind,
+    runtime_minutes: Option<u32>,
+) -> Element<'_, Message> {
     let date = if hit.published.is_empty() {
         String::from("—")
     } else {
@@ -531,10 +538,6 @@ fn hit_row(index: usize, hit: &TorrentHit) -> Element<'_, Message> {
         .filter(|part| !part.is_empty())
         .collect::<Vec<_>>()
         .join(", ");
-    let bitrate = match hit.bitrate_mbps {
-        Some(mbps) => format!("{mbps:.1}"),
-        None => String::from("—"),
-    };
     let left = row![
         text(date).size(12).color(MUTED),
         text(trackers)
@@ -546,14 +549,16 @@ fn hit_row(index: usize, hit: &TorrentHit) -> Element<'_, Message> {
     .align_y(Alignment::Center)
     .width(Fill);
 
-    let right = row![
-        stat(Msg::Bitrate.en(), bitrate),
-        stat(Msg::Seeds.en(), hit.seeders.to_string()),
-        stat(Msg::Leechers.en(), hit.peers.to_string()),
-        size_pill(hit.size_label()),
-    ]
-    .spacing(12)
-    .align_y(Alignment::Center);
+    let mut stats: Vec<Element<'_, Message>> = Vec::new();
+    if kind == MediaKind::Movie
+        && let Some(mbps) = hit_bitrate_mbps(hit, runtime_minutes)
+    {
+        stats.push(stat(Msg::Bitrate.en(), format!("{mbps:.1}")));
+    }
+    stats.push(stat(Msg::Seeds.en(), hit.seeders.to_string()));
+    stats.push(stat(Msg::Leechers.en(), hit.peers.to_string()));
+    stats.push(size_pill(hit.size_label()));
+    let right = row(stats).spacing(12).align_y(Alignment::Center);
 
     let inner = column![
         text(typograph(&hit.title))

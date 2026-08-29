@@ -40,6 +40,9 @@ pub struct MediaDetails {
     pub year: Option<u16>,
     pub released: Option<String>,
     pub runtime_minutes: Option<u32>,
+    pub number_of_seasons: Option<u32>,
+    pub number_of_episodes: Option<u32>,
+    pub certification: Option<String>,
     pub vote: Option<f32>,
     pub budget: Option<u64>,
     pub genre_ids: Vec<u32>,
@@ -76,12 +79,24 @@ impl MediaDetails {
         parts.join(", ")
     }
 
-    /// Runtime and genres under the rating row.
+    /// Runtime (movies) or season/episode counts (TV), then genres.
     #[must_use]
     pub fn detail_bits(&self) -> Vec<String> {
         let mut bits = Vec::new();
-        if let Some(mins) = self.runtime_minutes.filter(|m| *m > 0) {
-            bits.push(format_runtime(mins));
+        match self.kind {
+            MediaKind::Tv => {
+                if let Some(seasons) = self.number_of_seasons.filter(|n| *n > 0) {
+                    bits.push(format_seasons(seasons));
+                }
+                if let Some(episodes) = self.number_of_episodes.filter(|n| *n > 0) {
+                    bits.push(format_episodes(episodes));
+                }
+            }
+            MediaKind::Movie | MediaKind::Person => {
+                if let Some(mins) = self.runtime_minutes.filter(|m| *m > 0) {
+                    bits.push(format_runtime(mins));
+                }
+            }
         }
         bits.extend(self.genres.iter().take(5).cloned());
         bits
@@ -130,6 +145,45 @@ pub fn format_runtime(minutes: u32) -> String {
     } else {
         format!("{hours}h {mins}m")
     }
+}
+
+#[must_use]
+fn format_seasons(count: u32) -> String {
+    if count == 1 {
+        String::from("1 season")
+    } else {
+        format!("{count} seasons")
+    }
+}
+
+#[must_use]
+fn format_episodes(count: u32) -> String {
+    if count == 1 {
+        String::from("1 episode")
+    } else {
+        format!("{count} episodes")
+    }
+}
+
+/// Map MPAA / TV parental codes to an age mark (`13+`). Other labels pass through.
+#[must_use]
+pub fn decode_certification(raw: &str) -> Option<String> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let mapped = match trimmed.to_ascii_uppercase().as_str() {
+        "G" | "TV-G" => "3+",
+        "PG" | "TV-PG" => "6+",
+        "PG-13" => "13+",
+        "TV-14" => "14+",
+        "R" | "TV-MA" => "17+",
+        "NC-17" => "18+",
+        "TV-Y" => "0+",
+        "TV-Y7" | "TV-Y7-FV" => "7+",
+        _ => trimmed,
+    };
+    Some(mapped.to_owned())
 }
 
 /// Format a TMDB budget/revenue if it is present and positive.
@@ -188,6 +242,10 @@ mod tests {
         assert_eq!(format_money(100), "$100");
         assert_eq!(format_release_date("2021-10-22"), "22 Oct 2021");
         assert_eq!(format_release_date("2021"), "2021");
+        assert_eq!(decode_certification("PG-13").as_deref(), Some("13+"));
+        assert_eq!(decode_certification("TV-MA").as_deref(), Some("17+"));
+        assert_eq!(decode_certification("16+").as_deref(), Some("16+"));
+        assert_eq!(decode_certification("  ").as_deref(), None);
     }
 
     #[test]
@@ -203,6 +261,9 @@ mod tests {
             year: Some(2021),
             released: Some(String::from("2021-10-22")),
             runtime_minutes: Some(155),
+            number_of_seasons: None,
+            number_of_episodes: None,
+            certification: None,
             vote: Some(8.1),
             budget: None,
             genre_ids: Vec::new(),
@@ -224,6 +285,17 @@ mod tests {
         assert_eq!(details.detail_bits(), vec!["2h 35m", "Sci-Fi", "Adventure"]);
         assert_eq!(details.torrent_query(), "Dune");
         assert!(!details.is_anime());
+        let tv = MediaDetails {
+            kind: MediaKind::Tv,
+            runtime_minutes: Some(47),
+            number_of_seasons: Some(5),
+            number_of_episodes: Some(62),
+            ..details.clone()
+        };
+        assert_eq!(
+            tv.detail_bits(),
+            vec!["5 seasons", "62 episodes", "Sci-Fi", "Adventure"]
+        );
         assert_eq!(
             details.trailers[0].watch_url(),
             "https://www.youtube.com/watch?v=abc"

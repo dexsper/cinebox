@@ -253,8 +253,14 @@ impl App {
                 }
                 match result {
                     Ok(hits) => {
-                        info!(n = hits.len(), "torrents loaded");
                         if let Some(state) = &mut self.torrents {
+                            info!(
+                                n = hits.len(),
+                                runtime_min = state.runtime_minutes,
+                                size0 = hits.first().map(|hit| hit.size_bytes),
+                                bitrate0 = hits.first().and_then(|hit| hit.bitrate_mbps),
+                                "torrents loaded"
+                            );
                             state.hits = TorrentHits::Ready(hits);
                         }
                     }

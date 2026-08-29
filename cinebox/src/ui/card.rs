@@ -16,6 +16,9 @@ const MUTED: Color = Color::from_rgb(0.65, 0.65, 0.68);
 const ERR: Color = Color::from_rgb(0.92, 0.38, 0.38);
 const TITLE: Color = Color::from_rgb(0.96, 0.96, 0.97);
 const RATE: Color = Color::from_rgb(1.0, 0.85, 0.25);
+const BADGE_TEXT: f32 = 20.0;
+const BADGE_PAD_Y: f32 = 6.0;
+const BADGE_H: f32 = BADGE_PAD_Y * 2.0 + BADGE_TEXT * 1.3;
 pub(crate) const POSTER_W: f32 = 200.0;
 pub(crate) const POSTER_H: f32 = 300.0;
 
@@ -190,24 +193,27 @@ fn header<'a>(
     let mut meta = column![].spacing(10).width(Fill);
     let head = details.head_line();
     if !head.is_empty() {
-        meta = meta.push(text(head).size(14).color(MUTED).wrapping(Wrapping::Word));
+        meta = meta.push(text(head).size(16).color(MUTED).wrapping(Wrapping::Word));
     }
     meta = meta.push(
         text(typograph(&details.title))
-            .size(32)
+            .size(36)
             .color(TITLE)
             .wrapping(Wrapping::Word),
     );
     if let Some(tagline) = details.tagline.as_deref() {
         meta = meta.push(
             text(typograph(tagline))
-                .size(16)
+                .size(18)
                 .color(MUTED)
                 .wrapping(Wrapping::Word),
         );
     }
-    if let Some(vote) = details.vote.filter(|v| *v > 0.0) {
-        meta = meta.push(rate_line(vote));
+    if let Some(row) = ratings_row(
+        details.vote.filter(|v| *v > 0.0),
+        details.certification.as_deref(),
+    ) {
+        meta = meta.push(row);
     }
     if let Some(details_line) = detail_row(details) {
         meta = meta.push(details_line);
@@ -220,20 +226,47 @@ fn header<'a>(
         .into()
 }
 
-fn rate_line<'a>(vote: f32) -> Element<'a, Message> {
-    row![
-        container(text(format!("{vote:.1}")).size(18).color(RATE))
-            .padding([6, 10])
-            .style(|_| container::Style {
-                background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()),
-                border: iced::border::rounded(6),
-                ..container::Style::default()
-            }),
-        text("TMDB").size(13).color(MUTED),
-    ]
-    .spacing(10)
-    .align_y(Alignment::Center)
-    .into()
+fn ratings_row<'a>(vote: Option<f32>, certification: Option<&str>) -> Option<Element<'a, Message>> {
+    let cert = certification.filter(|s| !s.is_empty());
+    if vote.is_none() && cert.is_none() {
+        return None;
+    }
+    let mut items = row![].spacing(10).align_y(Alignment::Center);
+    if let Some(vote) = vote {
+        items = items.push(rate_badge(vote));
+    }
+    if let Some(label) = cert {
+        items = items.push(cert_badge(label));
+    }
+    Some(items.into())
+}
+
+fn rate_badge<'a>(vote: f32) -> Element<'a, Message> {
+    rating_pill(
+        row![
+            text(format!("{vote:.1}")).size(BADGE_TEXT).color(RATE),
+            text("TMDB").size(13).color(MUTED),
+        ]
+        .spacing(8)
+        .align_y(Alignment::Center)
+        .height(Fill),
+    )
+}
+
+fn cert_badge<'a>(label: &str) -> Element<'a, Message> {
+    rating_pill(text(label.to_owned()).size(BADGE_TEXT).color(TITLE))
+}
+
+fn rating_pill<'a>(content: impl Into<Element<'a, Message>>) -> Element<'a, Message> {
+    container(content)
+        .padding([BADGE_PAD_Y, 12.0])
+        .center_y(BADGE_H)
+        .style(|_| container::Style {
+            background: Some(Color::from_rgba(0.0, 0.0, 0.0, 0.35).into()),
+            border: iced::border::rounded(6),
+            ..container::Style::default()
+        })
+        .into()
 }
 
 fn detail_row(details: &MediaDetails) -> Option<Element<'_, Message>> {
@@ -244,9 +277,9 @@ fn detail_row(details: &MediaDetails) -> Option<Element<'_, Message>> {
     let mut children: Vec<Element<'_, Message>> = Vec::new();
     for (i, bit) in bits.iter().enumerate() {
         if i > 0 {
-            children.push(text("●").size(10).color(MUTED).into());
+            children.push(text("●").size(11).color(MUTED).into());
         }
-        children.push(text(bit.clone()).size(14).color(TITLE).into());
+        children.push(text(bit.clone()).size(16).color(TITLE).into());
     }
     Some(
         iced::widget::Row::with_children(children)

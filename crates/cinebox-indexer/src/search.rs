@@ -64,9 +64,71 @@ fn json_u64(value: &Value) -> u64 {
             .or_else(|| n.as_i64().and_then(|v| u64::try_from(v).ok()))
             .or_else(|| n.as_f64().map(|v| v.max(0.0) as u64))
             .unwrap_or(0),
-        Value::String(s) => s.parse().unwrap_or(0),
+        Value::String(s) => parse_size_text(s),
         _ => 0,
     }
+}
+
+fn parse_size_text(raw: &str) -> u64 {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return 0;
+    }
+    if let Ok(n) = trimmed.parse::<u64>() {
+        return n;
+    }
+    let compact: String = trimmed
+        .chars()
+        .filter(|ch| *ch != ',' && *ch != ' ' && *ch != '\u{00a0}')
+        .collect();
+    if let Ok(n) = compact.parse::<u64>() {
+        return n;
+    }
+    if let Ok(n) = trimmed.replace(',', ".").parse::<f64>()
+        && n.is_finite()
+        && n >= 0.0
+    {
+        return n as u64;
+    }
+    parse_size_label(trimmed).unwrap_or(0)
+}
+
+fn parse_size_label(raw: &str) -> Option<u64> {
+    let lower = raw.trim().to_lowercase().replace(',', ".");
+    let split = lower
+        .char_indices()
+        .find(|(_, ch)| ch.is_alphabetic() || *ch == 'б' || *ch == 'Б');
+    let (num_part, unit_part) = match split {
+        Some((index, _)) => lower.split_at(index),
+        None => return None,
+    };
+    let num: f64 = num_part.trim().parse().ok()?;
+    if !num.is_finite() || num < 0.0 {
+        return None;
+    }
+    let unit = unit_part.trim();
+    let mul = if unit.starts_with("tib") || unit.starts_with("tb") || unit.starts_with('т') {
+        1024.0 * 1024.0 * 1024.0 * 1024.0
+    } else if unit.starts_with("gib") || unit.starts_with("gb") || unit.starts_with('г') {
+        1024.0 * 1024.0 * 1024.0
+    } else if unit.starts_with("mib") || unit.starts_with("mb") || unit.starts_with('м') {
+        1024.0 * 1024.0
+    } else if unit.starts_with("kib") || unit.starts_with("kb") || unit.starts_with('к') {
+        1024.0
+    } else {
+        return None;
+    };
+    Some((num * mul).round() as u64)
+}
+
+fn row_size_bytes(raw: &Value) -> u64 {
+    for key in ["Size", "size", "fileSize", "FileSize", "bytes"] {
+        let n = json_u64(raw.get(key).unwrap_or(&Value::Null));
+        if n > 0 {
+            return n;
+        }
+    }
+    0
 }
 
 fn json_u32(value: &Value) -> u32 {
@@ -272,11 +334,7 @@ fn hit_from_jackett(raw: &Value) -> Option<Hit> {
     Some(Hit {
         title,
         tracker: text_field(raw, &["Tracker", "tracker", "TrackerId"]),
-        size_bytes: json_u64(
-            raw.get("Size")
-                .or_else(|| raw.get("size"))
-                .unwrap_or(&Value::Null),
-        ),
+        size_bytes: row_size_bytes(raw),
         seeders: json_u32(
             raw.get("Seeders")
                 .or_else(|| raw.get("seeders"))
@@ -367,11 +425,7 @@ fn hit_from_prowlarr(raw: &Value) -> Option<Hit> {
     Some(Hit {
         title,
         tracker: text_field(raw, &["indexer", "Tracker"]),
-        size_bytes: json_u64(
-            raw.get("size")
-                .or_else(|| raw.get("Size"))
-                .unwrap_or(&Value::Null),
-        ),
+        size_bytes: row_size_bytes(raw),
         seeders: json_u32(
             raw.get("seeders")
                 .or_else(|| raw.get("Seeders"))
@@ -470,5 +524,28 @@ mod tests {
         };
         assert_eq!(hit.title, "Film");
         assert_eq!(hit.tracker, "rutor");
+    }
+
+    #[test]
+    fn size_parses_numeric_string_and_label() {
+        let labeled = serde_json::json!({
+            "Title": "A",
+            "Size": "1.5 GB"
+        });
+        let hit = match hit_from_jackett(&labeled) {
+            Some(hit) => hit,
+            None => panic!("hit"),
+        };
+        assert_eq!(hit.size_bytes, 1_610_612_736);
+
+        let dotted = serde_json::json!({
+            "Title": "B",
+            "Size": "1572864000.0"
+        });
+        let hit = match hit_from_jackett(&dotted) {
+            Some(hit) => hit,
+            None => panic!("hit"),
+        };
+        assert_eq!(hit.size_bytes, 1_572_864_000);
     }
 }

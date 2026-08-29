@@ -14,8 +14,8 @@ pub use catalog::{CatalogItem, HomeCatalog, HomeRow, HomeRowId, tmdb_image_url, 
 pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};
 pub use media::{
-    CreditPerson, MediaDetails, PersonDetails, Trailer, format_money, format_release_date,
-    format_runtime,
+    CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money,
+    format_release_date, format_runtime,
 };
 pub use settings::{
     DefaultQuality, ParserKind, PlayerSettings, PosterSize, SecretString, Settings, SettingsError,

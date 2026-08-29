@@ -51,7 +51,8 @@ impl TorrentHit {
     pub fn new(listing: Listing, runtime_minutes: Option<u32>, started_hashes: &[String]) -> Self {
         let info = parse_title(&listing.title);
         let found_voices = voices(&listing.title);
-        let bitrate_mbps = runtime_minutes.and_then(|mins| bitrate_mbps(listing.size_bytes, mins));
+        let bitrate_mbps =
+            runtime_minutes.and_then(|mins| estimate_bitrate_mbps(listing.size_bytes, mins));
         let started = infohash(&listing.magnet).is_some_and(|hash| {
             started_hashes
                 .iter()
@@ -94,12 +95,19 @@ impl TorrentHit {
 
 /// Mbps from byte size and runtime minutes: `(size * 8 / 1e6) / (minutes * 60)`.
 #[must_use]
-pub fn bitrate_mbps(size_bytes: u64, runtime_minutes: u32) -> Option<f64> {
+pub fn estimate_bitrate_mbps(size_bytes: u64, runtime_minutes: u32) -> Option<f64> {
     if size_bytes == 0 || runtime_minutes == 0 {
         return None;
     }
     let secs = f64::from(runtime_minutes) * 60.0;
     Some((size_bytes as f64 * 8.0 / 1_000_000.0) / secs)
+}
+
+/// Same estimate as [`estimate_bitrate_mbps`], using the stored hit size.
+#[must_use]
+pub fn hit_bitrate_mbps(hit: &TorrentHit, runtime_minutes: Option<u32>) -> Option<f64> {
+    hit.bitrate_mbps
+        .or_else(|| runtime_minutes.and_then(|mins| estimate_bitrate_mbps(hit.size_bytes, mins)))
 }
 
 #[cfg(test)]
@@ -108,7 +116,7 @@ mod tests {
 
     #[test]
     fn bitrate_matches_lampa_formula() {
-        let mbps = match bitrate_mbps(1_500_000_000, 120) {
+        let mbps = match estimate_bitrate_mbps(1_500_000_000, 120) {
             Some(value) => value,
             None => panic!("bitrate"),
         };
@@ -134,5 +142,10 @@ mod tests {
         assert!(hit.started);
         assert_eq!(hit.info.resolution, Some(Resolution::Fhd));
         assert_eq!(hit.info.quality, Some(SourceQuality::WebDlRip));
+        let mbps = match hit.bitrate_mbps {
+            Some(value) => value,
+            None => panic!("bitrate should be set when size and runtime are known"),
+        };
+        assert!(mbps > 0.0, "{mbps}");
     }
 }
