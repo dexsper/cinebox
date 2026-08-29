@@ -274,13 +274,15 @@ fn detail_row(details: &MediaDetails) -> Option<Element<'_, Message>> {
     if bits.is_empty() {
         return None;
     }
+
     let mut children: Vec<Element<'_, Message>> = Vec::new();
-    for (i, bit) in bits.iter().enumerate() {
+    for (i, bit) in bits.into_iter().enumerate() {
         if i > 0 {
             children.push(text("●").size(11).color(MUTED).into());
         }
-        children.push(text(bit.clone()).size(16).color(TITLE).into());
+        children.push(text(bit).size(16).color(TITLE).into());
     }
+
     Some(
         iced::widget::Row::with_children(children)
             .spacing(10)
@@ -297,15 +299,19 @@ fn facts_row(details: &MediaDetails) -> Option<Element<'_, Message>> {
     } else if let Some(year) = details.year {
         cells.push(fact(Msg::Release.en(), year.to_string()));
     }
+
     if let Some(budget) = details.budget {
         cells.push(fact(Msg::Budget.en(), format_money(budget)));
     }
+
     if !details.countries.is_empty() {
         cells.push(fact(Msg::Countries.en(), details.countries.join(", ")));
     }
+
     if cells.is_empty() {
         return None;
     }
+
     Some(
         iced::widget::Row::with_children(cells)
             .spacing(32)

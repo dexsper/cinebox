@@ -134,13 +134,14 @@ pub fn parse_title(title: &str) -> TitleInfo {
     if title.is_empty() {
         return TitleInfo::default();
     }
+    let lower = title.to_lowercase();
     TitleInfo {
         seasons: seasons(title),
         episodes: episodes(title),
         year: year(title),
-        quality: source_quality(title),
-        hdr: hdr(title),
-        resolution: resolution(title),
+        quality: source_quality(&lower),
+        hdr: hdr(&lower),
+        resolution: resolution(&lower),
     }
 }
 
@@ -233,7 +234,8 @@ fn year(title: &str) -> Option<u16> {
 }
 
 /// Longest token first; a match must not continue with a letter (`WEB-DL` ≠ `WEB-DLRip`).
-fn source_quality(title: &str) -> Option<SourceQuality> {
+/// `lower` is the release name already lowercased.
+fn source_quality(lower: &str) -> Option<SourceQuality> {
     const TOKENS: &[(SourceQuality, &[&str])] = &[
         (SourceQuality::WebDlRip, &["web-dlrip", "webdlrip"]),
         (SourceQuality::WebDl, &["web-dl", "webdl"]),
@@ -248,15 +250,13 @@ fn source_quality(title: &str) -> Option<SourceQuality> {
         (SourceQuality::Cam, &["cam"]),
         (SourceQuality::Ts, &["ts"]),
     ];
-    let lower = title.to_lowercase();
     TOKENS
         .iter()
-        .find(|(_, needles)| needles.iter().any(|needle| token_at(&lower, needle)))
+        .find(|(_, needles)| needles.iter().any(|needle| token_at(lower, needle)))
         .map(|(quality, _)| *quality)
 }
 
-fn hdr(title: &str) -> Option<Hdr> {
-    let lower = title.to_lowercase();
+fn hdr(lower: &str) -> Option<Hdr> {
     if lower.contains("dolby vision") {
         Some(Hdr::DolbyVision)
     } else if lower.contains("hdr") {
@@ -266,7 +266,8 @@ fn hdr(title: &str) -> Option<Hdr> {
     }
 }
 
-fn resolution(title: &str) -> Option<Resolution> {
+/// `lower` is the release name already lowercased.
+fn resolution(lower: &str) -> Option<Resolution> {
     const TOKENS: &[(Resolution, &[&str])] = &[
         (Resolution::Uhd, &["2160p", "2160р", "4k", "uhd", "ultrahd"]),
         (Resolution::Qhd, &["1440p"]),
@@ -276,10 +277,9 @@ fn resolution(title: &str) -> Option<Resolution> {
         (Resolution::Ld, &["360p"]),
     ];
 
-    let lower = title.to_lowercase();
     TOKENS
         .iter()
-        .find(|(_, needles)| contains_any(&lower, needles))
+        .find(|(_, needles)| contains_any(lower, needles))
         .map(|(band, _)| *band)
 }
 

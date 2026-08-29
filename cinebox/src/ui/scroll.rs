@@ -113,9 +113,11 @@ impl ScrollFlash {
             .map(|tick| now.saturating_duration_since(tick).as_secs_f32())
             .unwrap_or(1.0 / 60.0)
             .clamp(0.001, 0.05);
+
         self.last_tick = Some(now);
         let decay = (-FRICTION * dt).exp();
         let mut moved = Vec::new();
+
         self.velocity.retain(|pane, vel| {
             let dx = vel.x * dt;
             let dy = vel.y * dt;
@@ -132,6 +134,7 @@ impl ScrollFlash {
             }
             speed(vel) >= MIN_SPEED
         });
+
         self.prune();
         moved
     }
@@ -323,6 +326,103 @@ fn past_drag_threshold(origin: Point, now: Point) -> bool {
     origin.distance(now) >= DRAG_THRESHOLD
 }
 
+fn handle_drag(
+    state: &mut PanState,
+    pane: ScrollPane,
+    event: &Event,
+    over: bool,
+    position: Option<Point>,
+    shift: bool,
+    shell: &mut Shell<'_, Message>,
+) -> bool {
+    if is_press(event) {
+        return begin_drag(state, over, position, shell);
+    }
+
+    if let Event::Mouse(mouse::Event::WheelScrolled { delta }) = event {
+        if !over {
+            return false;
+        }
+        return capture_horizontal_wheel(pane, *delta, shift, shell);
+    }
+
+    if let Some(position) = move_position(event) {
+        return drag_moved(state, pane, position, shell);
+    }
+
+    if is_release(event) {
+        return drag_released(state, pane, shell);
+    }
+
+    false
+}
+
+fn is_press(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
+            | Event::Touch(iced::touch::Event::FingerPressed { .. })
+    )
+}
+
+fn is_release(event: &Event) -> bool {
+    matches!(
+        event,
+        Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
+            | Event::Touch(
+                iced::touch::Event::FingerLifted { .. } | iced::touch::Event::FingerLost { .. },
+            )
+    )
+}
+
+fn move_position(event: &Event) -> Option<Point> {
+    match event {
+        Event::Mouse(mouse::Event::CursorMoved { position })
+        | Event::Touch(iced::touch::Event::FingerMoved { position, .. }) => Some(*position),
+        _ => None,
+    }
+}
+
+fn begin_drag(
+    state: &mut PanState,
+    over: bool,
+    position: Option<Point>,
+    shell: &mut Shell<'_, Message>,
+) -> bool {
+    if !over {
+        return false;
+    }
+    state.origin = position;
+    state.last = position;
+    state.last_at = Some(Instant::now());
+    state.vx = 0.0;
+    state.dragging = false;
+    shell.publish(Message::ScrollDragging(false));
+    false
+}
+
+fn capture_horizontal_wheel(
+    pane: ScrollPane,
+    delta: mouse::ScrollDelta,
+    shift: bool,
+    shell: &mut Shell<'_, Message>,
+) -> bool {
+    let dx = wheel_dx(delta, shift);
+    if dx.abs() <= 0.5 {
+        return false;
+    }
+
+    shell.publish(Message::ScrollImpulse {
+        pane,
+        dx,
+        dy: 0.0,
+        gain: wheel_gain(delta),
+    });
+    
+    shell.capture_event();
+    true
+}
+
 fn drag_moved(
     state: &mut PanState,
     pane: ScrollPane,
@@ -441,48 +541,15 @@ impl Widget<Message, Theme, iced::Renderer> for Smooth<'_> {
         let shift = tree.state.downcast_mut::<PanState>().modifiers.shift();
 
         if self.drag {
-            let captured = match event {
-                Event::Mouse(mouse::Event::ButtonPressed(mouse::Button::Left))
-                | Event::Touch(iced::touch::Event::FingerPressed { .. })
-                    if over =>
-                {
-                    let state = tree.state.downcast_mut::<PanState>();
-                    state.origin = position;
-                    state.last = position;
-                    state.last_at = Some(Instant::now());
-                    state.vx = 0.0;
-                    state.dragging = false;
-                    shell.publish(Message::ScrollDragging(false));
-                    false
-                }
-                Event::Mouse(mouse::Event::WheelScrolled { delta }) if over => {
-                    let dx = wheel_dx(*delta, shift);
-                    if dx.abs() > 0.5 {
-                        shell.publish(Message::ScrollImpulse {
-                            pane: self.pane,
-                            dx,
-                            dy: 0.0,
-                            gain: wheel_gain(*delta),
-                        });
-                        shell.capture_event();
-                        true
-                    } else {
-                        false
-                    }
-                }
-                Event::Mouse(mouse::Event::CursorMoved { position })
-                | Event::Touch(iced::touch::Event::FingerMoved { position, .. }) => drag_moved(
-                    tree.state.downcast_mut::<PanState>(),
-                    self.pane,
-                    *position,
-                    shell,
-                ),
-                Event::Mouse(mouse::Event::ButtonReleased(mouse::Button::Left))
-                | Event::Touch(
-                    iced::touch::Event::FingerLifted { .. } | iced::touch::Event::FingerLost { .. },
-                ) => drag_released(tree.state.downcast_mut::<PanState>(), self.pane, shell),
-                _ => false,
-            };
+            let captured = handle_drag(
+                tree.state.downcast_mut::<PanState>(),
+                self.pane,
+                event,
+                over,
+                position,
+                shift,
+                shell,
+            );
             if captured {
                 return;
             }

@@ -8,7 +8,7 @@ mod voices;
 
 pub use filter::{
     AudioLang, QualityBand, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind,
-    matches_filter, sort_hits,
+    filtered_hits, matches_filter, season_options, sort_hits, voice_filter_options, year_options,
 };
 pub use title::{
     EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash, parse_title,

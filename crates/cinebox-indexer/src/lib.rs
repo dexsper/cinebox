@@ -2,6 +2,8 @@
 
 #![forbid(unsafe_code)]
 
+mod map;
+mod query;
 mod search;
 
 use std::time::Duration;
@@ -9,7 +11,9 @@ use std::time::Duration;
 use cinebox_core::{ParserKind, join_url, normalize_base_url};
 use serde::Deserialize;
 
-pub use search::{Hit, SearchQuery, search};
+pub use map::Hit;
+pub use query::SearchQuery;
+pub use search::search;
 
 /// Failures talking to a parser. Never includes the API key.
 #[derive(Debug, thiserror::Error)]
@@ -82,10 +86,12 @@ async fn ping_jackett(base: &str, api_key: &str, use_system_proxy: bool) -> Resu
         .send()
         .await
         .map_err(Error::Request)?;
+
     let status = response.status();
     if !status.is_success() {
         return Err(Error::Http(status.as_u16()));
     }
+
     let parsed: JackettResults = response.json().await.map_err(Error::Request)?;
     let n = parsed.results.as_ref().map_or(0, Vec::len);
     Ok(format!("Jackett ok ({n} results for test query)"))
@@ -101,10 +107,12 @@ async fn ping_prowlarr(base: &str, api_key: &str, use_system_proxy: bool) -> Res
         .send()
         .await
         .map_err(Error::Request)?;
+
     let status = response.status();
     if !status.is_success() {
         return Err(Error::Http(status.as_u16()));
     }
+
     let body = response.bytes().await.map_err(Error::Request)?;
     let parsed: ProwlarrStatus = serde_json::from_slice(&body).map_err(Error::BadJson)?;
     Ok(match parsed.version {

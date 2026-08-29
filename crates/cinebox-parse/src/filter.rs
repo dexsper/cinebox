@@ -6,6 +6,7 @@ use cinebox_core::{DefaultQuality, MediaKind};
 
 use crate::TorrentHit;
 use crate::title::{Hdr, Resolution, TitleInfo, contains_any};
+use crate::voices::studios_in_catalog_order;
 
 /// Resolution band used by the torrent list chips (4K / 1080p / 720p).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -275,7 +276,7 @@ pub fn matches_filter(hit: &TorrentHit, filter: TorrentFilter) -> bool {
         && tri_ok(filter.hdr, hit.info.hdr == Some(Hdr::Hdr))
         && tri_ok(filter.dolby, hit.info.hdr == Some(Hdr::DolbyVision))
         && tri_ok(filter.subs, has_subs(&title))
-        && voice_ok(hit, filter.voice)
+        && voice_ok(hit, filter.voice, &title)
         && lang_ok(&title, filter.lang)
         && filter
             .season
@@ -297,14 +298,13 @@ fn has_subs(title: &str) -> bool {
     title.contains(" sub") || has_token(title, "ст")
 }
 
-fn voice_ok(hit: &TorrentHit, filter: VoiceFilter) -> bool {
-    let title = hit.title.to_lowercase();
+fn voice_ok(hit: &TorrentHit, filter: VoiceFilter, title: &str) -> bool {
     match filter {
         VoiceFilter::Any => true,
-        VoiceFilter::Dubbing => voice_kind_ok(&title, VoiceKind::Dubbing),
-        VoiceFilter::Polyphonic => voice_kind_ok(&title, VoiceKind::Polyphonic),
-        VoiceFilter::TwoVoice => voice_kind_ok(&title, VoiceKind::TwoVoice),
-        VoiceFilter::Amateur => voice_kind_ok(&title, VoiceKind::Amateur),
+        VoiceFilter::Dubbing => voice_kind_ok(title, VoiceKind::Dubbing),
+        VoiceFilter::Polyphonic => voice_kind_ok(title, VoiceKind::Polyphonic),
+        VoiceFilter::TwoVoice => voice_kind_ok(title, VoiceKind::TwoVoice),
+        VoiceFilter::Amateur => voice_kind_ok(title, VoiceKind::Amateur),
         VoiceFilter::Studio(name) => {
             hit.voices
                 .iter()
@@ -362,6 +362,74 @@ fn lang_ok(title: &str, lang: AudioLang) -> bool {
         AudioLang::De => has_token(title, "de") || title.contains("german"),
         AudioLang::Fr => has_token(title, "fr") || title.contains("french"),
     }
+}
+
+/// Hits that pass `filter`, with original list indices.
+pub fn filtered_hits(
+    hits: &[TorrentHit],
+    filter: TorrentFilter,
+) -> impl Iterator<Item = (usize, &TorrentHit)> {
+    hits.iter()
+        .enumerate()
+        .filter(move |(_, hit)| matches_filter(hit, filter))
+}
+
+/// Voice-kind chips plus studios found in `hits`, then the selected studio if missing.
+#[must_use]
+pub fn voice_filter_options<'a>(
+    hits: impl IntoIterator<Item = &'a TorrentHit>,
+    selected: VoiceFilter,
+) -> Vec<VoiceFilter> {
+    let mut choices = VoiceFilter::KINDS.to_vec();
+    let studios =
+        studios_in_catalog_order(hits.into_iter().flat_map(|hit| hit.voices.iter().copied()));
+    choices.extend(studios.into_iter().map(VoiceFilter::Studio));
+    if let VoiceFilter::Studio(name) = selected
+        && !choices.contains(&VoiceFilter::Studio(name))
+    {
+        choices.push(VoiceFilter::Studio(name));
+    }
+    choices
+}
+
+/// Card year, then up to 8 distinct hit years (newest first), then `selected` if missing.
+#[must_use]
+pub fn year_options(
+    hits: &[TorrentHit],
+    card_year: Option<u16>,
+    selected: Option<u16>,
+) -> Vec<u16> {
+    let mut years = Vec::new();
+    if let Some(year) = card_year {
+        years.push(year);
+    }
+    let mut extra: Vec<u16> = hits.iter().filter_map(|hit| hit.info.year).collect();
+    extra.sort_unstable();
+    extra.reverse();
+    extra.dedup();
+    for year in extra.into_iter().take(8) {
+        if !years.contains(&year) {
+            years.push(year);
+        }
+    }
+    if let Some(year) = selected
+        && !years.contains(&year)
+    {
+        years.push(year);
+    }
+    years
+}
+
+/// Distinct seasons from hits, sorted ascending.
+#[must_use]
+pub fn season_options(hits: &[TorrentHit]) -> Vec<u32> {
+    let mut seasons: Vec<u32> = hits
+        .iter()
+        .flat_map(|hit| hit.info.seasons.iter().copied())
+        .collect();
+    seasons.sort_unstable();
+    seasons.dedup();
+    seasons
 }
 
 /// Sort in place. Started torrents stay at the top.
@@ -470,5 +538,32 @@ mod tests {
         );
         assert!(hits[0].started);
         assert!(!hits[1].started);
+    }
+
+    #[test]
+    fn year_options_prefer_card_then_newest_hits() {
+        let hits = vec![
+            hit("A (2019)", 1, false),
+            hit("B (2021)", 1, false),
+            hit("C (2021)", 1, false),
+        ];
+        assert_eq!(
+            year_options(&hits, Some(2020), None),
+            vec![2020, 2021, 2019]
+        );
+        assert_eq!(
+            year_options(&hits, Some(2020), Some(2018)),
+            vec![2020, 2021, 2019, 2018]
+        );
+    }
+
+    #[test]
+    fn season_options_are_sorted_unique() {
+        let hits = vec![
+            hit("Show.S02", 1, false),
+            hit("Show.S01", 1, false),
+            hit("Show.S02", 1, false),
+        ];
+        assert_eq!(season_options(&hits), vec![1, 2]);
     }
 }

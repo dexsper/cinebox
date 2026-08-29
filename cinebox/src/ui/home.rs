@@ -136,23 +136,25 @@ fn shelf<'a>(
 ) -> Element<'a, Message> {
     let mut block = column![text(row.id.title()).size(16)].spacing(8);
     if let Some(error) = &row.error {
-        block = block.push(text(error.clone()).size(13).color(ERR));
+        block = block.push(text(error.as_str()).size(13).color(ERR));
     }
-    if row.items.is_empty() && row.error.is_none() {
-        block = block.push(text(Msg::EmptyRow.en()).size(13).color(MUTED));
-    } else if !row.items.is_empty() {
-        let tiles = Row::with_children(
-            row.items
-                .iter()
-                .map(|item| tile(item, posters.get(&(item.kind, item.id)))),
-        );
-        block = block.push(scroll::horizontal(
-            ScrollPane::Row(index),
-            flashing,
-            catalog_shelf_height(),
-            tiles.spacing(12).padding(8),
-        ));
+    if row.items.is_empty() {
+        if row.error.is_none() {
+            block = block.push(text(Msg::EmptyRow.en()).size(13).color(MUTED));
+        }
+        return block.into();
     }
+    let tiles = Row::with_children(
+        row.items
+            .iter()
+            .map(|item| tile(item, posters.get(&(item.kind, item.id)))),
+    );
+    block = block.push(scroll::horizontal(
+        ScrollPane::Row(index),
+        flashing,
+        catalog_shelf_height(),
+        tiles.spacing(12).padding(8),
+    ));
     block.into()
 }
 

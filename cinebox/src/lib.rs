@@ -3,6 +3,9 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod images;
+mod loaders;
+mod message;
 mod nav;
 mod ui;
 

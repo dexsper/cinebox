@@ -2,12 +2,16 @@
 
 #![forbid(unsafe_code)]
 
+mod catalog_map;
 mod details;
+mod details_dto;
+mod details_map;
 mod home;
 
 use std::time::Duration;
 
 use cinebox_core::HomeCatalog;
+use serde::de::DeserializeOwned;
 
 pub use home::MAX_ROW_ITEMS;
 
@@ -40,6 +44,24 @@ pub(crate) fn hide_url(err: reqwest::Error) -> reqwest::Error {
 
 pub(crate) fn into_request(err: reqwest::Error) -> Error {
     Error::Request(hide_url(err))
+}
+
+pub(crate) fn check_tmdb_status(status: reqwest::StatusCode) -> Result<(), Error> {
+    if status.as_u16() == 401 {
+        return Err(Error::Unauthorized);
+    }
+    if !status.is_success() {
+        return Err(Error::Http(status.as_u16()));
+    }
+    Ok(())
+}
+
+pub(crate) async fn send_json<T: DeserializeOwned>(
+    request: reqwest::RequestBuilder,
+) -> Result<T, Error> {
+    let response = request.send().await.map_err(into_request)?;
+    check_tmdb_status(response.status())?;
+    response.json().await.map_err(into_request)
 }
 
 /// v3 `api_key` only. JWT access tokens (`eyJ…`) must not go in `?api_key=`.
@@ -87,13 +109,7 @@ pub async fn check_api_key(api_key: &str, use_system_proxy: bool) -> Result<Stri
         .send()
         .await
         .map_err(into_request)?;
-    let status = response.status();
-    if status.as_u16() == 401 {
-        return Err(Error::Unauthorized);
-    }
-    if !status.is_success() {
-        return Err(Error::Http(status.as_u16()));
-    }
+    check_tmdb_status(response.status())?;
     Ok(String::from("TMDB key ok"))
 }
 
