@@ -9,7 +9,7 @@ use iced::widget::{Space, button, column, container, mouse_area, row, text};
 use iced::{Alignment, Color, ContentFit, Element, Fill, FillPortion, padding};
 
 use crate::app::Message;
-use crate::ui::home::{ExtraImages, POSTER_RADIUS, PosterMap, catalog_tile, tile_metrics};
+use crate::ui::home::{ExtraImages, POSTER_RADIUS, PosterMap, catalog_shelf_height, catalog_tile};
 use crate::ui::scroll::{self, ScrollFlash, ScrollPane};
 
 const MUTED: Color = Color::from_rgb(0.65, 0.65, 0.68);
@@ -382,7 +382,6 @@ fn shelf<'a>(
     pane: ScrollPane,
     flashing: bool,
 ) -> Element<'a, Message> {
-    let (_, poster_h) = tile_metrics();
     let tiles = iced::widget::Row::with_children(
         items
             .iter()
@@ -393,8 +392,8 @@ fn shelf<'a>(
         scroll::horizontal(
             pane,
             flashing,
-            poster_h + 72.0,
-            tiles.spacing(12).padding(4),
+            catalog_shelf_height(),
+            tiles.spacing(12).padding(8),
         ),
     ]
     .spacing(8)

@@ -2,10 +2,16 @@ use std::collections::HashMap;
 
 use cinebox_core::i18n::Msg;
 use cinebox_core::{CatalogItem, HomeCatalog, HomeRow, MediaKind, TmdbId, typograph};
+use iced::advanced::Renderer as _;
+use iced::advanced::widget::{Operation, Tree, tree};
+use iced::advanced::{Clipboard, Layout, Shell, Widget, layout, mouse, overlay, renderer};
 use iced::widget::image::Handle as ImageHandle;
 use iced::widget::text::Wrapping;
 use iced::widget::{Row, button, column, container, mouse_area, stack, text};
-use iced::{Alignment, Color, ContentFit, Element, Fill};
+use iced::{
+    Alignment, Background, Border, Color, ContentFit, Element, Fill, Length, Rectangle, Shadow,
+    Size,
+};
 
 use crate::app::Message;
 use crate::ui::scroll::{self, ScrollFlash, ScrollPane};
@@ -15,9 +21,19 @@ const ERR: Color = Color::from_rgb(0.92, 0.38, 0.38);
 const TILE_WIDTH: f32 = 140.0;
 const POSTER_HEIGHT: f32 = 210.0;
 pub const POSTER_RADIUS: f32 = 12.0;
+const RING_WIDTH: f32 = 3.0;
+const RING_GAP: f32 = 4.0;
+const RING_PAD: f32 = RING_WIDTH + RING_GAP;
+const RING: Color = Color::from_rgb(0.94, 0.94, 0.96);
+const TITLE_SLACK: f32 = 72.0;
 
 pub fn tile_metrics() -> (f32, f32) {
     (TILE_WIDTH, POSTER_HEIGHT)
+}
+
+pub fn catalog_shelf_height() -> f32 {
+    let (_, poster_h) = tile_metrics();
+    poster_h + RING_PAD * 2.0 + TITLE_SLACK
 }
 
 /// Shared catalog tile (home rows and card shelves).
@@ -133,41 +149,42 @@ fn shelf<'a>(
         block = block.push(scroll::horizontal(
             ScrollPane::Row(index),
             flashing,
-            POSTER_HEIGHT + 72.0,
-            tiles.spacing(12).padding(4),
+            catalog_shelf_height(),
+            tiles.spacing(12).padding(8),
         ));
     }
     block.into()
 }
 
 fn tile<'a>(item: &'a CatalogItem, poster: Option<&'a ImageHandle>) -> Element<'a, Message> {
-    let poster = poster_block(poster, item.vote);
     let year = item
         .year
         .map(|year| year.to_string())
         .unwrap_or_else(|| String::from("—"));
-    mouse_area(
-        column![
-            poster,
-            text(typograph(&item.title))
-                .size(13)
-                .width(TILE_WIDTH)
-                .wrapping(Wrapping::Word),
-            text(year)
-                .size(12)
-                .color(MUTED)
-                .width(TILE_WIDTH)
-                .align_x(Alignment::Start),
-        ]
-        .spacing(4)
-        .width(TILE_WIDTH)
-        .align_x(Alignment::Start),
+    let well_w = TILE_WIDTH + RING_PAD * 2.0;
+    let body = column![
+        container(poster_block(poster, item.vote)).padding(RING_PAD),
+        text(typograph(&item.title))
+            .size(13)
+            .width(TILE_WIDTH)
+            .wrapping(Wrapping::Word),
+        text(year)
+            .size(12)
+            .color(MUTED)
+            .width(TILE_WIDTH)
+            .align_x(Alignment::Start),
+    ]
+    .spacing(4)
+    .width(well_w)
+    .align_x(Alignment::Center);
+    hover_ring(
+        mouse_area(body)
+            .on_release(Message::OpenMedia {
+                kind: item.kind,
+                id: item.id,
+            })
+            .into(),
     )
-    .on_release(Message::OpenMedia {
-        kind: item.kind,
-        id: item.id,
-    })
-    .into()
 }
 
 fn poster_block<'a>(poster: Option<&'a ImageHandle>, vote: Option<f32>) -> Element<'a, Message> {
@@ -218,4 +235,174 @@ fn vote_badge<'a>(vote: f32) -> Element<'a, Message> {
             ..container::Style::default()
         })
         .into()
+}
+
+fn hover_ring<'a>(content: Element<'a, Message>) -> Element<'a, Message> {
+    Hover { content }.into()
+}
+
+struct Hover<'a> {
+    content: Element<'a, Message>,
+}
+
+struct HoverState {
+    hovered: bool,
+}
+
+impl Widget<Message, iced::Theme, iced::Renderer> for Hover<'_> {
+    fn tag(&self) -> tree::Tag {
+        tree::Tag::of::<HoverState>()
+    }
+
+    fn state(&self) -> tree::State {
+        tree::State::new(HoverState { hovered: false })
+    }
+
+    fn children(&self) -> Vec<Tree> {
+        vec![Tree::new(&self.content)]
+    }
+
+    fn diff(&self, tree: &mut Tree) {
+        tree.diff_children(std::slice::from_ref(&self.content));
+    }
+
+    fn size(&self) -> Size<Length> {
+        self.content.as_widget().size()
+    }
+
+    fn layout(
+        &mut self,
+        tree: &mut Tree,
+        renderer: &iced::Renderer,
+        limits: &layout::Limits,
+    ) -> layout::Node {
+        self.content
+            .as_widget_mut()
+            .layout(&mut tree.children[0], renderer, limits)
+    }
+
+    fn operate(
+        &mut self,
+        tree: &mut Tree,
+        layout: Layout<'_>,
+        renderer: &iced::Renderer,
+        operation: &mut dyn Operation,
+    ) {
+        self.content
+            .as_widget_mut()
+            .operate(&mut tree.children[0], layout, renderer, operation);
+    }
+
+    fn update(
+        &mut self,
+        tree: &mut Tree,
+        event: &iced::Event,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        renderer: &iced::Renderer,
+        clipboard: &mut dyn Clipboard,
+        shell: &mut Shell<'_, Message>,
+        viewport: &Rectangle,
+    ) {
+        let over = cursor.is_over(layout.bounds());
+        let state = tree.state.downcast_mut::<HoverState>();
+        if state.hovered != over {
+            state.hovered = over;
+            shell.request_redraw();
+        }
+        self.content.as_widget_mut().update(
+            &mut tree.children[0],
+            event,
+            layout,
+            cursor,
+            renderer,
+            clipboard,
+            shell,
+            viewport,
+        );
+    }
+
+    fn draw(
+        &self,
+        tree: &Tree,
+        renderer: &mut iced::Renderer,
+        theme: &iced::Theme,
+        style: &renderer::Style,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+    ) {
+        self.content.as_widget().draw(
+            &tree.children[0],
+            renderer,
+            theme,
+            style,
+            layout,
+            cursor,
+            viewport,
+        );
+        if !tree.state.downcast_ref::<HoverState>().hovered {
+            return;
+        }
+        let bounds = layout.bounds();
+        let ring = Rectangle {
+            x: bounds.x,
+            y: bounds.y,
+            width: TILE_WIDTH + RING_PAD * 2.0,
+            height: POSTER_HEIGHT + RING_PAD * 2.0,
+        };
+        renderer.fill_quad(
+            renderer::Quad {
+                bounds: ring,
+                border: Border {
+                    color: RING,
+                    width: RING_WIDTH,
+                    radius: (POSTER_RADIUS + RING_PAD).into(),
+                },
+                shadow: Shadow::default(),
+                snap: true,
+            },
+            Background::Color(Color::TRANSPARENT),
+        );
+    }
+
+    fn mouse_interaction(
+        &self,
+        tree: &Tree,
+        layout: Layout<'_>,
+        cursor: mouse::Cursor,
+        viewport: &Rectangle,
+        renderer: &iced::Renderer,
+    ) -> mouse::Interaction {
+        self.content.as_widget().mouse_interaction(
+            &tree.children[0],
+            layout,
+            cursor,
+            viewport,
+            renderer,
+        )
+    }
+
+    fn overlay<'b>(
+        &'b mut self,
+        tree: &'b mut Tree,
+        layout: Layout<'b>,
+        renderer: &iced::Renderer,
+        viewport: &Rectangle,
+        translation: iced::Vector,
+    ) -> Option<overlay::Element<'b, Message, iced::Theme, iced::Renderer>> {
+        self.content.as_widget_mut().overlay(
+            &mut tree.children[0],
+            layout,
+            renderer,
+            viewport,
+            translation,
+        )
+    }
+}
+
+impl<'a> From<Hover<'a>> for Element<'a, Message> {
+    fn from(hover: Hover<'a>) -> Self {
+        Self::new(hover)
+    }
 }
