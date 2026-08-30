@@ -122,6 +122,7 @@ impl Store {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let conn = Connection::open(path)?;
         configure(&conn)?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -135,6 +136,7 @@ impl Store {
     pub fn memory() -> Result<Self, StoreError> {
         let conn = Connection::open_in_memory()?;
         configure(&conn)?;
+
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -185,12 +187,15 @@ impl Store {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
+
         let Some((fetched_at, payload)) = row else {
             return Ok(None);
         };
+
         if age_secs(fetched_at) >= i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX) {
             return Ok(None);
         }
+
         let value = serde_json::from_str(&payload).map_err(StoreError::Deserialize)?;
         Ok(Some(CacheHit { value, fetched_at }))
     }
@@ -235,27 +240,33 @@ impl Store {
         {
             let mut conn = self.lock();
             let tx = conn.transaction()?;
+
             tx.execute(
                 "INSERT OR REPLACE INTO tmdb_cache (language, kind, id, fetched_at, payload)
                  VALUES (?1, ?2, ?3, ?4, ?5)",
                 params![language, kind, id, fetched_at, payload],
             )?;
+
             tx.execute(
                 "DELETE FROM tmdb_image_ref WHERE language = ?1 AND kind = ?2 AND id = ?3",
                 params![language, kind, id],
             )?;
+
             for path in image_paths {
                 let Some(path) = normalize_tmdb_path(Some(path.as_str())) else {
                     continue;
                 };
+
                 tx.execute(
                     "INSERT OR IGNORE INTO tmdb_image_ref (language, kind, id, path)
                      VALUES (?1, ?2, ?3, ?4)",
                     params![language, kind, id, path],
                 )?;
             }
+
             tx.commit()?;
         }
+
         self.gc_images(allowed_sizes)
     }
 
@@ -268,6 +279,7 @@ impl Store {
         let mut rows = vec![HomeRow::empty(HomeRowId::RecentlyWatched)];
         let mut any = false;
         let mut fresh = true;
+
         for id in HomeRowId::REMOTE {
             match self.get_json::<HomeRow>(language, KIND_HOME, id.as_key())? {
                 None => {
@@ -283,9 +295,11 @@ impl Store {
                 }
             }
         }
+
         if !any {
             return Ok(None);
         }
+
         Ok(Some((HomeCatalog { rows }, fresh)))
     }
 
@@ -298,6 +312,7 @@ impl Store {
         let Some(path) = normalize_tmdb_path(Some(path)) else {
             return Ok(None);
         };
+
         let conn = self.lock();
         let row: Option<(i64, Vec<u8>)> = conn
             .query_row(
@@ -306,16 +321,20 @@ impl Store {
                 |row| Ok((row.get(0)?, row.get(1)?)),
             )
             .optional()?;
+
         let Some((fetched_at, bytes)) = row else {
             return Ok(None);
         };
+
         if age_secs(fetched_at) >= i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX) {
             return Ok(None);
         }
+
         conn.execute(
             "UPDATE tmdb_image SET accessed_at = ?1 WHERE size = ?2 AND path = ?3",
             params![unix_now(), size, path],
         )?;
+
         Ok(Some(bytes))
     }
 
@@ -328,25 +347,30 @@ impl Store {
         let Some(path) = normalize_tmdb_path(Some(path)) else {
             return Ok(());
         };
+
         let now = unix_now();
         let conn = self.lock();
+
         conn.execute(
             "INSERT OR REPLACE INTO tmdb_image (size, path, fetched_at, accessed_at, bytes)
              VALUES (?1, ?2, ?3, ?3, ?4)",
             params![size, path, now, bytes],
         )?;
+
         evict_over_budget(&conn)?;
         Ok(())
     }
 
     fn purge_expired(&self) -> Result<(), StoreError> {
-        let cutoff =
-            unix_now().saturating_sub(i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX));
+        let max_age = i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX);
+        let cutoff = unix_now().saturating_sub(max_age);
         let conn = self.lock();
+
         conn.execute(
             "DELETE FROM tmdb_cache WHERE fetched_at < ?1",
             params![cutoff],
         )?;
+
         conn.execute(
             "DELETE FROM tmdb_image_ref WHERE NOT EXISTS (
                 SELECT 1 FROM tmdb_cache c
@@ -356,10 +380,12 @@ impl Store {
             )",
             [],
         )?;
+
         conn.execute(
             "DELETE FROM tmdb_image WHERE fetched_at < ?1",
             params![cutoff],
         )?;
+
         Ok(())
     }
 
@@ -370,6 +396,7 @@ impl Store {
     /// Sqlite failures.
     pub fn gc_images(&self, allowed_sizes: &[String]) -> Result<(), StoreError> {
         let conn = self.lock();
+
         if !allowed_sizes.is_empty() {
             let placeholders = allowed_sizes
                 .iter()
@@ -377,19 +404,24 @@ impl Store {
                 .map(|(i, _)| format!("?{}", i + 1))
                 .collect::<Vec<_>>()
                 .join(", ");
+
             let sql = format!("DELETE FROM tmdb_image WHERE size NOT IN ({placeholders})");
             let mut stmt = conn.prepare(&sql)?;
             let params = rusqlite::params_from_iter(allowed_sizes.iter());
+
             stmt.execute(params)?;
         }
-        let grace_cutoff =
-            unix_now().saturating_sub(i64::try_from(IMAGE_GC_GRACE.as_secs()).unwrap_or(0));
+
+        let grace_secs = i64::try_from(IMAGE_GC_GRACE.as_secs()).unwrap_or(0);
+        let grace_cutoff = unix_now().saturating_sub(grace_secs);
+
         conn.execute(
             "DELETE FROM tmdb_image
              WHERE path NOT IN (SELECT path FROM tmdb_image_ref)
                AND accessed_at < ?1",
             params![grace_cutoff],
         )?;
+
         evict_over_budget(&conn)?;
         Ok(())
     }
@@ -405,11 +437,13 @@ fn configure(conn: &Connection) -> Result<(), StoreError> {
     conn.pragma_update(None, "journal_mode", "WAL")?;
     conn.pragma_update(None, "foreign_keys", "ON")?;
     conn.busy_timeout(Duration::from_secs(5))?;
+
     let version: i32 = conn.query_row("PRAGMA user_version", [], |row| row.get(0))?;
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
         conn.pragma_update(None, "user_version", 1)?;
     }
+
     Ok(())
 }
 
@@ -420,15 +454,18 @@ fn evict_over_budget(conn: &Connection) -> Result<(), rusqlite::Error> {
             [],
             |row| row.get(0),
         )?;
+
         if total <= IMAGE_BUDGET_BYTES {
             break;
         }
+
         let deleted = conn.execute(
             "DELETE FROM tmdb_image WHERE rowid = (
                 SELECT rowid FROM tmdb_image ORDER BY accessed_at ASC LIMIT 1
             )",
             [],
         )?;
+
         if deleted == 0 {
             break;
         }
@@ -462,12 +499,13 @@ pub const fn home_ttl(id: HomeRowId) -> Duration {
 /// Fresh TTL for a media card.
 #[must_use]
 pub fn media_ttl(details: &MediaDetails) -> Duration {
-    if details.kind == MediaKind::Movie && details.released.as_ref().is_some_and(|s| !s.is_empty())
-    {
-        DETAILS_STABLE_TTL
-    } else {
-        DETAILS_TTL
+    let has_release_date = details.released.as_ref().is_some_and(|s| !s.is_empty());
+
+    if details.kind == MediaKind::Movie && has_release_date {
+        return DETAILS_STABLE_TTL;
     }
+
+    DETAILS_TTL
 }
 
 /// Cache id for a movie/TV card.
@@ -478,6 +516,7 @@ pub fn media_cache_id(kind: MediaKind, id: TmdbId) -> String {
         MediaKind::Tv => "tv",
         MediaKind::Person => "person",
     };
+
     format!("{}:{}", kind, id.get())
 }
 
@@ -515,10 +554,10 @@ pub fn allowed_image_sizes(poster: PosterSize) -> Vec<String> {
 #[must_use]
 pub fn image_size_key(size: &str, soften: bool) -> String {
     if soften {
-        format!("{size}~soft")
-    } else {
-        size.to_owned()
+        return format!("{size}~soft");
     }
+
+    size.to_owned()
 }
 
 #[cfg(test)]
@@ -553,6 +592,7 @@ mod tests {
     fn json_roundtrip_is_language_scoped() -> Result<(), StoreError> {
         let store = Store::memory()?;
         let row = sample_row("/a.jpg");
+
         store.put_json(
             "en-US",
             KIND_HOME,
@@ -561,16 +601,20 @@ mod tests {
             &row.image_paths(),
             &sizes(),
         )?;
+
         let got = store.get_json::<HomeRow>("en-US", KIND_HOME, row.id.as_key())?;
         assert!(got.is_some());
+
         if let Some(hit) = got {
             assert_eq!(hit.value.items[0].title, "Dune");
         }
+
         assert!(
             store
                 .get_json::<HomeRow>("ru-RU", KIND_HOME, row.id.as_key())?
                 .is_none()
         );
+
         Ok(())
     }
 
@@ -579,6 +623,7 @@ mod tests {
         let store = Store::memory()?;
         let row = sample_row("/a.jpg");
         let old = unix_now() - i64::try_from(MAX_AGE.as_secs()).unwrap_or(0) - 10;
+
         store.put_json_at(
             "",
             KIND_HOME,
@@ -588,11 +633,13 @@ mod tests {
             old,
             &sizes(),
         )?;
+
         assert!(
             store
                 .get_json::<HomeRow>("", KIND_HOME, row.id.as_key())?
                 .is_none()
         );
+
         Ok(())
     }
 
@@ -601,6 +648,7 @@ mod tests {
         let store = Store::memory()?;
         store.put_image("w500", "/old.jpg", b"old")?;
         store.put_image("w500", "/new.jpg", b"new")?;
+
         {
             let conn = store.lock();
             conn.execute(
@@ -608,6 +656,7 @@ mod tests {
                 [],
             )?;
         }
+
         let row = sample_row("/new.jpg");
         store.put_json(
             "",
@@ -617,8 +666,10 @@ mod tests {
             &row.image_paths(),
             &sizes(),
         )?;
+
         assert!(store.get_image("w500", "/old.jpg")?.is_none());
         assert_eq!(store.get_image("w500", "/new.jpg")?, Some(b"new".to_vec()));
+
         Ok(())
     }
 
@@ -626,6 +677,7 @@ mod tests {
     fn clear_tmdb_keeps_watch_progress() -> Result<(), StoreError> {
         let store = Store::memory()?;
         let row = sample_row("/a.jpg");
+
         store.put_json(
             "",
             KIND_HOME,
@@ -634,6 +686,7 @@ mod tests {
             &row.image_paths(),
             &sizes(),
         )?;
+
         store.put_image("w500", "/a.jpg", b"img")?;
         {
             let conn = store.lock();
@@ -642,12 +695,14 @@ mod tests {
                 [],
             )?;
         }
+
         store.clear_tmdb()?;
         assert!(
             store
                 .get_json::<HomeRow>("", KIND_HOME, row.id.as_key())?
                 .is_none()
         );
+
         assert!(store.get_image("w500", "/a.jpg")?.is_none());
         let kept: i64 = {
             let conn = store.lock();
@@ -657,6 +712,7 @@ mod tests {
                 |row| row.get(0),
             )?
         };
+
         assert_eq!(kept, 1);
         Ok(())
     }
@@ -665,6 +721,7 @@ mod tests {
     fn home_catalog_reports_freshness() -> Result<(), StoreError> {
         let store = Store::memory()?;
         assert!(store.home_catalog("")?.is_none());
+
         for id in HomeRowId::REMOTE {
             let row = HomeRow {
                 id,
@@ -680,12 +737,15 @@ mod tests {
                 &sizes(),
             )?;
         }
+
         let got = store.home_catalog("")?;
         assert!(got.is_some());
+
         if let Some((catalog, fresh)) = got {
             assert!(fresh);
             assert_eq!(catalog.rows.len(), HomeRowId::ALL.len());
         }
+
         Ok(())
     }
 
@@ -695,6 +755,7 @@ mod tests {
             media_cache_id(MediaKind::Movie, TmdbId::new(550)),
             "movie:550"
         );
+
         assert_eq!(season_cache_id(TmdbId::new(10), 2), "10:2");
     }
 }

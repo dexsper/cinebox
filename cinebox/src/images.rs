@@ -115,18 +115,18 @@ impl ImageCache {
             return;
         }
 
-        if let Some(db) = &self.db
-            && let Some((size, path)) = parse_tmdb_image_url(&url)
-        {
-            let key = image_size_key(&size, soften);
-            if let Ok(Some(bytes)) = db.get_image(&key, &path) {
-                let tx = self.tx.clone();
-                egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-                    let result = decode(&bytes);
-                    let _ = tx.send((url, result));
-                    request_repaint();
-                });
-                return;
+        if let Some(db) = &self.db {
+            if let Some((size, path)) = parse_tmdb_image_url(&url) {
+                let key = image_size_key(&size, soften);
+                if let Ok(Some(bytes)) = db.get_image(&key, &path) {
+                    let tx = self.tx.clone();
+                    egui_async::bind::ASYNC_RUNTIME.spawn(async move {
+                        let result = decode(&bytes);
+                        let _ = tx.send((url, result));
+                        request_repaint();
+                    });
+                    return;
+                }
             }
         }
 
@@ -191,12 +191,12 @@ async fn download(
         bytes
     };
 
-    if let Some(db) = db
-        && let Some((size, path)) = parse_tmdb_image_url(&url)
-    {
-        let key = image_size_key(&size, soften);
-        if let Err(error) = db.put_image(&key, &path, &bytes) {
-            warn!(%error, "failed to persist tmdb image");
+    if let Some(db) = db {
+        if let Some((size, path)) = parse_tmdb_image_url(&url) {
+            let key = image_size_key(&size, soften);
+            if let Err(error) = db.put_image(&key, &path, &bytes) {
+                warn!(%error, "failed to persist tmdb image");
+            }
         }
     }
 

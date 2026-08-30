@@ -67,6 +67,7 @@ impl MediaDetails {
         if let Some(year) = self.year {
             parts.push(year.to_string());
         }
+
         if !self.countries.is_empty() {
             parts.push(
                 self.countries
@@ -77,6 +78,7 @@ impl MediaDetails {
                     .join(" | "),
             );
         }
+
         parts.join(", ")
     }
 
@@ -107,8 +109,12 @@ impl MediaDetails {
     #[must_use]
     pub fn is_anime(&self) -> bool {
         const ANIMATION: u32 = 16;
-        matches!(self.original_language.as_deref(), Some("ja" | "zh"))
-            && self.genre_ids.contains(&ANIMATION)
+
+        if !matches!(self.original_language.as_deref(), Some("ja" | "zh")) {
+            return false;
+        }
+
+        self.genre_ids.contains(&ANIMATION)
     }
 
     /// Default indexer query: original title (year is a separate Jackett param).
@@ -127,17 +133,22 @@ impl MediaDetails {
         let mut paths = Vec::new();
         push_path(&mut paths, self.poster_path.as_deref());
         push_path(&mut paths, self.backdrop_path.as_deref());
-        for person in self.directors.iter().chain(self.cast.iter()) {
+
+        let people = self.directors.iter().chain(self.cast.iter());
+        for person in people {
             push_path(&mut paths, person.profile_path.as_deref());
         }
-        for item in self
+
+        let items = self
             .collection
             .iter()
-            .chain(self.recommendations.iter())
-            .chain(self.similar.iter())
-        {
+            .chain(&self.recommendations)
+            .chain(&self.similar);
+
+        for item in items {
             push_path(&mut paths, item.poster_path.as_deref());
         }
+
         paths
     }
 }
@@ -160,19 +171,25 @@ impl PersonDetails {
     pub fn image_paths(&self) -> Vec<String> {
         let mut paths = Vec::new();
         push_path(&mut paths, self.profile_path.as_deref());
+
         for item in &self.credits {
             push_path(&mut paths, item.poster_path.as_deref());
         }
+
         paths
     }
 }
 
 fn push_path(paths: &mut Vec<String>, raw: Option<&str>) {
-    if let Some(path) = normalize_tmdb_path(raw)
-        && !paths.contains(&path)
-    {
-        paths.push(path);
+    let Some(path) = normalize_tmdb_path(raw) else {
+        return;
+    };
+
+    if paths.contains(&path) {
+        return;
     }
+
+    paths.push(path);
 }
 
 /// Format `125` → `2h 5m`.
@@ -180,31 +197,34 @@ fn push_path(paths: &mut Vec<String>, raw: Option<&str>) {
 pub fn format_runtime(minutes: u32) -> String {
     let hours = minutes / 60;
     let mins = minutes % 60;
+
     if hours == 0 {
-        format!("{mins}m")
-    } else if mins == 0 {
-        format!("{hours}h")
-    } else {
-        format!("{hours}h {mins}m")
+        return format!("{mins}m");
     }
+
+    if mins == 0 {
+        return format!("{hours}h");
+    }
+
+    format!("{hours}h {mins}m")
 }
 
 #[must_use]
 fn format_seasons(count: u32) -> String {
     if count == 1 {
-        String::from("1 season")
-    } else {
-        format!("{count} seasons")
+        return String::from("1 season");
     }
+
+    format!("{count} seasons")
 }
 
 #[must_use]
 fn format_episodes(count: u32) -> String {
     if count == 1 {
-        String::from("1 episode")
-    } else {
-        format!("{count} episodes")
+        return String::from("1 episode");
     }
+
+    format!("{count} episodes")
 }
 
 /// Map MPAA / TV parental codes to an age mark (`13+`). Other labels pass through.
@@ -214,6 +234,7 @@ pub fn decode_certification(raw: &str) -> Option<String> {
     if trimmed.is_empty() {
         return None;
     }
+
     let mapped = match trimmed.to_ascii_uppercase().as_str() {
         "G" | "TV-G" => "3+",
         "PG" | "TV-PG" => "6+",
@@ -225,27 +246,33 @@ pub fn decode_certification(raw: &str) -> Option<String> {
         "TV-Y7" | "TV-Y7-FV" => "7+",
         _ => trimmed,
     };
+
     Some(mapped.to_owned())
 }
 
 /// Format a TMDB budget/revenue if it is present and positive.
 #[must_use]
 pub fn format_money(amount: u64) -> String {
-    let mut s = amount.to_string();
-    let mut out = String::new();
-    while !s.is_empty() {
-        let take = if s.len().is_multiple_of(3) {
-            3
-        } else {
-            s.len() % 3
-        };
-        if !out.is_empty() {
+    let digits = amount.to_string();
+    let mut out = String::with_capacity(digits.len() + digits.len() / 3 + 1);
+    out.push('$');
+
+    let head = digits.len() % 3;
+    let mut i = 0;
+    if head != 0 {
+        out.push_str(&digits[..head]);
+        i = head;
+    }
+
+    while i < digits.len() {
+        if i > 0 {
             out.push(',');
         }
-        out.push_str(&s[..take]);
-        s = s[take..].to_owned();
+        out.push_str(&digits[i..i + 3]);
+        i += 3;
     }
-    format!("${out}")
+
+    out
 }
 
 /// Format `YYYY-MM-DD` as `22 Oct 2021`. Other strings pass through.
@@ -254,19 +281,24 @@ pub fn format_release_date(iso: &str) -> String {
     const MONTHS: [&str; 12] = [
         "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
     ];
+
     let mut parts = iso.split('-');
     let Some(year) = parts.next() else {
         return iso.to_owned();
     };
+
     let Some(month) = parts.next().and_then(|m| m.parse::<usize>().ok()) else {
         return iso.to_owned();
     };
+
     let Some(day) = parts.next() else {
         return iso.to_owned();
     };
+
     if !(1..=12).contains(&month) {
         return iso.to_owned();
     }
+
     let day = day.trim_start_matches('0');
     format!("{day} {} {year}", MONTHS[month - 1])
 }
@@ -323,6 +355,7 @@ mod tests {
                 youtube_key: String::from("abc"),
             }],
         };
+
         assert_eq!(details.head_line(), "2021, United States");
         assert_eq!(details.detail_bits(), vec!["2h 35m", "Sci-Fi", "Adventure"]);
         assert_eq!(details.torrent_query(), "Dune");
@@ -334,10 +367,12 @@ mod tests {
             number_of_episodes: Some(62),
             ..details.clone()
         };
+
         assert_eq!(
             tv.detail_bits(),
             vec!["5 seasons", "62 episodes", "Sci-Fi", "Adventure"]
         );
+
         assert_eq!(
             details.trailers[0].watch_url(),
             "https://www.youtube.com/watch?v=abc"

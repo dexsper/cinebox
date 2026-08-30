@@ -52,10 +52,10 @@ impl Services {
     }
 
     pub fn clear_tmdb_cache(&mut self) {
-        if let Some(db) = &self.db
-            && let Err(error) = db.clear_tmdb()
-        {
-            error!(%error, "failed to clear tmdb cache");
+        if let Some(db) = &self.db {
+            if let Err(error) = db.clear_tmdb() {
+                error!(%error, "failed to clear tmdb cache");
+            }
         }
         self.images.clear();
         self.home_needs_refresh = true;
@@ -93,10 +93,10 @@ fn open_settings_store() -> (Option<SettingsStore>, Settings, Option<String>) {
     match store.load() {
         Ok(settings) => {
             info!(path = %store.path().display(), "settings loaded");
-            if !store.path().exists()
-                && let Err(error) = store.save(&settings)
-            {
-                warn!(%error, "could not write default settings");
+            if !store.path().exists() {
+                if let Err(error) = store.save(&settings) {
+                    warn!(%error, "could not write default settings");
+                }
             }
             (Some(store), settings, None)
         }

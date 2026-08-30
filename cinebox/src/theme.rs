@@ -2,6 +2,8 @@
 
 use egui::{Color32, CornerRadius, Margin, Stroke, Style, Visuals, style::ScrollStyle};
 
+pub const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
+
 /// Application theme. Screens and widgets take `&Theme`; they do not pick colors.
 #[derive(Clone, Debug)]
 pub struct Theme {
@@ -67,7 +69,7 @@ impl Theme {
     #[must_use]
     pub fn dark() -> Self {
         Self {
-            page_bg: Color32::from_rgb(0x2B, 0x2D, 0x31),
+            page_bg: Color32::from_rgb(PAGE_BG_RGB[0], PAGE_BG_RGB[1], PAGE_BG_RGB[2]),
             panel: Color32::from_rgb(20, 20, 26),
             panel_elevated: Color32::from_rgba_unmultiplied(28, 28, 36, 250),
             overlay: Color32::from_rgba_unmultiplied(0, 0, 0, 140),

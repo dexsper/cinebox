@@ -5,9 +5,8 @@ use std::io::Cursor;
 use egui::{Color32, Mesh, Pos2, Rect, TextureHandle, Ui, epaint::Vertex};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 
-const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
 const CENTER_VEIL: f32 = 0.09;
 const EDGE_VEIL: f32 = 0.74;
 
@@ -192,7 +191,7 @@ fn accent_wash(src: &RgbaImage) -> [u8; 3] {
     } else if count > 0.0 {
         [mean[0] / count, mean[1] / count, mean[2] / count]
     } else {
-        return PAGE_BG_RGB;
+        return theme::PAGE_BG_RGB;
     };
     dark_wash(rgb)
 }

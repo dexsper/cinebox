@@ -19,12 +19,12 @@ pub fn normalize_base_url(raw: &str) -> Result<String, BaseUrlError> {
     if trimmed.is_empty() {
         return Err(BaseUrlError::Empty);
     }
-    let with_scheme = if trimmed.contains("://") {
-        trimmed.to_owned()
-    } else {
-        format!("http://{trimmed}")
-    };
-    Ok(with_scheme.trim_end_matches('/').to_owned())
+
+    if trimmed.contains("://") {
+        return Ok(trimmed.trim_end_matches('/').to_owned());
+    }
+
+    Ok(format!("http://{}", trimmed.trim_end_matches('/')))
 }
 
 /// Join `{base}/{path}` with a single slash.
@@ -32,6 +32,7 @@ pub fn normalize_base_url(raw: &str) -> Result<String, BaseUrlError> {
 pub fn join_url(base: &str, path: &str) -> String {
     let base = base.trim_end_matches('/');
     let path = path.trim_start_matches('/');
+
     format!("{base}/{path}")
 }
 
@@ -48,6 +49,7 @@ mod tests {
     fn adds_http_and_strips_slash() -> Result<(), BaseUrlError> {
         let url = normalize_base_url("127.0.0.1:8090/")?;
         assert_eq!(url, "http://127.0.0.1:8090");
+
         Ok(())
     }
 
@@ -55,6 +57,7 @@ mod tests {
     fn keeps_https() -> Result<(), BaseUrlError> {
         let url = normalize_base_url("https://ts.example.com/")?;
         assert_eq!(url, "https://ts.example.com");
+
         Ok(())
     }
 

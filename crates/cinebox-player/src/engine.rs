@@ -137,7 +137,7 @@ impl Engine {
     ///
     /// mpv property failures.
     pub fn toggle_pause(&self) -> Result<bool, Error> {
-        let paused: bool = self.mpv.get_property("pause").unwrap_or(false);
+        let paused: bool = self.mpv.get_property("pause").map_err(Error::mpv)?;
         let next = !paused;
         self.mpv.set_property("pause", next).map_err(Error::mpv)?;
         Ok(next)

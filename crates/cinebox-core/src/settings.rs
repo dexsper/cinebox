@@ -343,10 +343,12 @@ impl SettingsStore {
         if !self.path.exists() {
             return Ok(Settings::default());
         }
+
         let json = fs::read_to_string(&self.path).map_err(|source| SettingsError::Read {
             path: self.path.clone(),
             source,
         })?;
+
         serde_json::from_str(&json).map_err(|source| SettingsError::Parse {
             path: self.path.clone(),
             source,
@@ -365,8 +367,10 @@ impl SettingsStore {
                 source,
             })?;
         }
+
         let json = serde_json::to_string_pretty(settings)
             .map_err(|source| SettingsError::Serialize { source })?;
+
         fs::write(&self.path, json).map_err(|source| SettingsError::Write {
             path: self.path.clone(),
             source,
@@ -384,6 +388,7 @@ mod tests {
             .duration_since(UNIX_EPOCH)
             .map(|d| d.as_nanos())
             .unwrap_or(0);
+
         std::env::temp_dir().join(format!("cinebox-settings-{nanos}.json"))
     }
 
@@ -391,9 +396,11 @@ mod tests {
     fn settings_roundtrip_json() -> Result<(), serde_json::Error> {
         let settings = Settings::default();
         assert!(settings.interface.use_system_proxy);
+
         let json = serde_json::to_string_pretty(&settings)?;
         let back: Settings = serde_json::from_str(&json)?;
         assert_eq!(settings, back);
+
         Ok(())
     }
 
@@ -401,6 +408,7 @@ mod tests {
     fn secret_debug_is_redacted() {
         let secret = SecretString::from("hunter2");
         let rendered = format!("{secret:?}");
+
         assert_eq!(rendered, "***");
         assert!(!rendered.contains("hunter2"));
     }
@@ -410,6 +418,7 @@ mod tests {
         let path = temp_settings_path();
         let store = SettingsStore::from_path(path);
         let loaded = store.load()?;
+
         assert_eq!(loaded, Settings::default());
         Ok(())
     }
@@ -419,24 +428,30 @@ mod tests {
         let path = temp_settings_path();
         let store = SettingsStore::from_path(path.clone());
         let mut settings = Settings::default();
+
         settings.interface.language = UiLanguage::Russian;
         settings.parser.kind = ParserKind::Prowlarr;
         settings.tmdb.api_key = SecretString::from("not-a-real-key");
         store.save(&settings)?;
+
         let loaded = store.load()?;
         let _ = fs::remove_file(&path);
+
         assert_eq!(loaded.interface.language, UiLanguage::Russian);
         assert_eq!(loaded.parser.kind, ParserKind::Prowlarr);
         assert_eq!(loaded.tmdb.api_key.expose(), "not-a-real-key");
+
         Ok(())
     }
 
     #[test]
     fn partial_json_fills_defaults() -> Result<(), serde_json::Error> {
         let parsed: Settings = serde_json::from_str(r#"{"interface":{"language":"russian"}}"#)?;
+
         assert_eq!(parsed.interface.language, UiLanguage::Russian);
         assert!(parsed.interface.use_system_proxy);
         assert_eq!(parsed.torrserver.url, "http://127.0.0.1:8090");
+
         Ok(())
     }
 }

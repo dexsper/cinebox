@@ -48,73 +48,51 @@ impl HomeScreen {
             None => (None, false),
         };
         let disk_catalog = disk_catalog.as_ref();
-
-        let mut action = None;
-        if matches!(self.catalog.read(), Some(Ok(_))) {
+        let skip_network = !self.force_refresh && disk_fresh;
+        let settings = svc.settings.clone();
+        let db = svc.db.clone();
+        let outcome = super::swr::resolve(
+            &mut self.catalog,
+            disk_catalog.is_some(),
+            skip_network,
+            move || jobs::load_home(settings, db),
+        );
+        if outcome.from_network {
             self.force_refresh = false;
         }
-        if let Some(result) = self.catalog.read() {
-            match result {
-                Ok(catalog) => {
-                    queue_home_posters(svc, catalog);
-                    action = catalog_view(ui, catalog, svc, theme);
-                }
-                Err(error) => {
-                    if let Some(catalog) = disk_catalog {
-                        queue_home_posters(svc, catalog);
-                        action = catalog_view(ui, catalog, svc, theme);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.refresh();
-                        }
-                    }
-                }
-            }
-        } else if !self.force_refresh && disk_fresh {
-            if let Some(catalog) = disk_catalog {
-                queue_home_posters(svc, catalog);
-                action = catalog_view(ui, catalog, svc, theme);
-            }
-        } else {
-            let settings = svc.settings.clone();
-            let db = svc.db.clone();
-            let mut loaded_ok = false;
-            match self
-                .catalog
-                .read_or_request(move || jobs::load_home(settings, db))
-            {
-                None => {
-                    if let Some(catalog) = disk_catalog {
-                        queue_home_posters(svc, catalog);
-                        action = catalog_view(ui, catalog, svc, theme);
-                    } else {
-                        widgets::page_spinner(ui, theme);
-                    }
-                }
+
+        let mut retry = false;
+        let action = match outcome.view {
+            super::swr::Swr::Live => match self.catalog.read() {
                 Some(Ok(catalog)) => {
-                    loaded_ok = true;
                     queue_home_posters(svc, catalog);
-                    action = catalog_view(ui, catalog, svc, theme);
+                    catalog_view(ui, catalog, svc, theme)
                 }
-                Some(Err(error)) => {
-                    if let Some(catalog) = disk_catalog {
-                        queue_home_posters(svc, catalog);
-                        action = catalog_view(ui, catalog, svc, theme);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.refresh();
-                        }
-                    }
+                _ => None,
+            },
+            super::swr::Swr::Disk => match disk_catalog {
+                Some(catalog) => {
+                    queue_home_posters(svc, catalog);
+                    catalog_view(ui, catalog, svc, theme)
                 }
+                None => None,
+            },
+            super::swr::Swr::Failed => {
+                if let Some(Err(error)) = self.catalog.read() {
+                    ui.label(RichText::new(error).color(theme.err));
+                }
+                retry = ui.button("Retry").clicked();
+                None
             }
-            if loaded_ok {
-                self.force_refresh = false;
+            super::swr::Swr::Pending => {
+                widgets::page_spinner(ui, theme);
+                None
             }
+        };
+        if retry {
+            self.refresh();
         }
+
         action
     }
 }

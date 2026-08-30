@@ -18,7 +18,7 @@ pub async fn fetch_media(
     let method = match kind {
         MediaKind::Movie => "movie",
         MediaKind::Tv => "tv",
-        MediaKind::Person => return Err(Error::Http(400)),
+        MediaKind::Person => return Err(Error::UnsupportedKind),
     };
 
     let client = http_client(std::time::Duration::from_secs(25), use_system_proxy)?;

@@ -35,6 +35,10 @@ pub enum Error {
     Unauthorized,
     #[error("tmdb returned HTTP {0}")]
     Http(u16),
+    #[error("media kind is not movie or tv")]
+    UnsupportedKind,
+    #[error("tmdb payload is incomplete")]
+    IncompletePayload,
     #[error("tmdb returned unexpected json")]
     Json(#[from] serde_json::Error),
 }
@@ -78,7 +82,11 @@ pub(crate) fn prepare_api_key(api_key: &str) -> Result<&str, Error> {
 }
 
 fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest::ClientBuilder {
-    if enabled { builder } else { builder.no_proxy() }
+    if enabled {
+        return builder;
+    }
+
+    builder.no_proxy()
 }
 
 pub(crate) fn http_client(

@@ -27,7 +27,7 @@ pub(crate) fn media_from_body(
     language: Option<&str>,
 ) -> Result<(MediaDetails, Option<u32>), Error> {
     let Some(id) = body.id.filter(|id| *id > 0) else {
-        return Err(Error::Http(404));
+        return Err(Error::IncompletePayload);
     };
 
     let runtime = pick_runtime(&body);
@@ -38,7 +38,7 @@ pub(crate) fn media_from_body(
         MediaKind::Person => None,
     }
     .filter(|t| !t.is_empty())
-    .ok_or(Error::Http(404))?;
+    .ok_or(Error::IncompletePayload)?;
 
     let original = match kind {
         MediaKind::Movie => body.original_title.or(body.original_name),
@@ -297,13 +297,13 @@ fn trailers_from(videos: Vec<VideoRaw>) -> Vec<Trailer> {
 
 pub(crate) fn person_from_body(body: PersonBody) -> Result<PersonDetails, Error> {
     let Some(id) = body.id.filter(|id| *id > 0) else {
-        return Err(Error::Http(404));
+        return Err(Error::IncompletePayload);
     };
 
     let name = body
         .name
         .filter(|n| !n.is_empty())
-        .ok_or(Error::Http(404))?;
+        .ok_or(Error::IncompletePayload)?;
     let credits_raw = body.combined_credits.unwrap_or(CombinedCredits {
         cast: None,
         crew: None,

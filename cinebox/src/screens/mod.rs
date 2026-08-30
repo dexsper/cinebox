@@ -4,6 +4,7 @@ pub mod person;
 pub mod play;
 pub mod player;
 pub mod settings;
+mod swr;
 pub mod torrents;
 
 pub use home::HomeScreen;

@@ -41,11 +41,10 @@ impl Default for MediaScreen {
 
 impl MediaScreen {
     pub fn ready(&mut self) -> Option<&MediaDetails> {
-        if let Some(result) = self.bind.read()
-            && let Ok(details) = result
-        {
+        if let Some(Ok(details)) = self.bind.read() {
             return Some(details);
         }
+
         self.disk.as_ref().map(|hit| hit.value.as_ref())
     }
 
@@ -114,81 +113,62 @@ impl MediaScreen {
 
         let settings = svc.settings.clone();
         let db = svc.db.clone();
-        let disk_fresh = self
-            .disk
-            .as_ref()
-            .is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
-        let mut action = None;
-        if matches!(self.bind.read(), Some(Ok(_))) {
+        let skip_network = !self.force_refresh
+            && self
+                .disk
+                .as_ref()
+                .is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
+        let has_disk = self.disk.is_some();
+        let outcome = super::swr::resolve(
+            &mut self.bind,
+            has_disk,
+            skip_network,
+            move || jobs::load_media(settings, kind, id, db),
+        );
+        if outcome.from_network {
             self.force_refresh = false;
         }
-
-        if let Some(result) = self.bind.read() {
-            match result {
-                Ok(details) => {
-                    queue_media_assets(svc, details);
-                    action = ready(ui, details, svc, theme, t);
-                }
-                Err(error) => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        queue_media_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.bind.clear();
-                            self.force_refresh = true;
-                        }
-                    }
-                }
-            }
-        } else if !self.force_refresh && disk_fresh {
-            if let Some(hit) = self.disk.as_ref() {
-                queue_media_assets(svc, &hit.value);
-                action = ready(ui, &hit.value, svc, theme, t);
-            }
-        } else {
-            let mut loaded_ok = false;
-            match self
-                .bind
-                .read_or_request(move || jobs::load_media(settings, kind, id, db))
-            {
-                None => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        ui.ctx().request_repaint();
-                        queue_media_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else if let Some(item) = self.preview.as_ref() {
-                        ui.ctx().request_repaint();
-                        loading(ui, svc, theme, t, item);
-                    } else {
-                        widgets::page_spinner(ui, theme);
-                    }
-                }
-                Some(Ok(details)) => {
-                    loaded_ok = true;
-                    queue_media_assets(svc, details);
-                    action = ready(ui, details, svc, theme, t);
-                }
-                Some(Err(error)) => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        queue_media_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.bind.clear();
-                            self.force_refresh = true;
-                        }
-                    }
-                }
-            }
-            if loaded_ok {
-                self.force_refresh = false;
-            }
+        if outcome.in_flight {
+            ui.ctx().request_repaint();
         }
+
+        let mut retry = false;
+        let action = match outcome.view {
+            super::swr::Swr::Live => match self.bind.read() {
+                Some(Ok(details)) => {
+                    queue_media_assets(svc, details);
+                    ready(ui, details, svc, theme, t)
+                }
+                _ => None,
+            },
+            super::swr::Swr::Disk => match self.disk.as_ref() {
+                Some(hit) => {
+                    queue_media_assets(svc, &hit.value);
+                    ready(ui, &hit.value, svc, theme, t)
+                }
+                None => None,
+            },
+            super::swr::Swr::Failed => {
+                if let Some(Err(error)) = self.bind.read() {
+                    ui.label(RichText::new(error).color(theme.err));
+                }
+                retry = ui.button("Retry").clicked();
+                None
+            }
+            super::swr::Swr::Pending => {
+                if let Some(item) = self.preview.as_ref() {
+                    loading(ui, svc, theme, t, item);
+                } else {
+                    widgets::page_spinner(ui, theme);
+                }
+                None
+            }
+        };
+        if retry {
+            self.bind.clear();
+            self.force_refresh = true;
+        }
+
         action
     }
 
@@ -212,12 +192,14 @@ fn queue_media_assets(svc: &mut Services, details: &MediaDetails) {
         poster_path: details.poster_path.clone(),
     };
     svc.images.request_poster(&item, size, proxy);
-    for extra in details
+
+    let extras = details
         .collection
         .iter()
-        .chain(details.recommendations.iter())
-        .chain(details.similar.iter())
-    {
+        .chain(&details.recommendations)
+        .chain(&details.similar);
+
+    for extra in extras {
         svc.images.request_poster(extra, size, proxy);
     }
     if let Some(url) = tmdb_image_url(details.poster_path.as_deref(), size.tmdb_path()) {
@@ -584,10 +566,14 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
 
 fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
     ui.horizontal_wrapped(|ui| {
-        if let Some(released) = details.released.as_deref() {
-            fact(ui, Msg::Release.en(), format_release_date(released), theme);
-        } else if let Some(year) = details.year {
-            fact(ui, Msg::Release.en(), year.to_string(), theme);
+        let release = details
+            .released
+            .as_deref()
+            .map(format_release_date)
+            .or_else(|| details.year.map(|year| year.to_string()));
+
+        if let Some(release) = release {
+            fact(ui, Msg::Release.en(), release, theme);
         }
         if let Some(budget) = details.budget {
             fact(ui, Msg::Budget.en(), format_money(budget), theme);

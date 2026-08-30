@@ -186,11 +186,11 @@ impl SettingsScreen {
                 .changed()
             {
                 let trimmed = lang.trim();
-                svc.settings.tmdb.data_language = if trimmed.is_empty() {
-                    None
+                if trimmed.is_empty() {
+                    svc.settings.tmdb.data_language = None;
                 } else {
-                    Some(trimmed.to_owned())
-                };
+                    svc.settings.tmdb.data_language = Some(trimmed.to_owned());
+                }
                 persist = true;
             }
             persist |= combo(

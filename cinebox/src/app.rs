@@ -110,9 +110,15 @@ impl App {
                 self.person.seed(person);
             }
             NavAction::WatchTorrents => {
-                if let Screen::Media { kind, id } = self.nav.current() {
-                    self.nav.push(Screen::Torrents { kind, id });
-                }
+                let Screen::Media { kind, id } = self.nav.current() else {
+                    return;
+                };
+                let Some(details) = self.media.ready() else {
+                    return;
+                };
+
+                self.torrents.ensure_open(details);
+                self.nav.push(Screen::Torrents { kind, id });
             }
             NavAction::OpenUrl(url) => {
                 if let Err(error) = open::that(&url) {
@@ -141,10 +147,10 @@ impl App {
             self.last_tmdb = next;
             if had_key {
                 self.home.refresh();
-                if let Some(db) = &self.services.db
-                    && let Err(error) = db.clear_tmdb()
-                {
-                    error!(%error, "failed to purge tmdb cache");
+                if let Some(db) = &self.services.db {
+                    if let Err(error) = db.clear_tmdb() {
+                        error!(%error, "failed to purge tmdb cache");
+                    }
                 }
                 self.services.images.clear();
             }
@@ -191,10 +197,10 @@ impl App {
                 .and_then(|d| tmdb_image_url(d.backdrop_path.as_deref(), "w1280")),
             _ => None,
         };
-        if let Some(url) = url
-            && let Some(tex) = self.services.images.get(&url)
-        {
-            backdrop::paint(ui, tex, &self.theme);
+        if let Some(url) = url {
+            if let Some(tex) = self.services.images.get(&url) {
+                backdrop::paint(ui, tex, &self.theme);
+            }
         }
     }
 }
@@ -288,10 +294,7 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {
-            let details = app.media.ready().cloned();
-            let nav = app
-                .torrents
-                .ui(ui, &mut app.services, theme, kind, id, details.as_ref());
+            let nav = app.torrents.ui(ui, &mut app.services, theme, kind, id);
             if app.torrents.intro_animating(ui.input(|i| i.time)) {
                 ui.ctx().request_repaint();
             }

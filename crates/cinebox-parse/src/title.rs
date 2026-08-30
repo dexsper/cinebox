@@ -258,12 +258,14 @@ fn source_quality(lower: &str) -> Option<SourceQuality> {
 
 fn hdr(lower: &str) -> Option<Hdr> {
     if lower.contains("dolby vision") {
-        Some(Hdr::DolbyVision)
-    } else if lower.contains("hdr") {
-        Some(Hdr::Hdr)
-    } else {
-        None
+        return Some(Hdr::DolbyVision);
     }
+
+    if lower.contains("hdr") {
+        return Some(Hdr::Hdr);
+    }
+
+    None
 }
 
 /// `lower` is the release name already lowercased.
@@ -301,14 +303,18 @@ pub fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     let n = bytes as f64;
     if n >= KIB * KIB * KIB {
-        format!("{:.1} GB", n / (KIB * KIB * KIB))
-    } else if n >= KIB * KIB {
-        format!("{:.0} MB", n / (KIB * KIB))
-    } else if n >= KIB {
-        format!("{:.0} KB", n / KIB)
-    } else {
-        format!("{bytes} B")
+        return format!("{:.1} GB", n / (KIB * KIB * KIB));
     }
+
+    if n >= KIB * KIB {
+        return format!("{:.0} MB", n / (KIB * KIB));
+    }
+
+    if n >= KIB {
+        return format!("{:.0} KB", n / KIB);
+    }
+
+    format!("{bytes} B")
 }
 
 /// Infohash from a magnet (`btih:`) when present.

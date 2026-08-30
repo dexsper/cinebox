@@ -49,12 +49,12 @@ pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<Hom
             rows.push(row);
             continue;
         }
-        if row.error.is_some()
-            && row.items.is_empty()
-            && let Ok(Some(hit)) = db.get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key())
-        {
-            rows.push(hit.value);
-            continue;
+        let stale_empty = row.error.is_some() && row.items.is_empty();
+        if stale_empty {
+            if let Ok(Some(hit)) = db.get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key()) {
+                rows.push(hit.value);
+                continue;
+            }
         }
         let paths = row.image_paths();
         if let Err(error) = db.put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths, &sizes) {
@@ -151,9 +151,13 @@ pub async fn load_torrents(
     .await
     .map_err(|error| error.to_string())?;
 
-    let started = cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass)
-        .await
-        .unwrap_or_default();
+    let started = match cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass).await {
+        Ok(rows) => rows,
+        Err(error) => {
+            warn!(%error, "torrserver list failed; started tags unavailable");
+            Vec::new()
+        }
+    };
 
     let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
     let mut hits: Vec<TorrentHit> = raw
@@ -227,13 +231,16 @@ async fn season_catalog(
     let mut need = Vec::new();
     for season in seasons {
         let cache_id = season_cache_id(id, season);
-        if let Some(db) = &db
-            && let Ok(Some(hit)) =
-                db.get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(lang, KIND_SEASON, &cache_id)
-            && hit.is_fresh(SEASON_TTL)
-        {
-            out.extend(hit.value);
-            continue;
+        let cached = db.as_ref().and_then(|db| {
+            db.get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(lang, KIND_SEASON, &cache_id)
+                .ok()
+                .flatten()
+        });
+        if let Some(hit) = cached {
+            if hit.is_fresh(SEASON_TTL) {
+                out.extend(hit.value);
+                continue;
+            }
         }
         need.push(season);
     }
@@ -242,7 +249,7 @@ async fn season_catalog(
         return out;
     }
 
-    let fetched = cinebox_tmdb::fetch_season_episodes(
+    let fetched = match cinebox_tmdb::fetch_season_episodes(
         api_key,
         id,
         &need,
@@ -250,7 +257,13 @@ async fn season_catalog(
         settings.interface.use_system_proxy,
     )
     .await
-    .unwrap_or_default();
+    {
+        Ok(episodes) => episodes,
+        Err(error) => {
+            warn!(%error, "season episode catalog failed");
+            Vec::new()
+        }
+    };
 
     if let Some(db) = db {
         for season in need {
@@ -273,13 +286,34 @@ async fn season_catalog(
 fn episode_paths(episodes: &[cinebox_tmdb::SeasonEpisode]) -> Vec<String> {
     let mut paths = Vec::new();
     for episode in episodes {
-        if let Some(path) = normalize_tmdb_path(episode.still_path.as_deref())
-            && !paths.contains(&path)
-        {
-            paths.push(path);
+        let Some(path) = normalize_tmdb_path(episode.still_path.as_deref()) else {
+            continue;
+        };
+        if paths.contains(&path) {
+            continue;
         }
+
+        paths.push(path);
     }
+
     paths
+}
+
+fn file_title(
+    named: Option<&cinebox_tmdb::SeasonEpisode>,
+    serial: bool,
+    human: String,
+    movie_title: &str,
+) -> String {
+    if let Some(ep) = named {
+        return ep.name.clone();
+    }
+
+    if serial {
+        return human;
+    }
+
+    movie_title.to_owned()
 }
 
 fn decorate_files(
@@ -301,13 +335,7 @@ fn decorate_files(
 
         let human = file_display_name(&file.path);
         let named = tmdb.filter(|ep| !ep.name.is_empty());
-        let title = if let Some(ep) = named {
-            ep.name.clone()
-        } else if serial {
-            human
-        } else {
-            movie.title.clone()
-        };
+        let title = file_title(named, serial, human, &movie.title);
 
         let still_url = tmdb
             .and_then(|ep| tmdb_image_url(ep.still_path.as_deref(), "w300"))

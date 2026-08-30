@@ -15,28 +15,35 @@ pub fn typograph(input: &str) -> String {
     if text.is_empty() {
         return text;
     }
+
     text = replace_ellipsis(&text);
     text = replace_number_ranges(&text);
     text = replace_spaced_hyphen_with_mdash(&text);
     text = squeeze_space_before_punct(&text);
     text = educate_quotes(&text);
+
     glue_short_words(&text)
 }
 
 fn collapse_whitespace(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut prev_space = false;
+
     for ch in input.chars() {
-        if ch.is_whitespace() {
-            if !prev_space && !out.is_empty() {
-                out.push(' ');
-                prev_space = true;
-            }
-        } else {
+        if !ch.is_whitespace() {
             out.push(ch);
             prev_space = false;
+            continue;
         }
+
+        if prev_space || out.is_empty() {
+            continue;
+        }
+
+        out.push(' ');
+        prev_space = true;
     }
+
     out
 }
 
@@ -47,36 +54,43 @@ fn replace_ellipsis(text: &str) -> String {
 fn replace_number_ranges(text: &str) -> String {
     let chars: Vec<char> = text.chars().collect();
     let mut out = String::with_capacity(text.len());
+
     let mut i = 0;
     while i < chars.len() {
         if chars[i].is_ascii_digit() {
             let start = i;
-            while i < chars.len() && chars[i].is_ascii_digit() {
+            while chars.get(i).is_some_and(|ch| ch.is_ascii_digit()) {
                 i += 1;
             }
+
             let left: String = chars[start..i].iter().collect();
-            if i < chars.len()
-                && chars[i] == '-'
-                && i + 1 < chars.len()
-                && chars[i + 1].is_ascii_digit()
-            {
+            let current_is_dash = chars.get(i).is_some_and(|ch| *ch == '-');
+            let next_is_digit = chars.get(i + 1).is_some_and(char::is_ascii_digit);
+
+            if current_is_dash && next_is_digit {
                 i += 1;
                 let right_start = i;
-                while i < chars.len() && chars[i].is_ascii_digit() {
-                    i += 1;
-                }
-                let right: String = chars[right_start..i].iter().collect();
+
+            while chars.get(i).is_some_and(|ch| ch.is_ascii_digit()) {
+                i += 1;
+            }
+
+            let right: String = chars[right_start..i].iter().collect();
                 out.push_str(&left);
                 out.push(NDASH);
                 out.push_str(&right);
+
                 continue;
             }
+
             out.push_str(&left);
             continue;
         }
+
         out.push(chars[i]);
         i += 1;
     }
+
     out
 }
 
@@ -90,13 +104,17 @@ fn replace_spaced_hyphen_with_mdash(text: &str) -> String {
 fn squeeze_space_before_punct(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
     let chars: Vec<char> = text.chars().collect();
+
     for (i, ch) in chars.iter().copied().enumerate() {
-        if ch == ' '
-            && i + 1 < chars.len()
-            && matches!(chars[i + 1], ',' | '.' | ':' | ';' | '!' | '?' | ELLIPSIS)
-        {
+        let is_space = ch == ' ';
+        let next_is_punctuation = chars
+            .get(i + 1)
+            .is_some_and(|ch| matches!(*ch, ',' | '.' | ':' | ';' | '!' | '?' | ELLIPSIS));
+
+        if is_space && next_is_punctuation {
             continue;
         }
+
         out.push(ch);
     }
     out
@@ -114,16 +132,21 @@ fn educate_quotes(text: &str) -> String {
     } else {
         ('\u{201C}', '\u{201D}')
     };
+
     let mut out = String::with_capacity(text.len());
     let mut opening = true;
+
     for ch in text.chars() {
         if ch == '"' {
             out.push(if opening { open } else { close });
             opening = !opening;
-        } else {
-            out.push(ch);
+
+            continue;
         }
+
+        out.push(ch);
     }
+
     out
 }
 
@@ -132,24 +155,23 @@ fn glue_short_words(text: &str) -> String {
     if parts.is_empty() {
         return String::new();
     }
+
     let mut out = String::with_capacity(text.len());
     for (i, part) in parts.iter().enumerate() {
-        if i > 0 {
-            let prev = parts[i - 1];
-            let last = i + 1 == parts.len();
-            if should_nbsp_after(prev) || (last && is_short_word(part)) {
-                out.push(NBSP);
-            } else {
-                out.push(' ');
-            }
+        if i == 0 {
+            out.push_str(part);
+            continue;
         }
+
+        let prev = parts[i - 1];
+        let last = i + 1 == parts.len();
+        let needs_nbsp = is_short_word(prev) || (last && is_short_word(part));
+
+        out.push(if needs_nbsp { NBSP } else { ' ' });
         out.push_str(part);
     }
-    out
-}
 
-fn should_nbsp_after(token: &str) -> bool {
-    is_short_word(token)
+    out
 }
 
 fn is_short_word(token: &str) -> bool {
@@ -157,9 +179,11 @@ fn is_short_word(token: &str) -> bool {
     if core.is_empty() {
         return false;
     }
+
     if is_listed_short(&core) {
         return true;
     }
+
     core.chars().all(char::is_alphabetic) && core.chars().count() <= 2
 }
 
@@ -193,6 +217,7 @@ mod tests {
     #[test]
     fn russian_preposition_nbsp_and_guillemets() {
         let out = typograph("в начале \"Дюны\"");
+
         assert!(out.contains("в\u{00A0}начале"), "{out:?}");
         assert!(out.contains('«') && out.contains('»'), "{out:?}");
         assert!(!out.contains('"'), "{out:?}");
@@ -201,6 +226,7 @@ mod tests {
     #[test]
     fn english_article_nbsp_and_quotes() {
         let out = typograph("The \"Matrix\"");
+
         assert!(out.starts_with("The\u{00A0}"), "{out:?}");
         assert!(
             out.contains('\u{201C}') && out.contains('\u{201D}'),
@@ -211,6 +237,7 @@ mod tests {
     #[test]
     fn dash_range_ellipsis_and_idempotent() {
         let out = typograph("A - B 2019-2020 wait...");
+
         assert!(out.contains(&format!("A{NBSP}{MDASH}")), "{out:?}");
         assert!(out.contains("2019–2020"), "{out:?}");
         assert!(out.contains(ELLIPSIS), "{out:?}");
@@ -220,6 +247,7 @@ mod tests {
     #[test]
     fn last_short_word_glued() {
         let out = typograph("Catch Me");
+
         assert_eq!(out, "Catch\u{00A0}Me");
     }
 }

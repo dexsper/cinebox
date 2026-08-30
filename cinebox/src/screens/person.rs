@@ -90,89 +90,74 @@ impl PersonScreen {
         }
 
         let t = intro::t(self.intro_at, now);
-        if let Some(person) = &self.preview
-            && let Some(url) = tmdb_image_url(person.profile_path.as_deref(), "w185")
-        {
+        let url = self
+            .preview
+            .as_ref()
+            .and_then(|person| tmdb_image_url(person.profile_path.as_deref(), "w185"));
+
+        if let Some(url) = url {
             svc.images
                 .request(url, false, svc.settings.interface.use_system_proxy);
         }
 
         let settings = svc.settings.clone();
         let db = svc.db.clone();
-        let disk_fresh = self
-            .disk
-            .as_ref()
-            .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
-        let mut action = None;
-        if matches!(self.bind.read(), Some(Ok(_))) {
+        let skip_network = !self.force_refresh
+            && self
+                .disk
+                .as_ref()
+                .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
+        let has_disk = self.disk.is_some();
+        let outcome = super::swr::resolve(
+            &mut self.bind,
+            has_disk,
+            skip_network,
+            move || jobs::load_person(settings, id, db),
+        );
+        if outcome.from_network {
             self.force_refresh = false;
         }
-        if let Some(result) = self.bind.read() {
-            match result {
-                Ok(details) => {
-                    queue_person_assets(svc, details);
-                    action = ready(ui, details, svc, theme, t);
-                }
-                Err(error) => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        queue_person_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.bind.clear();
-                            self.force_refresh = true;
-                        }
-                    }
-                }
-            }
-        } else if !self.force_refresh && disk_fresh {
-            if let Some(hit) = self.disk.as_ref() {
-                queue_person_assets(svc, &hit.value);
-                action = ready(ui, &hit.value, svc, theme, t);
-            }
-        } else {
-            let mut loaded_ok = false;
-            match self
-                .bind
-                .read_or_request(move || jobs::load_person(settings, id, db))
-            {
-                None => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        ui.ctx().request_repaint();
-                        queue_person_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else if let Some(person) = self.preview.as_ref() {
-                        ui.ctx().request_repaint();
-                        loading(ui, svc, theme, t, person);
-                    } else {
-                        widgets::page_spinner(ui, theme);
-                    }
-                }
-                Some(Ok(details)) => {
-                    loaded_ok = true;
-                    queue_person_assets(svc, details);
-                    action = ready(ui, details, svc, theme, t);
-                }
-                Some(Err(error)) => {
-                    if let Some(hit) = self.disk.as_ref() {
-                        queue_person_assets(svc, &hit.value);
-                        action = ready(ui, &hit.value, svc, theme, t);
-                    } else {
-                        let error = error.clone();
-                        ui.label(RichText::new(error).color(theme.err));
-                        if ui.button("Retry").clicked() {
-                            self.bind.clear();
-                            self.force_refresh = true;
-                        }
-                    }
-                }
-            }
-            if loaded_ok {
-                self.force_refresh = false;
-            }
+        if outcome.in_flight {
+            ui.ctx().request_repaint();
         }
+
+        let mut retry = false;
+        let action = match outcome.view {
+            super::swr::Swr::Live => match self.bind.read() {
+                Some(Ok(details)) => {
+                    queue_person_assets(svc, details);
+                    ready(ui, details, svc, theme, t)
+                }
+                _ => None,
+            },
+            super::swr::Swr::Disk => match self.disk.as_ref() {
+                Some(hit) => {
+                    queue_person_assets(svc, &hit.value);
+                    ready(ui, &hit.value, svc, theme, t)
+                }
+                None => None,
+            },
+            super::swr::Swr::Failed => {
+                if let Some(Err(error)) = self.bind.read() {
+                    ui.label(RichText::new(error).color(theme.err));
+                }
+                retry = ui.button("Retry").clicked();
+                None
+            }
+            super::swr::Swr::Pending => {
+                if let Some(person) = self.preview.as_ref() {
+                    loading(ui, svc, theme, t, person);
+                } else {
+                    widgets::page_spinner(ui, theme);
+                }
+                None
+            }
+        };
+        if retry {
+            self.bind.clear();
+            self.force_refresh = true;
+        }
+
         action
     }
 

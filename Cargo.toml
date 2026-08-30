@@ -51,6 +51,7 @@ unused_must_use = "deny"
 unwrap_used = "deny"
 expect_used = "warn"
 dbg_macro = "warn"
+collapsible_if = "allow"
 
 [profile.release]
 opt-level = 3

@@ -11,6 +11,7 @@ const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 #[must_use]
 pub fn tmdb_image_url(path: Option<&str>, size: &str) -> Option<String> {
     let path = normalize_tmdb_path(path)?;
+
     Some(format!(
         "{IMAGE_BASE}/{size}/{}",
         path.trim_start_matches('/')
@@ -24,6 +25,7 @@ pub fn normalize_tmdb_path(path: Option<&str>) -> Option<String> {
     if path.is_empty() {
         return None;
     }
+
     let path = path.trim_start_matches('/');
     Some(format!("/{path}"))
 }
@@ -36,6 +38,7 @@ pub fn parse_tmdb_image_url(url: &str) -> Option<(String, String)> {
     if size.is_empty() || path.is_empty() {
         return None;
     }
+
     Some((size.to_owned(), format!("/{path}")))
 }
 
@@ -154,11 +157,15 @@ impl HomeRow {
     pub fn image_paths(&self) -> Vec<String> {
         let mut paths = Vec::new();
         for item in &self.items {
-            if let Some(path) = normalize_tmdb_path(item.poster_path.as_deref())
-                && !paths.contains(&path)
-            {
-                paths.push(path);
+            let Some(path) = normalize_tmdb_path(item.poster_path.as_deref()) else {
+                continue;
+            };
+
+            if paths.contains(&path) {
+                continue;
             }
+
+            paths.push(path);
         }
         paths
     }
@@ -184,10 +191,12 @@ mod tests {
             vote: Some(8.1),
             poster_path: Some(String::from("/abc.jpg")),
         };
+
         assert_eq!(
             item.poster_url(PosterSize::W342).as_deref(),
             Some("https://image.tmdb.org/t/p/w342/abc.jpg")
         );
+
         assert_eq!(
             parse_tmdb_image_url("https://image.tmdb.org/t/p/w500/abc.jpg"),
             Some((String::from("w500"), String::from("/abc.jpg")))

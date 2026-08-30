@@ -45,7 +45,11 @@ pub(crate) fn apply_system_proxy(
     builder: reqwest::ClientBuilder,
     enabled: bool,
 ) -> reqwest::ClientBuilder {
-    if enabled { builder } else { builder.no_proxy() }
+    if enabled {
+        return builder;
+    }
+
+    builder.no_proxy()
 }
 
 fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
