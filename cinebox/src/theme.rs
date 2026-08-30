@@ -1,6 +1,8 @@
 //! Brand colors and sizes. The only place `Color32` literals live.
 
-use egui::{Color32, CornerRadius, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle};
+use egui::{
+    Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle,
+};
 
 pub const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
 
@@ -98,7 +100,7 @@ impl Theme {
             label: Color32::from_rgb(235, 235, 240),
             title: Color32::from_rgb(245, 245, 247),
             body: Color32::from_rgb(224, 224, 230),
-            err: Color32::from_rgb(235, 97, 97),
+            err: Color32::from_rgb(255, 56, 56),
             ok: Color32::from_rgb(115, 209, 140),
             rate: Color32::from_rgb(255, 217, 64),
             ring: Color32::from_rgb(240, 240, 245),
@@ -112,7 +114,7 @@ impl Theme {
             progress_track: Color32::from_rgba_unmultiplied(255, 255, 255, 77),
             toast_info: Color32::from_rgb(90, 140, 220),
             toast_ok: Color32::from_rgb(115, 209, 140),
-            toast_err: Color32::from_rgb(235, 97, 97),
+            toast_err: Color32::from_rgb(255, 56, 56),
             video_bg: Color32::BLACK,
             metric_bg: Color32::from_white_alpha(28),
             rating_pill: Color32::from_black_alpha(89),
@@ -235,6 +237,11 @@ impl Theme {
         visuals.widgets.active.weak_bg_fill = self.widget_active;
         visuals.widgets.open.bg_fill = self.input_bg;
         visuals.widgets.open.weak_bg_fill = self.input_bg;
+        visuals.widgets.inactive.expansion = 0.0;
+        visuals.widgets.hovered.expansion = 0.0;
+        visuals.widgets.active.expansion = 0.0;
+        visuals.widgets.open.expansion = 0.0;
+        visuals.interact_cursor = Some(CursorIcon::PointingHand);
         visuals.selection.bg_fill = self.selection;
         visuals.window_corner_radius = self.rounding(self.radius_dialog);
         visuals.window_stroke = Stroke::NONE;
@@ -248,6 +255,7 @@ impl Theme {
         style.spacing.scroll = ScrollStyle::floating();
         style.spacing.scroll.fade.strength = 0.0;
         style.spacing.window_margin = Margin::same(12);
+        style.interaction.selectable_labels = false;
 
         ctx.set_style_of(egui::Theme::Dark, style);
         ctx.set_theme(egui::ThemePreference::Dark);

@@ -7,12 +7,12 @@ use cinebox_torrserver::AddSpec;
 #[derive(Debug, Clone)]
 pub struct MovieBits {
     pub title: String,
-    pub tagline: Option<String>,
     pub overview: Option<String>,
     pub year: Option<u16>,
     pub vote: Option<f32>,
     pub genres: Vec<String>,
     pub countries: Vec<String>,
+    pub certification: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub number_of_seasons: Option<u32>,
@@ -22,12 +22,12 @@ impl MovieBits {
     pub fn from_details(details: &MediaDetails) -> Self {
         Self {
             title: details.title.clone(),
-            tagline: details.tagline.clone(),
             overview: details.overview.clone(),
             year: details.year,
             vote: details.vote,
             genres: details.genres.iter().take(3).cloned().collect(),
             countries: details.countries.clone(),
+            certification: details.certification.clone(),
             poster_path: details.poster_path.clone(),
             backdrop_path: details.backdrop_path.clone(),
             number_of_seasons: details.number_of_seasons,
@@ -39,10 +39,19 @@ impl MovieBits {
         if let Some(year) = self.year {
             parts.push(year.to_string());
         }
-        if let Some(country) = self.countries.first() {
-            parts.push(country.clone());
+
+        if !self.countries.is_empty() {
+            let countries = self
+                .countries
+                .iter()
+                .take(5)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(" | ");
+            parts.push(countries);
         }
-        parts.join(" - ")
+
+        parts.join(", ")
     }
 }
 
@@ -139,7 +148,6 @@ pub struct TorrentState {
     pub hits: TorrentHits,
     pub filter: TorrentFilter,
     pub sort: SortMode,
-    pub filters_open: bool,
     pub files: FilesPane,
     pub pick_gen: u64,
     pub pending_add: Option<AddSpec>,
@@ -156,7 +164,6 @@ impl TorrentState {
             hits: TorrentHits::Loading,
             filter: TorrentFilter::default(),
             sort: SortMode::Popular,
-            filters_open: false,
             files: FilesPane::Closed,
             pick_gen: 0,
             pending_add: None,

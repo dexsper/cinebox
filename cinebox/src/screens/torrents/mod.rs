@@ -9,14 +9,15 @@ pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, T
 use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, TmdbId, tmdb_image_url, typograph};
 use cinebox_torrserver::AddSpec;
-use egui::{Align, Layout, Rect, RichText, Stroke, Ui, UiBuilder, Vec2, pos2};
+use egui::{Align, Frame, Layout, Margin, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{self, intro, poster};
+use crate::widgets::{self, intro, poster, scroll};
+use crate::widgets::drawer::Overlay;
 
 pub struct TorrentsScreen {
     state: Option<TorrentState>,
@@ -28,6 +29,7 @@ pub struct TorrentsScreen {
     on_screen: bool,
     stream_file: Option<i32>,
     pending_play: Option<crate::screens::play::PlayRequest>,
+    filters: Overlay,
 }
 
 impl Default for TorrentsScreen {
@@ -42,6 +44,7 @@ impl Default for TorrentsScreen {
             on_screen: false,
             stream_file: None,
             pending_play: None,
+            filters: Overlay::default(),
         }
     }
 }
@@ -64,6 +67,7 @@ impl TorrentsScreen {
         self.intro_at = None;
         self.stream_file = None;
         self.pending_play = None;
+        self.filters.snap_shut();
     }
 
     pub fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
@@ -82,8 +86,17 @@ impl TorrentsScreen {
         true
     }
 
+    pub fn on_back(&mut self, now: f64) -> bool {
+        if self.leave_files_if_open() {
+            return true;
+        }
+
+        self.filters.on_back(now)
+    }
+
     pub fn hide(&mut self) {
         self.on_screen = false;
+        self.filters.snap_shut();
     }
 
     pub fn intro_animating(&self, now: f64) -> bool {
@@ -113,6 +126,7 @@ impl TorrentsScreen {
 
         if arriving {
             self.intro_at = Some(now);
+            self.refresh_hits();
         }
 
         self.poll_hits(svc, ui.ctx());
@@ -129,17 +143,12 @@ impl TorrentsScreen {
         let full = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(full);
 
-        let left_w = intro::lerp(theme.pad + theme.poster_w + 8.0, theme.explorer_left, t);
+        let left_w = theme.explorer_left;
         let gap = 12.0;
         let left_rect = Rect::from_min_size(full.min, Vec2::new(left_w, full.height()));
         let right_rect = Rect::from_min_max(
             pos2(left_rect.right() + gap, full.top()),
             full.right_bottom(),
-        );
-        ui.painter().vline(
-            left_rect.right() + gap * 0.5,
-            full.y_range(),
-            Stroke::new(1.0, theme.window_edge),
         );
 
         ui.scope_builder(
@@ -158,10 +167,27 @@ impl TorrentsScreen {
             |ui| {
                 ui.set_clip_rect(ui.clip_rect().intersect(right_rect));
                 if let Some(state) = &mut self.state {
-                    list::list_pane(ui, state, svc, theme, &mut retry, &mut pick, t);
+                    list::list_pane(
+                        ui,
+                        state,
+                        svc,
+                        theme,
+                        &mut retry,
+                        &mut pick,
+                        t,
+                        &mut self.filters,
+                    );
                 }
             },
         );
+
+        let mut overlay = std::mem::take(&mut self.filters);
+        if let Some(state) = &mut self.state {
+            overlay.paint(ui, theme, "cinebox-torrent-filters", |ui, theme| {
+                list::filters_drawer(ui, state, svc, theme);
+            });
+        }
+        self.filters = overlay;
 
         if let Some(state) = &self.state {
             if state.files.is_open() {
@@ -212,38 +238,71 @@ impl TorrentsScreen {
             state.movie.poster_path.as_deref(),
             svc.settings.tmdb.poster_size,
         );
-        poster::rounded_image(ui, tex, Vec2::new(poster_w, poster_h), theme);
-        ui.add_space(8.0);
-        ui.label(
-            RichText::new(typograph(&state.movie.title))
-                .font(theme.title_font(intro::lerp(
-                    theme.text_explorer_from,
-                    theme.text_display,
-                    t,
-                )))
-                .color(theme.title),
-        );
-        if let Some(tagline) = state.movie.tagline.as_deref() {
-            ui.label(
-                RichText::new(typograph(tagline))
-                    .size(theme.text_label)
-                    .color(theme.muted),
-            );
-        }
-        if !state.movie.genres.is_empty() {
-            ui.label(
-                RichText::new(state.movie.genres.join(", "))
-                    .size(theme.text_small)
-                    .color(theme.muted),
-            );
-        }
 
         let head = state.movie.head_line();
-        if !head.is_empty() {
-            ui.label(RichText::new(head).size(theme.text_small).color(theme.muted));
-        }
-        if let Some(vote) = state.movie.vote.filter(|v| *v > 0.0) {
+        let overview_size = theme.text_small * 1.5;
+
+        scroll::vertical(ui, "torrent-movie", |ui| {
             ui.horizontal(|ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                poster::rounded_image(ui, tex, Vec2::new(poster_w, poster_h), theme);
+                ui.vertical(|ui| {
+                    ui.set_max_width(ui.available_width());
+                    if !head.is_empty() {
+                        ui.label(
+                            RichText::new(head)
+                                .size(theme.text_section)
+                                .color(theme.muted),
+                        );
+                        ui.add_space(8.0);
+                    }
+                    ratings_row(ui, &state.movie, theme);
+                });
+            });
+            ui.add_space(10.0);
+            ui.label(
+                RichText::new(typograph(&state.movie.title))
+                    .font(theme.title_font(intro::lerp(
+                        theme.text_explorer_from,
+                        theme.text_display,
+                        t,
+                    )))
+                    .color(theme.title),
+            );
+            if !state.movie.genres.is_empty() {
+                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(state.movie.genres.join(", "))
+                        .size(theme.text_small)
+                        .color(theme.muted),
+                );
+            }
+            let Some(overview) = state.movie.overview.as_deref() else {
+                return;
+            };
+
+            ui.add_space(18.0);
+            ui.label(
+                RichText::new(typograph(overview))
+                    .size(overview_size)
+                    .color(theme.body),
+            );
+        });
+    }
+}
+
+fn ratings_row(ui: &mut Ui, movie: &MovieBits, theme: &Theme) {
+    let vote = movie.vote.filter(|v| *v > 0.0);
+    let cert = movie.certification.as_deref().filter(|s| !s.is_empty());
+    let has_rating = vote.is_some() || cert.is_some();
+    if !has_rating {
+        return;
+    }
+
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        if let Some(vote) = vote {
+            rating_pill(ui, theme, |ui| {
                 ui.label(
                     RichText::new(format!("{vote:.1}"))
                         .size(theme.text_subtitle)
@@ -252,29 +311,63 @@ impl TorrentsScreen {
                 ui.label(RichText::new("TMDB").size(theme.text_caption).color(theme.muted));
             });
         }
-        if let Some(overview) = state.movie.overview.as_deref() {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(typograph(overview))
-                    .size(intro::lerp(theme.text_label, theme.text_small, t))
-                    .color(theme.body),
-            );
+        if let Some(cert) = cert {
+            rating_pill(ui, theme, |ui| {
+                ui.label(
+                    RichText::new(cert)
+                        .size(theme.text_subtitle)
+                        .color(theme.title),
+                );
+            });
+        }
+    });
+}
+
+fn rating_pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
+    const INNER_H: f32 = 22.0;
+
+    Frame::new()
+        .fill(theme.rating_pill)
+        .corner_radius(6)
+        .inner_margin(Margin::symmetric(10, 6))
+        .show(ui, |ui| {
+            ui.set_min_height(INNER_H);
+            ui.set_max_height(INNER_H);
+            ui.spacing_mut().item_spacing.x = 6.0;
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.set_min_height(INNER_H);
+                ui.set_max_height(INNER_H);
+                add(ui);
+            });
+        });
+}
+
+impl TorrentsScreen {
+    fn refresh_hits(&mut self) {
+        self.hits.clear();
+        let Some(state) = &mut self.state else {
+            return;
+        };
+
+        if matches!(state.hits, TorrentHits::Failed(_)) {
+            state.hits = TorrentHits::Loading;
         }
     }
 
     fn poll_hits(&mut self, svc: &mut Services, ctx: &egui::Context) {
-        let loading = self
-            .state
-            .as_ref()
-            .is_some_and(|state| matches!(state.hits, TorrentHits::Loading));
-        if !loading {
-            return;
-        }
-
         if svc.settings.parser.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
                 state.hits = TorrentHits::Failed(Msg::NeedParser.en().to_owned());
             }
+            return;
+        }
+
+        let bind_settled = self.hits.read().is_some();
+        let waiting = self
+            .state
+            .as_ref()
+            .is_some_and(|state| matches!(state.hits, TorrentHits::Loading));
+        if bind_settled && !waiting {
             return;
         }
 
@@ -287,6 +380,7 @@ impl TorrentsScreen {
             .hits
             .read_or_request(move || jobs::load_torrents(settings, details))
         else {
+            ctx.request_repaint();
             return;
         };
 
@@ -533,5 +627,41 @@ mod tests {
         screen.on_screen = true;
         screen.intro_at = Some(10.0);
         assert!(screen.intro_animating(10.05));
+    }
+
+    #[test]
+    fn refresh_hits_retries_failed() {
+        let mut screen = TorrentsScreen::default();
+        screen.state = Some(TorrentState {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+            movie: MovieBits {
+                title: String::from("Dune"),
+                overview: None,
+                year: Some(2021),
+                vote: None,
+                genres: Vec::new(),
+                countries: Vec::new(),
+                certification: None,
+                poster_path: None,
+                backdrop_path: None,
+                number_of_seasons: None,
+            },
+            year: Some(2021),
+            runtime_minutes: None,
+            hits: TorrentHits::Failed(String::from("down")),
+            filter: cinebox_parse::TorrentFilter::default(),
+            sort: cinebox_parse::SortMode::Popular,
+            files: FilesPane::Closed,
+            pick_gen: 0,
+            pending_add: None,
+        });
+
+        screen.refresh_hits();
+
+        assert!(matches!(
+            screen.state.as_ref().map(|state| &state.hits),
+            Some(TorrentHits::Loading)
+        ));
     }
 }

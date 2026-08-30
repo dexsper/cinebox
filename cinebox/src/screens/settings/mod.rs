@@ -6,28 +6,24 @@ mod speed;
 
 use cinebox_core::i18n::Msg;
 use cinebox_core::{DefaultQuality, ParserKind, PosterSize, UiLanguage, VideoScale};
-use egui::{Area, Frame, Id, Margin, Order, Rect, Sense, Ui, UiBuilder, pos2};
+use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
 
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{intro, scroll};
+use crate::widgets::drawer::Overlay;
+use crate::widgets::scroll;
 
 use catalog::{CategoryId, Field, SelectId, catalog, category};
 use controls::{
     category_row, clear_cache_row, data_language_row, drawer_title, error_line, nav_header,
-    probe_row, secret_row, select_row, speed_test_row, text_row, toggle_row,
+    probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row, toggle_row,
 };
 use speed::SpeedMeter;
 
-const DRAWER_FRAC: f32 = 0.4;
-const DRAWER_MIN: f32 = 340.0;
-const DRAWER_MAX: f32 = 520.0;
-
 pub struct SettingsScreen {
-    want_open: bool,
-    anim_at: Option<f64>,
+    overlay: Overlay,
     category: Option<CategoryId>,
     torr: Bind<String, String>,
     parser: Bind<String, String>,
@@ -39,8 +35,7 @@ pub struct SettingsScreen {
 impl Default for SettingsScreen {
     fn default() -> Self {
         Self {
-            want_open: false,
-            anim_at: None,
+            overlay: Overlay::default(),
             category: None,
             torr: Bind::new(true),
             parser: Bind::new(true),
@@ -53,29 +48,20 @@ impl Default for SettingsScreen {
 
 impl SettingsScreen {
     pub fn is_open(&self) -> bool {
-        self.want_open
-    }
-
-    pub fn animating(&self, now: f64) -> bool {
-        intro::running(self.anim_at, now) && self.visual_t(now) > 0.0
+        self.overlay.is_open()
     }
 
     pub fn toggle(&mut self, now: f64) {
-        if self.want_open {
-            self.begin_close(now);
-            return;
-        }
-
-        self.begin_open(now);
+        self.overlay.toggle(now);
     }
 
     /// Consume Escape / chrome Back. `true` if the drawer handled it.
     pub fn on_back(&mut self, now: f64) -> bool {
-        if !self.is_blocking(now) {
+        if !self.overlay.is_blocking(now) {
             return false;
         }
 
-        if !self.want_open {
+        if !self.overlay.is_open() {
             return true;
         }
 
@@ -83,103 +69,21 @@ impl SettingsScreen {
             return true;
         }
 
-        self.begin_close(now);
+        self.overlay.begin_close(now);
         true
     }
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
         let now = ui.input(|i| i.time);
-        self.finish_close(now);
-
-        let t = self.visual_t(now);
-        if t <= 0.001 {
-            return;
+        if !self.overlay.is_blocking(now) {
+            self.category = None;
         }
 
-        if self.animating(now) {
-            ui.ctx().request_repaint();
-        }
-
-        let full = ui.ctx().content_rect();
-        let body = Rect::from_min_max(
-            pos2(full.left(), full.top() + theme.title_bar_h),
-            full.right_bottom(),
-        );
-        let width = (body.width() * DRAWER_FRAC).clamp(DRAWER_MIN, DRAWER_MAX);
-        let shown = width * t;
-        let drawer_left = body.right() - shown;
-        let dim_rect = Rect::from_min_max(body.left_top(), pos2(drawer_left, body.bottom()));
-        let drawer_rect = Rect::from_min_max(pos2(drawer_left, body.top()), body.right_bottom());
-
-        Area::new(Id::new("cinebox-settings"))
-            .order(Order::Foreground)
-            .fixed_pos(body.min)
-            .constrain(false)
-            .show(ui.ctx(), |ui| {
-                ui.set_min_size(body.size());
-                ui.set_clip_rect(body);
-
-                if dim_rect.width() > 1.0 {
-                    ui.painter().rect_filled(dim_rect, 0.0, theme.overlay_at(t));
-                    let dim = ui.interact(dim_rect, Id::new("cinebox-settings-dim"), Sense::click());
-                    if dim.clicked() {
-                        self.begin_close(now);
-                    }
-                }
-
-                if drawer_rect.width() < 8.0 {
-                    return;
-                }
-
-                ui.scope_builder(UiBuilder::new().max_rect(drawer_rect), |ui| {
-                    ui.set_min_size(drawer_rect.size());
-                    ui.set_max_size(drawer_rect.size());
-                    Frame::new()
-                        .fill(theme.panel_elevated)
-                        .inner_margin(Margin::symmetric(20, 16))
-                        .show(ui, |ui| {
-                            self.paint_body(ui, svc, theme);
-                        });
-                });
-            });
-    }
-
-    fn begin_open(&mut self, now: f64) {
-        let current = self.visual_t(now);
-        self.want_open = true;
-        self.anim_at = Some(intro::started_at(now, current));
-    }
-
-    fn begin_close(&mut self, now: f64) {
-        let current = self.visual_t(now);
-        self.want_open = false;
-        self.anim_at = Some(intro::started_at(now, 1.0 - current));
-    }
-
-    fn finish_close(&mut self, now: f64) {
-        if self.want_open {
-            return;
-        }
-
-        if intro::running(self.anim_at, now) {
-            return;
-        }
-
-        self.anim_at = None;
-        self.category = None;
-    }
-
-    fn is_blocking(&self, now: f64) -> bool {
-        self.want_open || self.visual_t(now) > 0.02
-    }
-
-    fn visual_t(&self, now: f64) -> f32 {
-        let t = intro::t(self.anim_at, now);
-        if self.want_open {
-            return t;
-        }
-
-        1.0 - t
+        let mut overlay = std::mem::take(&mut self.overlay);
+        overlay.paint(ui, theme, "cinebox-settings", |ui, theme| {
+            self.paint_body(ui, svc, theme);
+        });
+        self.overlay = overlay;
     }
 
     fn paint_body(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
@@ -295,13 +199,15 @@ impl SettingsScreen {
                 data_language_row(ui, theme, &mut svc.settings.tmdb.data_language)
             }
             Field::ProbeParser => {
-                probe_row(ui, theme, ICON_SEARCH, "Test parser", &mut self.parser, || {
+                let label = Msg::TestParser.en();
+                probe_row(ui, theme, ICON_SEARCH, label, &mut self.parser, || {
                     crate::jobs::ping_parser(svc.settings.clone())
                 });
                 false
             }
             Field::ProbeTorr => {
-                probe_row(ui, theme, ICON_NETWORK_PING, "Ping", &mut self.torr, || {
+                let label = Msg::Ping.en();
+                probe_row(ui, theme, ICON_NETWORK_PING, label, &mut self.torr, || {
                     crate::jobs::ping_torrserver(svc.settings.clone())
                 });
                 false
@@ -309,7 +215,8 @@ impl SettingsScreen {
             Field::ProbeTmdb => {
                 let settings = svc.settings.clone();
                 let db = svc.db.clone();
-                probe_row(ui, theme, ICON_KEY, "Check API key", &mut self.tmdb, || {
+                let label = Msg::CheckApiKey.en();
+                probe_row(ui, theme, ICON_KEY, label, &mut self.tmdb, || {
                     crate::jobs::ping_tmdb(settings, db)
                 });
                 false
@@ -343,7 +250,7 @@ fn paint_select(
     which: &SelectId,
 ) -> bool {
     match which {
-        SelectId::Language => select_row(
+        SelectId::Language => select_row_with(
             ui,
             theme,
             id,
@@ -351,8 +258,9 @@ fn paint_select(
             hint,
             &mut svc.settings.interface.language,
             UiLanguage::ALL,
+            |lang| ui_lang_label(lang).to_owned(),
         ),
-        SelectId::Scale => select_row(
+        SelectId::Scale => select_row_with(
             ui,
             theme,
             id,
@@ -360,6 +268,7 @@ fn paint_select(
             hint,
             &mut svc.settings.player.scale,
             VideoScale::ALL,
+            |scale| scale_label(scale).to_owned(),
         ),
         SelectId::Quality => select_row(
             ui,
@@ -391,13 +300,28 @@ fn paint_select(
     }
 }
 
+fn ui_lang_label(lang: UiLanguage) -> &'static str {
+    match lang {
+        UiLanguage::English => Msg::LangEnglish.en(),
+        UiLanguage::Russian => Msg::LangRussian.en(),
+    }
+}
+
+fn scale_label(scale: VideoScale) -> &'static str {
+    match scale {
+        VideoScale::KeepAspect => Msg::ScaleKeepAspect.en(),
+        VideoScale::Unscaled => Msg::ScaleUnscaled.en(),
+        VideoScale::Panscan => Msg::ScalePanscan.en(),
+    }
+}
+
 fn paint_errors(ui: &mut Ui, svc: &Services, theme: &Theme) {
     if let Some(error) = &svc.load_error {
         error_line(ui, theme, Msg::SettingsLoadError.en());
         error_line(ui, theme, error);
     }
     if let Some(error) = &svc.save_error {
-        error_line(ui, theme, &format!("Could not save: {error}"));
+        error_line(ui, theme, &format!("{} {error}", Msg::CouldNotSave.en()));
     }
 }
 
@@ -410,8 +334,6 @@ mod tests {
         let screen = SettingsScreen::default();
 
         assert!(!screen.is_open());
-        assert!(!screen.is_blocking(0.0));
-        assert!((screen.visual_t(0.0) - 0.0).abs() < f32::EPSILON);
     }
 
     #[test]
@@ -428,7 +350,7 @@ mod tests {
     fn back_leaves_category_then_closes() {
         let mut screen = SettingsScreen::default();
 
-        screen.begin_open(0.0);
+        screen.toggle(0.0);
         screen.category = Some(CategoryId::Player);
 
         assert!(screen.on_back(0.1));

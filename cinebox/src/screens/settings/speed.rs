@@ -3,6 +3,7 @@
 use std::sync::{Arc, Mutex, MutexGuard};
 
 use cinebox_core::Settings;
+use cinebox_core::i18n::Msg;
 use cinebox_torrserver::SpeedEvent;
 use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
 
@@ -237,7 +238,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
-        "Mbps",
+        Msg::Mbps.en(),
         theme.ui_font(theme.text_small),
         theme.muted,
     );
@@ -256,13 +257,13 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     );
 }
 
-fn status_line(live: &Live, theme: &Theme) -> (String, egui::Color32) {
+fn status_line(live: &Live, theme: &Theme) -> (&'static str, egui::Color32) {
     match live.phase {
-        Phase::Idle => (String::new(), theme.muted),
-        Phase::Connecting => ("Connecting".to_owned(), theme.muted_bright),
-        Phase::Testing => ("Testing".to_owned(), theme.muted_bright),
-        Phase::Ready => ("Ready".to_owned(), theme.ok),
-        Phase::Failed => ("Failed".to_owned(), theme.err),
+        Phase::Idle => ("", theme.muted),
+        Phase::Connecting => (Msg::Connecting.en(), theme.muted_bright),
+        Phase::Testing => (Msg::Testing.en(), theme.muted_bright),
+        Phase::Ready => (Msg::Ready.en(), theme.ok),
+        Phase::Failed => (Msg::Failed.en(), theme.err),
     }
 }
 

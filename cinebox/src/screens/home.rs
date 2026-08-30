@@ -32,7 +32,13 @@ impl HomeScreen {
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         if svc.settings.tmdb.api_key.is_empty() {
             ui.label(RichText::new(Msg::NeedTmdbKey.en()).color(theme.muted));
-            if ui.button(Msg::NavSettings.en()).clicked() {
+            let settings_size = egui::vec2(160.0, crate::widgets::combo::HEIGHT);
+            if crate::widgets::button::label(
+                ui,
+                theme,
+                Msg::NavSettings.en(),
+                crate::widgets::button::Opts::secondary(settings_size),
+            ) {
                 return Some(NavAction::OpenSettings);
             }
             return None;
@@ -78,10 +84,11 @@ impl HomeScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                if let Some(Err(error)) = self.catalog.read() {
-                    ui.label(RichText::new(error).color(theme.err));
-                }
-                retry = ui.button("Retry").clicked();
+                let error = match self.catalog.read() {
+                    Some(Err(error)) => error.clone(),
+                    _ => Msg::Failed.en().to_owned(),
+                };
+                retry = widgets::page_error(ui, theme, &error);
                 None
             }
             super::swr::Swr::Pending => {

@@ -3,7 +3,7 @@ use cinebox_core::{
     CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
     format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url, typograph,
 };
-use egui::{Align, Atom, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, Vec2, pos2, vec2};
+use egui::{Align, Atom, Frame, Layout, Margin, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_async::Bind;
 use egui_material_icons::icons::ICON_PLAY_CIRCLE;
 
@@ -146,10 +146,11 @@ impl MediaScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                if let Some(Err(error)) = self.bind.read() {
-                    ui.label(RichText::new(error).color(theme.err));
-                }
-                retry = ui.button("Retry").clicked();
+                let error = match self.bind.read() {
+                    Some(Err(error)) => error.clone(),
+                    _ => Msg::Failed.en().to_owned(),
+                };
+                retry = widgets::page_error(ui, theme, &error);
                 None
             }
             super::swr::Swr::Pending => {
@@ -344,7 +345,12 @@ fn ready(
                     .color(theme.title),
             );
             for trailer in &details.trailers {
-                if ui.button(typograph(&trailer.name)).clicked() {
+                if crate::widgets::button::label(
+                    ui,
+                    theme,
+                    &typograph(&trailer.name),
+                    crate::widgets::button::Opts::secondary(vec2(0.0, crate::widgets::combo::HEIGHT)),
+                ) {
                     action = Some(NavAction::OpenUrl(trailer.watch_url()));
                 }
             }
@@ -535,31 +541,24 @@ fn pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
 }
 
 fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
-    ui.scope(|ui| {
-        ui.visuals_mut().widgets.inactive.bg_fill = theme.btn_primary_bg;
-        ui.visuals_mut().widgets.hovered.bg_fill = theme.btn_primary_hover;
-        ui.visuals_mut().widgets.active.bg_fill = theme.btn_primary_hover;
-        ui.add(
-            egui::Button::new((
-                Atom::grow(),
-                ICON_PLAY_CIRCLE
-                    .rich_text()
-                    .size(theme.text_cta_icon)
-                    .color(theme.btn_primary_fg),
-                RichText::new(Msg::WatchTorrents.en())
-                    .font(theme.emphasis_font(theme.text_subtitle))
-                    .color(theme.btn_primary_fg),
-                Atom::grow(),
-            ))
-            .fill(theme.btn_primary_bg)
-            .stroke(Stroke::NONE)
-            .gap(8.0)
-            .corner_radius(theme.rounding(theme.radius_card))
-            .min_size(vec2(176.0, 46.0)),
-        )
-        .clicked()
-    })
-    .inner
+    crate::widgets::button::add_named(
+        ui,
+        theme,
+        (
+            Atom::grow(),
+            ICON_PLAY_CIRCLE
+                .rich_text()
+                .size(theme.text_cta_icon)
+                .color(theme.btn_primary_fg),
+            RichText::new(Msg::WatchTorrents.en())
+                .font(theme.emphasis_font(theme.text_subtitle))
+                .color(theme.btn_primary_fg),
+            Atom::grow(),
+        ),
+        crate::widgets::button::Opts::primary(vec2(176.0, 46.0)),
+        Some(Msg::WatchTorrents.en()),
+    )
+    .clicked()
 }
 
 fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
@@ -647,6 +646,7 @@ fn people(
                 );
                 let name_h = name.size().y;
                 let (rect, response) = ui.allocate_exact_size(vec2(well_w, tile_h), Sense::click());
+                let response = crate::widgets::button::pointing(response);
                 let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), PHOTO);
                 poster::paint_poster(ui, photo_rect, tex, theme);
                 if response.hovered() {

@@ -267,7 +267,7 @@ impl PlayerScreen {
         };
         let Some(engine) = &svc.engine else {
             if let Some(state) = &mut self.state {
-                state.error = Some(String::from("Could not create the libmpv render context"));
+                state.error = Some(Msg::MpvRenderFailed.en().to_owned());
             }
             return;
         };

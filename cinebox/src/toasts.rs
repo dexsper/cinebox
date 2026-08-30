@@ -89,8 +89,8 @@ impl Toasts {
                         .show(ui, |ui| {
                             ui.label(RichText::new(&toast.text).color(fg).size(theme.text_body));
                         })
-                        .response
-                        .interact(Sense::click());
+                        .response;
+                    let response = crate::widgets::button::pointing(response.interact(Sense::click()));
 
                     if response.clicked() {
                         dismiss = Some(toast.id);

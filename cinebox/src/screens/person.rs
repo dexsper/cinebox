@@ -138,10 +138,11 @@ impl PersonScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                if let Some(Err(error)) = self.bind.read() {
-                    ui.label(RichText::new(error).color(theme.err));
-                }
-                retry = ui.button("Retry").clicked();
+                let error = match self.bind.read() {
+                    Some(Err(error)) => error.clone(),
+                    _ => Msg::Failed.en().to_owned(),
+                };
+                retry = widgets::page_error(ui, theme, &error);
                 None
             }
             super::swr::Swr::Pending => {

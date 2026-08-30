@@ -1,9 +1,10 @@
 //! Shared styled controls for the settings drawer.
 
 use cinebox_core::SecretString;
+use cinebox_core::i18n::Msg;
 use egui::{
-    Align, Atom, Color32, ComboBox, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText,
-    Sense, Stroke, TextEdit, Ui, UiBuilder, Vec2, pos2, style::StyleModifier, vec2,
+    Align, Atom, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, Sense, Stroke,
+    TextEdit, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use egui_async::Bind;
 use egui_material_icons::MaterialIcon;
@@ -72,16 +73,14 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
             .layout(Layout::left_to_right(Align::Center)),
     );
 
-    let back = row
-        .add(
-            egui::Button::new(ICON_ARROW_BACK.rich_text().size(theme.text_icon_md).color(theme.title))
-                .fill(Color32::TRANSPARENT)
-                .stroke(Stroke::NONE)
-                .corner_radius(6)
-                .min_size(vec2(32.0, 32.0)),
-        )
-        .on_hover_text("Back")
-        .clicked();
+    let back = crate::widgets::button::add(
+        &mut row,
+        theme,
+        ICON_ARROW_BACK.rich_text().size(theme.text_icon_md).color(theme.title),
+        crate::widgets::button::Opts::secondary(vec2(32.0, 32.0)),
+    )
+    .on_hover_text(Msg::NavBack.en())
+    .clicked();
 
     row.add_space(8.0);
     row.label(
@@ -212,31 +211,29 @@ pub fn select_row<T: Copy + PartialEq + std::fmt::Display>(
     options: &[T],
 ) -> bool {
     field_label(ui, theme, label, hint);
-    let mut changed = false;
-    let width = ui.available_width();
+    crate::widgets::combo::show(ui, theme, id, value, options)
+}
 
-    ui.scope(|ui| {
-        apply_combo_visuals(ui, theme);
-        ComboBox::from_id_salt(id)
-            .width(width)
-            .selected_text(RichText::new(value.to_string()).color(theme.label))
-            .popup_style(combo_popup_style(theme))
-            .show_ui(ui, |ui| {
-                for opt in options {
-                    changed |= ui.selectable_value(value, *opt, opt.to_string()).changed();
-                }
-            });
-    });
-
-    changed
+pub fn select_row_with<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    id: &str,
+    label: &str,
+    hint: Option<&str>,
+    value: &mut T,
+    options: &[T],
+    option_label: impl Fn(T) -> String,
+) -> bool {
+    field_label(ui, theme, label, hint);
+    crate::widgets::combo::show_with(ui, theme, id, value, options, option_label)
 }
 
 pub fn data_language_row(ui: &mut Ui, theme: &Theme, value: &mut Option<String>) -> bool {
     field_label(
         ui,
         theme,
-        "Data language",
-        Some("Empty uses the OS language later."),
+        Msg::DataLanguage.en(),
+        Some(Msg::DataLanguageHint.en()),
     );
     let mut lang = value.clone().unwrap_or_default();
     let changed = styled_edit(ui, theme, &mut lang, "en-US", false);
@@ -287,7 +284,7 @@ pub fn speed_test_row<F, Fut>(
     ui.add_space(10.0);
 
     let busy = meter.is_busy();
-    let clicked = action_button(ui, theme, ICON_SPEED, "Speed Test", true);
+    let clicked = action_button(ui, theme, ICON_SPEED, Msg::SpeedTest.en(), true);
     if clicked && !busy {
         meter.begin();
         bind.clear();
@@ -305,50 +302,9 @@ pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
         ui,
         theme,
         ICON_DELETE_SWEEP,
-        cinebox_core::i18n::Msg::ClearCache.en(),
+        Msg::ClearCache.en(),
         false,
     )
-}
-
-fn apply_combo_visuals(ui: &mut Ui, theme: &Theme) {
-    ui.spacing_mut().interact_size.y = INPUT_H;
-    ui.spacing_mut().button_padding = vec2(10.0, 6.0);
-
-    let radius = theme.rounding(theme.radius_card);
-    let stroke = Stroke::new(1.0, theme.window_edge);
-    let widgets = &mut ui.visuals_mut().widgets;
-
-    widgets.inactive.weak_bg_fill = theme.input_bg;
-    widgets.inactive.bg_fill = theme.input_bg;
-    widgets.inactive.bg_stroke = stroke;
-    widgets.inactive.corner_radius = radius;
-    widgets.hovered.weak_bg_fill = theme.widget_hover;
-    widgets.hovered.bg_stroke = stroke;
-    widgets.hovered.corner_radius = radius;
-    widgets.active.weak_bg_fill = theme.widget_active;
-    widgets.active.corner_radius = radius;
-    widgets.open.weak_bg_fill = theme.input_bg;
-    widgets.open.bg_stroke = stroke;
-    widgets.open.corner_radius = radius;
-}
-
-fn combo_popup_style(theme: &Theme) -> StyleModifier {
-    let fill = theme.panel_elevated;
-    let hover = theme.widget_hover;
-
-    StyleModifier::new(move |style| {
-        style.visuals.window_fill = fill;
-        style.visuals.panel_fill = fill;
-        style.visuals.extreme_bg_color = fill;
-        style.visuals.faint_bg_color = fill;
-        style.visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-        style.visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
-        style.visuals.widgets.hovered.weak_bg_fill = hover;
-        style.visuals.widgets.hovered.bg_fill = hover;
-        style.spacing.item_spacing.y = 4.0;
-        style.spacing.button_padding = vec2(10.0, 8.0);
-        style.spacing.menu_margin = Margin::symmetric(8, 8);
-    })
 }
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
@@ -405,36 +361,39 @@ fn action_button(
     primary: bool,
 ) -> bool {
     let width = ui.available_width();
-    ui.scope(|ui| {
-        let (fill, fg, hover) = if primary {
-            (
-                theme.btn_primary_bg,
-                theme.btn_primary_fg,
-                theme.btn_primary_hover,
-            )
-        } else {
-            (theme.input_bg, theme.title, theme.widget_hover)
-        };
+    let size = vec2(width, ACTION_H);
+    let opts = action_opts(primary, size);
+    let fg = action_fg(theme, primary);
 
-        ui.visuals_mut().widgets.inactive.bg_fill = fill;
-        ui.visuals_mut().widgets.hovered.bg_fill = hover;
-        ui.visuals_mut().widgets.active.bg_fill = hover;
-        ui.add(
-            egui::Button::new((
-                Atom::grow(),
-                icon.rich_text().size(theme.text_icon_md).color(fg),
-                RichText::new(label).size(theme.text_body).color(fg),
-                Atom::grow(),
-            ))
-            .fill(fill)
-            .stroke(Stroke::NONE)
-            .gap(8.0)
-            .corner_radius(theme.rounding(theme.radius_card))
-            .min_size(vec2(width, ACTION_H)),
-        )
-        .clicked()
-    })
-    .inner
+    crate::widgets::button::add_named(
+        ui,
+        theme,
+        (
+            Atom::grow(),
+            icon.rich_text().size(theme.text_icon_md).color(fg),
+            RichText::new(label).size(theme.text_body).color(fg),
+            Atom::grow(),
+        ),
+        opts,
+        Some(label),
+    )
+    .clicked()
+}
+
+fn action_opts(primary: bool, size: Vec2) -> crate::widgets::button::Opts {
+    if primary {
+        return crate::widgets::button::Opts::primary(size);
+    }
+
+    crate::widgets::button::Opts::secondary(size)
+}
+
+fn action_fg(theme: &Theme, primary: bool) -> egui::Color32 {
+    if primary {
+        return theme.btn_primary_fg;
+    }
+
+    theme.title
 }
 
 fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {

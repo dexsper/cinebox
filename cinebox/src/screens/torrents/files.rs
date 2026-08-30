@@ -7,7 +7,7 @@ use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, V
 use super::state::{FilesPane, ReadyFiles, TorrentState};
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{self, poster, scroll};
+use crate::widgets::{self, button, poster, scroll};
 
 pub(super) fn files_modal(
     ctx: &egui::Context,
@@ -54,8 +54,7 @@ pub(super) fn files_modal(
                     widgets::page_spinner(ui, theme);
                 }
                 FilesPane::Failed(error) => {
-                    ui.label(RichText::new(error).color(theme.err));
-                    if ui.button("Retry").clicked() {
+                    if widgets::page_error(ui, theme, error) {
                         *retry_files = true;
                     }
                 }
@@ -113,14 +112,17 @@ fn file_list(
 
             let selected = files.selected_id == Some(file.id);
             let still = svc.images.slot(file.still_url.as_deref()).or(fallback);
-
-            let bg = if selected {
+           
+            let id = ui.id().with(("torrent-file", file.id));
+            let idle = if selected {
                 theme.card_selected
             } else {
                 theme.panel
             };
+            
+            let bg = button::fill_for_hover(ui, id, idle, theme.widget_hover);
 
-            let response = Frame::new()
+            let shown = Frame::new()
                 .fill(bg)
                 .corner_radius(6)
                 .inner_margin(12.0)
@@ -168,9 +170,8 @@ fn file_list(
                             progress(ui, file.progress(), theme);
                         });
                     });
-                })
-                .response
-                .interact(Sense::click());
+                });
+            let response = button::click_rect(ui, id, shown.response.rect);
             if response.clicked() {
                 *pick_file = Some(file.id);
             }

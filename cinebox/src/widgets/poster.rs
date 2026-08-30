@@ -7,6 +7,7 @@ use egui::{
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
 
+use crate::widgets::button::pointing;
 use crate::images::ImageSlot;
 use crate::nav::NavAction;
 use crate::theme::Theme;
@@ -20,6 +21,7 @@ pub fn catalog_tile(
     let pad = theme.ring_pad();
     let well = vec2(theme.tile_w + pad * 2.0, theme.catalog_shelf_height() - 8.0);
     let (rect, response) = ui.allocate_exact_size(well, Sense::click());
+    let response = pointing(response);
     let poster_rect =
         Rect::from_min_size(rect.min + vec2(pad, pad), vec2(theme.tile_w, theme.tile_h));
 

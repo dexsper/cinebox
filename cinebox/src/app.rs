@@ -139,9 +139,11 @@ impl App {
             self.nav.pop();
             return;
         }
-        if self.torrents.leave_files_if_open() {
+
+        if self.torrents.on_back(now) {
             return;
         }
+        
         self.nav.pop();
     }
 
