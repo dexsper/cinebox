@@ -64,7 +64,7 @@ mod tests {
         let mut nav = Nav::new();
 
         assert_eq!(nav.current(), Screen::Home);
-        
+
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
 

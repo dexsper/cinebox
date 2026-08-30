@@ -1,7 +1,5 @@
 use cinebox_core::i18n::Msg;
-use cinebox_core::{
-    DefaultQuality, ParserKind, PosterSize, SecretString, UiLanguage, VideoScale,
-};
+use cinebox_core::{DefaultQuality, ParserKind, PosterSize, SecretString, UiLanguage, VideoScale};
 use egui::{ComboBox, RichText, TextEdit, Ui};
 use egui_async::Bind;
 
@@ -35,7 +33,11 @@ impl SettingsScreen {
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         let mut persist = false;
         scroll::vertical(ui, "settings-page", |ui| {
-            ui.label(RichText::new(Msg::SettingsTitle.en()).size(22.0).color(theme.title));
+            ui.label(
+                RichText::new(Msg::SettingsTitle.en())
+                    .size(22.0)
+                    .color(theme.title),
+            );
             let path = svc
                 .store
                 .as_ref()
@@ -56,9 +58,18 @@ impl SettingsScreen {
 
             ui.add_space(12.0);
             ui.label(RichText::new("Interface").size(18.0).color(theme.title));
-            persist |= combo(ui, "language", "Language", &mut svc.settings.interface.language, UiLanguage::ALL);
+            persist |= combo(
+                ui,
+                "language",
+                "Language",
+                &mut svc.settings.interface.language,
+                UiLanguage::ALL,
+            );
             persist |= ui
-                .checkbox(&mut svc.settings.interface.use_system_proxy, "Use system proxy")
+                .checkbox(
+                    &mut svc.settings.interface.use_system_proxy,
+                    "Use system proxy",
+                )
                 .changed();
             ui.label(
                 RichText::new("Applies to TMDB and parser. TorrServer always connects directly.")
@@ -80,7 +91,13 @@ impl SettingsScreen {
             persist |= ui
                 .checkbox(&mut svc.settings.player.save_timecode, "Save timecode")
                 .changed();
-            persist |= combo(ui, "scale", "Scale", &mut svc.settings.player.scale, VideoScale::ALL);
+            persist |= combo(
+                ui,
+                "scale",
+                "Scale",
+                &mut svc.settings.player.scale,
+                VideoScale::ALL,
+            );
             persist |= combo(
                 ui,
                 "quality",
@@ -91,7 +108,13 @@ impl SettingsScreen {
 
             ui.add_space(12.0);
             ui.label(RichText::new("Parser").size(18.0).color(theme.title));
-            persist |= combo(ui, "parser-kind", "Type", &mut svc.settings.parser.kind, ParserKind::ALL);
+            persist |= combo(
+                ui,
+                "parser-kind",
+                "Type",
+                &mut svc.settings.parser.kind,
+                ParserKind::ALL,
+            );
             persist |= labeled_text(ui, "URL", &mut svc.settings.parser.url);
             persist |= secret_edit(ui, "API key", &mut svc.settings.parser.api_key);
             probe_row(ui, theme, "Test parser", &mut self.parser, || {
@@ -146,18 +169,22 @@ impl SettingsScreen {
             ui.label(RichText::new("TMDB").size(18.0).color(theme.title));
             persist |= secret_edit(ui, "API key", &mut svc.settings.tmdb.api_key);
             ui.label(
-                RichText::new("Short «API key» from themoviedb.org (32 hex). Not the JWT access token.")
-                    .size(12.0)
+                RichText::new(
+                    "Short «API key» from themoviedb.org (32 hex). Not the JWT access token.",
+                )
+                .size(12.0)
+                .color(theme.muted),
+            );
+            let mut lang = svc.settings.tmdb.data_language.clone().unwrap_or_default();
+            ui.label(
+                RichText::new("Data language (empty = OS later)")
+                    .size(13.0)
                     .color(theme.muted),
             );
-            let mut lang = svc
-                .settings
-                .tmdb
-                .data_language
-                .clone()
-                .unwrap_or_default();
-            ui.label(RichText::new("Data language (empty = OS later)").size(13.0).color(theme.muted));
-            if ui.add(TextEdit::singleline(&mut lang).hint_text("en-US")).changed() {
+            if ui
+                .add(TextEdit::singleline(&mut lang).hint_text("en-US"))
+                .changed()
+            {
                 let trimmed = lang.trim();
                 svc.settings.tmdb.data_language = if trimmed.is_empty() {
                     None
@@ -174,8 +201,11 @@ impl SettingsScreen {
                 PosterSize::ALL,
             );
             probe_row(ui, theme, "Check API key", &mut self.tmdb, || {
-                jobs::ping_tmdb(svc.settings.clone())
+                jobs::ping_tmdb(svc.settings.clone(), svc.db.clone())
             });
+            if ui.button(Msg::ClearCache.en()).clicked() {
+                svc.clear_tmdb_cache();
+            }
         });
 
         if persist {
@@ -216,7 +246,11 @@ fn secret_edit(ui: &mut Ui, label: &str, secret: &mut SecretString) -> bool {
     ui.label(RichText::new(label).size(13.0));
     let mut value = secret.expose().to_owned();
     let changed = ui
-        .add(TextEdit::singleline(&mut value).password(true).desired_width(f32::INFINITY))
+        .add(
+            TextEdit::singleline(&mut value)
+                .password(true)
+                .desired_width(f32::INFINITY),
+        )
         .changed();
     if changed {
         *secret = SecretString::from(value);

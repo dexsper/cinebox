@@ -144,7 +144,7 @@ impl Theme {
     /// Apply visuals once at startup.
     pub fn apply(&self, ctx: &egui::Context) {
         let mut visuals = Visuals::dark();
-        
+
         visuals.override_text_color = Some(self.label);
         visuals.panel_fill = self.page_bg;
         visuals.window_fill = self.panel_elevated;

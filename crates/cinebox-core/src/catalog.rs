@@ -10,16 +10,38 @@ const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 /// Build a TMDB image URL from a `poster_path` / `profile_path` / `backdrop_path`.
 #[must_use]
 pub fn tmdb_image_url(path: Option<&str>, size: &str) -> Option<String> {
+    let path = normalize_tmdb_path(path)?;
+    Some(format!(
+        "{IMAGE_BASE}/{size}/{}",
+        path.trim_start_matches('/')
+    ))
+}
+
+/// Canonical TMDB file path (`/abc.jpg`), or `None` if empty.
+#[must_use]
+pub fn normalize_tmdb_path(path: Option<&str>) -> Option<String> {
     let path = path?.trim();
     if path.is_empty() {
         return None;
     }
     let path = path.trim_start_matches('/');
-    Some(format!("{IMAGE_BASE}/{size}/{path}"))
+    Some(format!("/{path}"))
+}
+
+/// Split `https://image.tmdb.org/t/p/{size}/{path}` into size token and canonical path.
+#[must_use]
+pub fn parse_tmdb_image_url(url: &str) -> Option<(String, String)> {
+    let rest = url.strip_prefix(IMAGE_BASE)?.strip_prefix('/')?;
+    let (size, path) = rest.split_once('/')?;
+    if size.is_empty() || path.is_empty() {
+        return None;
+    }
+    Some((size.to_owned(), format!("/{path}")))
 }
 
 /// A home-screen shelf.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum HomeRowId {
     RecentlyWatched,
     NowPlaying,
@@ -53,6 +75,21 @@ impl HomeRowId {
         Self::TopRatedMovies,
         Self::TopRatedTv,
     ];
+
+    /// Stable cache key for this shelf.
+    #[must_use]
+    pub const fn as_key(self) -> &'static str {
+        match self {
+            Self::RecentlyWatched => "recently_watched",
+            Self::NowPlaying => "now_playing",
+            Self::TrendingDay => "trending_day",
+            Self::TrendingWeek => "trending_week",
+            Self::PopularMovies => "popular_movies",
+            Self::PopularTv => "popular_tv",
+            Self::TopRatedMovies => "top_rated_movies",
+            Self::TopRatedTv => "top_rated_tv",
+        }
+    }
 
     #[must_use]
     pub const fn title(self) -> &'static str {
@@ -95,7 +132,7 @@ pub fn year_from_date(date: &str) -> Option<u16> {
 }
 
 /// One home shelf: items and/or a row-level error.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeRow {
     pub id: HomeRowId,
     pub items: Vec<CatalogItem>,
@@ -111,10 +148,24 @@ impl HomeRow {
             error: None,
         }
     }
+
+    /// Poster paths on this shelf.
+    #[must_use]
+    pub fn image_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        for item in &self.items {
+            if let Some(path) = normalize_tmdb_path(item.poster_path.as_deref())
+                && !paths.contains(&path)
+            {
+                paths.push(path);
+            }
+        }
+        paths
+    }
 }
 
 /// Full home payload.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct HomeCatalog {
     pub rows: Vec<HomeRow>,
 }
@@ -136,6 +187,10 @@ mod tests {
         assert_eq!(
             item.poster_url(PosterSize::W342).as_deref(),
             Some("https://image.tmdb.org/t/p/w342/abc.jpg")
+        );
+        assert_eq!(
+            parse_tmdb_image_url("https://image.tmdb.org/t/p/w500/abc.jpg"),
+            Some((String::from("w500"), String::from("/abc.jpg")))
         );
     }
 

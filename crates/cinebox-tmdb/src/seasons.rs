@@ -1,12 +1,12 @@
 //! TMDB `GET /tv/{id}/season/{n}` for episode names and stills.
 
 use cinebox_core::TmdbId;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{API_BASE, Error, http_client, prepare_api_key, send_json};
 
 /// One episode from a season payload.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SeasonEpisode {
     pub season: u32,
     pub episode: u32,

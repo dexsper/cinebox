@@ -18,7 +18,7 @@ pub fn header(ui: &mut Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
     let mut action = None;
     let height = theme.title_bar_h;
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    
+
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
         bar.x_range(),
@@ -48,7 +48,7 @@ pub fn header(ui: &mut Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
                 if drag.drag_started() {
                     ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
                 }
-                
+
                 if drag.double_clicked() {
                     toggle_maximized(ui);
                 }

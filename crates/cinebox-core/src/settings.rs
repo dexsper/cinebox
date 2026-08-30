@@ -1,12 +1,13 @@
-//! JSON settings stored under the platform config directory.
+//! JSON settings stored next to the executable.
 
 use std::fmt;
 use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+
+use crate::paths;
 
 /// Redacted string for API keys and passwords.
 ///
@@ -51,8 +52,8 @@ impl fmt::Debug for SecretString {
 /// Failures loading or saving settings.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
-    #[error("could not determine config directory")]
-    NoProjectDirs,
+    #[error("could not determine executable directory")]
+    NoExeDir(#[source] io::Error),
     #[error("failed to create config directory {}", .path.display())]
     CreateDir {
         path: PathBuf,
@@ -309,17 +310,15 @@ pub struct SettingsStore {
 }
 
 impl SettingsStore {
-    /// Platform config dir: `…/Cinebox/Cinebox/config/settings.json`.
+    /// Next to the executable: `settings.json`.
     ///
     /// # Errors
     ///
-    /// Returns [`SettingsError::NoProjectDirs`] if the home/config location
-    /// cannot be resolved.
+    /// Returns [`SettingsError::NoExeDir`] if the executable path cannot be resolved.
     pub fn system() -> Result<Self, SettingsError> {
-        let dirs =
-            ProjectDirs::from("app", "Cinebox", "Cinebox").ok_or(SettingsError::NoProjectDirs)?;
+        let dir = paths::exe_dir().map_err(SettingsError::NoExeDir)?;
         Ok(Self {
-            path: dirs.config_dir().join("settings.json"),
+            path: dir.join("settings.json"),
         })
     }
 

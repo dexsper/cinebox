@@ -2,7 +2,9 @@ use std::sync::{Arc, Mutex};
 
 use cinebox_core::i18n::Msg;
 use cinebox_core::typograph;
-use cinebox_player::{ClickZone, Engine, FOOTER_LOGICAL, HEADER_LOGICAL, SEEK_SECS, click_zone, format_clock};
+use cinebox_player::{
+    ClickZone, Engine, FOOTER_LOGICAL, HEADER_LOGICAL, SEEK_SECS, click_zone, format_clock,
+};
 use egui::{Rect, RichText, Sense, Ui, Vec2};
 use egui_material_icons::icons::{ICON_PAUSE, ICON_PLAY_ARROW, ICON_SKIP_NEXT};
 
@@ -359,10 +361,7 @@ fn paint_video(ui: &mut Ui, rect: Rect, engine: Option<Arc<Mutex<Engine>>>, them
         rect,
         callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
             let vp = info.viewport_in_pixels();
-            let fbo = painter
-                .intermediate_fbo()
-                .map(|fb| fb.0.get())
-                .unwrap_or(0);
+            let fbo = painter.intermediate_fbo().map(|fb| fb.0.get()).unwrap_or(0);
             if let Ok(engine) = engine.lock() {
                 let _ = engine.render(fbo, vp.width_px, vp.height_px);
             }

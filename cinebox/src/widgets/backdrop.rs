@@ -42,7 +42,10 @@ fn paint_left_fade(ui: &Ui, rect: Rect, page: Color32) {
 
 fn paint_bottom_fade(ui: &Ui, rect: Rect, page: Color32) {
     let h = rect.height() * 0.45;
-    let band = Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - h), rect.right_bottom());
+    let band = Rect::from_min_max(
+        egui::pos2(rect.left(), rect.bottom() - h),
+        rect.right_bottom(),
+    );
     gradient_v(ui, band, with_a(page, 0), with_a(page, 107));
 }
 
@@ -59,7 +62,8 @@ fn gradient_h(ui: &Ui, rect: Rect, left: Color32, right: Color32) {
     mesh.vertices.push(vert(rect.right_top(), right));
     mesh.vertices.push(vert(rect.right_bottom(), right));
     mesh.vertices.push(vert(rect.left_bottom(), left));
-    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    mesh.indices
+        .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 
@@ -71,7 +75,8 @@ fn gradient_v(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
     mesh.vertices.push(vert(rect.right_top(), top));
     mesh.vertices.push(vert(rect.right_bottom(), bottom));
     mesh.vertices.push(vert(rect.left_bottom(), bottom));
-    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    mesh.indices
+        .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 
@@ -294,7 +299,7 @@ mod tests {
             luma(left) < luma(center),
             "left edge {left:?} should be a stronger veil than center {center:?}"
         );
-        
+
         assert!(
             i16::from(left[0]) - i16::from(left[1]) > 20,
             "edge veil should keep the image accent, got {left:?}"

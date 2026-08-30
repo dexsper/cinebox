@@ -102,7 +102,11 @@ impl Toasts {
                 }
             });
 
-        if self.items.iter().any(|t| now - t.born > HOLD_SECS - FADE_SECS) {
+        if self
+            .items
+            .iter()
+            .any(|t| now - t.born > HOLD_SECS - FADE_SECS)
+        {
             ctx.request_repaint();
         }
     }

@@ -418,8 +418,15 @@ impl TorrentsScreen {
         let id = state.id;
         let runtime = state.runtime_minutes;
         self.opened.clear();
-        self.opened
-            .request(jobs::open_magnet(settings, spec, movie, kind, id, runtime));
+        self.opened.request(jobs::open_magnet(
+            settings,
+            spec,
+            movie,
+            kind,
+            id,
+            runtime,
+            svc.db.clone(),
+        ));
     }
 
     fn retry_files(&mut self, svc: &Services) {
@@ -441,8 +448,15 @@ impl TorrentsScreen {
         let id = state.id;
         let runtime = state.runtime_minutes;
         self.opened.clear();
-        self.opened
-            .request(jobs::open_magnet(settings, spec, movie, kind, id, runtime));
+        self.opened.request(jobs::open_magnet(
+            settings,
+            spec,
+            movie,
+            kind,
+            id,
+            runtime,
+            svc.db.clone(),
+        ));
     }
 
     fn pick_file(&mut self, svc: &Services, file_id: i32) {
@@ -986,7 +1000,10 @@ mod tests {
 
     #[test]
     fn bitrate_only_for_movies() {
-        assert_eq!(format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(), Some("8.2"));
+        assert_eq!(
+            format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(),
+            Some("8.2")
+        );
         assert_eq!(format_bitrate(MediaKind::Movie, None).as_deref(), Some("—"));
         assert_eq!(format_bitrate(MediaKind::Tv, Some(8.2)), None);
         assert_eq!(format_bitrate(MediaKind::Tv, None), None);

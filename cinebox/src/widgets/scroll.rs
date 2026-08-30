@@ -3,11 +3,11 @@
 //! A wheel notch becomes velocity; friction is exponential. Drag stays with
 //! egui so nested buttons still receive clicks.
 
+use egui::containers::scroll_area::{DragScroll, ScrollSource};
 use egui::{
     AsIdSalt, Direction, Event, Id, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea, Shape, Ui,
     Vec2, Vec2b, pos2, vec2,
 };
-use egui::containers::scroll_area::{DragScroll, ScrollSource};
 
 const FRICTION: f32 = 4.2;
 const MIN_SPEED: f32 = 22.0;
@@ -120,7 +120,14 @@ pub fn vertical(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
 
 /// Horizontal shelf: height follows content.
 pub fn horizontal(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(true, false), Vec2b::new(false, true), None, add);
+    show(
+        ui,
+        id,
+        Vec2b::new(true, false),
+        Vec2b::new(false, true),
+        None,
+        add,
+    );
 }
 
 fn show(
@@ -176,7 +183,12 @@ fn show(
     );
 
     if enabled[1] {
-        paint_bottom_fade(ui, output.inner_rect, output.content_size, output.state.offset);
+        paint_bottom_fade(
+            ui,
+            output.inner_rect,
+            output.content_size,
+            output.state.offset,
+        );
     }
     let hovered = pointer_over(ui, hit);
     let dragging = is_scroll_dragging(ui, output.id);

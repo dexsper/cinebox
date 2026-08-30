@@ -1,9 +1,10 @@
 //! Poster and extra-image download cache → `egui::TextureHandle`.
 
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use cinebox_core::{CatalogItem, MediaKind, TmdbId};
+use cinebox_core::{CatalogItem, MediaKind, Store, TmdbId, image_size_key, parse_tmdb_image_url};
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use tracing::warn;
 
@@ -31,11 +32,17 @@ pub struct ImageCache {
     failed: HashSet<String>,
     tx: Sender<(String, Result<ColorImage, String>)>,
     rx: Receiver<(String, Result<ColorImage, String>)>,
+    db: Option<Arc<Store>>,
 }
 
 impl ImageCache {
     #[must_use]
     pub fn new() -> Self {
+        Self::with_db(None)
+    }
+
+    #[must_use]
+    pub fn with_db(db: Option<Arc<Store>>) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             textures: HashMap::new(),
@@ -43,6 +50,7 @@ impl ImageCache {
             failed: HashSet::new(),
             tx,
             rx,
+            db,
         }
     }
 
@@ -107,17 +115,36 @@ impl ImageCache {
             return;
         }
 
-        let tx = self.tx.clone();
-        egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-            let result = download(url.clone(), soften, use_system_proxy).await;
-            let _ = tx.send((url, result));
-            if let Some(ctx) = egui_async::bind::CTX.get() {
-                ctx.request_repaint();
+        if let Some(db) = &self.db
+            && let Some((size, path)) = parse_tmdb_image_url(&url)
+        {
+            let key = image_size_key(&size, soften);
+            if let Ok(Some(bytes)) = db.get_image(&key, &path) {
+                let tx = self.tx.clone();
+                egui_async::bind::ASYNC_RUNTIME.spawn(async move {
+                    let result = decode(&bytes);
+                    let _ = tx.send((url, result));
+                    request_repaint();
+                });
+                return;
             }
+        }
+
+        let tx = self.tx.clone();
+        let db = self.db.clone();
+        egui_async::bind::ASYNC_RUNTIME.spawn(async move {
+            let result = download(url.clone(), soften, use_system_proxy, db).await;
+            let _ = tx.send((url, result));
+            request_repaint();
         });
     }
 
-    pub fn request_poster(&mut self, item: &CatalogItem, size: cinebox_core::PosterSize, proxy: bool) {
+    pub fn request_poster(
+        &mut self,
+        item: &CatalogItem,
+        size: cinebox_core::PosterSize,
+        proxy: bool,
+    ) {
         if let Some(url) = item.poster_url(size) {
             self.request(url, false, proxy);
         }
@@ -136,7 +163,18 @@ impl Default for ImageCache {
     }
 }
 
-async fn download(url: String, soften: bool, use_system_proxy: bool) -> Result<ColorImage, String> {
+fn request_repaint() {
+    if let Some(ctx) = egui_async::bind::CTX.get() {
+        ctx.request_repaint();
+    }
+}
+
+async fn download(
+    url: String,
+    soften: bool,
+    use_system_proxy: bool,
+    db: Option<Arc<Store>>,
+) -> Result<ColorImage, String> {
     let bytes = cinebox_tmdb::download_image(&url, use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
@@ -152,6 +190,16 @@ async fn download(url: String, soften: bool, use_system_proxy: bool) -> Result<C
     } else {
         bytes
     };
+
+    if let Some(db) = db
+        && let Some((size, path)) = parse_tmdb_image_url(&url)
+    {
+        let key = image_size_key(&size, soften);
+        if let Err(error) = db.put_image(&key, &path, &bytes) {
+            warn!(%error, "failed to persist tmdb image");
+        }
+    }
+
     decode(&bytes)
 }
 

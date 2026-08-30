@@ -1,5 +1,8 @@
 use cinebox_core::i18n::Msg;
-use cinebox_core::{CreditPerson, PersonDetails, TmdbId, tmdb_image_url, typograph};
+use cinebox_core::{
+    CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, language_key,
+    person_cache_id, tmdb_image_url, typograph,
+};
 use egui::{RichText, Ui, Vec2};
 use egui_async::Bind;
 
@@ -18,8 +21,10 @@ pub struct PersonScreen {
     id: Option<TmdbId>,
     preview: Option<CreditPerson>,
     bind: Bind<Box<PersonDetails>, String>,
+    disk: Option<CacheHit<Box<PersonDetails>>>,
     intro_at: Option<f64>,
     pending_intro: bool,
+    force_refresh: bool,
 }
 
 impl Default for PersonScreen {
@@ -28,8 +33,10 @@ impl Default for PersonScreen {
             id: None,
             preview: None,
             bind: Bind::new(true),
+            disk: None,
             intro_at: None,
             pending_intro: false,
+            force_refresh: false,
         }
     }
 }
@@ -38,6 +45,8 @@ impl PersonScreen {
     pub fn seed(&mut self, person: CreditPerson) {
         if self.id != Some(person.id) {
             self.bind = Bind::new(true);
+            self.disk = None;
+            self.force_refresh = false;
         }
         self.id = Some(person.id);
         self.preview = Some(person);
@@ -55,9 +64,24 @@ impl PersonScreen {
         if self.id != Some(id) {
             self.id = Some(id);
             self.bind = Bind::new(true);
+            self.disk = None;
+            self.force_refresh = false;
             if self.preview.as_ref().is_none_or(|person| person.id != id) {
                 self.preview = None;
             }
+        }
+        if self.disk.is_none() {
+            let lang = language_key(svc.settings.tmdb.data_language.as_deref());
+            let cache_id = person_cache_id(id);
+            self.disk = svc.db.as_ref().and_then(|db| {
+                db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id)
+                    .ok()
+                    .flatten()
+                    .map(|hit| CacheHit {
+                        value: Box::new(hit.value),
+                        fetched_at: hit.fetched_at,
+                    })
+            });
         }
         self.start_intro_if_pending(now);
 
@@ -74,35 +98,79 @@ impl PersonScreen {
         }
 
         let settings = svc.settings.clone();
+        let db = svc.db.clone();
+        let disk_fresh = self
+            .disk
+            .as_ref()
+            .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
         let mut action = None;
-        match self
-            .bind
-            .read_or_request(move || jobs::load_person(settings, id))
-        {
-            None => {
-                if let Some(person) = self.preview.as_ref() {
-                    ui.ctx().request_repaint();
-                    loading(ui, svc, theme, t, person);
-                } else {
-                    widgets::page_spinner(ui, theme);
+        if matches!(self.bind.read(), Some(Ok(_))) {
+            self.force_refresh = false;
+        }
+        if let Some(result) = self.bind.read() {
+            match result {
+                Ok(details) => {
+                    queue_person_assets(svc, details);
+                    action = ready(ui, details, svc, theme, t);
+                }
+                Err(error) => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        queue_person_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else {
+                        let error = error.clone();
+                        ui.label(RichText::new(error).color(theme.err));
+                        if ui.button("Retry").clicked() {
+                            self.bind.clear();
+                            self.force_refresh = true;
+                        }
+                    }
                 }
             }
-            Some(Err(error)) => {
-                ui.label(RichText::new(error).color(theme.err));
-                if ui.button("Retry").clicked() {
-                    self.bind.clear();
+        } else if !self.force_refresh && disk_fresh {
+            if let Some(hit) = self.disk.as_ref() {
+                queue_person_assets(svc, &hit.value);
+                action = ready(ui, &hit.value, svc, theme, t);
+            }
+        } else {
+            let mut loaded_ok = false;
+            match self
+                .bind
+                .read_or_request(move || jobs::load_person(settings, id, db))
+            {
+                None => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        ui.ctx().request_repaint();
+                        queue_person_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else if let Some(person) = self.preview.as_ref() {
+                        ui.ctx().request_repaint();
+                        loading(ui, svc, theme, t, person);
+                    } else {
+                        widgets::page_spinner(ui, theme);
+                    }
+                }
+                Some(Ok(details)) => {
+                    loaded_ok = true;
+                    queue_person_assets(svc, details);
+                    action = ready(ui, details, svc, theme, t);
+                }
+                Some(Err(error)) => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        queue_person_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else {
+                        let error = error.clone();
+                        ui.label(RichText::new(error).color(theme.err));
+                        if ui.button("Retry").clicked() {
+                            self.bind.clear();
+                            self.force_refresh = true;
+                        }
+                    }
                 }
             }
-            Some(Ok(details)) => {
-                let proxy = svc.settings.interface.use_system_proxy;
-                let size = svc.settings.tmdb.poster_size;
-                if let Some(url) = tmdb_image_url(details.profile_path.as_deref(), "w185") {
-                    svc.images.request(url, false, proxy);
-                }
-                for item in &details.credits {
-                    svc.images.request_poster(item, size, proxy);
-                }
-                action = ready(ui, details, svc, theme, t);
+            if loaded_ok {
+                self.force_refresh = false;
             }
         }
         action
@@ -113,6 +181,17 @@ impl PersonScreen {
             self.intro_at = Some(now);
             self.pending_intro = false;
         }
+    }
+}
+
+fn queue_person_assets(svc: &mut Services, details: &PersonDetails) {
+    let proxy = svc.settings.interface.use_system_proxy;
+    let size = svc.settings.tmdb.poster_size;
+    if let Some(url) = tmdb_image_url(details.profile_path.as_deref(), "w185") {
+        svc.images.request(url, false, proxy);
+    }
+    for item in &details.credits {
+        svc.images.request_poster(item, size, proxy);
     }
 }
 
@@ -142,7 +221,11 @@ fn ready(
                     ui.label(RichText::new(born).size(13.0).color(theme.muted));
                 }
                 if let Some(place) = details.place_of_birth.as_deref() {
-                    ui.label(RichText::new(typograph(place)).size(13.0).color(theme.muted));
+                    ui.label(
+                        RichText::new(typograph(place))
+                            .size(13.0)
+                            .color(theme.muted),
+                    );
                 }
             },
         );
@@ -152,7 +235,11 @@ fn ready(
         }
         if !details.credits.is_empty() {
             ui.add_space(12.0);
-            ui.label(RichText::new(Msg::Credits.en()).size(16.0).color(theme.title));
+            ui.label(
+                RichText::new(Msg::Credits.en())
+                    .size(16.0)
+                    .color(theme.title),
+            );
             ui.horizontal_wrapped(|ui| {
                 for item in &details.credits {
                     let tex = svc.images.poster(item, svc.settings.tmdb.poster_size);
@@ -188,7 +275,13 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, person: &CreditPe
         ui.add_space(6.0);
         skeleton::bar(ui, theme, 220.0, 13.0, pulse);
         ui.add_space(16.0);
-        skeleton::bar(ui, theme, ui.available_width().min(theme.overview_max_w), 14.0, pulse);
+        skeleton::bar(
+            ui,
+            theme,
+            ui.available_width().min(theme.overview_max_w),
+            14.0,
+            pulse,
+        );
         ui.add_space(6.0);
         skeleton::bar(
             ui,
@@ -224,13 +317,7 @@ struct Hero<'a> {
     name_size: f32,
 }
 
-fn hero(
-    ui: &mut Ui,
-    svc: &Services,
-    theme: &Theme,
-    hero: Hero<'_>,
-    extra: impl FnOnce(&mut Ui),
-) {
+fn hero(ui: &mut Ui, svc: &Services, theme: &Theme, hero: Hero<'_>, extra: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
         let url = tmdb_image_url(hero.profile_path, "w185");
         let tex = svc.images.slot(url.as_deref());

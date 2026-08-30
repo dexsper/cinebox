@@ -2,7 +2,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use cinebox_core::{Settings, SettingsStore};
+use cinebox_core::{Settings, SettingsStore, Store, allowed_image_sizes};
 use cinebox_player::Engine;
 use tracing::{error, info, warn};
 
@@ -12,24 +12,30 @@ use crate::toasts::Toasts;
 pub struct Services {
     pub settings: Settings,
     pub store: Option<SettingsStore>,
+    pub db: Option<Arc<Store>>,
     pub load_error: Option<String>,
     pub save_error: Option<String>,
     pub images: ImageCache,
     pub toasts: Toasts,
     pub engine: Option<Arc<Mutex<Engine>>>,
+    home_needs_refresh: bool,
 }
 
 impl Services {
     pub fn boot(engine: Option<Arc<Mutex<Engine>>>) -> Self {
         let (store, settings, load_error) = open_settings_store();
+        let db = open_app_db(&settings);
+        let images = ImageCache::with_db(db.clone());
         Self {
             settings,
             store,
+            db,
             load_error,
             save_error: None,
-            images: ImageCache::new(),
+            images,
             toasts: Toasts::default(),
             engine,
+            home_needs_refresh: false,
         }
     }
 
@@ -38,10 +44,40 @@ impl Services {
         let Some(store) = &self.store else {
             return;
         };
-        
+
         if let Err(error) = store.save(&self.settings) {
             error!(%error, "failed to save settings");
             self.save_error = Some(error.to_string());
+        }
+    }
+
+    pub fn clear_tmdb_cache(&mut self) {
+        if let Some(db) = &self.db
+            && let Err(error) = db.clear_tmdb()
+        {
+            error!(%error, "failed to clear tmdb cache");
+        }
+        self.images.clear();
+        self.home_needs_refresh = true;
+    }
+
+    pub fn take_home_refresh(&mut self) -> bool {
+        std::mem::take(&mut self.home_needs_refresh)
+    }
+}
+
+fn open_app_db(settings: &Settings) -> Option<Arc<Store>> {
+    match Store::system() {
+        Ok(store) => {
+            let sizes = allowed_image_sizes(settings.tmdb.poster_size);
+            if let Err(error) = store.maintenance(&sizes) {
+                warn!(%error, "tmdb cache maintenance failed");
+            }
+            Some(Arc::new(store))
+        }
+        Err(error) => {
+            error!(%error, "app database unavailable");
+            None
         }
     }
 }

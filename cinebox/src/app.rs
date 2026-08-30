@@ -3,12 +3,14 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cinebox_core::{PosterSize, Settings, tmdb_image_url};
+use cinebox_core::{PosterSize, Settings, allowed_image_sizes, tmdb_image_url};
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
 use crate::nav::{Nav, NavAction, Screen};
-use crate::screens::{HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen, TorrentsScreen};
+use crate::screens::{
+    HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen, TorrentsScreen,
+};
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{backdrop, chrome};
@@ -71,7 +73,8 @@ impl App {
         let theme = Theme::dark();
         theme.apply(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
-        cc.egui_ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
+        cc.egui_ctx
+            .plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
         let engine = attach_engine(cc);
         let services = Services::boot(engine);
@@ -138,6 +141,11 @@ impl App {
             self.last_tmdb = next;
             if had_key {
                 self.home.refresh();
+                if let Some(db) = &self.services.db
+                    && let Err(error) = db.clear_tmdb()
+                {
+                    error!(%error, "failed to purge tmdb cache");
+                }
                 self.services.images.clear();
             }
             return;
@@ -152,6 +160,12 @@ impl App {
             }
             TmdbChange::PosterSize => {
                 self.services.images.clear();
+                if let Some(db) = &self.services.db {
+                    let sizes = allowed_image_sizes(self.services.settings.tmdb.poster_size);
+                    if let Err(error) = db.gc_images(&sizes) {
+                        error!(%error, "failed to gc tmdb images");
+                    }
+                }
             }
             TmdbChange::None => {}
         }
@@ -189,6 +203,9 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         self.services.images.poll(ctx);
         self.sync_tmdb();
+        if self.services.take_home_refresh() {
+            self.home.refresh();
+        }
 
         if matches!(self.nav.current(), Screen::Player { .. }) {
             self.player.tick(&mut self.services);
@@ -261,12 +278,7 @@ impl eframe::App for App {
     }
 }
 
-fn screen_ui(
-    app: &mut App,
-    ui: &mut egui::Ui,
-    screen: Screen,
-    theme: &Theme,
-) -> Option<NavAction> {
+fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
     if !matches!(screen, Screen::Torrents { .. }) {
         app.torrents.hide();
     }

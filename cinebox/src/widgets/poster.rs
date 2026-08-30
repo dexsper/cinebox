@@ -4,8 +4,8 @@ use cinebox_core::{CatalogItem, typograph};
 use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
-use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
 use egui_material_icons::MaterialIcon;
+use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
 
 use crate::images::ImageSlot;
 use crate::nav::NavAction;
@@ -20,15 +20,19 @@ pub fn catalog_tile(
     let pad = theme.ring_pad();
     let well = vec2(theme.tile_w + pad * 2.0, theme.catalog_shelf_height() - 8.0);
     let (rect, response) = ui.allocate_exact_size(well, Sense::click());
-    let poster_rect = Rect::from_min_size(rect.min + vec2(pad, pad), vec2(theme.tile_w, theme.tile_h));
-   
+    let poster_rect =
+        Rect::from_min_size(rect.min + vec2(pad, pad), vec2(theme.tile_w, theme.tile_h));
+
     paint_poster(ui, poster_rect, poster, theme);
     if let Some(vote) = item.vote.filter(|v| *v > 0.0) {
         vote_badge(ui, poster_rect, vote, theme);
     }
 
     if response.hovered() {
-        let ring = Rect::from_min_size(rect.min, vec2(theme.tile_w + pad * 2.0, theme.tile_h + pad * 2.0));
+        let ring = Rect::from_min_size(
+            rect.min,
+            vec2(theme.tile_w + pad * 2.0, theme.tile_h + pad * 2.0),
+        );
         ui.painter().rect_stroke(
             ring,
             CornerRadius::same((theme.radius_poster + pad).round() as u8),
@@ -40,7 +44,7 @@ pub fn catalog_tile(
     let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + 4.0);
     let title = wrap_title(ui, &typograph(&item.title), theme);
     let title_h = title.size().y;
-    
+
     ui.painter().galley(title_pos, title, theme.title);
     let year = item
         .year
@@ -56,9 +60,7 @@ pub fn catalog_tile(
     );
 
     if response.clicked() {
-        return Some(NavAction::OpenMedia {
-            item: item.clone(),
-        });
+        return Some(NavAction::OpenMedia { item: item.clone() });
     }
     None
 }
@@ -121,21 +123,23 @@ fn paint_slot_icon(ui: &Ui, rect: Rect, icon: MaterialIcon, theme: &Theme) {
 
 fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
     let text = format!("{vote:.1}");
-    let galley = ui.painter().layout_no_wrap(
-        text,
-        FontId::proportional(12.0),
-        theme.rate,
-    );
+    let galley = ui
+        .painter()
+        .layout_no_wrap(text, FontId::proportional(12.0), theme.rate);
 
     let size = galley.size() + vec2(12.0, 4.0);
     let rect = Rect::from_min_size(
-        pos2(poster.right() - size.x - 6.0, poster.bottom() - size.y - 6.0),
+        pos2(
+            poster.right() - size.x - 6.0,
+            poster.bottom() - size.y - 6.0,
+        ),
         size,
     );
-    
+
     ui.painter()
         .rect_filled(rect, theme.rounding(theme.radius_badge), theme.badge_bg);
-    ui.painter().galley(rect.min + vec2(6.0, 2.0), galley, theme.rate);
+    ui.painter()
+        .galley(rect.min + vec2(6.0, 2.0), galley, theme.rate);
 }
 
 pub fn rounded_image(ui: &mut Ui, texture: ImageSlot<'_>, size: Vec2, theme: &Theme) {

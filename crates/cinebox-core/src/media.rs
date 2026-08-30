@@ -1,10 +1,11 @@
 //! Full media card and person page payloads.
 
-use crate::catalog::CatalogItem;
+use crate::catalog::{CatalogItem, normalize_tmdb_path};
 use crate::ids::{MediaKind, TmdbId};
+use serde::{Deserialize, Serialize};
 
 /// YouTube (or other) trailer/teaser from TMDB `videos`.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Trailer {
     pub name: String,
     pub youtube_key: String,
@@ -19,7 +20,7 @@ impl Trailer {
 }
 
 /// Cast or crew member shown on a media card.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct CreditPerson {
     pub id: TmdbId,
     pub name: String,
@@ -28,7 +29,7 @@ pub struct CreditPerson {
 }
 
 /// Full movie/TV card (Phase 4).
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaDetails {
     pub id: TmdbId,
     pub kind: MediaKind,
@@ -119,10 +120,30 @@ impl MediaDetails {
             .unwrap_or(&self.title)
             .to_owned()
     }
+
+    /// Poster / backdrop / credit / related paths for the image cache.
+    #[must_use]
+    pub fn image_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        push_path(&mut paths, self.poster_path.as_deref());
+        push_path(&mut paths, self.backdrop_path.as_deref());
+        for person in self.directors.iter().chain(self.cast.iter()) {
+            push_path(&mut paths, person.profile_path.as_deref());
+        }
+        for item in self
+            .collection
+            .iter()
+            .chain(self.recommendations.iter())
+            .chain(self.similar.iter())
+        {
+            push_path(&mut paths, item.poster_path.as_deref());
+        }
+        paths
+    }
 }
 
 /// Person page: bio + combined credits grid.
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PersonDetails {
     pub id: TmdbId,
     pub name: String,
@@ -131,6 +152,27 @@ pub struct PersonDetails {
     pub place_of_birth: Option<String>,
     pub profile_path: Option<String>,
     pub credits: Vec<CatalogItem>,
+}
+
+impl PersonDetails {
+    /// Profile and credit poster paths for the image cache.
+    #[must_use]
+    pub fn image_paths(&self) -> Vec<String> {
+        let mut paths = Vec::new();
+        push_path(&mut paths, self.profile_path.as_deref());
+        for item in &self.credits {
+            push_path(&mut paths, item.poster_path.as_deref());
+        }
+        paths
+    }
+}
+
+fn push_path(paths: &mut Vec<String>, raw: Option<&str>) {
+    if let Some(path) = normalize_tmdb_path(raw)
+        && !paths.contains(&path)
+    {
+        paths.push(path);
+    }
 }
 
 /// Format `125` → `2h 5m`.

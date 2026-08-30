@@ -1,7 +1,7 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
-    CatalogItem, CreditPerson, MediaDetails, MediaKind, TmdbId, format_money, format_release_date,
-    tmdb_image_url, typograph,
+    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
+    format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url, typograph,
 };
 use egui::{Atom, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, Vec2, vec2};
 use egui_async::Bind;
@@ -18,8 +18,10 @@ pub struct MediaScreen {
     id: Option<TmdbId>,
     preview: Option<CatalogItem>,
     bind: Bind<Box<MediaDetails>, String>,
+    disk: Option<CacheHit<Box<MediaDetails>>>,
     intro_at: Option<f64>,
     pending_intro: bool,
+    force_refresh: bool,
 }
 
 impl Default for MediaScreen {
@@ -29,20 +31,29 @@ impl Default for MediaScreen {
             id: None,
             preview: None,
             bind: Bind::new(true),
+            disk: None,
             intro_at: None,
             pending_intro: false,
+            force_refresh: false,
         }
     }
 }
 
 impl MediaScreen {
     pub fn ready(&mut self) -> Option<&MediaDetails> {
-        self.bind.read().as_ref().and_then(|r| r.as_ref().ok()).map(|b| &**b)
+        if let Some(result) = self.bind.read()
+            && let Ok(details) = result
+        {
+            return Some(details);
+        }
+        self.disk.as_ref().map(|hit| hit.value.as_ref())
     }
 
     pub fn seed(&mut self, item: CatalogItem) {
         if self.kind != Some(item.kind) || self.id != Some(item.id) {
             self.bind = Bind::new(true);
+            self.disk = None;
+            self.force_refresh = false;
         }
         self.kind = Some(item.kind);
         self.id = Some(item.id);
@@ -63,6 +74,8 @@ impl MediaScreen {
             self.kind = Some(kind);
             self.id = Some(id);
             self.bind = Bind::new(true);
+            self.disk = None;
+            self.force_refresh = false;
             if self
                 .preview
                 .as_ref()
@@ -70,6 +83,19 @@ impl MediaScreen {
             {
                 self.preview = None;
             }
+        }
+        if self.disk.is_none() {
+            let lang = language_key(svc.settings.tmdb.data_language.as_deref());
+            let cache_id = media_cache_id(kind, id);
+            self.disk = svc.db.as_ref().and_then(|db| {
+                db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id)
+                    .ok()
+                    .flatten()
+                    .map(|hit| CacheHit {
+                        value: Box::new(hit.value),
+                        fetched_at: hit.fetched_at,
+                    })
+            });
         }
         self.start_intro_if_pending(now);
 
@@ -87,28 +113,80 @@ impl MediaScreen {
         }
 
         let settings = svc.settings.clone();
+        let db = svc.db.clone();
+        let disk_fresh = self
+            .disk
+            .as_ref()
+            .is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
         let mut action = None;
-        match self
-            .bind
-            .read_or_request(move || jobs::load_media(settings, kind, id))
-        {
-            None => {
-                if let Some(item) = self.preview.as_ref() {
-                    ui.ctx().request_repaint();
-                    loading(ui, svc, theme, t, item);
-                } else {
-                    widgets::page_spinner(ui, theme);
+        if matches!(self.bind.read(), Some(Ok(_))) {
+            self.force_refresh = false;
+        }
+
+        if let Some(result) = self.bind.read() {
+            match result {
+                Ok(details) => {
+                    queue_media_assets(svc, details);
+                    action = ready(ui, details, svc, theme, t);
+                }
+                Err(error) => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        queue_media_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else {
+                        let error = error.clone();
+                        ui.label(RichText::new(error).color(theme.err));
+                        if ui.button("Retry").clicked() {
+                            self.bind.clear();
+                            self.force_refresh = true;
+                        }
+                    }
                 }
             }
-            Some(Err(error)) => {
-                ui.label(RichText::new(error).color(theme.err));
-                if ui.button("Retry").clicked() {
-                    self.bind.clear();
+        } else if !self.force_refresh && disk_fresh {
+            if let Some(hit) = self.disk.as_ref() {
+                queue_media_assets(svc, &hit.value);
+                action = ready(ui, &hit.value, svc, theme, t);
+            }
+        } else {
+            let mut loaded_ok = false;
+            match self
+                .bind
+                .read_or_request(move || jobs::load_media(settings, kind, id, db))
+            {
+                None => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        ui.ctx().request_repaint();
+                        queue_media_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else if let Some(item) = self.preview.as_ref() {
+                        ui.ctx().request_repaint();
+                        loading(ui, svc, theme, t, item);
+                    } else {
+                        widgets::page_spinner(ui, theme);
+                    }
+                }
+                Some(Ok(details)) => {
+                    loaded_ok = true;
+                    queue_media_assets(svc, details);
+                    action = ready(ui, details, svc, theme, t);
+                }
+                Some(Err(error)) => {
+                    if let Some(hit) = self.disk.as_ref() {
+                        queue_media_assets(svc, &hit.value);
+                        action = ready(ui, &hit.value, svc, theme, t);
+                    } else {
+                        let error = error.clone();
+                        ui.label(RichText::new(error).color(theme.err));
+                        if ui.button("Retry").clicked() {
+                            self.bind.clear();
+                            self.force_refresh = true;
+                        }
+                    }
                 }
             }
-            Some(Ok(details)) => {
-                queue_media_assets(svc, details);
-                action = ready(ui, details, svc, theme, t);
+            if loaded_ok {
+                self.force_refresh = false;
             }
         }
         action
@@ -188,7 +266,11 @@ fn ready(
             },
             |ui, col_top| {
                 if let Some(tagline) = details.tagline.as_deref() {
-                    ui.label(RichText::new(typograph(tagline)).size(18.0).color(theme.muted));
+                    ui.label(
+                        RichText::new(typograph(tagline))
+                            .size(18.0)
+                            .color(theme.muted),
+                    );
                 }
                 let has_rating = details.vote.filter(|v| *v > 0.0).is_some()
                     || details
@@ -222,21 +304,43 @@ fn ready(
             ui.add_space(16.0);
             ui.vertical(|ui| {
                 ui.set_max_width(theme.overview_max_w);
-                ui.label(RichText::new(Msg::InDetail.en()).size(16.0).color(theme.title));
-                ui.label(RichText::new(typograph(overview)).size(15.0).color(theme.body));
+                ui.label(
+                    RichText::new(Msg::InDetail.en())
+                        .size(16.0)
+                        .color(theme.title),
+                );
+                ui.label(
+                    RichText::new(typograph(overview))
+                        .size(15.0)
+                        .color(theme.body),
+                );
             });
         }
 
         ui.add_space(28.0);
         facts(ui, details, theme);
         if !details.directors.is_empty() {
-            people(ui, Msg::Directors.en(), &details.directors, svc, theme, &mut action);
+            people(
+                ui,
+                Msg::Directors.en(),
+                &details.directors,
+                svc,
+                theme,
+                &mut action,
+            );
         }
 
         if !details.cast.is_empty() {
             people(ui, Msg::Cast.en(), &details.cast, svc, theme, &mut action);
         }
-        shelf(ui, Msg::Collection.en(), &details.collection, svc, theme, &mut action);
+        shelf(
+            ui,
+            Msg::Collection.en(),
+            &details.collection,
+            svc,
+            theme,
+            &mut action,
+        );
         shelf(
             ui,
             Msg::Recommendations.en(),
@@ -245,10 +349,21 @@ fn ready(
             theme,
             &mut action,
         );
-        shelf(ui, Msg::Similar.en(), &details.similar, svc, theme, &mut action);
+        shelf(
+            ui,
+            Msg::Similar.en(),
+            &details.similar,
+            svc,
+            theme,
+            &mut action,
+        );
         if !details.trailers.is_empty() {
             ui.add_space(8.0);
-            ui.label(RichText::new(Msg::Trailers.en()).size(16.0).color(theme.title));
+            ui.label(
+                RichText::new(Msg::Trailers.en())
+                    .size(16.0)
+                    .color(theme.title),
+            );
             for trailer in &details.trailers {
                 if ui.button(typograph(&trailer.name)).clicked() {
                     action = Some(NavAction::OpenUrl(trailer.watch_url()));
@@ -306,11 +421,29 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
         ui.add_space(16.0);
         skeleton::bar(ui, theme, 120.0, 16.0, pulse);
         ui.add_space(8.0);
-        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()), 14.0, pulse);
+        skeleton::bar(
+            ui,
+            theme,
+            theme.overview_max_w.min(ui.available_width()),
+            14.0,
+            pulse,
+        );
         ui.add_space(6.0);
-        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()) * 0.85, 14.0, pulse);
+        skeleton::bar(
+            ui,
+            theme,
+            theme.overview_max_w.min(ui.available_width()) * 0.85,
+            14.0,
+            pulse,
+        );
         ui.add_space(6.0);
-        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()) * 0.7, 14.0, pulse);
+        skeleton::bar(
+            ui,
+            theme,
+            theme.overview_max_w.min(ui.available_width()) * 0.7,
+            14.0,
+            pulse,
+        );
         ui.add_space(28.0);
         ui.horizontal(|ui| {
             skeleton::bar(ui, theme, 88.0, 36.0, pulse);
@@ -363,7 +496,11 @@ fn hero(
             ui.set_width(col_w);
             let col_top = ui.cursor().top();
             if !hero.head.is_empty() {
-                ui.label(RichText::new(hero.head).size(hero.year_size).color(theme.muted));
+                ui.label(
+                    RichText::new(hero.head)
+                        .size(hero.year_size)
+                        .color(theme.muted),
+                );
                 ui.add_space(6.0);
             }
             ui.label(
@@ -386,7 +523,11 @@ fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
         ui.spacing_mut().item_spacing.x = 10.0;
         if let Some(vote) = vote {
             pill(ui, theme, |ui| {
-                ui.label(RichText::new(format!("{vote:.1}")).size(18.0).color(theme.rate));
+                ui.label(
+                    RichText::new(format!("{vote:.1}"))
+                        .size(18.0)
+                        .color(theme.rate),
+                );
                 ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
             });
         }
