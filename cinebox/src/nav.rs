@@ -3,7 +3,6 @@ use cinebox_core::{CatalogItem, CreditPerson, MediaKind, TmdbId};
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Home,
-    Settings,
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
     Torrents { kind: MediaKind, id: TmdbId },
@@ -68,10 +67,15 @@ mod tests {
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
 
-        nav.push(Screen::Settings);
-        assert_eq!(nav.current(), Screen::Settings);
+        let movie = Screen::Media {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+        };
 
-        nav.push(Screen::Settings);
+        nav.push(movie);
+        assert_eq!(nav.current(), movie);
+
+        nav.push(movie);
         assert_eq!(nav.stack.len(), 2);
 
         nav.pop();

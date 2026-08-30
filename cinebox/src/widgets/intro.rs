@@ -2,6 +2,15 @@
 
 const DURATION: f64 = 0.48;
 
+/// Timestamp so that [`t`]`(started, now)` equals `progress` (0..=1).
+#[must_use]
+pub fn started_at(now: f64, progress: f32) -> f64 {
+    let p = f64::from(progress.clamp(0.0, 1.0));
+    let elapsed = DURATION * (1.0 - (1.0 - p).cbrt());
+
+    now - elapsed
+}
+
 /// 0 at start, 1 when finished. Cubic ease-out.
 #[must_use]
 pub fn t(started: Option<f64>, now: f64) -> f32 {
@@ -46,5 +55,22 @@ mod tests {
         assert!(running(Some(0.0), 0.1));
         assert!(!running(Some(0.0), 1.0));
         assert!(!running(None, 0.0));
+    }
+
+    #[test]
+    fn started_at_round_trips_progress() {
+        let now = 10.0;
+        let start = started_at(now, 0.0);
+        assert!((t(Some(start), now) - 0.0).abs() < 0.02);
+
+        let mid = started_at(now, 0.5);
+        let got = t(Some(mid), now);
+        assert!(
+            (got - 0.5).abs() < 0.02,
+            "expected ~0.5, got {got}"
+        );
+
+        let done = started_at(now, 1.0);
+        assert!((t(Some(done), now) - 1.0).abs() < f32::EPSILON);
     }
 }

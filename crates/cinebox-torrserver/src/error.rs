@@ -19,8 +19,6 @@ pub enum Error {
     NotFound,
     #[error("torrserver returned empty echo")]
     EmptyEcho,
-    #[error("speed test size must be between 1 and 100 MB")]
-    BadSize,
     #[error("speed test received no data")]
     NoData,
     #[error("torrent files did not appear in time")]

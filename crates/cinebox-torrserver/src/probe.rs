@@ -12,9 +12,10 @@ use super::error::Error;
 /// Stop reading after 10s even if the generated file is larger.
 const SPEED_TEST_MAX_SECS: u64 = 10;
 const SPEED_TEST_MAX_BYTES: u64 = 300_000_000;
+const MIN_SAMPLE_SECS: f64 = 0.25;
 
-/// Sizes offered in settings (MB).
-pub const SPEED_TEST_SIZES_MB: [u32; 3] = [10, 50, 100];
+/// File size requested from TorrServer (`GET /download/{n}`).
+pub const SPEED_TEST_FILE_MB: u32 = 300;
 
 /// Result of `GET /download/{size}`.
 #[derive(Debug, Clone, PartialEq)]
@@ -45,6 +46,17 @@ impl SpeedReport {
     }
 }
 
+/// Progress while a speed test is running.
+#[derive(Clone, Copy, Debug)]
+pub enum SpeedEvent {
+    Testing,
+    Sample {
+        mbps: f64,
+        elapsed: Duration,
+        bytes: u64,
+    },
+}
+
 /// `GET /echo` — unauthenticated version string (ping).
 ///
 /// # Errors
@@ -70,22 +82,20 @@ pub async fn echo(base_url: &str, username: &str, password: &str) -> Result<Stri
     Ok(version.to_owned())
 }
 
-/// `GET /download/{size}` with a 10s read cap. Needs Basic auth when the server has `HttpAuth`.
+/// `GET /download/{n}` with a 10s read cap. Needs Basic auth when the server has `HttpAuth`.
 ///
 /// # Errors
 ///
-/// Empty URL, bad size, HTTP failures, or zero bytes read.
+/// Empty URL, HTTP failures, or zero bytes read.
 pub async fn speed_test(
     base_url: &str,
     username: &str,
     password: &str,
-    size_mb: u32,
+    mut on_event: impl FnMut(SpeedEvent) + Send,
 ) -> Result<SpeedReport, Error> {
-    if !(1..=100).contains(&size_mb) {
-        return Err(Error::BadSize);
-    }
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
-    let url = join_url(&base, &format!("download/{size_mb}"));
+    let path = format!("download/{SPEED_TEST_FILE_MB}");
+    let url = join_url(&base, &path);
     let client = http_client(Duration::from_secs(20))?;
     let response = apply_basic_auth(client.get(&url), username, password)
         .send()
@@ -100,21 +110,42 @@ pub async fn speed_test(
 
     let started = Instant::now();
     let mut bytes = 0_u64;
+    let mut testing = false;
     let mut stream = response.bytes_stream();
     while let Some(chunk) = stream.next().await {
         let chunk = chunk.map_err(Error::Request)?;
         bytes += chunk.len() as u64;
-        if started.elapsed() >= Duration::from_secs(SPEED_TEST_MAX_SECS)
-            || bytes >= SPEED_TEST_MAX_BYTES
-        {
+
+        if !testing {
+            testing = true;
+            on_event(SpeedEvent::Testing);
+        }
+
+        let elapsed = started.elapsed();
+        let secs = elapsed.as_secs_f64();
+        let warmed_up = secs >= MIN_SAMPLE_SECS;
+        if warmed_up {
+            let mbps = (bytes as f64) * 8.0 / secs / 1_000_000.0;
+            on_event(SpeedEvent::Sample {
+                mbps,
+                elapsed,
+                bytes,
+            });
+        }
+
+        if started.elapsed() >= Duration::from_secs(SPEED_TEST_MAX_SECS) {
+            break;
+        }
+        if bytes >= SPEED_TEST_MAX_BYTES {
             break;
         }
     }
     if bytes == 0 {
         return Err(Error::NoData);
     }
+
     Ok(SpeedReport {
-        size_mb,
+        size_mb: SPEED_TEST_FILE_MB,
         bytes,
         elapsed: started.elapsed(),
     })
@@ -146,7 +177,7 @@ mod tests {
     #[tokio::test]
     #[ignore = "needs a local TorrServer on 127.0.0.1:8090"]
     async fn live_speed_test_10mb() -> Result<(), Error> {
-        let report = speed_test("http://127.0.0.1:8090", "", "", 10).await?;
+        let report = speed_test("http://127.0.0.1:8090", "", "", |_| {}).await?;
         assert!(report.bytes > 0);
         assert!(report.megabits_per_sec() > 0.0);
         Ok(())

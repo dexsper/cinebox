@@ -3,7 +3,7 @@ use cinebox_core::{
     CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
     format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url, typograph,
 };
-use egui::{Atom, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, Vec2, vec2};
+use egui::{Align, Atom, Frame, Layout, Margin, Rect, RichText, Sense, Stroke, Ui, Vec2, pos2, vec2};
 use egui_async::Bind;
 use egui_material_icons::icons::ICON_PLAY_CIRCLE;
 
@@ -119,12 +119,9 @@ impl MediaScreen {
                 .as_ref()
                 .is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
         let has_disk = self.disk.is_some();
-        let outcome = super::swr::resolve(
-            &mut self.bind,
-            has_disk,
-            skip_network,
-            move || jobs::load_media(settings, kind, id, db),
-        );
+        let outcome = super::swr::resolve(&mut self.bind, has_disk, skip_network, move || {
+            jobs::load_media(settings, kind, id, db)
+        });
         if outcome.from_network {
             self.force_refresh = false;
         }
@@ -260,7 +257,7 @@ fn ready(
                         .as_deref()
                         .is_some_and(|s| !s.is_empty());
                 if has_rating {
-                    ui.add_space(8.0);
+                    ui.add_space(14.0);
                 }
                 ratings_row(ui, details, theme);
                 let bits = details.detail_bits();
@@ -501,15 +498,12 @@ fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
     if vote.is_none() && cert.is_none() {
         return;
     }
-    ui.horizontal(|ui| {
+    ui.horizontal_top(|ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         if let Some(vote) = vote {
             pill(ui, theme, |ui| {
-                ui.label(
-                    RichText::new(format!("{vote:.1}"))
-                        .size(18.0)
-                        .color(theme.rate),
-                );
+                let score = format!("{vote:.1}");
+                ui.label(RichText::new(score).size(18.0).color(theme.rate));
                 ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
             });
         }
@@ -522,15 +516,19 @@ fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
 }
 
 fn pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
+    const INNER_H: f32 = 22.0;
+
     Frame::new()
         .fill(theme.rating_pill)
         .corner_radius(6)
-        .inner_margin(Margin::symmetric(12, 4))
+        .inner_margin(Margin::symmetric(12, 6))
         .show(ui, |ui| {
-            ui.set_height(28.0);
+            ui.set_min_height(INNER_H);
+            ui.set_max_height(INNER_H);
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.horizontal_centered(|ui| {
-                ui.set_height(28.0);
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.set_min_height(INNER_H);
+                ui.set_max_height(INNER_H);
                 add(ui);
             });
         });
@@ -609,6 +607,7 @@ fn people(
     const CAPTION_GAP: f32 = 4.0;
     const LINE_GAP: f32 = 2.0;
 
+    let pad = theme.ring_pad();
     let (name_slot, role_slot) = ui.ctx().fonts_mut(|f| {
         (
             f.row_height(&egui::FontId::proportional(NAME_SIZE)) * 2.0,
@@ -616,7 +615,8 @@ fn people(
         )
     });
 
-    let tile_h = PHOTO.y + CAPTION_GAP + name_slot + LINE_GAP + role_slot;
+    let well_w = TILE_W + pad * 2.0;
+    let tile_h = pad + PHOTO.y + CAPTION_GAP + name_slot + LINE_GAP + role_slot;
     scroll::horizontal(ui, title.to_owned(), |ui| {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
@@ -640,12 +640,20 @@ fn people(
                     2,
                 );
                 let name_h = name.size().y;
-                let (rect, response) = ui.allocate_exact_size(vec2(TILE_W, tile_h), Sense::click());
-                poster::paint_poster(ui, Rect::from_min_size(rect.min, PHOTO), tex, theme);
-                let name_pos = rect.min + vec2(0.0, PHOTO.y + CAPTION_GAP);
+                let (rect, response) = ui.allocate_exact_size(vec2(well_w, tile_h), Sense::click());
+                let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), PHOTO);
+                poster::paint_poster(ui, photo_rect, tex, theme);
+                if response.hovered() {
+                    poster::hover_ring(ui, photo_rect, theme);
+                }
+
+                let name_pos = pos2(photo_rect.left(), photo_rect.bottom() + CAPTION_GAP);
                 ui.painter().galley(name_pos, name, theme.title);
-                ui.painter()
-                    .galley(name_pos + vec2(0.0, name_h + LINE_GAP), role, theme.muted);
+                ui.painter().galley(
+                    name_pos + vec2(0.0, name_h + LINE_GAP),
+                    role,
+                    theme.muted,
+                );
                 if response.clicked() {
                     *action = Some(NavAction::OpenPerson {
                         person: person.clone(),

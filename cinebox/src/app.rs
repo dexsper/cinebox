@@ -94,10 +94,10 @@ impl App {
         }
     }
 
-    fn apply_nav(&mut self, action: NavAction) {
+    fn apply_nav(&mut self, action: NavAction, now: f64) {
         match action {
-            NavAction::OpenSettings => self.nav.push(Screen::Settings),
-            NavAction::GoBack => self.go_back(),
+            NavAction::OpenSettings => self.settings_screen.toggle(now),
+            NavAction::GoBack => self.go_back(now),
             NavAction::OpenMedia { item } => {
                 self.nav.push(Screen::Media {
                     kind: item.kind,
@@ -128,7 +128,11 @@ impl App {
         }
     }
 
-    fn go_back(&mut self) {
+    fn go_back(&mut self, now: f64) {
+        if self.settings_screen.on_back(now) {
+            return;
+        }
+
         if matches!(self.nav.current(), Screen::Player { .. }) {
             self.player.stop(&self.services);
             self.nav.pop();
@@ -240,7 +244,7 @@ impl eframe::App for App {
             .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
-                if let Some(nav) = chrome::header(ui, screen, &theme) {
+                if let Some(nav) = chrome::header(ui, screen, &theme, self.settings_screen.is_open()) {
                     action = Some(nav);
                 }
 
@@ -271,6 +275,8 @@ impl eframe::App for App {
                 chrome::resize_edges(ui, &theme);
                 chrome::window_outline(ui, &theme);
 
+                self.settings_screen.ui(ui, &mut self.services, &theme);
+
                 if action.is_none() {
                     action = screen_action;
                 }
@@ -279,7 +285,7 @@ impl eframe::App for App {
         self.services.toasts.show(ui.ctx(), &theme);
         self.take_pending_play();
         if let Some(action) = action {
-            self.apply_nav(action);
+            self.apply_nav(action, ui.input(|i| i.time));
         }
     }
 }
@@ -290,7 +296,6 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
     }
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
-        Screen::Settings => app.settings_screen.ui(ui, &mut app.services, theme),
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {

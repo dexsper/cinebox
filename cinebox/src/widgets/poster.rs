@@ -29,16 +29,7 @@ pub fn catalog_tile(
     }
 
     if response.hovered() {
-        let ring = Rect::from_min_size(
-            rect.min,
-            vec2(theme.tile_w + pad * 2.0, theme.tile_h + pad * 2.0),
-        );
-        ui.painter().rect_stroke(
-            ring,
-            CornerRadius::same((theme.radius_poster + pad).round() as u8),
-            Stroke::new(theme.ring_w, theme.ring),
-            egui::StrokeKind::Inside,
-        );
+        hover_ring(ui, poster_rect, theme);
     }
 
     let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + 4.0);
@@ -63,6 +54,18 @@ pub fn catalog_tile(
         return Some(NavAction::OpenMedia { item: item.clone() });
     }
     None
+}
+
+pub fn hover_ring(ui: &Ui, poster: Rect, theme: &Theme) {
+    let pad = theme.ring_pad();
+    let ring = poster.expand(pad);
+    let radius = theme.radius_poster + pad;
+    ui.painter().rect_stroke(
+        ring,
+        CornerRadius::same(radius.round() as u8),
+        Stroke::new(theme.ring_w, theme.ring),
+        egui::StrokeKind::Inside,
+    );
 }
 
 fn wrap_title(ui: &Ui, title: &str, theme: &Theme) -> std::sync::Arc<egui::Galley> {

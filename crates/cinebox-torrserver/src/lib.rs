@@ -13,7 +13,7 @@ mod viewed;
 
 pub use auth::mpv_http_header_fields;
 pub use error::Error;
-pub use probe::{SPEED_TEST_SIZES_MB, SpeedReport, echo, speed_test};
+pub use probe::{SPEED_TEST_FILE_MB, SpeedEvent, SpeedReport, echo, speed_test};
 pub use status::{FileStat, TorrentStat, TorrentStatus, files_for_list, is_playable_path};
 pub use stream::{StreamFlag, play_url, stream_url, wait_preload};
 pub use torrents::{

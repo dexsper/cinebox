@@ -12,9 +12,14 @@ struct HeaderState {
     theme: Theme,
     action: Option<NavAction>,
     fonts: bool,
+    settings_open: bool,
 }
 
 fn header_harness(screen: Screen) -> Harness<'static, HeaderState> {
+    header_harness_with(screen, false)
+}
+
+fn header_harness_with(screen: Screen, settings_open: bool) -> Harness<'static, HeaderState> {
     let mut harness = Harness::builder()
         .with_size(vec2(800.0, 80.0))
         .build_ui_state(
@@ -25,7 +30,9 @@ fn header_harness(screen: Screen) -> Harness<'static, HeaderState> {
                     state.fonts = true;
                     return;
                 }
-                if let Some(nav) = chrome::header(ui, state.screen, &state.theme) {
+                if let Some(nav) =
+                    chrome::header(ui, state.screen, &state.theme, state.settings_open)
+                {
                     state.action = Some(nav);
                 }
             },
@@ -34,6 +41,7 @@ fn header_harness(screen: Screen) -> Harness<'static, HeaderState> {
                 theme: Theme::dark(),
                 action: None,
                 fonts: false,
+                settings_open,
             },
         );
     harness.run();
@@ -56,6 +64,14 @@ fn media_header_back_click_goes_back() {
         kind: cinebox_core::MediaKind::Movie,
         id: cinebox_core::TmdbId::new(1),
     });
+    harness.get_by_role_and_label(Role::Button, "Back").click();
+    harness.run();
+    assert_eq!(harness.state().action, Some(NavAction::GoBack));
+}
+
+#[test]
+fn home_header_back_when_settings_open() {
+    let mut harness = header_harness_with(Screen::Home, true);
     harness.get_by_role_and_label(Role::Button, "Back").click();
     harness.run();
     assert_eq!(harness.state().action, Some(NavAction::GoBack));

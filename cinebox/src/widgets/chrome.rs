@@ -14,7 +14,12 @@ use crate::theme::Theme;
 
 const RESIZE_GRIP: f32 = 6.0;
 
-pub fn header(ui: &mut Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
+pub fn header(
+    ui: &mut Ui,
+    screen: Screen,
+    theme: &Theme,
+    settings_open: bool,
+) -> Option<NavAction> {
     let mut action = None;
     let height = theme.title_bar_h;
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
@@ -30,16 +35,25 @@ pub fn header(ui: &mut Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.horizontal_centered(|ui| {
             ui.add_space(6.0);
-            if !matches!(screen, Screen::Home)
-                && chrome_btn(ui, theme, ICON_ARROW_BACK, Msg::NavBack.en(), false)
-            {
-                action = Some(NavAction::GoBack);
+            let show_back = settings_open || !matches!(screen, Screen::Home);
+            if show_back {
+                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, Msg::NavBack.en(), false, false);
+                if back {
+                    action = Some(NavAction::GoBack);
+                }
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
                 window_buttons(ui, theme);
-                if chrome_btn(ui, theme, ICON_SETTINGS, Msg::NavSettings.en(), false) {
+                if chrome_btn(
+                    ui,
+                    theme,
+                    ICON_SETTINGS,
+                    Msg::NavSettings.en(),
+                    false,
+                    settings_open,
+                ) {
                     action = Some(NavAction::OpenSettings);
                 }
 
@@ -144,7 +158,7 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(ui, theme, ICON_CLOSE, Msg::WindowClose.en(), true) {
+    if chrome_btn(ui, theme, ICON_CLOSE, Msg::WindowClose.en(), true, false) {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -154,11 +168,18 @@ fn window_buttons(ui: &mut Ui, theme: &Theme) {
         (ICON_FULLSCREEN, Msg::WindowMaximize.en())
     };
 
-    if chrome_btn(ui, theme, max_icon, max_hint, false) {
+    if chrome_btn(ui, theme, max_icon, max_hint, false, false) {
         toggle_maximized(ui);
     }
 
-    if chrome_btn(ui, theme, ICON_REMOVE, Msg::WindowMinimize.en(), false) {
+    if chrome_btn(
+        ui,
+        theme,
+        ICON_REMOVE,
+        Msg::WindowMinimize.en(),
+        false,
+        false,
+    ) {
         ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
     }
 }
@@ -169,27 +190,50 @@ fn toggle_maximized(ui: &Ui) {
         .send_viewport_cmd(ViewportCommand::Maximized(!maximized));
 }
 
-fn chrome_btn(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, hint: &str, is_close: bool) -> bool {
+fn chrome_btn(
+    ui: &mut Ui,
+    theme: &Theme,
+    icon: MaterialIcon,
+    hint: &str,
+    is_close: bool,
+    active: bool,
+) -> bool {
     let size = Vec2::splat(theme.title_bar_h - 8.0);
+    let idle = if active {
+        theme.chrome_btn_hover
+    } else {
+        theme.chrome_btn_idle
+    };
+
+    let hover = if is_close {
+        theme.chrome_close_hover
+    } else {
+        theme.chrome_btn_hover
+    };
+
     let clicked = ui
         .scope(|ui| {
-            let hover = if is_close {
-                theme.chrome_close_hover
-            } else {
-                theme.chrome_btn_hover
-            };
-            ui.visuals_mut().widgets.hovered.bg_fill = hover;
-            ui.visuals_mut().widgets.active.bg_fill = hover;
+            let widgets = &mut ui.visuals_mut().widgets;
+            widgets.inactive.bg_fill = idle;
+            widgets.inactive.weak_bg_fill = idle;
+            widgets.hovered.bg_fill = hover;
+            widgets.hovered.weak_bg_fill = hover;
+            widgets.active.bg_fill = hover;
+            widgets.active.weak_bg_fill = hover;
+
             ui.add(
                 egui::Button::new(icon.rich_text().size(16.0).color(theme.title))
-                    .fill(theme.chrome_btn_idle)
                     .stroke(egui::Stroke::NONE)
                     .corner_radius(4)
                     .min_size(size),
             )
         })
         .inner;
+
     let enabled = clicked.enabled();
     clicked.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
-    clicked.on_hover_text(hint).clicked()
+    clicked
+        .on_hover_cursor(CursorIcon::PointingHand)
+        .on_hover_text(hint)
+        .clicked()
 }

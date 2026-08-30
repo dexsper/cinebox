@@ -463,14 +463,17 @@ fn key_fingerprint(key: &str) -> u64 {
     hasher.finish()
 }
 
-pub async fn speed_test(settings: Settings, size_mb: u32) -> Result<String, String> {
+pub async fn speed_test(
+    settings: Settings,
+    on_event: impl FnMut(cinebox_torrserver::SpeedEvent) + Send,
+) -> Result<f64, String> {
     cinebox_torrserver::speed_test(
         &settings.torrserver.url,
         &settings.torrserver.username,
         settings.torrserver.password.expose(),
-        size_mb,
+        on_event,
     )
     .await
-    .map(|report| report.summary())
+    .map(|report| report.megabits_per_sec())
     .map_err(|error| error.to_string())
 }

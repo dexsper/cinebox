@@ -45,6 +45,8 @@ pub struct Theme {
     pub widget_hover: Color32,
     pub widget_active: Color32,
     pub selection: Color32,
+    pub input_bg: Color32,
+    pub toggle_off: Color32,
     pub radius_poster: f32,
     pub radius_card: f32,
     pub radius_badge: f32,
@@ -107,6 +109,8 @@ impl Theme {
             widget_hover: Color32::from_rgb(40, 40, 50),
             widget_active: Color32::from_rgb(50, 50, 62),
             selection: Color32::from_rgb(70, 90, 140),
+            input_bg: Color32::from_rgb(32, 33, 38),
+            toggle_off: Color32::from_rgb(58, 59, 66),
             radius_poster: 12.0,
             radius_card: 8.0,
             radius_badge: 4.0,
@@ -143,6 +147,24 @@ impl Theme {
         CornerRadius::same(radius.round() as u8)
     }
 
+    #[must_use]
+    pub fn overlay_at(&self, t: f32) -> Color32 {
+        self.overlay.gamma_multiply(t.clamp(0.0, 1.0))
+    }
+
+    /// Arc color for the speed gauge. `t` is 0..=1 along the scale.
+    #[must_use]
+    pub fn gauge_hot(&self, t: f32) -> Color32 {
+        let t = t.clamp(0.0, 1.0);
+        let hue = 330.0 + t * 200.0;
+        hsl(hue, 0.80, 0.45)
+    }
+
+    #[must_use]
+    pub fn gauge_track(&self) -> Color32 {
+        Color32::from_white_alpha(28)
+    }
+
     /// Apply visuals once at startup.
     pub fn apply(&self, ctx: &egui::Context) {
         let mut visuals = Visuals::dark();
@@ -150,11 +172,16 @@ impl Theme {
         visuals.override_text_color = Some(self.label);
         visuals.panel_fill = self.page_bg;
         visuals.window_fill = self.panel_elevated;
-        visuals.extreme_bg_color = self.panel;
-        visuals.faint_bg_color = self.panel;
-        visuals.widgets.inactive.bg_fill = self.panel;
+        visuals.faint_bg_color = self.panel_elevated;
+        visuals.extreme_bg_color = self.input_bg;
+        visuals.widgets.inactive.bg_fill = self.input_bg;
+        visuals.widgets.inactive.weak_bg_fill = self.input_bg;
         visuals.widgets.hovered.bg_fill = self.widget_hover;
+        visuals.widgets.hovered.weak_bg_fill = self.widget_hover;
         visuals.widgets.active.bg_fill = self.widget_active;
+        visuals.widgets.active.weak_bg_fill = self.widget_active;
+        visuals.widgets.open.bg_fill = self.input_bg;
+        visuals.widgets.open.weak_bg_fill = self.input_bg;
         visuals.selection.bg_fill = self.selection;
         visuals.window_corner_radius = self.rounding(self.radius_dialog);
         visuals.window_stroke = Stroke::NONE;
@@ -172,4 +199,36 @@ impl Theme {
         ctx.set_style_of(egui::Theme::Dark, style);
         ctx.set_theme(egui::ThemePreference::Dark);
     }
+}
+
+fn hsl(h: f32, s: f32, l: f32) -> Color32 {
+    let h = ((h % 360.0) + 360.0) % 360.0;
+    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
+    let h_sec = h / 60.0;
+    let x = c * (1.0 - (h_sec % 2.0 - 1.0).abs());
+    let m = l - c / 2.0;
+    let (r, g, b) = hsl_rgb(h, c, x);
+
+    let to_u8 = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
+    Color32::from_rgb(to_u8(r), to_u8(g), to_u8(b))
+}
+
+fn hsl_rgb(h: f32, c: f32, x: f32) -> (f32, f32, f32) {
+    if h < 60.0 {
+        return (c, x, 0.0);
+    }
+    if h < 120.0 {
+        return (x, c, 0.0);
+    }
+    if h < 180.0 {
+        return (0.0, c, x);
+    }
+    if h < 240.0 {
+        return (0.0, x, c);
+    }
+    if h < 300.0 {
+        return (x, 0.0, c);
+    }
+
+    (c, 0.0, x)
 }
