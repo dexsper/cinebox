@@ -3,19 +3,23 @@ use cinebox_core::{
     CatalogItem, CreditPerson, MediaDetails, MediaKind, TmdbId, format_money, format_release_date,
     tmdb_image_url, typograph,
 };
-use egui::{Frame, RichText, Ui, Vec2};
+use egui::{Atom, Frame, Margin, Rect, RichText, Sense, Stroke, Ui, Vec2, vec2};
 use egui_async::Bind;
+use egui_material_icons::icons::ICON_PLAY_CIRCLE;
 
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{poster, scroll};
+use crate::widgets::{self, intro, poster, scroll, skeleton};
 
 pub struct MediaScreen {
     kind: Option<MediaKind>,
     id: Option<TmdbId>,
+    preview: Option<CatalogItem>,
     bind: Bind<Box<MediaDetails>, String>,
+    intro_at: Option<f64>,
+    pending_intro: bool,
 }
 
 impl Default for MediaScreen {
@@ -23,7 +27,10 @@ impl Default for MediaScreen {
         Self {
             kind: None,
             id: None,
+            preview: None,
             bind: Bind::new(true),
+            intro_at: None,
+            pending_intro: false,
         }
     }
 }
@@ -31,6 +38,16 @@ impl Default for MediaScreen {
 impl MediaScreen {
     pub fn ready(&mut self) -> Option<&MediaDetails> {
         self.bind.read().as_ref().and_then(|r| r.as_ref().ok()).map(|b| &**b)
+    }
+
+    pub fn seed(&mut self, item: CatalogItem) {
+        if self.kind != Some(item.kind) || self.id != Some(item.id) {
+            self.bind = Bind::new(true);
+        }
+        self.kind = Some(item.kind);
+        self.id = Some(item.id);
+        self.preview = Some(item);
+        self.pending_intro = true;
     }
 
     pub fn ui(
@@ -41,11 +58,34 @@ impl MediaScreen {
         kind: MediaKind,
         id: TmdbId,
     ) -> Option<NavAction> {
+        let now = ui.input(|i| i.time);
         if self.kind != Some(kind) || self.id != Some(id) {
             self.kind = Some(kind);
             self.id = Some(id);
             self.bind = Bind::new(true);
+            if self
+                .preview
+                .as_ref()
+                .is_none_or(|item| item.kind != kind || item.id != id)
+            {
+                self.preview = None;
+            }
         }
+        self.start_intro_if_pending(now);
+
+        let t = intro::t(self.intro_at, now);
+        if intro::running(self.intro_at, now) {
+            ui.ctx().request_repaint();
+        }
+
+        if let Some(item) = &self.preview {
+            svc.images.request_poster(
+                item,
+                svc.settings.tmdb.poster_size,
+                svc.settings.interface.use_system_proxy,
+            );
+        }
+
         let settings = svc.settings.clone();
         let mut action = None;
         match self
@@ -53,8 +93,12 @@ impl MediaScreen {
             .read_or_request(move || jobs::load_media(settings, kind, id))
         {
             None => {
-                ui.spinner();
-                ui.label(RichText::new(Msg::LoadingCard.en()).color(theme.muted));
+                if let Some(item) = self.preview.as_ref() {
+                    ui.ctx().request_repaint();
+                    loading(ui, svc, theme, t, item);
+                } else {
+                    widgets::page_spinner(ui, theme);
+                }
             }
             Some(Err(error)) => {
                 ui.label(RichText::new(error).color(theme.err));
@@ -64,10 +108,17 @@ impl MediaScreen {
             }
             Some(Ok(details)) => {
                 queue_media_assets(svc, details);
-                action = ready(ui, details, svc, theme);
+                action = ready(ui, details, svc, theme, t);
             }
         }
         action
+    }
+
+    fn start_intro_if_pending(&mut self, now: f64) {
+        if self.pending_intro {
+            self.intro_at = Some(now);
+            self.pending_intro = false;
+        }
     }
 }
 
@@ -109,59 +160,79 @@ fn ready(
     details: &MediaDetails,
     svc: &Services,
     theme: &Theme,
+    t: f32,
 ) -> Option<NavAction> {
     let mut action = None;
+    let poster_size = Vec2::new(
+        intro::lerp(theme.tile_w, theme.poster_w, t),
+        intro::lerp(theme.tile_h, theme.poster_h, t),
+    );
+    let title_size = intro::lerp(13.0, 36.0, t);
+    let year_size = intro::lerp(12.0, 16.0, t);
+    let head = details.head_line();
     scroll::vertical(ui, "media-page", |ui| {
-        ui.horizontal(|ui| {
-            let tex = svc.images.poster_key(
-                details.kind,
-                details.id,
-                details.poster_path.as_deref(),
-                svc.settings.tmdb.poster_size,
-            );
-            poster::rounded_image(ui, tex, Vec2::new(theme.poster_w, theme.poster_h), theme);
-            ui.add_space(28.0);
-            ui.vertical(|ui| {
-                ui.set_width(ui.available_width());
-                let head = details.head_line();
-                if !head.is_empty() {
-                    ui.label(RichText::new(head).size(16.0).color(theme.muted));
-                }
-                ui.label(
-                    RichText::new(typograph(&details.title))
-                        .size(36.0)
-                        .color(theme.title),
-                );
+        ui.add_space(12.0);
+        hero(
+            ui,
+            svc,
+            theme,
+            Hero {
+                kind: details.kind,
+                id: details.id,
+                poster_path: details.poster_path.as_deref(),
+                title: &details.title,
+                head: &head,
+                poster_size,
+                title_size,
+                year_size,
+            },
+            |ui, col_top| {
                 if let Some(tagline) = details.tagline.as_deref() {
                     ui.label(RichText::new(typograph(tagline)).size(18.0).color(theme.muted));
+                }
+                let has_rating = details.vote.filter(|v| *v > 0.0).is_some()
+                    || details
+                        .certification
+                        .as_deref()
+                        .is_some_and(|s| !s.is_empty());
+                if has_rating {
+                    ui.add_space(8.0);
                 }
                 ratings_row(ui, details, theme);
                 let bits = details.detail_bits();
                 if !bits.is_empty() {
-                    ui.horizontal_wrapped(|ui| {
-                        ui.spacing_mut().item_spacing.x = 8.0;
-                        for (i, bit) in bits.iter().enumerate() {
-                            if i > 0 {
-                                ui.label(RichText::new("●").size(11.0).color(theme.muted));
-                            }
-                            ui.label(RichText::new(bit).size(16.0).color(theme.title));
-                        }
-                    });
+                    ui.add_space(8.0);
+                    ui.label(
+                        RichText::new(bits.join(" · "))
+                            .size(16.0)
+                            .color(theme.title),
+                    );
                 }
-                if ui.button(Msg::WatchTorrents.en()).clicked() {
+                let used = ui.cursor().top() - col_top;
+                let btn_h = 48.0;
+                let gap = (poster_size.y - used - btn_h).max(12.0);
+                ui.add_space(gap);
+                if watch_button(ui, theme) {
                     action = Some(NavAction::WatchTorrents);
                 }
-            });
-        });
+            },
+        );
+
         if let Some(overview) = details.overview.as_deref() {
             ui.add_space(16.0);
-            ui.label(RichText::new(Msg::InDetail.en()).size(16.0).color(theme.title));
-            ui.label(RichText::new(typograph(overview)).size(15.0).color(theme.body));
+            ui.vertical(|ui| {
+                ui.set_max_width(theme.overview_max_w);
+                ui.label(RichText::new(Msg::InDetail.en()).size(16.0).color(theme.title));
+                ui.label(RichText::new(typograph(overview)).size(15.0).color(theme.body));
+            });
         }
+
+        ui.add_space(28.0);
         facts(ui, details, theme);
         if !details.directors.is_empty() {
             people(ui, Msg::Directors.en(), &details.directors, svc, theme, &mut action);
         }
+
         if !details.cast.is_empty() {
             people(ui, Msg::Cast.en(), &details.cast, svc, theme, &mut action);
         }
@@ -188,6 +259,123 @@ fn ready(
     action
 }
 
+fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogItem) {
+    let poster_size = Vec2::new(
+        intro::lerp(theme.tile_w, theme.poster_w, t),
+        intro::lerp(theme.tile_h, theme.poster_h, t),
+    );
+    let title_size = intro::lerp(13.0, 36.0, t);
+    let year_size = intro::lerp(12.0, 16.0, t);
+    let year = item
+        .year
+        .map(|year| year.to_string())
+        .unwrap_or_else(|| String::from("—"));
+    let pulse = skeleton::pulse(ui);
+    scroll::vertical(ui, "media-page", |ui| {
+        ui.add_space(12.0);
+        hero(
+            ui,
+            svc,
+            theme,
+            Hero {
+                kind: item.kind,
+                id: item.id,
+                poster_path: item.poster_path.as_deref(),
+                title: &item.title,
+                head: &year,
+                poster_size,
+                title_size,
+                year_size,
+            },
+            |ui, col_top| {
+                ui.add_space(8.0);
+                skeleton::bar(ui, theme, 280.0, 16.0, pulse);
+                ui.add_space(10.0);
+                ui.horizontal(|ui| {
+                    skeleton::bar(ui, theme, 72.0, 32.0, pulse);
+                    skeleton::bar(ui, theme, 48.0, 32.0, pulse);
+                });
+                ui.add_space(10.0);
+                skeleton::bar(ui, theme, 220.0, 14.0, pulse);
+                let used = ui.cursor().top() - col_top;
+                let gap = (poster_size.y - used - 46.0).max(12.0);
+                ui.add_space(gap);
+                skeleton::bar(ui, theme, 176.0, 46.0, pulse);
+            },
+        );
+        ui.add_space(16.0);
+        skeleton::bar(ui, theme, 120.0, 16.0, pulse);
+        ui.add_space(8.0);
+        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()), 14.0, pulse);
+        ui.add_space(6.0);
+        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()) * 0.85, 14.0, pulse);
+        ui.add_space(6.0);
+        skeleton::bar(ui, theme, theme.overview_max_w.min(ui.available_width()) * 0.7, 14.0, pulse);
+        ui.add_space(28.0);
+        ui.horizontal(|ui| {
+            skeleton::bar(ui, theme, 88.0, 36.0, pulse);
+            ui.add_space(24.0);
+            skeleton::bar(ui, theme, 88.0, 36.0, pulse);
+            ui.add_space(24.0);
+            skeleton::bar(ui, theme, 120.0, 36.0, pulse);
+        });
+        ui.add_space(16.0);
+        skeleton::bar(ui, theme, 80.0, 16.0, pulse);
+        ui.add_space(8.0);
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 12.0;
+            for _ in 0..5 {
+                skeleton::poster(ui, theme, vec2(100.0, 150.0), pulse);
+            }
+        });
+    });
+}
+
+struct Hero<'a> {
+    kind: MediaKind,
+    id: TmdbId,
+    poster_path: Option<&'a str>,
+    title: &'a str,
+    head: &'a str,
+    poster_size: Vec2,
+    title_size: f32,
+    year_size: f32,
+}
+
+fn hero(
+    ui: &mut Ui,
+    svc: &Services,
+    theme: &Theme,
+    hero: Hero<'_>,
+    meta: impl FnOnce(&mut Ui, f32),
+) {
+    ui.horizontal(|ui| {
+        let tex = svc.images.poster_key(
+            hero.kind,
+            hero.id,
+            hero.poster_path,
+            svc.settings.tmdb.poster_size,
+        );
+        poster::rounded_image(ui, tex, hero.poster_size, theme);
+        ui.add_space(28.0);
+        let col_w = ui.available_width();
+        ui.vertical(|ui| {
+            ui.set_width(col_w);
+            let col_top = ui.cursor().top();
+            if !hero.head.is_empty() {
+                ui.label(RichText::new(hero.head).size(hero.year_size).color(theme.muted));
+                ui.add_space(6.0);
+            }
+            ui.label(
+                RichText::new(typograph(hero.title))
+                    .size(hero.title_size)
+                    .color(theme.title),
+            );
+            meta(ui, col_top);
+        });
+    });
+}
+
 fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
     let vote = details.vote.filter(|v| *v > 0.0);
     let cert = details.certification.as_deref().filter(|s| !s.is_empty());
@@ -198,13 +386,13 @@ fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
         ui.spacing_mut().item_spacing.x = 10.0;
         if let Some(vote) = vote {
             pill(ui, theme, |ui| {
-                ui.label(RichText::new(format!("{vote:.1}")).size(20.0).color(theme.rate));
-                ui.label(RichText::new("TMDB").size(13.0).color(theme.muted));
+                ui.label(RichText::new(format!("{vote:.1}")).size(18.0).color(theme.rate));
+                ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
             });
         }
         if let Some(cert) = cert {
             pill(ui, theme, |ui| {
-                ui.label(RichText::new(cert).size(20.0).color(theme.title));
+                ui.label(RichText::new(cert).size(18.0).color(theme.title));
             });
         }
     });
@@ -214,11 +402,43 @@ fn pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
     Frame::new()
         .fill(theme.rating_pill)
         .corner_radius(6)
-        .inner_margin(egui::Margin::symmetric(12, 6))
+        .inner_margin(Margin::symmetric(12, 4))
         .show(ui, |ui| {
+            ui.set_height(28.0);
             ui.spacing_mut().item_spacing.x = 8.0;
-            ui.horizontal(|ui| add(ui));
+            ui.horizontal_centered(|ui| {
+                ui.set_height(28.0);
+                add(ui);
+            });
         });
+}
+
+fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
+    ui.scope(|ui| {
+        ui.visuals_mut().widgets.inactive.bg_fill = theme.btn_primary_bg;
+        ui.visuals_mut().widgets.hovered.bg_fill = theme.btn_primary_hover;
+        ui.visuals_mut().widgets.active.bg_fill = theme.btn_primary_hover;
+        ui.add(
+            egui::Button::new((
+                Atom::grow(),
+                ICON_PLAY_CIRCLE
+                    .rich_text()
+                    .size(22.0)
+                    .color(theme.btn_primary_fg),
+                RichText::new(Msg::WatchTorrents.en())
+                    .size(18.0)
+                    .color(theme.btn_primary_fg),
+                Atom::grow(),
+            ))
+            .fill(theme.btn_primary_bg)
+            .stroke(Stroke::NONE)
+            .gap(8.0)
+            .corner_radius(theme.rounding(theme.radius_card))
+            .min_size(vec2(176.0, 46.0)),
+        )
+        .clicked()
+    })
+    .inner
 }
 
 fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
@@ -255,22 +475,55 @@ fn people(
 ) {
     ui.add_space(12.0);
     ui.label(RichText::new(title).size(16.0).color(theme.title));
+    const TILE_W: f32 = 100.0;
+    const PHOTO: Vec2 = vec2(100.0, 150.0);
+    const NAME_SIZE: f32 = 12.0;
+    const ROLE_SIZE: f32 = 11.0;
+    const CAPTION_GAP: f32 = 4.0;
+    const LINE_GAP: f32 = 2.0;
+
+    let (name_slot, role_slot) = ui.ctx().fonts_mut(|f| {
+        (
+            f.row_height(&egui::FontId::proportional(NAME_SIZE)) * 2.0,
+            f.row_height(&egui::FontId::proportional(ROLE_SIZE)) * 2.0,
+        )
+    });
+
+    let tile_h = PHOTO.y + CAPTION_GAP + name_slot + LINE_GAP + role_slot;
     scroll::horizontal(ui, title.to_owned(), |ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for person in people {
-                ui.vertical(|ui| {
-                    let url = tmdb_image_url(person.profile_path.as_deref(), "w185");
-                    let tex = url.as_deref().and_then(|u| svc.images.get(u));
-                    let inner = ui.allocate_ui(Vec2::new(100.0, 200.0), |ui| {
-                        poster::rounded_image(ui, tex, Vec2::new(100.0, 150.0), theme);
-                        ui.label(RichText::new(typograph(&person.name)).size(12.0).color(theme.title));
-                        ui.label(RichText::new(typograph(&person.role)).size(11.0).color(theme.muted));
+                let url = tmdb_image_url(person.profile_path.as_deref(), "w185");
+                let tex = svc.images.slot(url.as_deref());
+                let name = poster::wrap_lines(
+                    ui,
+                    &typograph(&person.name),
+                    theme.title,
+                    NAME_SIZE,
+                    TILE_W,
+                    2,
+                );
+                let role = poster::wrap_lines(
+                    ui,
+                    &typograph(&person.role),
+                    theme.muted,
+                    ROLE_SIZE,
+                    TILE_W,
+                    2,
+                );
+                let name_h = name.size().y;
+                let (rect, response) = ui.allocate_exact_size(vec2(TILE_W, tile_h), Sense::click());
+                poster::paint_poster(ui, Rect::from_min_size(rect.min, PHOTO), tex, theme);
+                let name_pos = rect.min + vec2(0.0, PHOTO.y + CAPTION_GAP);
+                ui.painter().galley(name_pos, name, theme.title);
+                ui.painter()
+                    .galley(name_pos + vec2(0.0, name_h + LINE_GAP), role, theme.muted);
+                if response.clicked() {
+                    *action = Some(NavAction::OpenPerson {
+                        person: person.clone(),
                     });
-                    if inner.response.interact(egui::Sense::click()).clicked() {
-                        *action = Some(NavAction::OpenPerson { id: person.id });
-                    }
-                });
+                }
             }
         });
     });
@@ -300,4 +553,41 @@ fn shelf(
             }
         });
     });
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn sample_item() -> CatalogItem {
+        CatalogItem {
+            id: TmdbId::new(1),
+            kind: MediaKind::Movie,
+            title: "Dune".into(),
+            year: Some(2021),
+            vote: Some(8.0),
+            poster_path: Some("/dune.jpg".into()),
+        }
+    }
+
+    #[test]
+    fn seed_starts_intro_once() {
+        let mut screen = MediaScreen::default();
+        screen.seed(sample_item());
+        screen.start_intro_if_pending(1.0);
+        assert!(intro::running(screen.intro_at, 1.05));
+
+        screen.start_intro_if_pending(1.1);
+        assert!((intro::t(screen.intro_at, 1.1) - intro::t(Some(1.0), 1.1)).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn returning_without_seed_does_not_replay() {
+        let mut screen = MediaScreen::default();
+        screen.seed(sample_item());
+        screen.start_intro_if_pending(0.0);
+        assert!(!intro::running(screen.intro_at, 1.0));
+        screen.start_intro_if_pending(10.0);
+        assert!(!intro::running(screen.intro_at, 10.0));
+    }
 }

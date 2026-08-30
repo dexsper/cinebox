@@ -95,8 +95,17 @@ impl App {
         match action {
             NavAction::OpenSettings => self.nav.push(Screen::Settings),
             NavAction::GoBack => self.go_back(),
-            NavAction::OpenMedia { kind, id } => self.nav.push(Screen::Media { kind, id }),
-            NavAction::OpenPerson { id } => self.nav.push(Screen::Person { id }),
+            NavAction::OpenMedia { item } => {
+                self.nav.push(Screen::Media {
+                    kind: item.kind,
+                    id: item.id,
+                });
+                self.media.seed(item);
+            }
+            NavAction::OpenPerson { person } => {
+                self.nav.push(Screen::Person { id: person.id });
+                self.person.seed(person);
+            }
             NavAction::WatchTorrents => {
                 if let Screen::Media { kind, id } = self.nav.current() {
                     self.nav.push(Screen::Torrents { kind, id });
@@ -198,14 +207,14 @@ impl eframe::App for App {
             action = Some(NavAction::GoBack);
         }
 
+        let fill = if matches!(screen, Screen::Player { .. }) {
+            theme.video_bg
+        } else {
+            theme.page_bg
+        };
+
         CentralPanel::default()
-            .frame(match screen {
-                Screen::Player { .. } => Frame::new().fill(theme.video_bg),
-                Screen::Media { .. } | Screen::Person { .. } | Screen::Torrents { .. } => {
-                    Frame::new().fill(theme.page_bg)
-                }
-                _ => Frame::new().fill(theme.page_bg).inner_margin(theme.pad),
-            })
+            .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
                 if let Some(nav) = chrome::header(ui, screen, &theme) {
@@ -213,25 +222,32 @@ impl eframe::App for App {
                 }
 
                 let pad = theme.pad.round() as i8;
-                let bleed = matches!(
-                    screen,
-                    Screen::Media { .. } | Screen::Person { .. } | Screen::Torrents { .. }
-                );
-
-                let screen_action = if bleed {
-                    Frame::new()
-                        .inner_margin(egui::Margin {
+                let content_margin = match screen {
+                    Screen::Player { .. } => egui::Margin::ZERO,
+                    Screen::Media { .. } | Screen::Person { .. } | Screen::Torrents { .. } => {
+                        egui::Margin {
                             left: pad,
                             right: pad,
                             top: 0,
-                            bottom: pad,
-                        })
-                        .show(ui, |ui| screen_ui(self, ui, screen, &theme))
-                        .inner
-                } else {
-                    screen_ui(self, ui, screen, &theme)
+                            bottom: 0,
+                        }
+                    }
+                    _ => egui::Margin {
+                        left: pad,
+                        right: pad,
+                        top: 0,
+                        bottom: pad,
+                    },
                 };
-                
+
+                let screen_action = Frame::new()
+                    .inner_margin(content_margin)
+                    .show(ui, |ui| screen_ui(self, ui, screen, &theme))
+                    .inner;
+
+                chrome::resize_edges(ui, &theme);
+                chrome::window_outline(ui, &theme);
+
                 if action.is_none() {
                     action = screen_action;
                 }
@@ -251,6 +267,9 @@ fn screen_ui(
     screen: Screen,
     theme: &Theme,
 ) -> Option<NavAction> {
+    if !matches!(screen, Screen::Torrents { .. }) {
+        app.torrents.hide();
+    }
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
         Screen::Settings => app.settings_screen.ui(ui, &mut app.services, theme),

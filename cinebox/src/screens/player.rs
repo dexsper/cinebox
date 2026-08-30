@@ -4,7 +4,7 @@ use cinebox_core::i18n::Msg;
 use cinebox_core::typograph;
 use cinebox_player::{ClickZone, Engine, FOOTER_LOGICAL, HEADER_LOGICAL, SEEK_SECS, click_zone, format_clock};
 use egui::{Rect, RichText, Sense, Ui, Vec2};
-use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_PAUSE, ICON_PLAY_ARROW, ICON_SKIP_NEXT};
+use egui_material_icons::icons::{ICON_PAUSE, ICON_PLAY_ARROW, ICON_SKIP_NEXT};
 
 use crate::nav::NavAction;
 use crate::screens::play::PlayRequest;
@@ -108,7 +108,6 @@ impl PlayerScreen {
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         self.handle_keys(ui, svc);
-        let mut action = None;
         let Some(view) = self.state.as_ref().map(|s| PlayerView {
             title: s.title.clone(),
             error: s.error.clone(),
@@ -134,12 +133,7 @@ impl PlayerScreen {
             egui::Layout::left_to_right(egui::Align::Center),
             |ui| {
                 ui.painter().rect_filled(ui.max_rect(), 0.0, theme.panel);
-                if ui
-                    .add(egui::Button::new(ICON_ARROW_BACK.rich_text().size(20.0)))
-                    .clicked()
-                {
-                    action = Some(NavAction::GoBack);
-                }
+                ui.add_space(12.0);
                 ui.label(
                     RichText::new(typograph(&view.title))
                         .size(18.0)
@@ -250,7 +244,7 @@ impl PlayerScreen {
             let _ = engine.cycle_subs();
         }
 
-        action
+        None
     }
 
     fn handle_keys(&mut self, ui: &Ui, svc: &mut Services) {

@@ -3,10 +3,11 @@
 //! A wheel notch becomes velocity; friction is exponential. Drag stays with
 //! egui so nested buttons still receive clicks.
 
-use egui::containers::scroll_area::{DragScroll, ScrollSource};
 use egui::{
-    AsIdSalt, Event, Id, Modifiers, MouseWheelUnit, Rect, ScrollArea, Ui, Vec2, Vec2b, vec2,
+    AsIdSalt, Direction, Event, Id, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea, Shape, Ui,
+    Vec2, Vec2b, pos2, vec2,
 };
+use egui::containers::scroll_area::{DragScroll, ScrollSource};
 
 const FRICTION: f32 = 4.2;
 const MIN_SPEED: f32 = 22.0;
@@ -14,6 +15,11 @@ const WHEEL_GAIN: f32 = 10.0;
 const PIXEL_GAIN: f32 = 6.0;
 const MAX_SPEED: f32 = 4200.0;
 const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
+const BOTTOM_FADE_SIZE: f32 = 56.0;
+const BOTTOM_FADE_STRENGTH: f32 = 0.72;
+const BOTTOM_FADE_BANDS: i32 = 12;
+
+const EDGE_EPS: f32 = 0.5;
 
 #[derive(Clone, Copy, Debug)]
 struct Coast {
@@ -21,6 +27,7 @@ struct Coast {
     offset: Vec2,
     rect: Rect,
     dragging: bool,
+    max_offset: Vec2,
 }
 
 impl Default for Coast {
@@ -30,14 +37,28 @@ impl Default for Coast {
             offset: Vec2::ZERO,
             rect: Rect::NOTHING,
             dragging: false,
+            max_offset: Vec2::splat(f32::INFINITY),
         }
     }
 }
 
 impl Coast {
-    fn impulse(&mut self, dvel: Vec2) {
-        self.vel.x = (self.vel.x + dvel.x).clamp(-MAX_SPEED, MAX_SPEED);
-        self.vel.y = (self.vel.y + dvel.y).clamp(-MAX_SPEED, MAX_SPEED);
+    fn impulse(&mut self, dvel: Vec2, enabled: Vec2b) {
+        for d in 0..2 {
+            if !enabled[d] || dvel[d] == 0.0 {
+                continue;
+            }
+            if self.blocked(d, dvel[d]) {
+                continue;
+            }
+            self.vel[d] = (self.vel[d] + dvel[d]).clamp(-MAX_SPEED, MAX_SPEED);
+        }
+    }
+
+    fn blocked(&self, axis: usize, vel: f32) -> bool {
+        let max = self.max_offset[axis].max(0.0);
+        (vel < 0.0 && self.offset[axis] <= EDGE_EPS)
+            || (vel > 0.0 && self.offset[axis] >= max - EDGE_EPS)
     }
 
     fn stop(&mut self) {
@@ -60,6 +81,28 @@ impl Coast {
         }
         moved
     }
+
+    /// Keep offset inside the content and kill velocity into a wall.
+    fn clamp_edges(&mut self, enabled: Vec2b) {
+        for d in 0..2 {
+            if !enabled[d] {
+                continue;
+            }
+            let max = self.max_offset[d].max(0.0);
+            if self.offset[d] <= EDGE_EPS {
+                self.offset[d] = 0.0;
+                if self.vel[d] < 0.0 {
+                    self.vel[d] = 0.0;
+                }
+            }
+            if self.offset[d] >= max - EDGE_EPS {
+                self.offset[d] = max;
+                if self.vel[d] > 0.0 {
+                    self.vel[d] = 0.0;
+                }
+            }
+        }
+    }
 }
 
 fn source() -> ScrollSource {
@@ -73,18 +116,6 @@ fn source() -> ScrollSource {
 /// Vertical page scroll with overlay bar, drag, and inertia.
 pub fn vertical(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
     show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, add);
-}
-
-/// Vertical list with a height cap (modals, side panes).
-pub fn vertical_max(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: impl FnOnce(&mut Ui)) {
-    show(
-        ui,
-        id,
-        Vec2b::new(false, true),
-        Vec2b::FALSE,
-        Some(max_height),
-        add,
-    );
 }
 
 /// Horizontal shelf: height follows content.
@@ -113,6 +144,7 @@ fn show(
         let dt = ui.input(|i| i.stable_dt);
         let delta = coast.step(dt);
         coast.offset += delta;
+        coast.clamp_edges(enabled);
     }
 
     let mut area = ScrollArea::new(enabled)
@@ -131,8 +163,21 @@ fn show(
         }
     }
 
+    let origin = ui.cursor().min;
     let output = area.show(ui, add);
-    let hit = hit_rect(output.inner_rect, output.content_size, enabled);
+    let hit = hover_rect(
+        origin,
+        ui.cursor().min,
+        ui.spacing().item_spacing,
+        output.inner_rect,
+        output.content_size,
+        enabled,
+        ui.clip_rect(),
+    );
+
+    if enabled[1] {
+        paint_bottom_fade(ui, output.inner_rect, output.content_size, output.state.offset);
+    }
     let hovered = pointer_over(ui, hit);
     let dragging = is_scroll_dragging(ui, output.id);
 
@@ -145,6 +190,11 @@ fn show(
     coast.dragging = dragging;
     coast.rect = hit;
     coast.offset = output.state.offset;
+    coast.max_offset = vec2(
+        (output.content_size.x - output.inner_rect.width()).max(0.0),
+        (output.content_size.y - output.inner_rect.height()).max(0.0),
+    );
+    coast.clamp_edges(enabled);
 
     if coast.moving() {
         ui.ctx().request_repaint();
@@ -152,11 +202,67 @@ fn show(
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
 }
 
+fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
+    let overflow = content.y - inner.height();
+    let distance = overflow - offset.y;
+    if distance <= 0.0 {
+        return;
+    }
+
+    let peak = (distance / BOTTOM_FADE_SIZE).clamp(0.0, 1.0) * BOTTOM_FADE_STRENGTH;
+    let bg = ui.visuals().panel_fill;
+    let fade = Rect::from_min_max(
+        pos2(inner.left(), inner.bottom() - BOTTOM_FADE_SIZE),
+        inner.right_bottom(),
+    );
+    let n = BOTTOM_FADE_BANDS as f32;
+    for i in 0..BOTTOM_FADE_BANDS {
+        let a0 = i as f32 / n;
+        let a1 = (i + 1) as f32 / n;
+        let c0 = bg.gamma_multiply(peak * a0 * a0);
+        let c1 = bg.gamma_multiply(peak * a1 * a1);
+        let y0 = fade.top() + fade.height() * a0;
+        let y1 = fade.top() + fade.height() * a1;
+        let band = Rect::from_min_max(pos2(fade.left(), y0), pos2(fade.right(), y1));
+        ui.painter()
+            .add(Shape::gradient_rect(band, Direction::TopDown, [c0, c1]));
+    }
+}
+
+/// Visible hover target from the parent layout band, not `inner_rect`.
+///
+/// Nested `ScrollArea::inner_rect` can follow a clipped `available_rect` after
+/// the parent has scrolled, so the first shelves keep covering the viewport.
+fn hover_rect(
+    origin: Pos2,
+    cursor_after: Pos2,
+    spacing: Vec2,
+    inner: Rect,
+    content: Vec2,
+    enabled: Vec2b,
+    clip: Rect,
+) -> Rect {
+    // Do not min() with inner.size(): after the parent scrolls, inner_rect can be
+    // the clipped viewport, so the first shelves would keep covering it.
+    let mut bottom_right = pos2(origin.x + inner.width(), cursor_after.y - spacing.y);
+    if !enabled[0] {
+        bottom_right.x = origin.x + content.x.min(inner.width().max(1.0));
+    }
+    if !enabled[1] {
+        bottom_right.y = origin.y + content.y;
+    }
+    if bottom_right.y < origin.y {
+        bottom_right.y = origin.y;
+    }
+    Rect::from_min_max(origin, bottom_right).intersect(clip)
+}
+
 fn pointer_over(ui: &Ui, rect: Rect) -> bool {
     rect.is_positive() && ui.rect_contains_pointer(rect)
 }
 
 /// Viewport on scroll axes; content size on the rest so a shelf cannot cover rows below it.
+#[cfg(test)]
 fn hit_rect(inner: Rect, content: Vec2, enabled: Vec2b) -> Rect {
     let mut size = inner.size();
     if !enabled[0] {
@@ -199,7 +305,7 @@ fn apply_wheel(ui: &Ui, enabled: Vec2b, coast: &mut Coast) {
         if mark_wheel_taken(ui) {
             continue;
         }
-        coast.impulse(dvel);
+        coast.impulse(dvel, enabled);
     }
 }
 
@@ -262,13 +368,14 @@ mod tests {
 
     #[test]
     fn shift_converts_vertical_wheel_lines_to_horizontal() {
-        let dvel = wheel_impulse(
+        let Some(dvel) = wheel_impulse(
             [true, false],
             MouseWheelUnit::Line,
             vec2(0.0, 1.0),
             Modifiers::SHIFT,
-        )
-        .expect("shift+wheel on a row");
+        ) else {
+            panic!("shift+wheel on a row");
+        };
         assert!(dvel.x.abs() > 0.5);
         assert_eq!(dvel.y, 0.0);
         assert!(
@@ -317,9 +424,68 @@ mod tests {
     }
 
     #[test]
+    fn hover_rect_uses_layout_origin_not_clipped_inner() {
+        let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 220.0));
+        let spacing = vec2(8.0, 8.0);
+        let clipped_inner = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 600.0));
+        let content = vec2(4000.0, 72.0);
+        let enabled = Vec2b::new(true, false);
+
+        let offscreen = hover_rect(
+            pos2(0.0, -180.0),
+            pos2(0.0, -100.0),
+            spacing,
+            clipped_inner,
+            content,
+            enabled,
+            clip,
+        );
+        assert!(
+            !offscreen.contains(pos2(80.0, 40.0)),
+            "off-screen shelf must not steal the viewport, hit={offscreen:?}"
+        );
+
+        let visible = hover_rect(
+            pos2(0.0, 40.0),
+            pos2(0.0, 120.0),
+            spacing,
+            clipped_inner,
+            content,
+            enabled,
+            clip,
+        );
+        assert!(
+            visible.contains(pos2(80.0, 70.0)),
+            "visible lower shelf should receive the pointer, hit={visible:?}"
+        );
+        assert!(
+            !visible.contains(pos2(80.0, 20.0)),
+            "visible shelf must not cover the viewport top, hit={visible:?}"
+        );
+
+        let squeezed_inner = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 10.0));
+        let squeezed = hover_rect(
+            pos2(0.0, 40.0),
+            pos2(0.0, 50.0),
+            spacing,
+            squeezed_inner,
+            content,
+            enabled,
+            clip,
+        );
+        assert!(
+            squeezed.contains(pos2(80.0, 70.0)),
+            "clipped inner height must not shrink the shelf hit, hit={squeezed:?}"
+        );
+    }
+
+    #[test]
     fn inertia_decays_and_stops() {
-        let mut coast = Coast::default();
-        coast.impulse(vec2(0.0, 800.0));
+        let mut coast = Coast {
+            max_offset: vec2(0.0, 800.0),
+            ..Coast::default()
+        };
+        coast.impulse(vec2(0.0, 800.0), Vec2b::new(false, true));
         assert!(coast.moving());
         let mut t = 0.0;
         let mut moved = false;
@@ -332,5 +498,55 @@ mod tests {
         assert!(moved);
         assert!(t > 0.5, "coast should last a noticeable moment, t={t}");
         assert!(!coast.moving(), "coasting should die out, t={t}");
+    }
+
+    #[test]
+    fn coast_stops_at_bottom_instead_of_overshooting() {
+        let mut coast = Coast {
+            offset: vec2(0.0, 198.0),
+            vel: vec2(0.0, 900.0),
+            max_offset: vec2(0.0, 200.0),
+            ..Coast::default()
+        };
+        let delta = coast.step(1.0 / 60.0);
+        coast.offset += delta;
+        coast.clamp_edges(Vec2b::new(false, true));
+        assert_eq!(coast.offset.y, 200.0);
+        assert_eq!(coast.vel.y, 0.0);
+        assert!(!coast.moving());
+    }
+
+    #[test]
+    fn coast_stops_at_top_instead_of_overshooting() {
+        let mut coast = Coast {
+            offset: vec2(0.0, 2.0),
+            vel: vec2(0.0, -900.0),
+            max_offset: vec2(0.0, 200.0),
+            ..Coast::default()
+        };
+        let delta = coast.step(1.0 / 60.0);
+        coast.offset += delta;
+        coast.clamp_edges(Vec2b::new(false, true));
+        assert_eq!(coast.offset.y, 0.0);
+        assert_eq!(coast.vel.y, 0.0);
+    }
+
+    #[test]
+    fn wheel_into_a_wall_is_ignored() {
+        let mut coast = Coast {
+            offset: Vec2::ZERO,
+            max_offset: vec2(0.0, 200.0),
+            ..Coast::default()
+        };
+        coast.impulse(vec2(0.0, -800.0), Vec2b::new(false, true));
+        assert!(!coast.moving());
+
+        coast.offset = vec2(0.0, 200.0);
+        coast.impulse(vec2(0.0, 800.0), Vec2b::new(false, true));
+        assert!(!coast.moving());
+
+        coast.impulse(vec2(0.0, -800.0), Vec2b::new(false, true));
+        assert!(coast.moving());
+        assert!(coast.vel.y < 0.0);
     }
 }

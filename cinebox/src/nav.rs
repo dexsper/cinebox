@@ -1,4 +1,4 @@
-use cinebox_core::{MediaKind, TmdbId};
+use cinebox_core::{CatalogItem, CreditPerson, MediaKind, TmdbId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
@@ -10,12 +10,12 @@ pub enum Screen {
     Player { kind: MediaKind, id: TmdbId },
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq)]
 pub enum NavAction {
     OpenSettings,
     GoBack,
-    OpenMedia { kind: MediaKind, id: TmdbId },
-    OpenPerson { id: TmdbId },
+    OpenMedia { item: CatalogItem },
+    OpenPerson { person: CreditPerson },
     WatchTorrents,
     OpenUrl(String),
 }

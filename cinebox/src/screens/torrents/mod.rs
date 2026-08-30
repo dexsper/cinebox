@@ -5,12 +5,13 @@ pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, T
 use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, TmdbId, tmdb_image_url, typograph};
 use cinebox_parse::{
-    AudioLang, QualityBand, SortMode, TriChoice, filtered_hits, hit_bitrate_mbps,
-    season_options, voice_filter_options, year_options,
+    AudioLang, QualityBand, SortMode, TriChoice, filtered_hits, hit_bitrate_mbps, season_options,
+    voice_filter_options, year_options,
 };
 use cinebox_torrserver::AddSpec;
 use egui::{
-    Align, ComboBox, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2,
+    Align, ComboBox, CornerRadius, Frame, Id, Layout, Modal, Rect, RichText, Sense, Stroke, Ui,
+    UiBuilder, Vec2, pos2,
 };
 use egui_async::Bind;
 
@@ -18,7 +19,7 @@ use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{poster, scroll};
+use crate::widgets::{self, intro, poster, scroll};
 
 pub struct TorrentsScreen {
     state: Option<TorrentState>,
@@ -27,6 +28,7 @@ pub struct TorrentsScreen {
     opened: Bind<ReadyFiles, String>,
     stream: Bind<String, String>,
     intro_at: Option<f64>,
+    on_screen: bool,
     stream_file: Option<i32>,
     pending_play: Option<crate::screens::play::PlayRequest>,
 }
@@ -40,6 +42,7 @@ impl Default for TorrentsScreen {
             opened: Bind::new(true),
             stream: Bind::new(true),
             intro_at: None,
+            on_screen: false,
             stream_file: None,
             pending_play: None,
         }
@@ -73,8 +76,12 @@ impl TorrentsScreen {
         true
     }
 
+    pub fn hide(&mut self) {
+        self.on_screen = false;
+    }
+
     pub fn intro_animating(&self, now: f64) -> bool {
-        intro_t(self.intro_at, now) < 1.0
+        intro::running(self.intro_at, now)
     }
 
     pub fn ui(
@@ -86,53 +93,67 @@ impl TorrentsScreen {
         id: TmdbId,
         details: Option<&MediaDetails>,
     ) -> Option<NavAction> {
+        let now = ui.input(|i| i.time);
+        let arriving = !self.on_screen;
+        self.on_screen = true;
+
         if self.state.as_ref().is_none_or(|s| !s.matches(kind, id)) {
             if let Some(details) = details {
-                self.open(details, ui.input(|i| i.time));
+                self.open(details, now);
             } else {
-                ui.label(RichText::new(Msg::LoadingTorrents.en()).color(theme.muted));
+                widgets::page_spinner(ui, theme);
                 return None;
             }
+        } else if arriving {
+            self.intro_at = Some(now);
         }
 
         self.poll_binds(svc, theme, ui.ctx());
         self.take_stream(svc);
 
-        let t = intro_t(self.intro_at, ui.input(|i| i.time));
+        let t = intro::t(self.intro_at, ui.input(|i| i.time));
         let mut retry = false;
         let mut pick = None;
         let mut pick_file = None;
         let mut retry_files = false;
         let mut close_files = false;
 
-        ui.horizontal(|ui| {
-            let left_w = lerp(theme.pad + theme.poster_w + 8.0, theme.explorer_left, t);
-            ui.allocate_ui_with_layout(
-                Vec2::new(left_w, ui.available_height()),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    self.left_pane(ui, svc, theme, t);
-                },
-            );
-            ui.separator();
-            ui.allocate_ui_with_layout(
-                Vec2::new(ui.available_width(), ui.available_height()),
-                Layout::top_down(Align::Min),
-                |ui| {
-                    if let Some(state) = &mut self.state {
-                        list_pane(
-                            ui,
-                            state,
-                            svc,
-                            theme,
-                            &mut retry,
-                            &mut pick,
-                            t,
-                        );
-                    }
-                },
-            );
-        });
+        let full = ui.available_rect_before_wrap();
+        ui.advance_cursor_after_rect(full);
+
+        let left_w = intro::lerp(theme.pad + theme.poster_w + 8.0, theme.explorer_left, t);
+        let gap = 12.0;
+        let left_rect = Rect::from_min_size(full.min, Vec2::new(left_w, full.height()));
+        let right_rect = Rect::from_min_max(
+            pos2(left_rect.right() + gap, full.top()),
+            full.right_bottom(),
+        );
+        ui.painter().vline(
+            left_rect.right() + gap * 0.5,
+            full.y_range(),
+            Stroke::new(1.0, theme.window_edge),
+        );
+
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(left_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(ui.clip_rect().intersect(left_rect));
+                self.left_pane(ui, svc, theme, t);
+            },
+        );
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(right_rect)
+                .layout(Layout::top_down(Align::Min)),
+            |ui| {
+                ui.set_clip_rect(ui.clip_rect().intersect(right_rect));
+                if let Some(state) = &mut self.state {
+                    list_pane(ui, state, svc, theme, &mut retry, &mut pick, t);
+                }
+            },
+        );
 
         if let Some(state) = &self.state
             && state.files.is_open()
@@ -175,8 +196,8 @@ impl TorrentsScreen {
         let Some(state) = &self.state else {
             return;
         };
-        let poster_w = lerp(theme.poster_w, theme.explorer_poster_w, t);
-        let poster_h = lerp(theme.poster_h, theme.explorer_poster_h, t);
+        let poster_w = intro::lerp(theme.poster_w, theme.explorer_poster_w, t);
+        let poster_h = intro::lerp(theme.poster_h, theme.explorer_poster_h, t);
         let tex = svc.images.poster_key(
             state.kind,
             state.id,
@@ -187,7 +208,7 @@ impl TorrentsScreen {
         ui.add_space(8.0);
         ui.label(
             RichText::new(typograph(&state.movie.title))
-                .size(lerp(32.0, 22.0, t))
+                .size(intro::lerp(32.0, 22.0, t))
                 .color(theme.title),
         );
         if let Some(tagline) = state.movie.tagline.as_deref() {
@@ -210,7 +231,11 @@ impl TorrentsScreen {
         }
         if let Some(vote) = state.movie.vote.filter(|v| *v > 0.0) {
             ui.horizontal(|ui| {
-                ui.label(RichText::new(format!("{vote:.1}")).size(18.0).color(theme.rate));
+                ui.label(
+                    RichText::new(format!("{vote:.1}"))
+                        .size(18.0)
+                        .color(theme.rate),
+                );
                 ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
             });
         }
@@ -218,7 +243,7 @@ impl TorrentsScreen {
             ui.add_space(8.0);
             ui.label(
                 RichText::new(typograph(overview))
-                    .size(lerp(15.0, 13.5, t))
+                    .size(intro::lerp(15.0, 13.5, t))
                     .color(theme.body),
             );
         }
@@ -261,30 +286,29 @@ impl TorrentsScreen {
             }
         }
 
-        if let Some(result) = self.opened.read() {
-            if let Some(state) = &self.state
-                && matches!(state.files, FilesPane::Loading)
-            {
-                match result {
-                    Ok(ready) => {
-                        for file in &ready.files {
-                            if let Some(url) = &file.still_url {
-                                svc.images.request(
-                                    url.clone(),
-                                    false,
-                                    svc.settings.interface.use_system_proxy,
-                                );
-                            }
-                        }
-                        if let Some(state) = &mut self.state {
-                            state.files = FilesPane::Ready(ready.clone());
+        if let Some(result) = self.opened.read()
+            && let Some(state) = &self.state
+            && matches!(state.files, FilesPane::Loading)
+        {
+            match result {
+                Ok(ready) => {
+                    for file in &ready.files {
+                        if let Some(url) = &file.still_url {
+                            svc.images.request(
+                                url.clone(),
+                                false,
+                                svc.settings.interface.use_system_proxy,
+                            );
                         }
                     }
-                    Err(error) => {
-                        svc.toasts.error(error.clone(), ctx.input(|i| i.time));
-                        if let Some(state) = &mut self.state {
-                            state.files = FilesPane::Failed(error.clone());
-                        }
+                    if let Some(state) = &mut self.state {
+                        state.files = FilesPane::Ready(ready.clone());
+                    }
+                }
+                Err(error) => {
+                    svc.toasts.error(error.clone(), ctx.input(|i| i.time));
+                    if let Some(state) = &mut self.state {
+                        state.files = FilesPane::Failed(error.clone());
                     }
                 }
             }
@@ -469,7 +493,10 @@ fn list_pane(
             Msg::Filters.en().to_owned()
         };
         if ui
-            .selectable_label(state.filters_open || state.filter.is_active(), filters_label)
+            .selectable_label(
+                state.filters_open || state.filter.is_active(),
+                filters_label,
+            )
             .clicked()
         {
             state.filters_open = !state.filters_open;
@@ -480,8 +507,7 @@ fn list_pane(
     }
     match &state.hits {
         TorrentHits::Loading => {
-            ui.spinner();
-            ui.label(RichText::new(Msg::LoadingTorrents.en()).color(theme.muted));
+            widgets::page_spinner(ui, theme);
         }
         TorrentHits::Failed(error) => {
             ui.label(RichText::new(error).color(theme.err));
@@ -502,8 +528,17 @@ fn list_pane(
                     ui.label(RichText::new(Msg::NoTorrents.en()).color(theme.muted));
                     return;
                 }
+                ui.spacing_mut().item_spacing.y = 8.0;
                 for (index, hit) in visible {
-                    hit_row(ui, hit, state.kind, state.runtime_minutes, theme, pick, index);
+                    hit_row(
+                        ui,
+                        hit,
+                        state.kind,
+                        state.runtime_minutes,
+                        theme,
+                        pick,
+                        index,
+                    );
                 }
             });
         }
@@ -608,33 +643,39 @@ fn hit_row(
     let response = Frame::new()
         .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
-        .inner_margin(12.0)
+        .inner_margin(egui::Margin::symmetric(12, 14))
         .show(ui, |ui| {
             ui.label(
                 RichText::new(typograph(&hit.title))
                     .size(15.0)
                     .color(theme.title),
             );
+            ui.add_space(10.0);
+            let bitrate = format_bitrate(kind, hit_bitrate_mbps(hit, runtime));
             ui.horizontal(|ui| {
-                let date = if hit.published.is_empty() {
-                    "—"
-                } else {
-                    hit.published.as_str()
-                };
-                ui.label(RichText::new(date).size(12.0).color(theme.muted));
-                ui.label(RichText::new(&hit.tracker).size(12.0).color(theme.muted));
+                ui.spacing_mut().item_spacing.x = 8.0;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                     pill(ui, hit.size_label(), theme);
-                    stat(ui, Msg::Leechers.en(), hit.peers.to_string(), theme);
-                    stat(ui, Msg::Seeds.en(), hit.seeders.to_string(), theme);
-                    if kind == MediaKind::Movie
-                        && let Some(mbps) = hit_bitrate_mbps(hit, runtime)
-                    {
-                        stat(ui, Msg::Bitrate.en(), format!("{mbps:.1}"), theme);
-                    }
-                    if hit.started {
-                        ui.label(RichText::new(Msg::TagStarted.en()).color(theme.ok));
-                    }
+                    metrics_bar(
+                        ui,
+                        theme,
+                        bitrate.as_deref(),
+                        &hit.seeders.to_string(),
+                        &hit.peers.to_string(),
+                    );
+                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                        ui.spacing_mut().item_spacing.x = 10.0;
+                        let date = if hit.published.is_empty() {
+                            "—"
+                        } else {
+                            hit.published.as_str()
+                        };
+                        ui.label(RichText::new(date).size(12.0).color(theme.muted));
+                        ui.label(RichText::new(&hit.tracker).size(12.0).color(theme.muted));
+                        if hit.started {
+                            ui.label(RichText::new(Msg::TagStarted.en()).color(theme.ok));
+                        }
+                    });
                 });
             });
         })
@@ -654,36 +695,52 @@ fn files_modal(
     retry_files: &mut bool,
     close_files: &mut bool,
 ) {
-    let modal = Modal::new(Id::new("torrent-files")).show(ctx, |ui| {
-        ui.set_width(720.0);
-        ui.label(RichText::new(Msg::TorrentFiles.en()).size(16.0).color(theme.title));
-        if let FilesPane::Preloading { files, file_id } = &state.files {
-            let name = files
-                .files
-                .iter()
-                .find(|file| file.id == *file_id)
-                .map(|file| file.title.as_str())
-                .unwrap_or("");
+    let screen = ctx.content_rect().size();
+    let size = files_modal_size(screen);
+    let modal = Modal::new(Id::new("torrent-files"))
+        .backdrop_color(theme.overlay)
+        .frame(
+            Frame::new()
+                .inner_margin(egui::Margin::same(20))
+                .corner_radius(theme.rounding(theme.radius_dialog))
+                .fill(theme.panel_elevated),
+        )
+        .show(ctx, |ui| {
+            ui.set_min_size(size);
+            ui.set_max_size(size);
             ui.label(
-                RichText::new(format!("{} {name}", Msg::Preloading.en()))
-                    .color(theme.muted),
+                RichText::new(Msg::TorrentFiles.en())
+                    .size(18.0)
+                    .color(theme.title),
             );
-        }
-        match &state.files {
-            FilesPane::Closed | FilesPane::Loading => {
-                ui.spinner();
+            ui.add_space(12.0);
+            if let FilesPane::Preloading { files, file_id } = &state.files {
+                let name = files
+                    .files
+                    .iter()
+                    .find(|file| file.id == *file_id)
+                    .map(|file| file.title.as_str())
+                    .unwrap_or("");
+                ui.label(
+                    RichText::new(format!("{} {name}", Msg::Preloading.en())).color(theme.muted),
+                );
+                ui.add_space(8.0);
             }
-            FilesPane::Failed(error) => {
-                ui.label(RichText::new(error).color(theme.err));
-                if ui.button("Retry").clicked() {
-                    *retry_files = true;
+            match &state.files {
+                FilesPane::Closed | FilesPane::Loading => {
+                    widgets::page_spinner(ui, theme);
+                }
+                FilesPane::Failed(error) => {
+                    ui.label(RichText::new(error).color(theme.err));
+                    if ui.button("Retry").clicked() {
+                        *retry_files = true;
+                    }
+                }
+                FilesPane::Ready(files) | FilesPane::Preloading { files, .. } => {
+                    file_list(ui, state, files, svc, theme, pick_file);
                 }
             }
-            FilesPane::Ready(files) | FilesPane::Preloading { files, .. } => {
-                file_list(ui, state, files, svc, theme, pick_file);
-            }
-        }
-    });
+        });
     if modal.should_close() {
         *close_files = true;
     }
@@ -702,7 +759,11 @@ fn file_list(
         return;
     }
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
-        ui.label(RichText::new(Msg::TagStarted.en()).size(12.0).color(theme.ok));
+        ui.label(
+            RichText::new(Msg::TagStarted.en())
+                .size(12.0)
+                .color(theme.ok),
+        );
     }
     let serial = state.kind == MediaKind::Tv;
     let fallback = svc.images.poster_key(
@@ -711,7 +772,8 @@ fn file_list(
         state.movie.poster_path.as_deref(),
         svc.settings.tmdb.poster_size,
     );
-    scroll::vertical_max(ui, "torrent-files", 520.0, |ui| {
+    scroll::vertical(ui, "torrent-files", |ui| {
+        ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
         let show_headers = serial && files.files.iter().any(|file| file.season.is_some());
         for file in &files.files {
@@ -723,22 +785,23 @@ fn file_list(
                 );
                 last_season = Some(file.season);
             }
+
             let selected = files.selected_id == Some(file.id);
-            let still = file
-                .still_url
-                .as_deref()
-                .and_then(|url| svc.images.get(url))
-                .or(fallback);
+            let still = svc.images.slot(file.still_url.as_deref()).or(fallback);
+
             let bg = if selected {
                 theme.card_selected
             } else {
                 theme.panel
             };
+
             let response = Frame::new()
                 .fill(bg)
                 .corner_radius(6)
+                .inner_margin(12.0)
                 .show(ui, |ui| {
                     ui.horizontal(|ui| {
+                        ui.spacing_mut().item_spacing.x = 12.0;
                         poster::rounded_image(
                             ui,
                             still,
@@ -746,6 +809,7 @@ fn file_list(
                             theme,
                         );
                         ui.vertical(|ui| {
+                            ui.set_min_width(ui.available_width());
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new(typograph(&file.title))
@@ -759,6 +823,7 @@ fn file_list(
                                     );
                                 });
                             });
+
                             if serial {
                                 let mut line =
                                     format!("{} {}", Msg::Season.en(), file.season.unwrap_or(1));
@@ -769,9 +834,12 @@ fn file_list(
                                 }
                                 ui.label(RichText::new(line).size(13.0).color(theme.muted));
                             }
+
                             if let Some(air) = file.air_date.as_deref() {
                                 ui.label(RichText::new(air).size(12.0).color(theme.muted));
                             }
+
+                            ui.add_space(6.0);
                             progress(ui, file.progress(), theme);
                         });
                     });
@@ -826,15 +894,63 @@ fn chip(ui: &mut Ui, label: &str, active: bool) -> bool {
     ui.selectable_label(active, label).clicked()
 }
 
-fn stat(ui: &mut Ui, label: &str, value: String, theme: &Theme) {
-    ui.label(RichText::new(format!("{label}:")).size(12.0).color(theme.muted));
+const FILES_MODAL_MIN_W: f32 = 720.0;
+const FILES_MODAL_MIN_H: f32 = 480.0;
+const FILES_MODAL_EDGE: f32 = 64.0;
+
+fn files_modal_size(screen: Vec2) -> Vec2 {
+    let max = (screen - Vec2::splat(FILES_MODAL_EDGE)).max(Vec2::splat(320.0));
+    Vec2::new(
+        (screen.x * 0.72).clamp(FILES_MODAL_MIN_W.min(max.x), max.x),
+        (screen.y * 0.72).clamp(FILES_MODAL_MIN_H.min(max.y), max.y),
+    )
+}
+
+const METRIC_VAL_H: f32 = 16.0;
+const BITRATE_VAL_W: f32 = 36.0;
+const COUNT_VAL_W: f32 = 40.0;
+
+fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<String> {
+    if kind != MediaKind::Movie {
+        return None;
+    }
+    Some(
+        mbps.map(|mbps| format!("{mbps:.1}"))
+            .unwrap_or_else(|| String::from("—")),
+    )
+}
+
+fn metrics_bar(ui: &mut Ui, theme: &Theme, bitrate: Option<&str>, seeds: &str, leechers: &str) {
     Frame::new()
-        .fill(theme.stat_chip)
+        .fill(theme.metric_bg)
         .corner_radius(4)
-        .inner_margin(egui::Margin::symmetric(6, 2))
+        .inner_margin(egui::Margin::symmetric(8, 3))
         .show(ui, |ui| {
-            ui.label(RichText::new(value).size(12.0).color(theme.title));
+            ui.spacing_mut().item_spacing.x = 12.0;
+            ui.horizontal(|ui| {
+                if let Some(bitrate) = bitrate {
+                    metric_pair(ui, Msg::Bitrate.en(), bitrate, BITRATE_VAL_W, theme);
+                }
+                metric_pair(ui, Msg::Seeds.en(), seeds, COUNT_VAL_W, theme);
+                metric_pair(ui, Msg::Leechers.en(), leechers, COUNT_VAL_W, theme);
+            });
         });
+}
+
+fn metric_pair(ui: &mut Ui, label: &str, value: &str, value_w: f32, theme: &Theme) {
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 4.0;
+        ui.label(RichText::new(label).size(12.0).color(theme.muted));
+        let (rect, _) = ui.allocate_exact_size(Vec2::new(value_w, METRIC_VAL_H), Sense::hover());
+        ui.scope_builder(
+            UiBuilder::new()
+                .max_rect(rect)
+                .layout(Layout::right_to_left(Align::Center)),
+            |ui| {
+                ui.label(RichText::new(value).size(12.0).color(theme.title));
+            },
+        );
+    });
 }
 
 fn pill(ui: &mut Ui, label: String, theme: &Theme) {
@@ -847,14 +963,47 @@ fn pill(ui: &mut Ui, label: String, theme: &Theme) {
         });
 }
 
-fn lerp(a: f32, b: f32, t: f32) -> f32 {
-    a + (b - a) * t.clamp(0.0, 1.0)
-}
+#[cfg(test)]
+mod tests {
+    use super::*;
 
-fn intro_t(started: Option<f64>, now: f64) -> f32 {
-    let Some(t0) = started else {
-        return 1.0;
-    };
-    let t = ((now - t0) / 0.48).clamp(0.0, 1.0) as f32;
-    1.0 - (1.0 - t).powi(3)
+    #[test]
+    fn intro_finishes_and_restarts_after_hide() {
+        let mut screen = TorrentsScreen {
+            intro_at: Some(0.0),
+            on_screen: true,
+            ..TorrentsScreen::default()
+        };
+        assert!(!screen.intro_animating(10.0));
+
+        screen.hide();
+        assert!(!screen.on_screen);
+
+        screen.on_screen = true;
+        screen.intro_at = Some(10.0);
+        assert!(screen.intro_animating(10.05));
+    }
+
+    #[test]
+    fn bitrate_only_for_movies() {
+        assert_eq!(format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(), Some("8.2"));
+        assert_eq!(format_bitrate(MediaKind::Movie, None).as_deref(), Some("—"));
+        assert_eq!(format_bitrate(MediaKind::Tv, Some(8.2)), None);
+        assert_eq!(format_bitrate(MediaKind::Tv, None), None);
+    }
+
+    #[test]
+    fn files_modal_keeps_min_size_inside_window() {
+        let size = files_modal_size(Vec2::new(1280.0, 800.0));
+        assert!(size.x >= FILES_MODAL_MIN_W);
+        assert!(size.y >= FILES_MODAL_MIN_H);
+        assert!(size.x <= 1280.0 - FILES_MODAL_EDGE);
+        assert!(size.y <= 800.0 - FILES_MODAL_EDGE);
+
+        let tight = files_modal_size(Vec2::new(800.0, 600.0));
+        assert!(tight.x <= 800.0 - FILES_MODAL_EDGE);
+        assert!(tight.y <= 600.0 - FILES_MODAL_EDGE);
+        assert!(tight.x >= 320.0);
+        assert!(tight.y >= 320.0);
+    }
 }

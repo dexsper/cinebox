@@ -2,17 +2,19 @@
 
 use cinebox_core::{CatalogItem, typograph};
 use egui::{
-    CornerRadius, FontId, Image, Rect, Sense, Stroke, TextureHandle, Ui, Vec2, pos2, text::LayoutJob,
-    vec2,
+    Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
+use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
+use egui_material_icons::MaterialIcon;
 
+use crate::images::ImageSlot;
 use crate::nav::NavAction;
 use crate::theme::Theme;
 
 pub fn catalog_tile(
     ui: &mut Ui,
     item: &CatalogItem,
-    poster: Option<&TextureHandle>,
+    poster: ImageSlot<'_>,
     theme: &Theme,
 ) -> Option<NavAction> {
     let pad = theme.ring_pad();
@@ -55,39 +57,66 @@ pub fn catalog_tile(
 
     if response.clicked() {
         return Some(NavAction::OpenMedia {
-            kind: item.kind,
-            id: item.id,
+            item: item.clone(),
         });
     }
     None
 }
 
 fn wrap_title(ui: &Ui, title: &str, theme: &Theme) -> std::sync::Arc<egui::Galley> {
-    let mut job = LayoutJob::simple(
-        title.to_owned(),
-        FontId::proportional(13.0),
-        theme.title,
-        theme.tile_w,
-    );
+    wrap_lines(ui, title, theme.title, 13.0, theme.tile_w, 2)
+}
 
-    job.wrap.max_rows = 2;
+/// Wrap `text` to `max_rows` at `width`, ellipsizing overflow.
+pub fn wrap_lines(
+    ui: &Ui,
+    text: &str,
+    color: egui::Color32,
+    font_size: f32,
+    width: f32,
+    max_rows: usize,
+) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::simple(
+        text.to_owned(),
+        FontId::proportional(font_size),
+        color,
+        width,
+    );
+    job.wrap.max_rows = max_rows;
     job.wrap.break_anywhere = false;
     job.wrap.overflow_character = Some('…');
     ui.painter().layout_job(job)
 }
 
-pub fn paint_poster(ui: &Ui, rect: Rect, poster: Option<&TextureHandle>, theme: &Theme) {
+pub fn paint_poster(ui: &Ui, rect: Rect, poster: ImageSlot<'_>, theme: &Theme) {
     let rounding = theme.rounding(theme.radius_poster);
     ui.painter()
         .rect_filled(rect, rounding, theme.poster_placeholder);
 
-    if let Some(texture) = poster {
-        let image = Image::new(texture)
-            .fit_to_exact_size(rect.size())
-            .corner_radius(rounding)
-            .maintain_aspect_ratio(false);
-        image.paint_at(ui, rect);
+    match poster {
+        ImageSlot::Ready(texture) => {
+            let image = Image::new(texture)
+                .fit_to_exact_size(rect.size())
+                .corner_radius(rounding)
+                .maintain_aspect_ratio(false);
+            image.paint_at(ui, rect);
+        }
+        ImageSlot::Loading => paint_slot_icon(ui, rect, ICON_BROKEN_IMAGE, theme),
+        ImageSlot::Missing => paint_slot_icon(ui, rect, ICON_HIDE_IMAGE, theme),
     }
+}
+
+fn paint_slot_icon(ui: &Ui, rect: Rect, icon: MaterialIcon, theme: &Theme) {
+    let size = (rect.width().min(rect.height()) * 0.34).clamp(28.0, 52.0);
+    let galley = ui.painter().layout_no_wrap(
+        icon.codepoint.to_owned(),
+        FontId::new(size, icon.font_family()),
+        theme.muted,
+    );
+    let pos = Align2::CENTER_CENTER
+        .anchor_size(rect.center(), galley.size())
+        .min;
+    ui.painter().galley(pos, galley, theme.muted);
 }
 
 fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
@@ -109,12 +138,7 @@ fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
     ui.painter().galley(rect.min + vec2(6.0, 2.0), galley, theme.rate);
 }
 
-pub fn rounded_image(
-    ui: &mut Ui,
-    texture: Option<&TextureHandle>,
-    size: Vec2,
-    theme: &Theme,
-) {
+pub fn rounded_image(ui: &mut Ui, texture: ImageSlot<'_>, size: Vec2, theme: &Theme) {
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     paint_poster(ui, rect, texture, theme);
 }

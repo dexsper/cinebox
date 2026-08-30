@@ -30,8 +30,19 @@ pub struct Theme {
     pub toast_ok: Color32,
     pub toast_err: Color32,
     pub video_bg: Color32,
-    pub stat_chip: Color32,
+    pub metric_bg: Color32,
     pub rating_pill: Color32,
+    pub chrome_bg: Color32,
+    pub chrome_btn_idle: Color32,
+    pub chrome_btn_hover: Color32,
+    pub chrome_close_hover: Color32,
+    pub window_edge: Color32,
+    pub btn_primary_bg: Color32,
+    pub btn_primary_fg: Color32,
+    pub btn_primary_hover: Color32,
+    pub widget_hover: Color32,
+    pub widget_active: Color32,
+    pub selection: Color32,
     pub radius_poster: f32,
     pub radius_card: f32,
     pub radius_badge: f32,
@@ -48,6 +59,8 @@ pub struct Theme {
     pub still_w: f32,
     pub still_h: f32,
     pub pad: f32,
+    pub title_bar_h: f32,
+    pub overview_max_w: f32,
 }
 
 impl Theme {
@@ -79,8 +92,19 @@ impl Theme {
             toast_ok: Color32::from_rgb(115, 209, 140),
             toast_err: Color32::from_rgb(235, 97, 97),
             video_bg: Color32::BLACK,
-            stat_chip: Color32::from_white_alpha(40),
+            metric_bg: Color32::from_white_alpha(28),
             rating_pill: Color32::from_black_alpha(89),
+            chrome_bg: Color32::from_rgb(22, 23, 27),
+            chrome_btn_idle: Color32::TRANSPARENT,
+            chrome_btn_hover: Color32::from_rgba_unmultiplied(255, 255, 255, 22),
+            chrome_close_hover: Color32::from_rgb(196, 64, 64),
+            window_edge: Color32::from_white_alpha(28),
+            btn_primary_bg: Color32::from_rgb(245, 245, 247),
+            btn_primary_fg: Color32::from_rgb(0x2B, 0x2D, 0x31),
+            btn_primary_hover: Color32::from_rgb(220, 220, 228),
+            widget_hover: Color32::from_rgb(40, 40, 50),
+            widget_active: Color32::from_rgb(50, 50, 62),
+            selection: Color32::from_rgb(70, 90, 140),
             radius_poster: 12.0,
             radius_card: 8.0,
             radius_badge: 4.0,
@@ -97,6 +121,8 @@ impl Theme {
             still_w: 168.0,
             still_h: 98.0,
             pad: 16.0,
+            title_bar_h: 40.0,
+            overview_max_w: 640.0,
         }
     }
 
@@ -125,9 +151,9 @@ impl Theme {
         visuals.extreme_bg_color = self.panel;
         visuals.faint_bg_color = self.panel;
         visuals.widgets.inactive.bg_fill = self.panel;
-        visuals.widgets.hovered.bg_fill = Color32::from_rgb(40, 40, 50);
-        visuals.widgets.active.bg_fill = Color32::from_rgb(50, 50, 62);
-        visuals.selection.bg_fill = Color32::from_rgb(70, 90, 140);
+        visuals.widgets.hovered.bg_fill = self.widget_hover;
+        visuals.widgets.active.bg_fill = self.widget_active;
+        visuals.selection.bg_fill = self.selection;
         visuals.window_corner_radius = self.rounding(self.radius_dialog);
         visuals.window_stroke = Stroke::NONE;
         visuals.window_shadow.blur = 16;
@@ -138,6 +164,7 @@ impl Theme {
         };
 
         style.spacing.scroll = ScrollStyle::floating();
+        style.spacing.scroll.fade.strength = 0.0;
         style.spacing.window_margin = Margin::same(12);
 
         ctx.set_style_of(egui::Theme::Dark, style);
