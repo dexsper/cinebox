@@ -1,27 +1,37 @@
-//! Cinebox Iced application.
+//! Cinebox desktop application (egui / eframe glow).
 
 #![forbid(unsafe_code)]
 
 mod app;
 mod images;
-mod loaders;
-mod message;
+mod jobs;
 mod nav;
-mod ui;
+mod screens;
+mod services;
+mod theme;
+mod toasts;
+mod widgets;
 
-use iced::Size;
+#[cfg(test)]
+mod ui_tests;
+
+use cinebox_core::i18n::Msg;
 
 /// Run the desktop shell.
 ///
 /// # Errors
 ///
-/// Returns an [`iced::Error`] if the window or renderer fails to start.
-pub fn run() -> iced::Result {
-    iced::application(app::App::boot, app::App::update, app::App::view)
-        .title(app::App::title)
-        .theme(app::App::theme)
-        .subscription(app::App::subscription)
-        .window_size(Size::new(1280.0, 800.0))
-        .centered()
-        .run()
+/// Returns an [`eframe::Error`] if the window or renderer fails to start.
+pub fn run() -> eframe::Result {
+    let native_options = eframe::NativeOptions {
+        viewport: egui::ViewportBuilder::default()
+            .with_inner_size([1280.0, 800.0])
+            .with_min_inner_size([800.0, 600.0]),
+        ..Default::default()
+    };
+    eframe::run_native(
+        Msg::AppTitle.en(),
+        native_options,
+        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+    )
 }

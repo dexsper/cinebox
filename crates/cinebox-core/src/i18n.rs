@@ -1,6 +1,6 @@
 //! English UI strings for Phase 1. Locale switching is Phase 8.
 
-/// Message keys used by the Iced shell.
+/// Message keys used by the desktop shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Msg {
     AppTitle,

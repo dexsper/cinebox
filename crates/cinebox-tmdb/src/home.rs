@@ -1,4 +1,4 @@
-//! Home-row HTTP. Endpoints match the ТЗ / Lampa catalog.
+//! Home-row HTTP. Catalog endpoints.
 
 use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, MediaKind};
 use futures_util::future::join_all;

@@ -1,4 +1,4 @@
-//! Chrome sizes and click zones. The HWND hole matches these logical heights.
+//! Chrome sizes and click zones for the in-window player.
 
 /// Player top bar (back + title), logical pixels.
 pub const HEADER_LOGICAL: f32 = 56.0;
@@ -27,13 +27,7 @@ pub fn click_zone(x_ratio: f32) -> ClickZone {
     ClickZone::SeekFwd
 }
 
-/// HWND `wid` as mpv expects on 64-bit Windows.
-#[must_use]
-pub fn wid_from_hwnd(hwnd: isize) -> i64 {
-    hwnd as u32 as i64
-}
-
-/// Child window rectangle inside the parent client area, in physical pixels.
+/// Video area between header and footer, in physical pixels.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PixelRect {
     pub x: i32,
@@ -77,12 +71,6 @@ pub fn format_clock(secs: f64) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn wid_truncates_like_mpv_win32() {
-        let high = 0x0000_0001_8000_0000u64 as isize;
-        assert_eq!(wid_from_hwnd(high), 0x8000_0000u32 as i64);
-    }
 
     #[test]
     fn click_thirds() {

@@ -156,7 +156,7 @@ pub async fn fetch_person(
     details::fetch_person(api_key, id, language, use_system_proxy).await
 }
 
-/// TV season episodes: names and `still_path` (Lampa file-list preview).
+/// TV season episodes: names and `still_path` for the file-list preview.
 ///
 /// # Errors
 ///

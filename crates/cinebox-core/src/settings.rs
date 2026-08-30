@@ -106,7 +106,7 @@ impl fmt::Display for UiLanguage {
     }
 }
 
-/// Jackett vs Prowlarr. One URL in settings (not Lampa’s dual links).
+/// Jackett vs Prowlarr. One URL in settings.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum ParserKind {

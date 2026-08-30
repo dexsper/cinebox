@@ -118,7 +118,7 @@ mod tests {
     use super::*;
 
     #[test]
-    fn bitrate_matches_lampa_formula() {
+    fn bitrate_matches_expected_formula() {
         let mbps = match estimate_bitrate_mbps(1_500_000_000, 120) {
             Some(value) => value,
             None => panic!("bitrate"),

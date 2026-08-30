@@ -76,7 +76,7 @@ impl TorrentStatus {
     }
 }
 
-/// Video extensions Lampa treats as playable.
+/// Playable video extensions.
 const VIDEO_EXT: &[&str] = &[
     "asf", "wmv", "divx", "avi", "mp4", "m4v", "mov", "3gp", "3g2", "mkv", "trp", "tp", "mts",
     "mpg", "mpeg", "dat", "vob", "rm", "rmvb", "m2ts", "ts",

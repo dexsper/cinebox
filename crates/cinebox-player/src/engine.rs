@@ -1,11 +1,17 @@
-//! Child HWND + libmpv. The only `unsafe` in the workspace.
+//! libmpv OpenGL render API. The only `unsafe` in the workspace.
+
+use std::ffi::{CStr, CString, c_void};
+use std::sync::Arc;
 
 use cinebox_core::VideoScale;
 use libmpv2::Mpv;
+use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
 use tracing::info;
 
 use crate::error::Error;
-use crate::layout;
+
+/// eframe glow `get_proc_address` loader.
+pub type GlLoader = Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>;
 
 /// Options applied before `loadfile`.
 #[derive(Clone, Copy)]
@@ -16,7 +22,7 @@ pub struct PlayOpts<'a> {
     pub start_seconds: f64,
 }
 
-/// Polled playback snapshot for the Iced chrome.
+/// Polled playback snapshot for the player chrome.
 #[derive(Debug, Clone, Copy)]
 pub struct Snapshot {
     pub paused: bool,
@@ -27,29 +33,77 @@ pub struct Snapshot {
     pub sid: i64,
 }
 
-/// Embedded mpv session: child hole + player.
+/// Embedded mpv session: OpenGL render context + player.
+///
+/// `render` is dropped before `mpv` (declaration order). The `'static` lifetime
+/// on `RenderContext` is a self-referential borrow of `mpv`; `mpv` is boxed so
+/// its address is stable across moves of `Engine`.
+///
+/// Used only on the eframe/glow UI thread (paint callback + controls).
 pub struct Engine {
-    parent: isize,
-    child: isize,
-    mpv: Option<Mpv>,
+    render: Option<RenderContext<'static>>,
+    mpv: Box<Mpv>,
 }
 
+// SAFETY: `Engine` is driven exclusively on the eframe/glow UI thread. The
+// glow paint callback is `Send + Sync` so the handle must cross that bound,
+// but mpv APIs are never called from another thread.
+unsafe impl Send for Engine {}
+unsafe impl Sync for Engine {}
+
 impl Engine {
-    /// Create a click-through child of `parent` and start libmpv with `wid`.
+    /// Create libmpv with `vo=libmpv` and an OpenGL render context.
+    ///
+    /// The GL context must be current on this thread (eframe glow backend).
     ///
     /// # Errors
     ///
-    /// Missing bundled libmpv, or the child window cannot be created.
-    pub fn attach(parent: isize) -> Result<Self, Error> {
-        let child = create_hole(parent)?;
-        layout_hole(parent, child);
-        let mpv = start_mpv(child)?;
-        info!("mpv attached");
+    /// Missing bundled libmpv, or render-context creation failure.
+    pub fn attach(loader: GlLoader) -> Result<Self, Error> {
+        let mpv = Box::new(
+            Mpv::with_initializer(|init| {
+                init.set_option("vo", "libmpv")?;
+                init.set_option("video-timing-offset", 0i64)?;
+                init.set_option("input-vo-keyboard", false)?;
+                init.set_option("input-default-bindings", false)?;
+                init.set_option("osc", false)?;
+                init.set_option("osd-level", 1i64)?;
+                Ok(())
+            })
+            .map_err(|_| Error::MpvInit)?,
+        );
+        let render = unsafe { create_render(&mpv, loader)? };
+        info!("mpv render context attached");
         Ok(Self {
-            parent,
-            child,
-            mpv: Some(mpv),
+            render: Some(render),
+            mpv,
         })
+    }
+
+    /// Notify the UI thread when a new video frame is ready.
+    ///
+    /// The callback must not call mpv APIs.
+    pub fn set_update_callback<F: Fn() + Send + 'static>(&mut self, callback: F) {
+        if let Some(render) = self.render.as_mut() {
+            render.set_update_callback(callback);
+        }
+    }
+
+    /// Draw the current frame into `fbo` (0 = default framebuffer).
+    ///
+    /// # Errors
+    ///
+    /// mpv render failure.
+    pub fn render(&self, fbo: u32, width: i32, height: i32) -> Result<(), Error> {
+        let Some(render) = self.render.as_ref() else {
+            return Err(Error::MpvInit);
+        };
+        if width <= 0 || height <= 0 {
+            return Ok(());
+        }
+        render
+            .render::<()>(fbo as i32, width, height, true)
+            .map_err(Error::mpv)
     }
 
     /// Load (or replace) a stream URL. Never log `opts.http_header_fields`.
@@ -58,24 +112,23 @@ impl Engine {
     ///
     /// mpv command/property failures.
     pub fn load(&self, url: &str, opts: PlayOpts<'_>) -> Result<(), Error> {
-        let Some(mpv) = self.mpv.as_ref() else {
-            return Err(Error::MpvInit);
-        };
-        apply_play_opts(mpv, opts)?;
+        apply_play_opts(&self.mpv, opts)?;
         let start = opts.start_seconds.max(0.0);
         if start > 0.5 {
             let extra = format!("start={start}");
-            return mpv
+            return self
+                .mpv
                 .command("loadfile", &[url, "replace", &extra])
                 .map_err(Error::mpv);
         }
-        mpv.command("loadfile", &[url, "replace"])
+        self.mpv
+            .command("loadfile", &[url, "replace"])
             .map_err(Error::mpv)
     }
 
-    /// Keep the hole aligned after the parent client size changes.
-    pub fn relayout(&self) {
-        layout_hole(self.parent, self.child);
+    /// Stop playback and clear the playlist.
+    pub fn stop(&self) {
+        let _ = self.mpv.command("stop", &[]);
     }
 
     /// Toggle pause. Returns the new paused flag.
@@ -84,10 +137,9 @@ impl Engine {
     ///
     /// mpv property failures.
     pub fn toggle_pause(&self) -> Result<bool, Error> {
-        let mpv = self.mpv.as_ref().ok_or(Error::MpvInit)?;
-        let paused: bool = mpv.get_property("pause").unwrap_or(false);
+        let paused: bool = self.mpv.get_property("pause").unwrap_or(false);
         let next = !paused;
-        mpv.set_property("pause", next).map_err(Error::mpv)?;
+        self.mpv.set_property("pause", next).map_err(Error::mpv)?;
         Ok(next)
     }
 
@@ -97,9 +149,9 @@ impl Engine {
     ///
     /// mpv command failure.
     pub fn seek(&self, delta: f64) -> Result<(), Error> {
-        let mpv = self.mpv.as_ref().ok_or(Error::MpvInit)?;
         let amount = format!("{delta}");
-        mpv.command("seek", &[&amount, "relative"])
+        self.mpv
+            .command("seek", &[&amount, "relative"])
             .map_err(Error::mpv)
     }
 
@@ -109,8 +161,7 @@ impl Engine {
     ///
     /// mpv command failure.
     pub fn cycle_audio(&self) -> Result<(), Error> {
-        let mpv = self.mpv.as_ref().ok_or(Error::MpvInit)?;
-        mpv.command("cycle", &["aid"]).map_err(Error::mpv)
+        self.mpv.command("cycle", &["aid"]).map_err(Error::mpv)
     }
 
     /// Cycle subtitle tracks (includes “no”).
@@ -119,52 +170,48 @@ impl Engine {
     ///
     /// mpv command failure.
     pub fn cycle_subs(&self) -> Result<(), Error> {
-        let mpv = self.mpv.as_ref().ok_or(Error::MpvInit)?;
-        mpv.command("cycle", &["sid"]).map_err(Error::mpv)
+        self.mpv.command("cycle", &["sid"]).map_err(Error::mpv)
     }
 
     /// Best-effort playback status.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
-        let Some(mpv) = self.mpv.as_ref() else {
-            return Snapshot {
-                paused: true,
-                time: 0.0,
-                duration: 0.0,
-                eof: false,
-                aid: 0,
-                sid: 0,
-            };
-        };
         Snapshot {
-            paused: mpv.get_property("pause").unwrap_or(false),
-            time: mpv.get_property("time-pos").unwrap_or(0.0),
-            duration: mpv.get_property("duration").unwrap_or(0.0),
-            eof: mpv.get_property("eof-reached").unwrap_or(false),
-            aid: mpv.get_property("aid").unwrap_or(0),
-            sid: mpv.get_property("sid").unwrap_or(0),
+            paused: self.mpv.get_property("pause").unwrap_or(false),
+            time: self.mpv.get_property("time-pos").unwrap_or(0.0),
+            duration: self.mpv.get_property("duration").unwrap_or(0.0),
+            eof: self.mpv.get_property("eof-reached").unwrap_or(false),
+            aid: self.mpv.get_property("aid").unwrap_or(0),
+            sid: self.mpv.get_property("sid").unwrap_or(0),
         }
     }
 }
 
 impl Drop for Engine {
     fn drop(&mut self) {
-        self.mpv.take();
-        destroy_hole(self.child);
+        self.render.take();
     }
 }
 
-fn start_mpv(child: isize) -> Result<Mpv, Error> {
-    let wid = layout::wid_from_hwnd(child);
-    Mpv::with_initializer(|init| {
-        init.set_option("wid", wid)?;
-        init.set_option("input-vo-keyboard", false)?;
-        init.set_option("input-default-bindings", false)?;
-        init.set_option("osc", false)?;
-        init.set_option("osd-level", 1i64)?;
-        Ok(())
-    })
-    .map_err(|_| Error::MpvInit)
+unsafe fn create_render(mpv: &Mpv, loader: GlLoader) -> Result<RenderContext<'static>, Error> {
+    let params = vec![
+        RenderParam::ApiType(RenderParamApiType::OpenGl),
+        RenderParam::InitParams(OpenGLInitParams {
+            get_proc_address: load_gl,
+            ctx: loader,
+        }),
+    ];
+    let render = mpv.create_render_context(params).map_err(Error::mpv)?;
+    // SAFETY: `Engine` boxes `Mpv` so its address is stable. `render` is stored
+    // in a field that is dropped before `mpv`.
+    Ok(unsafe { std::mem::transmute::<RenderContext<'_>, RenderContext<'static>>(render) })
+}
+
+fn load_gl(loader: &GlLoader, name: &str) -> *mut c_void {
+    let Ok(cname) = CString::new(name) else {
+        return std::ptr::null_mut();
+    };
+    loader(cname.as_c_str()) as *mut c_void
 }
 
 fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
@@ -199,168 +246,4 @@ fn apply_scale(mpv: &Mpv, scale: VideoScale) -> Result<(), Error> {
         }
     }
     Ok(())
-}
-
-#[cfg(windows)]
-fn create_hole(parent: isize) -> Result<isize, Error> {
-    hole::create(parent)
-}
-
-#[cfg(not(windows))]
-fn create_hole(_parent: isize) -> Result<isize, Error> {
-    Err(Error::Unsupported)
-}
-
-#[cfg(windows)]
-fn layout_hole(parent: isize, child: isize) {
-    hole::layout(parent, child);
-}
-
-#[cfg(not(windows))]
-fn layout_hole(_parent: isize, _child: isize) {}
-
-#[cfg(windows)]
-fn destroy_hole(child: isize) {
-    hole::destroy(child);
-}
-
-#[cfg(not(windows))]
-fn destroy_hole(_child: isize) {}
-
-#[cfg(windows)]
-mod hole {
-    use std::sync::OnceLock;
-
-    use windows_sys::Win32::Foundation::{HWND, LPARAM, LRESULT, RECT, WPARAM};
-    use windows_sys::Win32::Graphics::Gdi::{COLOR_WINDOW, HBRUSH};
-    use windows_sys::Win32::System::LibraryLoader::GetModuleHandleW;
-    use windows_sys::Win32::UI::HiDpi::GetDpiForWindow;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{
-        CreateWindowExW, DefWindowProcW, DestroyWindow, GetClientRect, RegisterClassW,
-        SWP_NOACTIVATE, SWP_NOZORDER, SetWindowPos, WNDCLASSW, WS_CHILD, WS_CLIPSIBLINGS,
-        WS_EX_NOACTIVATE, WS_EX_TRANSPARENT, WS_VISIBLE,
-    };
-
-    use super::Error;
-    use crate::layout::video_rect;
-
-    const CLASS: &[u16] = &[
-        b'C' as u16,
-        b'i' as u16,
-        b'n' as u16,
-        b'e' as u16,
-        b'b' as u16,
-        b'o' as u16,
-        b'x' as u16,
-        b'M' as u16,
-        b'p' as u16,
-        b'v' as u16,
-        0,
-    ];
-
-    static CLASS_ONCE: OnceLock<bool> = OnceLock::new();
-
-    pub(super) fn create(parent: isize) -> Result<isize, Error> {
-        register()?;
-        let parent_hwnd = parent as HWND;
-        // SAFETY: a null module name returns this process's HINSTANCE.
-        let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
-        // SAFETY: `parent` is the Iced Win32 HWND. WS_EX_TRANSPARENT lets Iced
-        // receive clicks on the hole while mpv still paints into this child.
-        let hwnd = unsafe {
-            CreateWindowExW(
-                WS_EX_TRANSPARENT | WS_EX_NOACTIVATE,
-                CLASS.as_ptr(),
-                std::ptr::null(),
-                WS_CHILD | WS_VISIBLE | WS_CLIPSIBLINGS,
-                0,
-                0,
-                1,
-                1,
-                parent_hwnd,
-                std::ptr::null_mut(),
-                instance,
-                std::ptr::null(),
-            )
-        };
-        if hwnd.is_null() {
-            return Err(Error::Hole);
-        }
-        Ok(hwnd as isize)
-    }
-
-    pub(super) fn layout(parent: isize, child: isize) {
-        let mut rect = RECT {
-            left: 0,
-            top: 0,
-            right: 0,
-            bottom: 0,
-        };
-        let parent_hwnd = parent as HWND;
-        let child_hwnd = child as HWND;
-        // SAFETY: both HWNDs are live while Engine exists.
-        let ok = unsafe { GetClientRect(parent_hwnd, &mut rect) };
-        if ok == 0 {
-            return;
-        }
-        let dpi = unsafe { GetDpiForWindow(parent_hwnd) };
-        let hole = video_rect(rect.right - rect.left, rect.bottom - rect.top, dpi);
-        // SAFETY: child HWND is still owned by Engine.
-        unsafe {
-            let _ = SetWindowPos(
-                child_hwnd,
-                std::ptr::null_mut(),
-                hole.x,
-                hole.y,
-                hole.w,
-                hole.h,
-                SWP_NOZORDER | SWP_NOACTIVATE,
-            );
-        }
-    }
-
-    pub(super) fn destroy(child: isize) {
-        if child == 0 {
-            return;
-        }
-        // SAFETY: child was created by `create`; mpv is already dropped.
-        unsafe {
-            let _ = DestroyWindow(child as HWND);
-        }
-    }
-
-    fn register() -> Result<(), Error> {
-        CLASS_ONCE.get_or_init(|| {
-            // SAFETY: a null module name returns this process's HINSTANCE.
-            let instance = unsafe { GetModuleHandleW(std::ptr::null()) };
-            let class = WNDCLASSW {
-                style: 0,
-                lpfnWndProc: Some(wnd_proc),
-                cbClsExtra: 0,
-                cbWndExtra: 0,
-                hInstance: instance,
-                hIcon: std::ptr::null_mut(),
-                hCursor: std::ptr::null_mut(),
-                hbrBackground: (COLOR_WINDOW + 1) as HBRUSH,
-                lpszMenuName: std::ptr::null(),
-                lpszClassName: CLASS.as_ptr(),
-            };
-            // SAFETY: class name is a static NUL-terminated UTF-16 string.
-            unsafe {
-                let _ = RegisterClassW(&class);
-            }
-            true
-        });
-        Ok(())
-    }
-
-    unsafe extern "system" fn wnd_proc(
-        hwnd: HWND,
-        msg: u32,
-        wparam: WPARAM,
-        lparam: LPARAM,
-    ) -> LRESULT {
-        // SAFETY: default processing for a hole that does not paint.
-        unsafe { DefWindowProcW(hwnd, msg, wparam, lparam) }
-    }
 }

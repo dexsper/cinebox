@@ -1,30 +1,8 @@
-//! Torrent explorer state and filter events.
+//! Torrent explorer state.
 
 use cinebox_core::{DefaultQuality, MediaDetails, MediaKind, TmdbId};
-use cinebox_parse::{
-    AudioLang, QualityBand, SortMode, TorrentFilter, TorrentHit, TriChoice, VoiceFilter, sort_hits,
-};
+use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, sort_hits};
 use cinebox_torrserver::AddSpec;
-
-#[derive(Debug, Clone, Copy)]
-pub enum Event {
-    ToggleFilters,
-    FilterQuality(Option<QualityBand>),
-    FilterHdr(TriChoice),
-    FilterDolby(TriChoice),
-    FilterSubs(TriChoice),
-    FilterVoice(VoiceFilter),
-    FilterLang(AudioLang),
-    FilterSeason(Option<u32>),
-    FilterYear(Option<u16>),
-    FilterReset,
-    Sort(SortMode),
-    Pick(usize),
-    CloseFiles,
-    KeepOpen,
-    PickFile(i32),
-    RetryFiles,
-}
 
 #[derive(Debug, Clone)]
 pub struct MovieBits {
@@ -56,7 +34,7 @@ impl MovieBits {
         }
     }
 
-    pub(super) fn head_line(&self) -> String {
+    pub(crate) fn head_line(&self) -> String {
         let mut parts = Vec::new();
         if let Some(year) = self.year {
             parts.push(year.to_string());
@@ -121,12 +99,6 @@ impl ReadyFiles {
             selected_id: resume_id,
         }
     }
-
-    #[must_use]
-    pub fn resume_index(&self) -> Option<usize> {
-        let resume = self.resume_id?;
-        self.files.iter().position(|file| file.id == resume)
-    }
 }
 
 #[derive(Debug, Clone)]
@@ -142,11 +114,6 @@ impl FilesPane {
     #[must_use]
     pub fn is_open(&self) -> bool {
         !matches!(self, Self::Closed)
-    }
-
-    #[must_use]
-    pub fn is_spinning(&self) -> bool {
-        matches!(self, Self::Loading | Self::Preloading { .. })
     }
 
     pub fn close(&mut self) {
@@ -199,30 +166,10 @@ impl TorrentState {
     pub fn matches(&self, kind: MediaKind, id: TmdbId) -> bool {
         self.kind == kind && self.id == id
     }
-}
 
-pub fn update(state: &mut TorrentState, event: Event, preferred: DefaultQuality) {
-    match event {
-        Event::ToggleFilters => state.filters_open = !state.filters_open,
-        Event::FilterQuality(quality) => state.filter.quality = quality,
-        Event::FilterHdr(choice) => state.filter.hdr = choice,
-        Event::FilterDolby(choice) => state.filter.dolby = choice,
-        Event::FilterSubs(choice) => state.filter.subs = choice,
-        Event::FilterVoice(voice) => state.filter.voice = voice,
-        Event::FilterLang(lang) => state.filter.lang = lang,
-        Event::FilterSeason(season) => state.filter.season = season,
-        Event::FilterYear(year) => state.filter.year = year,
-        Event::FilterReset => state.filter = TorrentFilter::default(),
-        Event::Sort(mode) => {
-            state.sort = mode;
-            if let TorrentHits::Ready(hits) = &mut state.hits {
-                sort_hits(hits, state.kind, preferred, mode);
-            }
+    pub fn apply_filter_sort(&mut self, preferred: DefaultQuality) {
+        if let TorrentHits::Ready(hits) = &mut self.hits {
+            sort_hits(hits, self.kind, preferred, self.sort);
         }
-        Event::Pick(_)
-        | Event::CloseFiles
-        | Event::KeepOpen
-        | Event::PickFile(_)
-        | Event::RetryFiles => {}
     }
 }

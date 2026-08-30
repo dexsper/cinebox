@@ -1,4 +1,3 @@
-use anyhow::Context;
 use tracing_subscriber::EnvFilter;
 
 fn main() -> anyhow::Result<()> {
@@ -8,5 +7,5 @@ fn main() -> anyhow::Result<()> {
         )
         .init();
 
-    cinebox::run().context("running iced application")
+    cinebox::run().map_err(|error| anyhow::anyhow!("running eframe application: {error}"))
 }

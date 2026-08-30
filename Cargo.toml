@@ -13,7 +13,7 @@ members = [
 [workspace.package]
 version = "0.1.0"
 edition = "2024"
-rust-version = "1.88"
+rust-version = "1.95"
 license = "MIT"
 
 [workspace.dependencies]
@@ -24,7 +24,14 @@ cinebox-indexer = { path = "crates/cinebox-indexer" }
 cinebox-torrserver = { path = "crates/cinebox-torrserver" }
 cinebox-player = { path = "crates/cinebox-player" }
 
-iced = { version = "0.14.0", features = ["tokio", "image", "advanced"] }
+egui = "0.36.1"
+egui_kittest = "0.36.1"
+eframe = { version = "0.36.1", default-features = false, features = ["glow", "default_fonts"] }
+egui_extras = "0.36.1"
+egui_glow = "0.36.1"
+egui_material_icons = "0.8"
+egui-async = "0.6"
+tokio = { version = "1", features = ["rt-multi-thread", "time"] }
 thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }

@@ -155,7 +155,7 @@ pub async fn get(
     send_json(request).await
 }
 
-/// Poll `get` until `file_stats` is non-empty (Lampa: 45 × 2s).
+/// Poll `get` until `file_stats` is non-empty (45 × 2s).
 ///
 /// # Errors
 ///

@@ -1,15 +1,14 @@
-//! Async iced tasks: TMDB, indexer search, TorrServer started hashes.
+//! Async jobs spawned on the egui-async Tokio runtime.
 
 use cinebox_core::{
-    MediaDetails, MediaKind, Settings, TmdbId, format_release_date, tmdb_image_url,
+    HomeCatalog, MediaDetails, MediaKind, PersonDetails, Settings, TmdbId, format_release_date,
+    tmdb_image_url,
 };
 use cinebox_parse::{
     Listing, SortMode, TorrentHit, file_display_name, parse_file_episode, sort_hits,
 };
-use iced::Task;
 
-use crate::message::Message;
-use crate::ui::torrents::{MovieBits, ReadyFiles, TorrentFileRow};
+use crate::screens::torrents::{MovieBits, ReadyFiles, TorrentFileRow};
 
 fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
     Listing {
@@ -23,56 +22,47 @@ fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
     }
 }
 
-pub(crate) fn load_home_task(settings: &Settings) -> Task<Message> {
+pub async fn load_home(settings: Settings) -> Result<HomeCatalog, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
     let language = settings.tmdb.data_language.clone();
     let use_system_proxy = settings.interface.use_system_proxy;
 
-    Task::perform(
-        async move {
-            cinebox_tmdb::fetch_home(&key, language.as_deref(), use_system_proxy)
-                .await
-                .map_err(|error| error.to_string())
-        },
-        Message::HomeLoaded,
-    )
+    cinebox_tmdb::fetch_home(&key, language.as_deref(), use_system_proxy)
+        .await
+        .map_err(|error| error.to_string())
 }
 
-pub(crate) fn load_media_task(settings: &Settings, kind: MediaKind, id: TmdbId) -> Task<Message> {
+pub async fn load_media(
+    settings: Settings,
+    kind: MediaKind,
+    id: TmdbId,
+) -> Result<Box<MediaDetails>, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
     let language = settings.tmdb.data_language.clone();
     let use_system_proxy = settings.interface.use_system_proxy;
 
-    Task::perform(
-        async move {
-            cinebox_tmdb::fetch_media(&key, kind, id, language.as_deref(), use_system_proxy)
-                .await
-                .map(Box::new)
-                .map_err(|error| error.to_string())
-        },
-        move |result| Message::MediaLoaded { kind, id, result },
-    )
+    cinebox_tmdb::fetch_media(&key, kind, id, language.as_deref(), use_system_proxy)
+        .await
+        .map(Box::new)
+        .map_err(|error| error.to_string())
 }
 
-pub(crate) fn load_person_task(settings: &Settings, id: TmdbId) -> Task<Message> {
+pub async fn load_person(settings: Settings, id: TmdbId) -> Result<Box<PersonDetails>, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
     let language = settings.tmdb.data_language.clone();
     let use_system_proxy = settings.interface.use_system_proxy;
 
-    Task::perform(
-        async move {
-            cinebox_tmdb::fetch_person(&key, id, language.as_deref(), use_system_proxy)
-                .await
-                .map(Box::new)
-                .map_err(|error| error.to_string())
-        },
-        move |result| Message::PersonLoaded { id, result },
-    )
+    cinebox_tmdb::fetch_person(&key, id, language.as_deref(), use_system_proxy)
+        .await
+        .map(Box::new)
+        .map_err(|error| error.to_string())
 }
 
-pub(crate) fn load_torrents_task(settings: &Settings, details: &MediaDetails) -> Task<Message> {
+pub async fn load_torrents(
+    settings: Settings,
+    details: MediaDetails,
+) -> Result<Vec<TorrentHit>, String> {
     let kind = details.kind;
-    let id = details.id;
     let query = cinebox_indexer::SearchQuery {
         query: details.torrent_query(),
         title: details.title.clone(),
@@ -93,41 +83,38 @@ pub(crate) fn load_torrents_task(settings: &Settings, details: &MediaDetails) ->
     let ts_pass = settings.torrserver.password.expose().to_owned();
     let preferred = settings.player.default_quality;
 
-    Task::perform(
-        async move {
-            let raw = cinebox_indexer::search(
-                parser_kind,
-                &parser_url,
-                &parser_key,
-                &query,
-                use_system_proxy,
-            )
-            .await
-            .map_err(|error| error.to_string())?;
-            let started = cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass)
-                .await
-                .unwrap_or_default();
-            let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
-            let mut hits: Vec<TorrentHit> = raw
-                .into_iter()
-                .map(|hit| TorrentHit::new(listing_from_hit(hit), runtime, &hashes))
-                .collect();
-            sort_hits(&mut hits, kind, preferred, SortMode::Popular);
-            Ok(hits)
-        },
-        move |result| Message::TorrentsLoaded { kind, id, result },
+    let raw = cinebox_indexer::search(
+        parser_kind,
+        &parser_url,
+        &parser_key,
+        &query,
+        use_system_proxy,
     )
+    .await
+    .map_err(|error| error.to_string())?;
+
+    let started = cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass)
+        .await
+        .unwrap_or_default();
+
+    let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
+    let mut hits: Vec<TorrentHit> = raw
+        .into_iter()
+        .map(|hit| TorrentHit::new(listing_from_hit(hit), runtime, &hashes))
+        .collect();
+
+    sort_hits(&mut hits, kind, preferred, SortMode::Popular);
+    Ok(hits)
 }
 
-pub(crate) fn open_magnet_task(
-    settings: &Settings,
+pub async fn open_magnet(
+    settings: Settings,
     spec: cinebox_torrserver::AddSpec,
     movie: MovieBits,
     kind: MediaKind,
     id: TmdbId,
     runtime_minutes: Option<u32>,
-    seq: u64,
-) -> Task<Message> {
+) -> Result<ReadyFiles, String> {
     let url = settings.torrserver.url.clone();
     let user = settings.torrserver.username.clone();
     let pass = settings.torrserver.password.expose().to_owned();
@@ -136,40 +123,28 @@ pub(crate) fn open_magnet_task(
     let language = settings.tmdb.data_language.clone();
     let use_system_proxy = settings.interface.use_system_proxy;
 
-    Task::perform(
-        async move {
-            let opened = cinebox_torrserver::open_magnet(&url, &user, &pass, &spec, track)
-                .await
-                .map_err(|error| error.to_string())?;
+    let opened = cinebox_torrserver::open_magnet(&url, &user, &pass, &spec, track)
+        .await
+        .map_err(|error| error.to_string())?;
 
-            let is_tv = kind == MediaKind::Tv;
-            let has_seasons = movie.number_of_seasons.is_some();
-            let serial = is_tv || has_seasons;
-            let catalog = season_catalog(
-                &opened.files,
-                serial,
-                id,
-                &api_key,
-                language.as_deref(),
-                use_system_proxy,
-            )
-            .await;
-
-            Ok(decorate_files(
-                opened,
-                &movie,
-                serial,
-                runtime_minutes,
-                &catalog,
-            ))
-        },
-        move |result| Message::TorrentOpened {
-            kind,
-            id,
-            seq,
-            result,
-        },
+    let serial = kind == MediaKind::Tv || movie.number_of_seasons.is_some();
+    let catalog = season_catalog(
+        &opened.files,
+        serial,
+        id,
+        &api_key,
+        language.as_deref(),
+        use_system_proxy,
     )
+    .await;
+
+    Ok(decorate_files(
+        opened,
+        &movie,
+        serial,
+        runtime_minutes,
+        &catalog,
+    ))
 }
 
 async fn season_catalog(
@@ -191,7 +166,7 @@ async fn season_catalog(
 
     seasons.sort_unstable();
     seasons.dedup();
-
+    
     if seasons.is_empty() {
         return Vec::new();
     }
@@ -215,9 +190,7 @@ fn decorate_files(
     for (index, file) in opened.files.into_iter().enumerate() {
         let parsed = parse_file_episode(&file.path, serial);
         let tmdb = catalog.iter().find(|ep| {
-            let same_season = parsed.season == Some(ep.season);
-            let same_episode = parsed.episode == Some(ep.episode);
-            same_season && same_episode
+            parsed.season == Some(ep.season) && parsed.episode == Some(ep.episode)
         });
 
         let human = file_display_name(&file.path);
@@ -269,42 +242,71 @@ fn decorate_files(
     ReadyFiles::from_rows(opened.hash, opened.resume_id, rows)
 }
 
-pub(crate) fn wait_stream_task(
-    settings: &Settings,
+pub async fn wait_stream(
+    settings: Settings,
     file_path: String,
     hash: String,
     file_id: i32,
-    kind: MediaKind,
-    id: TmdbId,
-    seq: u64,
-) -> Task<Message> {
+) -> Result<String, String> {
     let url = settings.torrserver.url.clone();
     let user = settings.torrserver.username.clone();
     let pass = settings.torrserver.password.expose().to_owned();
     let wait = settings.torrserver.wait_preload;
+    
+    if wait {
+        cinebox_torrserver::wait_preload(&url, &user, &pass, &file_path, &hash, file_id)
+            .await
+            .map_err(|error| error.to_string())?;
+    }
 
-    Task::perform(
-        async move {
-            if wait {
-                cinebox_torrserver::wait_preload(&url, &user, &pass, &file_path, &hash, file_id)
-                    .await
-                    .map_err(|error| error.to_string())?;
-            }
-            cinebox_torrserver::stream_url(
-                &url,
-                &file_path,
-                &hash,
-                file_id,
-                cinebox_torrserver::StreamFlag::Play,
-            )
-            .map_err(|error| error.to_string())
-        },
-        move |result| Message::StreamReady {
-            kind,
-            id,
-            seq,
-            file_id,
-            result,
-        },
+    cinebox_torrserver::stream_url(
+        &url,
+        &file_path,
+        &hash,
+        file_id,
+        cinebox_torrserver::StreamFlag::Play,
     )
+    .map_err(|error| error.to_string())
+}
+
+pub async fn ping_torrserver(settings: Settings) -> Result<String, String> {
+    cinebox_torrserver::echo(
+        &settings.torrserver.url,
+        &settings.torrserver.username,
+        settings.torrserver.password.expose(),
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+pub async fn ping_parser(settings: Settings) -> Result<String, String> {
+    cinebox_indexer::ping(
+        settings.parser.kind,
+        &settings.parser.url,
+        settings.parser.api_key.expose(),
+        settings.interface.use_system_proxy,
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+pub async fn ping_tmdb(settings: Settings) -> Result<String, String> {
+    cinebox_tmdb::check_api_key(
+        settings.tmdb.api_key.expose(),
+        settings.interface.use_system_proxy,
+    )
+    .await
+    .map_err(|error| error.to_string())
+}
+
+pub async fn speed_test(settings: Settings, size_mb: u32) -> Result<String, String> {
+    cinebox_torrserver::speed_test(
+        &settings.torrserver.url,
+        &settings.torrserver.username,
+        settings.torrserver.password.expose(),
+        size_mb,
+    )
+    .await
+    .map(|report| report.summary())
+    .map_err(|error| error.to_string())
 }

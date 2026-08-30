@@ -1,66 +1,86 @@
-//! Soften a TMDB backdrop: edge blur plus a slight veil in the image's own accent.
+//! Soften a TMDB backdrop and paint it as a full-window wallpaper.
 
 use std::io::Cursor;
 
-use iced::widget::image::Handle as ImageHandle;
-use iced::widget::{Space, container, stack};
-use iced::{Background, Color, ContentFit, Element, Fill, Radians, gradient};
+use egui::{Color32, Mesh, Pos2, Rect, TextureHandle, Ui, epaint::Vertex};
 use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
-use crate::app::Message;
+use crate::theme::Theme;
 
-/// Iced `Theme::Dark` background (`Palette::DARK`). Used only for chrome fades.
 const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
-const PAGE_BG: Color = Color::from_rgb8(0x2B, 0x2D, 0x31);
-
-/// Slight mute of bright colors across the whole backdrop.
 const CENTER_VEIL: f32 = 0.09;
-/// Extra accent veil on the blurred left/bottom edges.
 const EDGE_VEIL: f32 = 0.74;
 
-/// Full-window wallpaper: image + left/bottom fades, then `content` on top.
-pub fn stage<'a>(handle: &'a ImageHandle, content: Element<'a, Message>) -> Element<'a, Message> {
-    stack![
-        iced::widget::image(handle)
-            .width(Fill)
-            .height(Fill)
-            .content_fit(ContentFit::Cover),
-        wash(left_fade()),
-        wash(bottom_fade()),
-        content,
-    ]
-    .width(Fill)
-    .height(Fill)
-    .into()
+/// Cover-fit wallpaper plus left/bottom page-bg fades.
+pub fn paint(ui: &mut Ui, texture: &TextureHandle, theme: &Theme) {
+    let rect = ui.max_rect();
+    paint_cover(ui, texture, rect);
+    paint_left_fade(ui, rect, theme.page_bg);
+    paint_bottom_fade(ui, rect, theme.page_bg);
 }
 
-fn wash<'a>(fill: gradient::Linear) -> Element<'a, Message> {
-    container(Space::new().width(Fill).height(Fill))
-        .width(Fill)
-        .height(Fill)
-        .style(move |_| container::Style {
-            background: Some(Background::Gradient(fill.into())),
-            ..container::Style::default()
-        })
-        .into()
+fn paint_cover(ui: &Ui, texture: &TextureHandle, rect: Rect) {
+    let size = texture.size_vec2();
+    if size.x <= 0.0 || size.y <= 0.0 {
+        return;
+    }
+
+    let scale = (rect.width() / size.x).max(rect.height() / size.y);
+    let drawn = size * scale;
+    let image_rect = Rect::from_center_size(rect.center(), drawn);
+    let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
+    ui.painter()
+        .with_clip_rect(rect)
+        .image(texture.id(), image_rect, uv, Color32::WHITE);
 }
 
-fn left_fade() -> gradient::Linear {
-    let clear = Color { a: 0.0, ..PAGE_BG };
-    gradient::Linear::new(Radians::PI / 2.0)
-        .add_stop(0.0, Color { a: 0.38, ..PAGE_BG })
-        .add_stop(0.20, Color { a: 0.12, ..PAGE_BG })
-        .add_stop(0.42, clear)
-        .add_stop(1.0, clear)
+fn paint_left_fade(ui: &Ui, rect: Rect, page: Color32) {
+    let w = rect.width() * 0.42;
+    let band = Rect::from_min_max(rect.left_top(), egui::pos2(rect.left() + w, rect.bottom()));
+    gradient_h(ui, band, with_a(page, 97), with_a(page, 0));
 }
 
-fn bottom_fade() -> gradient::Linear {
-    let clear = Color { a: 0.0, ..PAGE_BG };
-    gradient::Linear::new(Radians::PI)
-        .add_stop(0.0, clear)
-        .add_stop(0.55, clear)
-        .add_stop(0.80, Color { a: 0.14, ..PAGE_BG })
-        .add_stop(1.0, Color { a: 0.42, ..PAGE_BG })
+fn paint_bottom_fade(ui: &Ui, rect: Rect, page: Color32) {
+    let h = rect.height() * 0.45;
+    let band = Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - h), rect.right_bottom());
+    gradient_v(ui, band, with_a(page, 0), with_a(page, 107));
+}
+
+fn with_a(color: Color32, a: u8) -> Color32 {
+    let [r, g, b, _] = color.to_array();
+    Color32::from_rgba_unmultiplied(r, g, b, a)
+}
+
+fn gradient_h(ui: &Ui, rect: Rect, left: Color32, right: Color32) {
+    let mut mesh = Mesh::default();
+    let i = mesh.vertices.len() as u32;
+
+    mesh.vertices.push(vert(rect.left_top(), left));
+    mesh.vertices.push(vert(rect.right_top(), right));
+    mesh.vertices.push(vert(rect.right_bottom(), right));
+    mesh.vertices.push(vert(rect.left_bottom(), left));
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    ui.painter().add(egui::Shape::mesh(mesh));
+}
+
+fn gradient_v(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
+    let mut mesh = Mesh::default();
+    let i = mesh.vertices.len() as u32;
+
+    mesh.vertices.push(vert(rect.left_top(), top));
+    mesh.vertices.push(vert(rect.right_top(), top));
+    mesh.vertices.push(vert(rect.right_bottom(), bottom));
+    mesh.vertices.push(vert(rect.left_bottom(), bottom));
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    ui.painter().add(egui::Shape::mesh(mesh));
+}
+
+fn vert(pos: Pos2, color: Color32) -> Vertex {
+    Vertex {
+        pos,
+        uv: Pos2::ZERO,
+        color,
+    }
 }
 
 /// Blur the left and bottom edges and veil the frame with a darkened accent from the image.
@@ -72,10 +92,12 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let rgba = image::load_from_memory(bytes)
         .map_err(|error| error.to_string())?
         .to_rgba8();
+
     let (width, height) = rgba.dimensions();
     if width < 2 || height < 2 {
         return Err(String::from("backdrop too small"));
     }
+
     let accent = accent_wash(&rgba);
     let blurred = image::imageops::fast_blur(&rgba, 14.0);
     let mut out = RgbaImage::new(width, height);
@@ -96,6 +118,7 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
                 lerp(sharp[2], soft[2], edge),
                 255,
             ];
+
             let veil = CENTER_VEIL + edge * EDGE_VEIL;
             out.put_pixel(
                 x,
@@ -109,14 +132,15 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
             );
         }
     }
+
     let mut encoded = Cursor::new(Vec::new());
     DynamicImage::ImageRgba8(out)
         .write_to(&mut encoded, ImageFormat::Png)
         .map_err(|error| error.to_string())?;
+
     Ok(encoded.into_inner())
 }
 
-/// Darkened, slightly muted accent sampled from colorful midtones in `src`.
 fn accent_wash(src: &RgbaImage) -> [u8; 3] {
     let (width, height) = src.dimensions();
     let step_x = (width / 32).max(1);
@@ -125,12 +149,14 @@ fn accent_wash(src: &RgbaImage) -> [u8; 3] {
     let mut chroma_w = 0.0f32;
     let mut mean = [0.0f32; 3];
     let mut count = 0.0f32;
+
     for y in (0..height).step_by(step_y as usize) {
         for x in (0..width).step_by(step_x as usize) {
             let [r, g, b, a] = src.get_pixel(x, y).0;
             if a < 16 {
                 continue;
             }
+
             let rf = f32::from(r) / 255.0;
             let gf = f32::from(g) / 255.0;
             let bf = f32::from(b) / 255.0;
@@ -138,12 +164,14 @@ fn accent_wash(src: &RgbaImage) -> [u8; 3] {
             mean[1] += gf;
             mean[2] += bf;
             count += 1.0;
+
             let max = rf.max(gf).max(bf);
             let min = rf.min(gf).min(bf);
             let sat = if max > 1e-4 { (max - min) / max } else { 0.0 };
             let lum = 0.2126 * rf + 0.7152 * gf + 0.0722 * bf;
             let mid = (lum * (1.0 - lum) * 4.0).clamp(0.05, 1.0);
             let weight = sat * sat * mid;
+
             chroma[0] += rf * weight;
             chroma[1] += gf * weight;
             chroma[2] += bf * weight;
@@ -173,7 +201,7 @@ fn dark_wash(rgb: [f32; 3]) -> [u8; 3] {
     } else {
         [0.0, 0.0, 0.0]
     };
-    // Keep hue, but pull toward gray so the veil mutes rather than stains neon.
+
     let gray = target_lum;
     let keep = 0.62;
     channel_u8([
@@ -234,10 +262,12 @@ mod tests {
         let highlight = out.get_pixel(44, 4).0;
         let left = out.get_pixel(2, 24).0;
         let bottom = out.get_pixel(24, 45).0;
+
         assert!(
             luma(left) < luma(highlight),
             "left {left:?} should be darker than top-right {highlight:?}"
         );
+
         assert!(
             luma(bottom) < luma(highlight),
             "bottom {bottom:?} should be darker than top-right {highlight:?}"
@@ -249,18 +279,22 @@ mod tests {
         let out = soften_rgba(RgbaImage::from_pixel(48, 48, Rgba([220, 36, 48, 255])));
         let center = out.get_pixel(40, 8).0;
         let left = out.get_pixel(2, 24).0;
+
         assert!(
             center[0] < 220 && center[0] > 120,
             "center should be slightly muted, got {center:?}"
         );
+
         assert!(
             i16::from(center[0]) - i16::from(center[1]) > 40,
             "center should stay red-tinted, got {center:?}"
         );
+
         assert!(
             luma(left) < luma(center),
             "left edge {left:?} should be a stronger veil than center {center:?}"
         );
+        
         assert!(
             i16::from(left[0]) - i16::from(left[1]) > 20,
             "edge veil should keep the image accent, got {left:?}"

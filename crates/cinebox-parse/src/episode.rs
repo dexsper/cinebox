@@ -1,4 +1,4 @@
-//! Season / episode from a torrent file path (Lampa `episodes_parser.js`).
+//! Season / episode from a torrent file path.
 
 use std::sync::LazyLock;
 

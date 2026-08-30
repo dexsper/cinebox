@@ -9,11 +9,11 @@ use reqwest::StatusCode;
 use super::client::{apply_basic_auth, http_client};
 use super::error::Error;
 
-/// Cap like Lampa: stop reading after 10s even if the generated file is larger.
+/// Stop reading after 10s even if the generated file is larger.
 const SPEED_TEST_MAX_SECS: u64 = 10;
 const SPEED_TEST_MAX_BYTES: u64 = 300_000_000;
 
-/// Sizes offered in settings (MB). Lampa uses 300 MB but aborts at 10s.
+/// Sizes offered in settings (MB).
 pub const SPEED_TEST_SIZES_MB: [u32; 3] = [10, 50, 100];
 
 /// Result of `GET /download/{size}`.

@@ -3,7 +3,7 @@
 
 use std::env;
 use std::fs::{self, File};
-use std::io::{self, Write};
+use std::io::{self, Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
@@ -192,11 +192,14 @@ fn profile_dir() -> PathBuf {
 
 fn download(url: &str, dest: &Path) {
     println!("cargo:warning=downloading bundled libmpv (~30MB)");
-    let agent = match ureq::AgentBuilder::new()
-        .timeout(Duration::from_secs(300))
+    let agent: ureq::Agent = ureq::Agent::config_builder()
+        .timeout_global(Some(Duration::from_secs(300)))
         .build()
+        .new_agent();
+
+    let mut response = match agent
         .get(url)
-        .set("User-Agent", "cinebox-player-build")
+        .header("User-Agent", "cinebox-player-build")
         .call()
     {
         Ok(response) => response,
@@ -204,7 +207,7 @@ fn download(url: &str, dest: &Path) {
     };
 
     let mut file = need(File::create(dest), "create archive file");
-    let mut reader = agent.into_reader();
+    let mut reader = response.body_mut().as_reader();
     if let Err(error) = io::copy(&mut reader, &mut file) {
         let _ = fs::remove_file(dest);
         panic!("failed to save libmpv archive: {error}");
@@ -218,11 +221,23 @@ fn download(url: &str, dest: &Path) {
 fn sha256_file(path: &Path) -> String {
     let mut file = need(File::open(path), "open archive for hash");
     let mut hasher = Sha256::new();
-    if let Err(error) = io::copy(&mut file, &mut hasher) {
-        panic!("hash libmpv archive: {error}");
+    let mut buf = [0u8; 64 * 1024];
+    loop {
+        let n = match file.read(&mut buf) {
+            Ok(0) => break,
+            Ok(n) => n,
+            Err(error) => panic!("hash libmpv archive: {error}"),
+        };
+        hasher.update(&buf[..n]);
     }
 
-    format!("{:x}", hasher.finalize())
+    hasher
+        .finalize()
+        .iter()
+        .fold(String::with_capacity(64), |mut hex, byte| {
+            hex.push_str(&format!("{byte:02x}"));
+            hex
+        })
 }
 
 fn find_named(root: &Path, file_name: &str) -> Option<PathBuf> {

@@ -10,6 +10,16 @@ pub enum Screen {
     Player { kind: MediaKind, id: TmdbId },
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum NavAction {
+    OpenSettings,
+    GoBack,
+    OpenMedia { kind: MediaKind, id: TmdbId },
+    OpenPerson { id: TmdbId },
+    WatchTorrents,
+    OpenUrl(String),
+}
+
 #[derive(Debug, Clone)]
 pub struct Nav {
     stack: Vec<Screen>,
@@ -52,13 +62,18 @@ mod tests {
     #[test]
     fn home_is_root_and_back_stops_there() {
         let mut nav = Nav::new();
+
         assert_eq!(nav.current(), Screen::Home);
+        
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
+
         nav.push(Screen::Settings);
         assert_eq!(nav.current(), Screen::Settings);
+
         nav.push(Screen::Settings);
         assert_eq!(nav.stack.len(), 2);
+
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
     }
@@ -70,19 +85,24 @@ mod tests {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
         };
+
         let person = Screen::Person { id: TmdbId::new(7) };
         let other = Screen::Media {
             kind: MediaKind::Tv,
             id: TmdbId::new(2),
         };
+
         nav.push(movie);
         nav.push(person);
         nav.push(other);
         assert_eq!(nav.current(), other);
+
         nav.pop();
         assert_eq!(nav.current(), person);
+
         nav.pop();
         assert_eq!(nav.current(), movie);
+
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
     }
@@ -94,13 +114,16 @@ mod tests {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
         };
+
         let torrents = Screen::Torrents {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
         };
+
         nav.push(movie);
         nav.push(torrents);
         assert_eq!(nav.current(), torrents);
+
         nav.pop();
         assert_eq!(nav.current(), movie);
     }
@@ -112,13 +135,16 @@ mod tests {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
         };
+
         let player = Screen::Player {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
         };
+
         nav.push(torrents);
         nav.push(player);
         assert_eq!(nav.current(), player);
+
         nav.pop();
         assert_eq!(nav.current(), torrents);
     }
