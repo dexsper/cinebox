@@ -189,7 +189,7 @@ fn ready(
 ) -> Option<NavAction> {
     let mut action = None;
     let photo = Vec2::new(intro::lerp(FROM_W, TO_W, t), intro::lerp(FROM_H, TO_H, t));
-    let name_size = intro::lerp(12.0, 26.0, t);
+    let name_size = intro::lerp(theme.text_caption, theme.text_person, t);
     scroll::vertical(ui, "person-page", |ui| {
         hero(
             ui,
@@ -203,12 +203,12 @@ fn ready(
             },
             |ui| {
                 if let Some(born) = details.birthday.as_deref() {
-                    ui.label(RichText::new(born).size(13.0).color(theme.muted));
+                    ui.label(RichText::new(born).size(theme.text_small).color(theme.muted));
                 }
                 if let Some(place) = details.place_of_birth.as_deref() {
                     ui.label(
                         RichText::new(typograph(place))
-                            .size(13.0)
+                            .size(theme.text_small)
                             .color(theme.muted),
                     );
                 }
@@ -216,13 +216,13 @@ fn ready(
         );
         if let Some(bio) = details.biography.as_deref() {
             ui.add_space(12.0);
-            ui.label(RichText::new(typograph(bio)).size(14.0).color(theme.body));
+            ui.label(RichText::new(typograph(bio)).size(theme.text_body).color(theme.body));
         }
         if !details.credits.is_empty() {
             ui.add_space(12.0);
             ui.label(
                 RichText::new(Msg::Credits.en())
-                    .size(16.0)
+                    .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );
             ui.horizontal_wrapped(|ui| {
@@ -240,7 +240,7 @@ fn ready(
 
 fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, person: &CreditPerson) {
     let photo = Vec2::new(intro::lerp(FROM_W, TO_W, t), intro::lerp(FROM_H, TO_H, t));
-    let name_size = intro::lerp(12.0, 26.0, t);
+    let name_size = intro::lerp(theme.text_caption, theme.text_person, t);
     let pulse = skeleton::pulse(ui);
     scroll::vertical(ui, "person-page", |ui| {
         hero(
@@ -310,7 +310,7 @@ fn hero(ui: &mut Ui, svc: &Services, theme: &Theme, hero: Hero<'_>, extra: impl 
         ui.vertical(|ui| {
             ui.label(
                 RichText::new(typograph(hero.name))
-                    .size(hero.name_size)
+                    .font(theme.title_font(hero.name_size))
                     .color(theme.title),
             );
             extra(ui);

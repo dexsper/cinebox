@@ -224,8 +224,8 @@ fn ready(
         intro::lerp(theme.tile_w, theme.poster_w, t),
         intro::lerp(theme.tile_h, theme.poster_h, t),
     );
-    let title_size = intro::lerp(13.0, 36.0, t);
-    let year_size = intro::lerp(12.0, 16.0, t);
+    let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
+    let year_size = intro::lerp(theme.text_caption, theme.text_section, t);
     let head = details.head_line();
     scroll::vertical(ui, "media-page", |ui| {
         ui.add_space(12.0);
@@ -247,7 +247,7 @@ fn ready(
                 if let Some(tagline) = details.tagline.as_deref() {
                     ui.label(
                         RichText::new(typograph(tagline))
-                            .size(18.0)
+                            .size(theme.text_subtitle)
                             .color(theme.muted),
                     );
                 }
@@ -265,7 +265,7 @@ fn ready(
                     ui.add_space(8.0);
                     ui.label(
                         RichText::new(bits.join(" · "))
-                            .size(16.0)
+                            .size(theme.text_section)
                             .color(theme.title),
                     );
                 }
@@ -285,12 +285,12 @@ fn ready(
                 ui.set_max_width(theme.overview_max_w);
                 ui.label(
                     RichText::new(Msg::InDetail.en())
-                        .size(16.0)
+                        .font(theme.title_font(theme.text_section))
                         .color(theme.title),
                 );
                 ui.label(
                     RichText::new(typograph(overview))
-                        .size(15.0)
+                        .size(theme.text_label)
                         .color(theme.body),
                 );
             });
@@ -340,7 +340,7 @@ fn ready(
             ui.add_space(8.0);
             ui.label(
                 RichText::new(Msg::Trailers.en())
-                    .size(16.0)
+                    .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );
             for trailer in &details.trailers {
@@ -358,8 +358,8 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
         intro::lerp(theme.tile_w, theme.poster_w, t),
         intro::lerp(theme.tile_h, theme.poster_h, t),
     );
-    let title_size = intro::lerp(13.0, 36.0, t);
-    let year_size = intro::lerp(12.0, 16.0, t);
+    let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
+    let year_size = intro::lerp(theme.text_caption, theme.text_section, t);
     let year = item
         .year
         .map(|year| year.to_string())
@@ -484,7 +484,7 @@ fn hero(
             }
             ui.label(
                 RichText::new(typograph(hero.title))
-                    .size(hero.title_size)
+                    .font(theme.title_font(hero.title_size))
                     .color(theme.title),
             );
             meta(ui, col_top);
@@ -503,13 +503,13 @@ fn ratings_row(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
         if let Some(vote) = vote {
             pill(ui, theme, |ui| {
                 let score = format!("{vote:.1}");
-                ui.label(RichText::new(score).size(18.0).color(theme.rate));
-                ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
+                ui.label(RichText::new(score).size(theme.text_subtitle).color(theme.rate));
+                ui.label(RichText::new("TMDB").size(theme.text_caption).color(theme.muted));
             });
         }
         if let Some(cert) = cert {
             pill(ui, theme, |ui| {
-                ui.label(RichText::new(cert).size(18.0).color(theme.title));
+                ui.label(RichText::new(cert).size(theme.text_subtitle).color(theme.title));
             });
         }
     });
@@ -544,10 +544,10 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
                 Atom::grow(),
                 ICON_PLAY_CIRCLE
                     .rich_text()
-                    .size(22.0)
+                    .size(theme.text_cta_icon)
                     .color(theme.btn_primary_fg),
                 RichText::new(Msg::WatchTorrents.en())
-                    .size(18.0)
+                    .font(theme.emphasis_font(theme.text_subtitle))
                     .color(theme.btn_primary_fg),
                 Atom::grow(),
             ))
@@ -584,8 +584,8 @@ fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
 
 fn fact(ui: &mut Ui, label: &str, value: String, theme: &Theme) {
     ui.vertical(|ui| {
-        ui.label(RichText::new(label).size(13.0).color(theme.muted));
-        ui.label(RichText::new(value).size(16.0).color(theme.title));
+        ui.label(RichText::new(label).size(theme.text_small).color(theme.muted));
+        ui.label(RichText::new(value).size(theme.text_section).color(theme.title));
     });
     ui.add_space(24.0);
 }
@@ -599,19 +599,23 @@ fn people(
     action: &mut Option<NavAction>,
 ) {
     ui.add_space(12.0);
-    ui.label(RichText::new(title).size(16.0).color(theme.title));
+    ui.label(
+        RichText::new(title)
+            .font(theme.title_font(theme.text_section))
+            .color(theme.title),
+    );
     const TILE_W: f32 = 100.0;
     const PHOTO: Vec2 = vec2(100.0, 150.0);
-    const NAME_SIZE: f32 = 12.0;
-    const ROLE_SIZE: f32 = 11.0;
     const CAPTION_GAP: f32 = 4.0;
     const LINE_GAP: f32 = 2.0;
 
+    let name_size = theme.text_caption;
+    let role_size = theme.text_micro;
     let pad = theme.ring_pad();
     let (name_slot, role_slot) = ui.ctx().fonts_mut(|f| {
         (
-            f.row_height(&egui::FontId::proportional(NAME_SIZE)) * 2.0,
-            f.row_height(&egui::FontId::proportional(ROLE_SIZE)) * 2.0,
+            f.row_height(&theme.ui_font(name_size)) * 2.0,
+            f.row_height(&theme.ui_font(role_size)) * 2.0,
         )
     });
 
@@ -627,17 +631,19 @@ fn people(
                     ui,
                     &typograph(&person.name),
                     theme.title,
-                    NAME_SIZE,
+                    name_size,
                     TILE_W,
                     2,
+                    theme,
                 );
                 let role = poster::wrap_lines(
                     ui,
                     &typograph(&person.role),
                     theme.muted,
-                    ROLE_SIZE,
+                    role_size,
                     TILE_W,
                     2,
+                    theme,
                 );
                 let name_h = name.size().y;
                 let (rect, response) = ui.allocate_exact_size(vec2(well_w, tile_h), Sense::click());
@@ -676,7 +682,11 @@ fn shelf(
         return;
     }
     ui.add_space(12.0);
-    ui.label(RichText::new(title).size(16.0).color(theme.title));
+    ui.label(
+        RichText::new(title)
+            .font(theme.title_font(theme.text_section))
+            .color(theme.title),
+    );
     scroll::horizontal(ui, title.to_owned(), |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;

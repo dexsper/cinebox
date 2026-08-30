@@ -222,7 +222,7 @@ fn chrome_btn(
             widgets.active.weak_bg_fill = hover;
 
             ui.add(
-                egui::Button::new(icon.rich_text().size(16.0).color(theme.title))
+                egui::Button::new(icon.rich_text().size(theme.text_icon).color(theme.title))
                     .stroke(egui::Stroke::NONE)
                     .corner_radius(4)
                     .min_size(size),

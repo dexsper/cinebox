@@ -33,7 +33,7 @@ pub(super) fn files_modal(
             ui.set_max_size(size);
             ui.label(
                 RichText::new(Msg::TorrentFiles.en())
-                    .size(18.0)
+                    .font(theme.title_font(theme.text_subtitle))
                     .color(theme.title),
             );
             ui.add_space(12.0);
@@ -85,7 +85,7 @@ fn file_list(
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
         ui.label(
             RichText::new(Msg::TagStarted.en())
-                .size(12.0)
+                .size(theme.text_caption)
                 .color(theme.ok),
         );
     }
@@ -105,7 +105,7 @@ fn file_list(
             if show_headers && last_season != Some(file.season) {
                 ui.label(
                     RichText::new(format!("{} {}", Msg::Season.en(), file.season.unwrap_or(1)))
-                        .size(13.0)
+                        .size(theme.text_small)
                         .color(theme.muted),
                 );
                 last_season = Some(file.season);
@@ -138,7 +138,7 @@ fn file_list(
                             ui.horizontal(|ui| {
                                 ui.label(
                                     RichText::new(typograph(&file.title))
-                                        .size(16.0)
+                                        .size(theme.text_section)
                                         .color(theme.title),
                                 );
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -157,11 +157,11 @@ fn file_list(
                                 } else {
                                     line = format!("{line}  ·  {}", file.number);
                                 }
-                                ui.label(RichText::new(line).size(13.0).color(theme.muted));
+                                ui.label(RichText::new(line).size(theme.text_small).color(theme.muted));
                             }
 
                             if let Some(air) = file.air_date.as_deref() {
-                                ui.label(RichText::new(air).size(12.0).color(theme.muted));
+                                ui.label(RichText::new(air).size(theme.text_caption).color(theme.muted));
                             }
 
                             ui.add_space(6.0);

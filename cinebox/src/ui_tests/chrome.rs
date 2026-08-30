@@ -25,6 +25,7 @@ fn header_harness_with(screen: Screen, settings_open: bool) -> Harness<'static, 
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
+                    crate::fonts::install(ui.ctx());
                     egui_material_icons::initialize(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;

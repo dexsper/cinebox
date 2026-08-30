@@ -39,11 +39,15 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     icon_well(&mut row, theme, cat);
     row.add_space(12.0);
     row.vertical(|ui| {
-        ui.label(RichText::new(cat.title).size(16.0).color(theme.title));
-        ui.label(RichText::new(cat.subtitle).size(13.0).color(theme.muted));
+        ui.label(
+            RichText::new(cat.title)
+                .font(theme.title_font(theme.text_section))
+                .color(theme.title),
+        );
+        ui.label(RichText::new(cat.subtitle).size(theme.text_small).color(theme.muted));
     });
     row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(ICON_CHEVRON_RIGHT.rich_text().size(20.0).color(theme.muted));
+        ui.label(ICON_CHEVRON_RIGHT.rich_text().size(theme.text_icon_lg).color(theme.muted));
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
@@ -56,7 +60,7 @@ fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
         .rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
     ui.new_child(UiBuilder::new().max_rect(rect))
         .centered_and_justified(|ui| {
-            ui.label(cat.icon.rich_text().size(20.0).color(theme.title));
+            ui.label(cat.icon.rich_text().size(theme.text_icon_lg).color(theme.title));
         });
 }
 
@@ -70,7 +74,7 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
 
     let back = row
         .add(
-            egui::Button::new(ICON_ARROW_BACK.rich_text().size(18.0).color(theme.title))
+            egui::Button::new(ICON_ARROW_BACK.rich_text().size(theme.text_icon_md).color(theme.title))
                 .fill(Color32::TRANSPARENT)
                 .stroke(Stroke::NONE)
                 .corner_radius(6)
@@ -80,17 +84,25 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
         .clicked();
 
     row.add_space(8.0);
-    row.label(RichText::new(title).size(20.0).color(theme.title));
+    row.label(
+        RichText::new(title)
+            .font(theme.title_font(theme.text_heading))
+            .color(theme.title),
+    );
 
     back
 }
 
 pub fn drawer_title(ui: &mut Ui, theme: &Theme, title: &str) {
-    ui.label(RichText::new(title).size(22.0).color(theme.title));
+    ui.label(
+        RichText::new(title)
+            .font(theme.title_font(theme.text_display))
+            .color(theme.title),
+    );
 }
 
 pub fn error_line(ui: &mut Ui, theme: &Theme, text: &str) {
-    ui.label(RichText::new(text).size(13.0).color(theme.err));
+    ui.label(RichText::new(text).size(theme.text_small).color(theme.err));
 }
 
 pub fn toggle_row(
@@ -115,11 +127,11 @@ pub fn toggle_row(
     row.style_mut().interaction.selectable_labels = false;
     row.horizontal_centered(|ui| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(label).size(15.0).color(theme.label));
+            ui.label(RichText::new(label).size(theme.text_label).color(theme.label));
             let Some(hint) = hint else {
                 return;
             };
-            ui.label(RichText::new(hint).size(12.0).color(theme.muted));
+            ui.label(RichText::new(hint).size(theme.text_caption).color(theme.muted));
         });
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             paint_switch(ui, theme, *value);
@@ -341,11 +353,11 @@ fn combo_popup_style(theme: &Theme) -> StyleModifier {
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
     ui.add_space(4.0);
-    ui.label(RichText::new(label).size(13.0).color(theme.muted_bright));
+    ui.label(RichText::new(label).size(theme.text_small).color(theme.muted_bright));
     let Some(hint) = hint else {
         return;
     };
-    ui.label(RichText::new(hint).size(12.0).color(theme.muted));
+    ui.label(RichText::new(hint).size(theme.text_caption).color(theme.muted));
 }
 
 fn styled_edit(
@@ -410,8 +422,8 @@ fn action_button(
         ui.add(
             egui::Button::new((
                 Atom::grow(),
-                icon.rich_text().size(18.0).color(fg),
-                RichText::new(label).size(14.0).color(fg),
+                icon.rich_text().size(theme.text_icon_md).color(fg),
+                RichText::new(label).size(theme.text_body).color(fg),
                 Atom::grow(),
             ))
             .fill(fill)
@@ -434,10 +446,10 @@ fn show_probe(ui: &mut Ui, bind: &mut Bind<String, String>, theme: &Theme) {
     match bind.read() {
         None => {}
         Some(Ok(msg)) => {
-            ui.label(RichText::new(msg).size(13.0).color(theme.ok));
+            ui.label(RichText::new(msg).size(theme.text_small).color(theme.ok));
         }
         Some(Err(msg)) => {
-            ui.label(RichText::new(msg).size(13.0).color(theme.err));
+            ui.label(RichText::new(msg).size(theme.text_small).color(theme.err));
         }
     }
 }

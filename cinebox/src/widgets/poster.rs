@@ -46,7 +46,7 @@ pub fn catalog_tile(
         title_pos + vec2(0.0, title_h + 2.0),
         egui::Align2::LEFT_TOP,
         year,
-        FontId::proportional(12.0),
+        theme.ui_font(theme.text_caption),
         theme.muted,
     );
 
@@ -69,7 +69,15 @@ pub fn hover_ring(ui: &Ui, poster: Rect, theme: &Theme) {
 }
 
 fn wrap_title(ui: &Ui, title: &str, theme: &Theme) -> std::sync::Arc<egui::Galley> {
-    wrap_lines(ui, title, theme.title, 13.0, theme.tile_w, 2)
+    wrap_lines(
+        ui,
+        title,
+        theme.title,
+        theme.text_small,
+        theme.tile_w,
+        2,
+        theme,
+    )
 }
 
 /// Wrap `text` to `max_rows` at `width`, ellipsizing overflow.
@@ -80,10 +88,11 @@ pub fn wrap_lines(
     font_size: f32,
     width: f32,
     max_rows: usize,
+    theme: &Theme,
 ) -> std::sync::Arc<egui::Galley> {
     let mut job = LayoutJob::simple(
         text.to_owned(),
-        FontId::proportional(font_size),
+        theme.ui_font(font_size),
         color,
         width,
     );
@@ -128,7 +137,7 @@ fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
     let text = format!("{vote:.1}");
     let galley = ui
         .painter()
-        .layout_no_wrap(text, FontId::proportional(12.0), theme.rate);
+        .layout_no_wrap(text, theme.ui_font(theme.text_caption), theme.rate);
 
     let size = galley.size() + vec2(12.0, 4.0);
     let rect = Rect::from_min_size(

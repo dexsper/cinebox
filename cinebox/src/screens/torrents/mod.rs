@@ -216,43 +216,47 @@ impl TorrentsScreen {
         ui.add_space(8.0);
         ui.label(
             RichText::new(typograph(&state.movie.title))
-                .size(intro::lerp(32.0, 22.0, t))
+                .font(theme.title_font(intro::lerp(
+                    theme.text_explorer_from,
+                    theme.text_display,
+                    t,
+                )))
                 .color(theme.title),
         );
         if let Some(tagline) = state.movie.tagline.as_deref() {
             ui.label(
                 RichText::new(typograph(tagline))
-                    .size(15.0)
+                    .size(theme.text_label)
                     .color(theme.muted),
             );
         }
         if !state.movie.genres.is_empty() {
             ui.label(
                 RichText::new(state.movie.genres.join(", "))
-                    .size(13.0)
+                    .size(theme.text_small)
                     .color(theme.muted),
             );
         }
 
         let head = state.movie.head_line();
         if !head.is_empty() {
-            ui.label(RichText::new(head).size(13.0).color(theme.muted));
+            ui.label(RichText::new(head).size(theme.text_small).color(theme.muted));
         }
         if let Some(vote) = state.movie.vote.filter(|v| *v > 0.0) {
             ui.horizontal(|ui| {
                 ui.label(
                     RichText::new(format!("{vote:.1}"))
-                        .size(18.0)
+                        .size(theme.text_subtitle)
                         .color(theme.rate),
                 );
-                ui.label(RichText::new("TMDB").size(12.0).color(theme.muted));
+                ui.label(RichText::new("TMDB").size(theme.text_caption).color(theme.muted));
             });
         }
         if let Some(overview) = state.movie.overview.as_deref() {
             ui.add_space(8.0);
             ui.label(
                 RichText::new(typograph(overview))
-                    .size(intro::lerp(15.0, 13.5, t))
+                    .size(intro::lerp(theme.text_label, theme.text_small, t))
                     .color(theme.body),
             );
         }

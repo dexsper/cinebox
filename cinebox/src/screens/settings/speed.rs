@@ -4,7 +4,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 
 use cinebox_core::Settings;
 use cinebox_torrserver::SpeedEvent;
-use egui::{Align2, FontId, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
+use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
 
 use crate::jobs;
 use crate::theme::Theme;
@@ -164,7 +164,7 @@ pub fn paint(ui: &mut Ui, theme: &Theme, meter: &SpeedMeter) {
     };
 
     ui.add_space(4.0);
-    ui.label(RichText::new(error).size(13.0).color(theme.err));
+    ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
 }
 
 fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
@@ -208,7 +208,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
         );
     }
 
-    let label_font = FontId::proportional(11.0);
+    let label_font = theme.ui_font(theme.text_micro);
     let marks = scale_marks(span);
     for mark in marks {
         let mark_t = (mark / span).clamp(0.0, 1.0) as f32;
@@ -225,20 +225,20 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let num_pos = pos2(center.x, center.y - radius * 0.38);
     let unit_pos = pos2(center.x, center.y - radius * 0.14);
     let status_pos = pos2(center.x, center.y + 6.0);
-    let num_size = (radius * 0.42).clamp(26.0, 38.0);
+    let num_size = (radius * 0.42).clamp(theme.text_gauge_min, theme.text_gauge_max);
 
     painter.text(
         num_pos,
         Align2::CENTER_CENTER,
         format_mbps(live.shown),
-        FontId::proportional(num_size),
+        theme.ui_font(num_size),
         theme.title,
     );
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
         "Mbps",
-        FontId::proportional(13.0),
+        theme.ui_font(theme.text_small),
         theme.muted,
     );
 
@@ -251,7 +251,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
         status_pos,
         Align2::CENTER_CENTER,
         status,
-        FontId::proportional(13.0),
+        theme.ui_font(theme.text_small),
         status_color,
     );
 }

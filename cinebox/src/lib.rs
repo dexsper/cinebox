@@ -3,6 +3,7 @@
 #![forbid(unsafe_code)]
 
 mod app;
+mod fonts;
 mod images;
 mod jobs;
 mod nav;

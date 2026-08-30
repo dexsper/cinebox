@@ -132,15 +132,19 @@ fn shelf(
     theme: &Theme,
 ) -> Option<NavAction> {
     ui.add_space(12.0);
-    ui.label(RichText::new(row.id.title()).size(16.0).color(theme.title));
+    ui.label(
+        RichText::new(row.id.title())
+            .font(theme.title_font(theme.text_section))
+            .color(theme.title),
+    );
     if let Some(error) = &row.error {
-        ui.label(RichText::new(error).size(13.0).color(theme.err));
+        ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
     }
     if row.items.is_empty() {
         if row.error.is_none() {
             ui.label(
                 RichText::new(Msg::EmptyRow.en())
-                    .size(13.0)
+                    .size(theme.text_small)
                     .color(theme.muted),
             );
         }

@@ -138,7 +138,7 @@ impl PlayerScreen {
                 ui.add_space(12.0);
                 ui.label(
                     RichText::new(typograph(&view.title))
-                        .size(18.0)
+                        .font(theme.title_font(theme.text_subtitle))
                         .color(theme.title),
                 );
             },
@@ -152,7 +152,7 @@ impl PlayerScreen {
                 rect.center(),
                 egui::Align2::CENTER_CENTER,
                 error,
-                egui::FontId::proportional(14.0),
+                theme.ui_font(theme.text_body),
                 theme.err,
             );
         } else {
@@ -179,11 +179,11 @@ impl PlayerScreen {
                     format_clock(view.time),
                     format_clock(view.duration)
                 );
-                ui.label(RichText::new(clock).size(14.0).color(theme.muted_bright));
+                ui.label(RichText::new(clock).size(theme.text_body).color(theme.muted_bright));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                     if view.has_next
                         && ui
-                            .add(egui::Button::new(ICON_SKIP_NEXT.rich_text().size(20.0)))
+                            .add(egui::Button::new(ICON_SKIP_NEXT.rich_text().size(theme.text_icon_lg)))
                             .clicked()
                     {
                         next = true;
@@ -210,7 +210,7 @@ impl PlayerScreen {
                         ICON_PAUSE
                     };
                     if ui
-                        .add(egui::Button::new(icon.rich_text().size(20.0)))
+                        .add(egui::Button::new(icon.rich_text().size(theme.text_icon_lg)))
                         .on_hover_text(if view.paused {
                             Msg::Play.en()
                         } else {

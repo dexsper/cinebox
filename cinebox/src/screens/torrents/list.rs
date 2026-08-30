@@ -62,7 +62,7 @@ pub(super) fn list_pane(
                 filtered_hits(hits, state.filter).collect();
             ui.label(
                 RichText::new(format!("{} / {}", visible.len(), hits.len()))
-                    .size(13.0)
+                    .size(theme.text_small)
                     .color(theme.label),
             );
             scroll::vertical(ui, "torrent-hits", |ui| {
@@ -190,7 +190,7 @@ fn hit_row(
         .show(ui, |ui| {
             ui.label(
                 RichText::new(typograph(&hit.title))
-                    .size(15.0)
+                    .font(theme.title_font(theme.text_label))
                     .color(theme.title),
             );
             ui.add_space(10.0);
@@ -213,8 +213,8 @@ fn hit_row(
                         } else {
                             hit.published.as_str()
                         };
-                        ui.label(RichText::new(date).size(12.0).color(theme.muted));
-                        ui.label(RichText::new(&hit.tracker).size(12.0).color(theme.muted));
+                        ui.label(RichText::new(date).size(theme.text_caption).color(theme.muted));
+                        ui.label(RichText::new(&hit.tracker).size(theme.text_caption).color(theme.muted));
                         if hit.started {
                             ui.label(RichText::new(Msg::TagStarted.en()).color(theme.ok));
                         }
@@ -293,14 +293,14 @@ fn metrics_bar(ui: &mut Ui, theme: &Theme, bitrate: Option<&str>, seeds: &str, l
 fn metric_pair(ui: &mut Ui, label: &str, value: &str, value_w: f32, theme: &Theme) {
     ui.horizontal(|ui| {
         ui.spacing_mut().item_spacing.x = 4.0;
-        ui.label(RichText::new(label).size(12.0).color(theme.muted));
+        ui.label(RichText::new(label).size(theme.text_caption).color(theme.muted));
         let (rect, _) = ui.allocate_exact_size(Vec2::new(value_w, METRIC_VAL_H), Sense::hover());
         ui.scope_builder(
             UiBuilder::new()
                 .max_rect(rect)
                 .layout(Layout::right_to_left(Align::Center)),
             |ui| {
-                ui.label(RichText::new(value).size(12.0).color(theme.title));
+                ui.label(RichText::new(value).size(theme.text_caption).color(theme.title));
             },
         );
     });
@@ -312,7 +312,7 @@ fn pill(ui: &mut Ui, label: String, theme: &Theme) {
         .corner_radius(4)
         .inner_margin(egui::Margin::symmetric(8, 3))
         .show(ui, |ui| {
-            ui.label(RichText::new(label).size(12.0).color(theme.size_pill_fg));
+            ui.label(RichText::new(label).size(theme.text_caption).color(theme.size_pill_fg));
         });
 }
 

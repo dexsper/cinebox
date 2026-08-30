@@ -1,6 +1,6 @@
 //! Brand colors and sizes. The only place `Color32` literals live.
 
-use egui::{Color32, CornerRadius, Margin, Stroke, Style, Visuals, style::ScrollStyle};
+use egui::{Color32, CornerRadius, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle};
 
 pub const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
 
@@ -65,6 +65,24 @@ pub struct Theme {
     pub pad: f32,
     pub title_bar_h: f32,
     pub overview_max_w: f32,
+    pub text_micro: f32,
+    pub text_caption: f32,
+    pub text_small: f32,
+    pub text_body: f32,
+    pub text_label: f32,
+    pub text_section: f32,
+    pub text_subtitle: f32,
+    pub text_heading: f32,
+    pub text_display: f32,
+    pub text_hero: f32,
+    pub text_person: f32,
+    pub text_explorer_from: f32,
+    pub text_icon: f32,
+    pub text_icon_md: f32,
+    pub text_icon_lg: f32,
+    pub text_cta_icon: f32,
+    pub text_gauge_min: f32,
+    pub text_gauge_max: f32,
 }
 
 impl Theme {
@@ -129,6 +147,24 @@ impl Theme {
             pad: 16.0,
             title_bar_h: 40.0,
             overview_max_w: 640.0,
+            text_micro: 11.0,
+            text_caption: 12.0,
+            text_small: 13.0,
+            text_body: 14.0,
+            text_label: 15.0,
+            text_section: 16.0,
+            text_subtitle: 18.0,
+            text_heading: 20.0,
+            text_display: 22.0,
+            text_hero: 36.0,
+            text_person: 26.0,
+            text_explorer_from: 32.0,
+            text_icon: 16.0,
+            text_icon_md: 18.0,
+            text_icon_lg: 20.0,
+            text_cta_icon: 22.0,
+            text_gauge_min: 26.0,
+            text_gauge_max: 38.0,
         }
     }
 
@@ -163,6 +199,23 @@ impl Theme {
     #[must_use]
     pub fn gauge_track(&self) -> Color32 {
         Color32::from_white_alpha(28)
+    }
+
+    #[must_use]
+    pub fn ui_font(&self, size: f32) -> FontId {
+        FontId::proportional(size)
+    }
+
+    /// Movie titles, shelf labels, drawer headings.
+    #[must_use]
+    pub fn title_font(&self, size: f32) -> FontId {
+        crate::fonts::title(size)
+    }
+
+    /// Primary action labels.
+    #[must_use]
+    pub fn emphasis_font(&self, size: f32) -> FontId {
+        crate::fonts::emphasis(size)
     }
 
     /// Apply visuals once at startup.

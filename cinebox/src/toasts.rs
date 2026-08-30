@@ -87,7 +87,7 @@ impl Toasts {
                         .corner_radius(theme.rounding(theme.radius_card))
                         .inner_margin(10.0)
                         .show(ui, |ui| {
-                            ui.label(RichText::new(&toast.text).color(fg).size(14.0));
+                            ui.label(RichText::new(&toast.text).color(fg).size(theme.text_body));
                         })
                         .response
                         .interact(Sense::click());

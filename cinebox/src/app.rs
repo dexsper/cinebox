@@ -72,6 +72,7 @@ impl App {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         let theme = Theme::dark();
         theme.apply(&cc.egui_ctx);
+        crate::fonts::install(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
         cc.egui_ctx
             .plugin_or_default::<egui_async::EguiAsyncPlugin>();
