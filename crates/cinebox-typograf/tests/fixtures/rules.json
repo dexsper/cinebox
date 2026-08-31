@@ -1,0 +1,3811 @@
+[
+  {
+    "name": "common/html/e-mail",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "example@example.com",
+        "after": "<a href=\"mailto:example@example.com\">example@example.com</a>"
+      },
+      {
+        "before": "E-mail: example@example.com",
+        "after": "E-mail: <a href=\"mailto:example@example.com\">example@example.com</a>"
+      },
+      {
+        "before": "E-mail: example@example.com, example2@example.com",
+        "after": "E-mail: <a href=\"mailto:example@example.com\">example@example.com</a>, <a href=\"mailto:example2@example.com\">example2@example.com</a>"
+      },
+      {
+        "before": ">example@example.com<",
+        "after": ">example@example.com<"
+      }
+    ],
+    "file": "src/rules/common/html/e-mail.test.ts"
+  },
+  {
+    "name": "common/html/escape",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Hello, world!<br/>Hello world!<p>Hello world!</p>",
+        "after": "Hello, world!&lt;br&#x2F;&gt;Hello world!&lt;p&gt;Hello world!&lt;&#x2F;p&gt;"
+      }
+    ],
+    "file": "src/rules/common/html/escape.test.ts"
+  },
+  {
+    "name": "common/html/nbr",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "a\nb\nc",
+        "after": "a<br/>\nb<br/>\nc"
+      },
+      {
+        "before": "a<br/>\nb\nc",
+        "after": "a<br/>\nb<br/>\nc"
+      },
+      {
+        "before": "a\n\nb\nc",
+        "after": "a\n\nb<br/>\nc"
+      },
+      {
+        "before": "\na\n\nb\nc\n\nd\ne\n",
+        "after": "\na\n\nb<br/>\nc\n\nd<br/>\ne\n"
+      }
+    ],
+    "file": "src/rules/common/html/nbr.test.ts"
+  },
+  {
+    "name": "common/html/p",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "a\n\nb\nc\n\nd",
+        "after": "<p>a</p>\n\n<p>b\nc</p>\n\n<p>d</p>"
+      },
+      {
+        "before": "a",
+        "after": "<p>a</p>"
+      },
+      {
+        "before": "\n<h1>Header</h1>\n\n<a href=\"#\">Link</a>\n",
+        "after": "\n<h1>Header</h1>\n\n<p><a href=\"#\">Link</a></p>\n"
+      },
+      {
+        "before": "\n\n<h1>Header</h1>\n\n\n\n\n<a href=\"#\">Link</a>\n\n",
+        "after": "\n\n<h1>Header</h1>\n\n\n\n\n<p><a href=\"#\">Link</a></p>\n\n"
+      },
+      {
+        "before": "<p>a</p>\n\n\n<p>b</p>",
+        "after": "<p>a</p>\n\n\n<p>b</p>"
+      }
+    ],
+    "file": "src/rules/common/html/p.test.ts"
+  },
+  {
+    "name": "common/html/quot",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "&quot;Огонь затухает, и повелители пепла покидают свои троны&quot;",
+        "after": "\"Огонь затухает, и повелители пепла покидают свои троны\""
+      }
+    ],
+    "file": "src/rules/common/html/quot.test.ts"
+  },
+  {
+    "name": "common/html/stripTags",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "<p>В апреле 2014 года Kadokawa Corporation объявила о намерении перекупить FromSoftware у компании Transcosmos.<br/>\nСделка была завершена 21 мая 2014 года.</p>",
+        "after": "В апреле 2014 года Kadokawa Corporation объявила о намерении перекупить FromSoftware у компании Transcosmos.\nСделка была завершена 21 мая 2014 года."
+      },
+      {
+        "before": "<p",
+        "after": "<p"
+      },
+      {
+        "before": "<p align=\"center\">Hello</p>",
+        "after": "Hello"
+      }
+    ],
+    "file": "src/rules/common/html/stripTags.test.ts"
+  },
+  {
+    "name": "common/html/url",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Ссылка ftp://example.com",
+        "after": "Ссылка <a href=\"ftp://example.com\">ftp://example.com</a>"
+      },
+      {
+        "before": "Ссылка https://example.com",
+        "after": "Ссылка <a href=\"https://example.com\">https://example.com</a>"
+      },
+      {
+        "before": "Ссылка http://example.com/path/",
+        "after": "Ссылка <a href=\"http://example.com/path/\">example.com/path/</a>"
+      },
+      {
+        "before": "Ссылка http://ww2.example.com/path/",
+        "after": "Ссылка <a href=\"http://ww2.example.com/path/\">ww2.example.com/path/</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com/path/",
+        "after": "Ссылка <a href=\"http://www.example.com/path/\">example.com/path/</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com/",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com?",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка 1: http://www.example.com/?\nСсылка 2: https://www.example2.ru/?",
+        "after": "Ссылка 1: <a href=\"http://www.example.com\">example.com</a>\nСсылка 2: <a href=\"https://www.example2.ru\">https://example2.ru</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com/?",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com#",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com/#",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com:80",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com:800",
+        "after": "Ссылка <a href=\"http://www.example.com:800\">example.com:800</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com:80/?",
+        "after": "Ссылка <a href=\"http://www.example.com\">example.com</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com:80/?query=hello",
+        "after": "Ссылка <a href=\"http://www.example.com/?query=hello\">example.com/?query=hello</a>"
+      },
+      {
+        "before": "Ссылка http://www.example.com:443",
+        "after": "Ссылка <a href=\"http://www.example.com:443\">example.com:443</a>"
+      },
+      {
+        "before": "Ссылка https://www.example.com:443/?",
+        "after": "Ссылка <a href=\"https://www.example.com\">https://example.com</a>"
+      },
+      {
+        "before": "Ссылка https://www.example.com:443/?query=hello",
+        "after": "Ссылка <a href=\"https://www.example.com/?query=hello\">https://example.com/?query=hello</a>"
+      },
+      {
+        "before": "Ссылка https://www.example.com:4434/?query=hello",
+        "after": "Ссылка <a href=\"https://www.example.com:4434/?query=hello\">https://example.com:4434/?query=hello</a>"
+      },
+      {
+        "before": "<a href=\"https://www.example.com\">https://www.example.com</a>",
+        "after": "<a href=\"https://www.example.com\">https://www.example.com</a>"
+      }
+    ],
+    "file": "src/rules/common/html/url.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterNumber",
+    "locale": ["ru", "en-US"],
+    "pairs": [
+      {
+        "before": " 123 дня ",
+        "after": " 123 дня "
+      },
+      {
+        "before": "2 кошки",
+        "after": "2 кошки"
+      },
+      {
+        "before": "12 миллиардов рублей",
+        "after": "12 миллиардов рублей"
+      },
+      {
+        "before": "20 years",
+        "after": "20 years"
+      },
+      {
+        "before": "Кукурузные палочки Кузя Лакомкин 85 г",
+        "after": "Кукурузные палочки Кузя Лакомкин 85 г"
+      },
+      {
+        "before": "Вавилон-5 возвращается",
+        "after": "Вавилон-5 возвращается"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterNumber.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterParagraphMark",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "¶ 49",
+        "after": "¶ 49"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterParagraphMark.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterSectionMark",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " § 123",
+        "after": " § 123"
+      },
+      {
+        "before": " § 123\n§ 456",
+        "after": " § 123\n§ 456"
+      },
+      {
+        "before": " §123",
+        "after": " § 123"
+      },
+      {
+        "before": " §XX",
+        "after": " § XX"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterSectionMark.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterSectionMark",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": " § 123",
+        "after": " § 123"
+      },
+      {
+        "before": " § 123\n§ 456",
+        "after": " § 123\n§ 456"
+      },
+      {
+        "before": " §123",
+        "after": " § 123"
+      },
+      {
+        "before": " §XX",
+        "after": " § XX"
+      },
+      {
+        "before": "§§1-23",
+        "after": "§§ 1-23"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterSectionMark.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWord",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Повторять, пока процесс не свернётся в навык.",
+        "after": "Повторять, пока процесс не свернётся в навык."
+      },
+      {
+        "before": "ТУ 14577-234-224",
+        "after": "ТУ 14577-234-224"
+      },
+      {
+        "before": "И вещи",
+        "after": "И вещи"
+      },
+      {
+        "before": "И в Москве",
+        "after": "И в Москве"
+      },
+      {
+        "before": "если целесообразно использовать в издании спец. сокращения (т. е. принятые только в спец. видах литературы и видах издания)",
+        "after": "если целесообразно использовать в издании спец. сокращения (т. е. принятые только в спец. видах литературы и видах издания)"
+      },
+      {
+        "before": "если целесообразно использовать в издании спец. сокращения (<a href=\"/other/\">т. е. принятые только в спец. видах литературы и видах издания</a>)",
+        "after": "если целесообразно использовать в издании спец. сокращения (<a href=\"/other/\">т. е. принятые только в спец. видах литературы и видах издания</a>)"
+      },
+      {
+        "before": "Быль \"О солдате\"",
+        "after": "Быль \"О солдате\""
+      },
+      {
+        "before": "Сказка \"О царе Салтане\"\nБыль \"О солдате",
+        "after": "Сказка \"О царе Салтане\"\nБыль \"О солдате"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWord.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWord",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "Apply non-breaking spaces to all frames of the current page.",
+        "after": "Apply non-breaking spaces to all frames of the current page."
+      },
+      {
+        "before": "Whenever I'm down\nI call on you my friend\nA helping hand you lend\nIn my time of need\nWhenever I'm down\nI call on you my friend",
+        "after": "Whenever I'm down\nI call on you my friend\nA helping hand you lend\nIn my time of need\nWhenever I'm down\nI call on you my friend"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWord.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Повторять, пока процесс не свернётся в навык.",
+        "after": "Повторять, пока процесс не свернётся в навык."
+      },
+      {
+        "before": "И вещи",
+        "after": "И вещи"
+      },
+      {
+        "before": "И в Москве",
+        "after": "И в Москве"
+      },
+      {
+        "before": "если целесообразно использовать в издании спец. сокращения (т. е. принятые только в спец. видах литературы и видах издания)",
+        "after": "если целесообразно использовать в издании спец. сокращения (т. е. принятые только в спец. видах литературы и видах издания)"
+      },
+      {
+        "before": "если целесообразно использовать в издании спец. сокращения (<a href=\"/other/\">т. е. принятые только в спец. видах литературы и видах издания</a>)",
+        "after": "если целесообразно использовать в издании спец. сокращения (<a href=\"/other/\">т. е. принятые только в спец. видах литературы и видах издания</a>)"
+      },
+      {
+        "before": "Быль \"О солдате\"",
+        "after": "Быль \"О солдате\""
+      },
+      {
+        "before": "Сказка \"О царе Салтане\"\nБыль \"О солдате",
+        "after": "Сказка \"О царе Салтане\"\nБыль \"О солдате"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "Apply non-breaking spaces to all frames of the current page.",
+        "after": "Apply non-breaking spaces to all frames of the current page."
+      },
+      {
+        "before": "Whenever I'm down\nI call on you my friend\nA helping hand you lend\nIn my time of need\nWhenever I'm down\nI call on you my friend",
+        "after": "Whenever I'm down\nI call on you my friend\nA helping hand you lend\nIn my time of need\nWhenever I'm down\nI call on you my friend"
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "it",
+    "pairs": [
+      {
+        "before": "Vado a Roma domani.",
+        "after": "Vado a Roma domani."
+      },
+      {
+        "before": "Questa è una lettera da Marco",
+        "after": "Questa è una lettera da Marco"
+      },
+      {
+        "before": "Il ragazzo e la ragazza sono amici.",
+        "after": "Il ragazzo e la ragazza sono amici."
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "de",
+    "pairs": [
+      {
+        "before": "Ich fahre mit dem Zug über Hamburg nach Berlin.",
+        "after": "Ich fahre mit dem Zug über Hamburg nach Berlin."
+      },
+      {
+        "before": "Das ist ein Test für die deutsche Sprache.",
+        "after": "Das ist ein Test für die deutsche Sprache."
+      },
+      {
+        "before": "Er fährt heute schnell.",
+        "after": "Er fährt heute schnell."
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "fr",
+    "pairs": [
+      {
+        "before": "Le pain et le fromage sont sur la table.",
+        "after": "Le pain et le fromage sont sur la table."
+      },
+      {
+        "before": "Je vais au marché avec ma sœur.",
+        "after": "Je vais au marché avec ma sœur."
+      },
+      {
+        "before": "Elle arrive demain.",
+        "after": "Elle arrive demain."
+      }
+    ],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/afterShortWordByList",
+    "locale": "ru",
+    "pairs": [],
+    "file": "src/rules/common/nbsp/afterShortWordByList.test.ts"
+  },
+  {
+    "name": "common/nbsp/beforeShortLastNumber",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Сегодня я получил 5. И очень рад.",
+        "after": "Сегодня я получил 5. И очень рад."
+      },
+      {
+        "before": "Сегодня я получил 5\nИ дальше продолжаю стих",
+        "after": "Сегодня я получил 5\nИ дальше продолжаю стих"
+      },
+      {
+        "before": "Сегодня я получил 5+",
+        "after": "Сегодня я получил 5+"
+      },
+      {
+        "before": "или 5-",
+        "after": "или 5-"
+      },
+      {
+        "before": "Доллар вырос на 1%.\nДоллар вырос на 2%.",
+        "after": "Доллар вырос на 1%.\nДоллар вырос на 2%."
+      },
+      {
+        "before": "Сегодня диагональ равна 5\"",
+        "after": "Сегодня диагональ равна 5\""
+      },
+      {
+        "before": "Пять секунд некоторые пишут в виде 5'",
+        "after": "Пять секунд некоторые пишут в виде 5'"
+      },
+      {
+        "before": "\"Справка 09\"",
+        "after": "\"Справка 09\""
+      },
+      {
+        "before": "Рассказ о поездке (часть 1)",
+        "after": "Рассказ о поездке (часть 1)"
+      },
+      {
+        "before": "Рассказ о поездке (часть 1).",
+        "after": "Рассказ о поездке (часть 1)."
+      },
+      {
+        "before": "Рассказ о поездке (часть 1) слово",
+        "after": "Рассказ о поездке (часть 1) слово"
+      }
+    ],
+    "file": "src/rules/common/nbsp/beforeShortLastNumber.test.ts"
+  },
+  {
+    "name": "common/nbsp/beforeShortLastWord",
+    "locale": ["ru", "en-US"],
+    "pairs": [
+      {
+        "before": "Fedora, SuSE, Gentoo, Mandrake, or PLD.",
+        "after": "Fedora, SuSE, Gentoo, Mandrake, or PLD."
+      },
+      {
+        "before": "Голубка дряхлая моя!",
+        "after": "Голубка дряхлая моя!"
+      }
+    ],
+    "file": "src/rules/common/nbsp/beforeShortLastWord.test.ts"
+  },
+  {
+    "name": "common/nbsp/dpi",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Значение 10 lpi.",
+        "after": "Значение 10 lpi."
+      },
+      {
+        "before": "Значение 10 lpi",
+        "after": "Значение 10 lpi"
+      },
+      {
+        "before": "Значение 10 lpii",
+        "after": "Значение 10 lpii"
+      },
+      {
+        "before": "Значение 10 lpi и 20 dpi.",
+        "after": "Значение 10 lpi и 20 dpi."
+      }
+    ],
+    "file": "src/rules/common/nbsp/dpi.test.ts"
+  },
+  {
+    "name": "common/nbsp/nowrap",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "<nowrap>Hello world!</nowrap>",
+        "after": "<nowrap>Hello world!</nowrap>"
+      },
+      {
+        "before": "<nobr>   Hello world!  </nobr>",
+        "after": "<nobr>   Hello world!  </nobr>"
+      },
+      {
+        "before": "<nobr>Hello  world!</nobr>",
+        "after": "<nobr>Hello  world!</nobr>"
+      },
+      {
+        "before": "В глуши долин, <nowrap>в печальной тьме</nowrap> лесов,",
+        "after": "В глуши долин, <nowrap>в печальной тьме</nowrap> лесов,"
+      },
+      {
+        "before": "В глуши долин, <nobr>в печальной тьме</nobr> лесов,",
+        "after": "В глуши долин, <nobr>в печальной тьме</nobr> лесов,"
+      }
+    ],
+    "file": "src/rules/common/nbsp/nowrap.test.ts"
+  },
+  {
+    "name": "common/nbsp/replaceNbsp",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Флойд Мэйуэзер одержал 49-ю победу и объявил о завершении карьеры",
+        "after": "Флойд Мэйуэзер одержал 49-ю победу и объявил о завершении карьеры"
+      }
+    ],
+    "file": "src/rules/common/nbsp/replaceNbsp.test.ts"
+  },
+  {
+    "name": "common/number/digitGrouping",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "123456789",
+        "after": "123 456 789"
+      },
+      {
+        "before": "12345",
+        "after": "12 345"
+      },
+      {
+        "before": "1234",
+        "after": "1234"
+      },
+      {
+        "before": "1234.56",
+        "after": "1234.56"
+      },
+      {
+        "before": "12345.6789",
+        "after": "12 345.6789"
+      },
+      {
+        "before": "1146800 р. 00 к. от 21.08.2019",
+        "after": "1 146 800 р. 00 к. от 21.08.2019"
+      },
+      {
+        "before": "10 000 000",
+        "after": "10 000 000"
+      },
+      {
+        "before": "1 000\n10 000\n1 000 000",
+        "after": "1 000\n10 000\n1 000 000"
+      },
+      {
+        "before": "1 0000",
+        "after": "1 0000"
+      },
+      {
+        "before": "1 000-999",
+        "after": "1 000-999"
+      },
+      {
+        "before": "1000 000",
+        "after": "1000 000"
+      },
+      {
+        "before": " 1000 000 ",
+        "after": " 1000 000 "
+      },
+      {
+        "before": "000 22 000",
+        "after": "000 22 000"
+      },
+      {
+        "before": "123 456,789",
+        "after": "123 456,789"
+      },
+      {
+        "before": "<span>123 456,789</span>",
+        "after": "<span>123 456,789</span>"
+      }
+    ],
+    "file": "src/rules/common/number/digitGrouping.test.ts"
+  },
+  {
+    "name": "common/number/fraction",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "1/2",
+        "after": "½"
+      },
+      {
+        "before": " 1/2 ",
+        "after": " ½ "
+      },
+      {
+        "before": "1/4",
+        "after": "¼"
+      },
+      {
+        "before": " 1/4 ",
+        "after": " ¼ "
+      },
+      {
+        "before": "3/4",
+        "after": "¾"
+      },
+      {
+        "before": " 3/4 ",
+        "after": " ¾ "
+      }
+    ],
+    "file": "src/rules/common/number/fraction.test.ts"
+  },
+  {
+    "name": "common/number/mathSigns",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "4 <= 2",
+        "after": "4 ≤ 2"
+      },
+      {
+        "before": "1 != 0",
+        "after": "1 ≠ 0"
+      },
+      {
+        "before": "5 >= 3",
+        "after": "5 ≥ 3"
+      },
+      {
+        "before": "99.99 ~= 100",
+        "after": "99.99 ≅ 100"
+      },
+      {
+        "before": "2 << 10000",
+        "after": "2 ≪ 10000"
+      },
+      {
+        "before": "+-",
+        "after": "±"
+      },
+      {
+        "before": "10000000 >> 1",
+        "after": "10000000 ≫ 1"
+      },
+      {
+        "before": "1 << 10000000",
+        "after": "1 ≪ 10000000"
+      },
+      {
+        "before": "+-10",
+        "after": "±10"
+      },
+      {
+        "before": "50000 +-100",
+        "after": "50000 ±100"
+      },
+      {
+        "before": "234 >> 5",
+        "after": "234 ≫ 5"
+      }
+    ],
+    "file": "src/rules/common/number/mathSigns.test.ts"
+  },
+  {
+    "name": "common/number/times",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "100 x 2",
+        "after": "100×2"
+      },
+      {
+        "before": "100 x 2\n100 х2\n100 x 2\n100x 2",
+        "after": "100×2\n100×2\n100×2\n100×2"
+      },
+      {
+        "before": "Пример: 30x3=90",
+        "after": "Пример: 30×3=90"
+      },
+      {
+        "before": "Пример: 30 x 3=90",
+        "after": "Пример: 30×3=90"
+      },
+      {
+        "before": "Пример: 30 x 3=90",
+        "after": "Пример: 30×3=90"
+      }
+    ],
+    "file": "src/rules/common/number/times.test.ts"
+  },
+  {
+    "name": "common/other/delBOM",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "﻿unicorn",
+        "after": "unicorn"
+      }
+    ],
+    "file": "src/rules/common/other/delBOM.test.ts"
+  },
+  {
+    "name": "common/other/repeatWord",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Я пошел домой.",
+        "after": "Я пошел домой."
+      },
+      {
+        "before": "Я поехал в в Лондон.",
+        "after": "Я поехал в в Лондон."
+      },
+      {
+        "before": "Я пошел пошел домой.",
+        "after": "Я пошел домой."
+      },
+      {
+        "before": "Я пошел пошел пошел домой домой.",
+        "after": "Я пошел пошел домой."
+      },
+      {
+        "before": "Я пошел пошел пошел домой домой.",
+        "after": "Я пошел пошел домой."
+      },
+      {
+        "before": "При при проверке текста обнаружились повторяющиеся слова.",
+        "after": "При проверке текста обнаружились повторяющиеся слова."
+      },
+      {
+        "before": "Это то, без чего мне не жить.",
+        "after": "Это то, без чего мне не жить."
+      },
+      {
+        "before": "\"то то\"",
+        "after": "\"то\""
+      }
+    ],
+    "file": "src/rules/common/other/repeatWord.test.ts"
+  },
+  {
+    "name": "common/other/repeatWord",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "Hello world world!",
+        "after": "Hello world!"
+      },
+      {
+        "before": "world world",
+        "after": "world"
+      }
+    ],
+    "file": "src/rules/common/other/repeatWord.test.ts"
+  },
+  {
+    "name": "common/punctuation/apostrophe",
+    "locale": ["ru", "en-US"],
+    "pairs": [
+      {
+        "before": "Жанна д'Арк, О'Коннор, д'Артаньян",
+        "after": "Жанна д’Арк, О’Коннор, д’Артаньян"
+      },
+      {
+        "before": "c-moll'ная увертюра, пользоваться E-mail'ом",
+        "after": "c-moll’ная увертюра, пользоваться E-mail’ом"
+      },
+      {
+        "before": "Кот-д'Ивуар",
+        "after": "Кот-д’Ивуар"
+      },
+      {
+        "before": "Л'Алькерия-д'Аснар",
+        "after": "Л’Алькерия-д’Аснар"
+      },
+      {
+        "before": "Не говорите плохо о Yoko, хотя бы из-за уважения к Lennon'у",
+        "after": "Не говорите плохо о Yoko, хотя бы из-за уважения к Lennon’у"
+      },
+      {
+        "before": "О'Коннор, О'Хара, О'Нил, О'Хиггинс, О'Куинн, О'Кейси",
+        "after": "О’Коннор, О’Хара, О’Нил, О’Хиггинс, О’Куинн, О’Кейси"
+      },
+      {
+        "before": "Кот-д'Ор, Кот-д'Армор, Л'Умо, Пон-л'Эвек, Л'Иль-сюр-ла-Сорг,  Морро-д'Оро, Морро-д'Альба, Л'Алькерия-д'Аснар",
+        "after": "Кот-д’Ор, Кот-д’Армор, Л’Умо, Пон-л’Эвек, Л’Иль-сюр-ла-Сорг,  Морро-д’Оро, Морро-д’Альба, Л’Алькерия-д’Аснар"
+      }
+    ],
+    "file": "src/rules/common/punctuation/apostrophe.test.ts"
+  },
+  {
+    "name": "common/punctuation/apostrophe",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "Yesterday I saw Jack's dog",
+        "after": "Yesterday I saw Jack’s dog"
+      },
+      {
+        "before": "tables' legs",
+        "after": "tables' legs"
+      },
+      {
+        "before": "Katie's and Erin's houses are beautiful.",
+        "after": "Katie’s and Erin’s houses are beautiful."
+      }
+    ],
+    "file": "src/rules/common/punctuation/apostrophe.test.ts"
+  },
+  {
+    "name": "common/punctuation/delDoublePunctuation",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "У меня была только синяя краска;; но,, несмотря на это,, я затеял нарисовать охоту.",
+        "after": "У меня была только синяя краска; но, несмотря на это, я затеял нарисовать охоту."
+      },
+      {
+        "before": "Никогда не отказывайся от малого в работе:: из малого строится великое.",
+        "after": "Никогда не отказывайся от малого в работе: из малого строится великое."
+      }
+    ],
+    "file": "src/rules/common/punctuation/delDoublePunctuation.test.ts"
+  },
+  {
+    "name": "common/punctuation/hellip",
+    "locale": "en-GB",
+    "pairs": [
+      {
+        "before": "The ... fox jumped ...",
+        "after": "The … fox jumped …"
+      },
+      {
+        "before": "The quick brown fox jumped over the lazy dog. ... And if they have not died, they are still alive today.",
+        "after": "The quick brown fox jumped over the lazy dog. … And if they have not died, they are still alive today."
+      },
+      {
+        "before": "The...fox jumped...\n            The quick brown fox jumped over the lazy dog...And if they have not died, they are still alive today.\n            It is not cold... it is freezing cold.",
+        "after": "The…fox jumped…\n            The quick brown fox jumped over the lazy dog…And if they have not died, they are still alive today.\n            It is not cold… it is freezing cold."
+      },
+      {
+        "before": "..",
+        "after": ".."
+      },
+      {
+        "before": "...",
+        "after": "…"
+      },
+      {
+        "before": "...\n...",
+        "after": "…\n…"
+      },
+      {
+        "before": ".....",
+        "after": "....."
+      },
+      {
+        "before": "i ... j",
+        "after": "i … j"
+      },
+      {
+        "before": "k....",
+        "after": "k…."
+      },
+      {
+        "before": "l..., l",
+        "after": "l…, l"
+      },
+      {
+        "before": "l, ... l",
+        "after": "l, … l"
+      },
+      {
+        "before": "m...?",
+        "after": "m…?"
+      },
+      {
+        "before": "n...!",
+        "after": "n…!"
+      },
+      {
+        "before": "[...]\n(...)",
+        "after": "[…]\n(…)"
+      },
+      {
+        "before": "[. . .]\n(. . .)",
+        "after": "[. . .]\n(. . .)"
+      }
+    ],
+    "file": "src/rules/common/punctuation/hellip.en-US.test.ts"
+  },
+  {
+    "name": "common/punctuation/hellip",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Дубровский молчал... Вдруг он поднял голову, глаза его засверкали, он топнул ногою, оттолкнул секретаря...",
+        "after": "Дубровский молчал… Вдруг он поднял голову, глаза его засверкали, он топнул ногою, оттолкнул секретаря…"
+      },
+      {
+        "before": "...Ва... ва... ва... ваше превосходительство, — шептал Попов (А. К. Толстой).",
+        "after": "…Ва… ва… ва… ваше превосходительство, — шептал Попов (А. К. Толстой)."
+      },
+      {
+        "before": "Маркс писал, что «язык... есть практическое, существующее и для других людей и лишь тем самым существующее также и для меня самого, действительное сознание».",
+        "after": "Маркс писал, что «язык… есть практическое, существующее и для других людей и лишь тем самым существующее также и для меня самого, действительное сознание»."
+      },
+      {
+        "before": "..",
+        "after": ".."
+      },
+      {
+        "before": "...",
+        "after": "…"
+      },
+      {
+        "before": ".....",
+        "after": "....."
+      }
+    ],
+    "file": "src/rules/common/punctuation/hellip.ru.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "de",
+    "pairs": [
+      {
+        "before": "Dies habe, so Meyer, \"nichts mit \"Globalisierung\" zu tun\".",
+        "after": "Dies habe, so Meyer, „nichts mit ‚Globalisierung‘ zu tun“."
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.de.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "en-GB",
+    "pairs": [
+      {
+        "before": "One of the most famous phrases is \"to be or not to be\".",
+        "after": "One of the most famous phrases is ‘to be or not to be’."
+      },
+      {
+        "before": "\"I have no special talent,\" Einstein. \"I am only curious enough.\"",
+        "after": "‘I have no special talent,’ Einstein. ‘I am only curious enough.’"
+      },
+      {
+        "before": "\"I was reading \"The Economics of the USA\" yesterday,\" she replied to me.",
+        "after": "‘I was reading “The Economics of the USA” yesterday,’ she replied to me."
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.en-GB.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "One of the most famous phrases is \"to be or not to be\".",
+        "after": "One of the most famous phrases is “to be or not to be”."
+      },
+      {
+        "before": "\"I have no special talent,\" Einstein. \"I am only curious enough.\"",
+        "after": "“I have no special talent,” Einstein. “I am only curious enough.”"
+      },
+      {
+        "before": "\"I was reading \"The Economics of the USA\" yesterday,\" she replied to me.",
+        "after": "“I was reading ‘The Economics of the USA’ yesterday,” she replied to me."
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.en-US.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "fi",
+    "pairs": [
+      {
+        "before": "\"Varautuminen tällaisiin megaluokan tapahtumiin on heikkoa. Aurinkoa tarkkaillaan jatkuvasti ja noin valtava superroihu havaittaisiin kyllä, mutta hiukkaset olisivat täällä sen verran nopeasti, että melkeinpä mitään ei olisi tehtävissä.\" ",
+        "after": "”Varautuminen tällaisiin megaluokan tapahtumiin on heikkoa. Aurinkoa tarkkaillaan jatkuvasti ja noin valtava superroihu havaittaisiin kyllä, mutta hiukkaset olisivat täällä sen verran nopeasti, että melkeinpä mitään ei olisi tehtävissä.” "
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.fi.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "fr",
+    "pairs": [
+      {
+        "before": "\"L’ouvreuse m’a dit: \"Donnez-moi votre ticket.\" Je le lui ai donné.\"",
+        "after": "« L’ouvreuse m’a dit: “Donnez-moi votre ticket.” Je le lui ai donné. »"
+      },
+      {
+        "before": "À l’occasion du premier tour de l’élection présidentielle, « La Croix » a demandé à quinze responsables associatifs de dire quelle serait leur priorité s’ils accédaient à la tête de l’État.",
+        "after": "À l’occasion du premier tour de l’élection présidentielle, « La Croix » a demandé à quinze responsables associatifs de dire quelle serait leur priorité s’ils accédaient à la tête de l’État."
+      },
+      {
+        "before": "Les adolescents sont globalement « satisfaits de leur vie »",
+        "after": "Les adolescents sont globalement « satisfaits de leur vie »"
+      },
+      {
+        "before": "\"Il a dit \"bonjour\".\"",
+        "after": "« Il a dit “bonjour”. »"
+      },
+      {
+        "before": "\"Il a dit \"elle a répondu \"demain\"\".\"",
+        "after": "« Il a dit “elle a répondu ‘demain’”. »"
+      },
+      {
+        "before": "Il a répondu : \"Je viendrai demain.\"",
+        "after": "Il a répondu : « Je viendrai demain. »"
+      },
+      {
+        "before": "\"Viendrez-vous ?\" demanda-t-elle.",
+        "after": "« Viendrez-vous ? » demanda-t-elle."
+      },
+      {
+        "before": "Il appelle cela \"une erreur\".",
+        "after": "Il appelle cela « une erreur »."
+      },
+      {
+        "before": "\"Oui\", répondit-il.",
+        "after": "« Oui », répondit-il."
+      },
+      {
+        "before": "A-t-il vraiment dit \"demain\" ?",
+        "after": "A-t-il vraiment dit « demain » ?"
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.fr.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "pl",
+    "pairs": [
+      {
+        "before": "Czy można jeszcze wątpić, że \"tak naprawdę nie dzieje się nic i nie stanie się nic aż do końca\"?",
+        "after": "Czy można jeszcze wątpić, że „tak naprawdę nie dzieje się nic i nie stanie się nic aż do końca”?"
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.pl.test.ts"
+  },
+  {
+    "name": "common/punctuation/quote",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Вот у вас \"Мой спутник\" – это не сочинение, это хорошо, потому что не выдумано.",
+        "after": "Вот у вас «Мой спутник» – это не сочинение, это хорошо, потому что не выдумано."
+      },
+      {
+        "before": "««Цыганы» мои не продаются вовсе»",
+        "after": "«„Цыганы“ мои не продаются вовсе»"
+      },
+      {
+        "before": "\"Пример\"",
+        "after": "«Пример»"
+      },
+      {
+        "before": "ОАО \"Пример\"",
+        "after": "ОАО «Пример»"
+      },
+      {
+        "before": "В \"самом \"добром\" кино\" Мамы. В \"самом \"добром\" кино\" Мамы",
+        "after": "В «самом „добром“ кино» Мамы. В «самом „добром“ кино» Мамы"
+      },
+      {
+        "before": "В самом добром кино “Мамы”, в молодежном триллере “Закрытая школа” на СТС. А еще на сцене театра им. Вл. Маяковского в спектакле “Не все коту масленица”.",
+        "after": "В самом добром кино «Мамы», в молодежном триллере «Закрытая школа» на СТС. А еще на сцене театра им. Вл. Маяковского в спектакле «Не все коту масленица»."
+      },
+      {
+        "before": "В самом добром кино “Мамы”, в молодежном триллере “Закрытая школа” на СТС",
+        "after": "В самом добром кино «Мамы», в молодежном триллере «Закрытая школа» на СТС"
+      },
+      {
+        "before": "В самом добром кино “Мамы, в молодежном триллере “Закрытая школа” на СТС\"",
+        "after": "В самом добром кино «Мамы, в молодежном триллере „Закрытая школа“ на СТС»"
+      },
+      {
+        "before": "Печорин писал: \"Я не помню утра более голубого и свежего!\"",
+        "after": "Печорин писал: «Я не помню утра более голубого и свежего!»"
+      },
+      {
+        "before": "Печорин признавался: \"Я иногда себя презираю...\"",
+        "after": "Печорин признавался: «Я иногда себя презираю...»"
+      },
+      {
+        "before": "Печорин спрашивает: \"И зачем было судьбе кинуть меня в мирный круг честных контрабандистов?\"",
+        "after": "Печорин спрашивает: «И зачем было судьбе кинуть меня в мирный круг честных контрабандистов?»"
+      },
+      {
+        "before": "Печорин размышляет: \"…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие...\"",
+        "after": "Печорин размышляет: «…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие...»"
+      },
+      {
+        "before": "Печорин размышляет: \"…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…\"",
+        "after": "Печорин размышляет: «…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…»"
+      },
+      {
+        "before": "Печорин размышляет: \"…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…\"\n\n",
+        "after": "Печорин размышляет: «…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…»\n\n"
+      },
+      {
+        "before": "Печорин размышляет: \"…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…\"\n\nПечорин...",
+        "after": "Печорин размышляет: «…зачем было судьбе кинуть меня в мирный круг честных контрабандистов? Как камень, брошенный в гладкий источник, я встревожил их спокойствие…»\n\nПечорин..."
+      },
+      {
+        "before": "Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"",
+        "after": "Лермонтов восклицает в предисловии, что это «старая и жалкая шутка!»"
+      },
+      {
+        "before": "\"Лермонтов восклицает в \"предисловии\", что это \"старая и жалкая шутка!\"\"",
+        "after": "«Лермонтов восклицает в „предисловии“, что это „старая и жалкая шутка!“»"
+      },
+      {
+        "before": "\"Лермонтов восклицает в \"предисловии\", что это \"старая и жалкая шутка!\"\" \"Лермонтов восклицает в \"предисловии\", что это \"старая и жалкая шутка!\"\"",
+        "after": "«Лермонтов восклицает в „предисловии“, что это „старая и жалкая шутка!“» «Лермонтов восклицает в „предисловии“, что это „старая и жалкая шутка!“»"
+      },
+      {
+        "before": "\"Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"\" \"Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"\"",
+        "after": "«Лермонтов восклицает в предисловии, что это „старая и жалкая шутка!“» «Лермонтов восклицает в предисловии, что это „старая и жалкая шутка!“»"
+      },
+      {
+        "before": "\"Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"\" \"Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"\" \"Лермонтов восклицает в предисловии, что это \"старая и жалкая шутка!\"\"",
+        "after": "«Лермонтов восклицает в предисловии, что это „старая и жалкая шутка!“» «Лермонтов восклицает в предисловии, что это „старая и жалкая шутка!“» «Лермонтов восклицает в предисловии, что это „старая и жалкая шутка!“»"
+      },
+      {
+        "before": "<p>\"Энергия соблазна: \"от внутреннего\" к внешнему\".</p>        <p>\"Энергия соблазна: \"от внутреннего\" к внешнему\".</p>",
+        "after": "<p>«Энергия соблазна: „от внутреннего“ к внешнему».</p>        <p>«Энергия соблазна: „от внутреннего“ к внешнему».</p>"
+      },
+      {
+        "before": "<p>\"Энергия\nсоблазна: \"от\nвнутреннего\" к\nвнешнему\".</p>        <p>\"Энергия\nсоблазна: \"от\nвнутреннего\" к\nвнешнему\".</p>",
+        "after": "<p>«Энергия\nсоблазна: „от\nвнутреннего“ к\nвнешнему».</p>        <p>«Энергия\nсоблазна: „от\nвнутреннего“ к\nвнешнему».</p>"
+      },
+      {
+        "before": "\"Полотенцесушители из нержавеющей стали\"\n\nПолотенцесушитель из черного металла, сделанные из нержавеющей стали, очень хорошо подходят к использованию в наших условиях. Снаружи они могут иметь полированную, матовую, или даже окрашенную поверхность. Модели с окрашенной поверхностью обычно стоят меньше других. Еще один плюс окрашенных полотенцесушителей — возможность разместить их в любом интерьере благодаря широкой цветовой гамме.",
+        "after": "«Полотенцесушители из нержавеющей стали»\n\nПолотенцесушитель из черного металла, сделанные из нержавеющей стали, очень хорошо подходят к использованию в наших условиях. Снаружи они могут иметь полированную, матовую, или даже окрашенную поверхность. Модели с окрашенной поверхностью обычно стоят меньше других. Еще один плюс окрашенных полотенцесушителей — возможность разместить их в любом интерьере благодаря широкой цветовой гамме."
+      },
+      {
+        "before": "<i>\"Энергия соблазна\".</i>",
+        "after": "<i>«Энергия соблазна».</i>"
+      },
+      {
+        "before": "<i>\"Энергия соблазна\".</i> <i>\"Энергия соблазна\".</i>",
+        "after": "<i>«Энергия соблазна».</i> <i>«Энергия соблазна».</i>"
+      },
+      {
+        "before": "\"<i>Энергия соблазна</i>\".",
+        "after": "«<i>Энергия соблазна</i>»."
+      },
+      {
+        "before": "\"<i>Энергия соблазна</i>\". \"<i>Энергия соблазна</i>\".",
+        "after": "«<i>Энергия соблазна</i>». «<i>Энергия соблазна</i>»."
+      },
+      {
+        "before": "\"<i>Энергия соблазна\"</i>.",
+        "after": "«<i>Энергия соблазна»</i>."
+      },
+      {
+        "before": "\"<i>Энергия соблазна\"</i>. \"<i>Энергия соблазна\"</i>.",
+        "after": "«<i>Энергия соблазна»</i>. «<i>Энергия соблазна»</i>."
+      },
+      {
+        "before": "\"<i>Екатеринбург лучше Стамбула, однозначно, а люди здесь добрее, чем в Москве и Питере\"</i>,  - рассказывает он со знанием дела: во время подготовки книги об уральской столице Аслиддин прожил по две недели и в Белокаменной, и в Северной Пальмире.  \"<i>Все оплачивают спонсоры -; бизнесмены из Таджикистана, которые заинтересовались моими работами. Они-то и договаривались с издательством\"</i>,  -; объясняет строитель-историк. Из пятисот отпечатанных экземпляров автору достанется 15. Все остальные пойдут на магазинные прилавки и в Центральную библиотеку Таджикистана, а также самим спонсорам. Размеры гонорара, который дойдет до Аслиддина, не позволят уволиться со стройки.  <i>\"Да я рад уже тому, что мои книги свет увидели, их читают, отзывы делают\",  </i>- рассказывает писатель.",
+        "after": "«<i>Екатеринбург лучше Стамбула, однозначно, а люди здесь добрее, чем в Москве и Питере»</i>,  - рассказывает он со знанием дела: во время подготовки книги об уральской столице Аслиддин прожил по две недели и в Белокаменной, и в Северной Пальмире.  «<i>Все оплачивают спонсоры -; бизнесмены из Таджикистана, которые заинтересовались моими работами. Они-то и договаривались с издательством»</i>,  -; объясняет строитель-историк. Из пятисот отпечатанных экземпляров автору достанется 15. Все остальные пойдут на магазинные прилавки и в Центральную библиотеку Таджикистана, а также самим спонсорам. Размеры гонорара, который дойдет до Аслиддина, не позволят уволиться со стройки.  <i>«Да я рад уже тому, что мои книги свет увидели, их читают, отзывы делают»,  </i>- рассказывает писатель."
+      },
+      {
+        "before": "\"",
+        "after": "\""
+      },
+      {
+        "before": "\"Газета",
+        "after": "«Газета"
+      },
+      {
+        "before": "\" Газета",
+        "after": "\" Газета"
+      },
+      {
+        "before": "\"Иннопром\". \"Иннопром\". \"Синий \"мужчина\" знак\".",
+        "after": "«Иннопром». «Иннопром». «Синий „мужчина“ знак»."
+      },
+      {
+        "before": "М. М. Бахтин писал: \"Тришатов рассказывает подростку о своей любви к музыке и развивает перед ним замысел оперы: \"Послушайте, любите вы музыку? Я ужасно люблю... Если бы я сочинял оперу, то, знаете, я бы взял сюжет из \"Фауста\". Я очень люблю эту тему\"\".",
+        "after": "М. М. Бахтин писал: «Тришатов рассказывает подростку о своей любви к музыке и развивает перед ним замысел оперы: „Послушайте, любите вы музыку? Я ужасно люблю... Если бы я сочинял оперу, то, знаете, я бы взял сюжет из ‚Фауста‘. Я очень люблю эту тему“»."
+      },
+      {
+        "before": "по произведению Достоевского &quot;Преступление и наказание&quot;в театре Моссовета",
+        "after": "по произведению Достоевского «Преступление и наказание\"в театре Моссовета"
+      },
+      {
+        "before": "<p>«Куда ты ведёшь нас?.. не видно ни зги! —</p>",
+        "after": "<p>«Куда ты ведёшь нас?.. не видно ни зги! —</p>"
+      },
+      {
+        "before": "<p>\"Я всегда с гордостью носил военную форму...</p>\n\n<p>...Я переживал очень тяжёлую депрессию. \"</p>",
+        "after": "<p>«Я всегда с гордостью носил военную форму...</p>\n\n<p>...Я переживал очень тяжёлую депрессию. »</p>"
+      },
+      {
+        "before": "Движение перекроют из‑за матча на«ВЭБ Арене» 7 октября в Москве‍",
+        "after": "Движение перекроют из‑за матча на«ВЭБ Арене» 7 октября в Москве‍"
+      },
+      {
+        "before": "[\"история наоборот\"]",
+        "after": "[«история наоборот»]"
+      },
+      {
+        "before": "«Корпорация \"Амбрелла\"» У многих российских проектов окно между кинотеатральным и цифровым релизом и раньше было меньше, чем у зарубежной продукции. Но сейчас и они сокращаются. Хоррор «Яга. Кошмар темного леса» появился онлайн менее чем через месяц после старта в кинотеатрах, такая же история — с ««Отелем \"Белград\"»",
+        "after": "«Корпорация „Амбрелла“» У многих российских проектов окно между кинотеатральным и цифровым релизом и раньше было меньше, чем у зарубежной продукции. Но сейчас и они сокращаются. Хоррор «Яга. Кошмар темного леса» появился онлайн менее чем через месяц после старта в кинотеатрах, такая же история — с «„Отелем „Белград“»"
+      },
+      {
+        "before": "\"слово\" слово\" \"слово\"",
+        "after": "«слово» слово» «слово»"
+      },
+      {
+        "before": "\"\"\"слово\" \"\"\"слово\" \"\"\"слово\"",
+        "after": "«„„слово“ „„„слово“ „„„слово“"
+      },
+      {
+        "before": "\"\"\"\"\"\"слово\"\"\"\" \"\"\"\"сло\"во\" слово\" слово\" слово\" слово\"",
+        "after": "«„„„„„слово“»»» «„„„сло\"во» слово» слово» слово» слово»"
+      },
+      {
+        "before": "\"слово \"\"\"слово\" \"слово\"",
+        "after": "«слово „„„слово“ „слово“"
+      },
+      {
+        "before": "слово\" \"слово\" \"слово\"\"",
+        "after": "слово» «слово» «слово»»"
+      }
+    ],
+    "file": "src/rules/common/punctuation/quote.ru.test.ts"
+  },
+  {
+    "name": "common/punctuation/quoteLink",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "<a href=\"/\">«Название»</a>\n<a\nhref=\"/\">«Название\n2»</a>",
+        "after": "«<a href=\"/\">Название</a>»\n«<a\nhref=\"/\">Название\n2</a>»"
+      }
+    ],
+    "file": "src/rules/common/punctuation/quoteLink.test.ts"
+  },
+  {
+    "name": "common/punctuation/quoteLink",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "<a href=\"/\">“Name 1”</a>\n<a href=\"/\">“Name 2”</a>",
+        "after": "“<a href=\"/\">Name 1</a>”\n“<a href=\"/\">Name 2</a>”"
+      }
+    ],
+    "file": "src/rules/common/punctuation/quoteLink.test.ts"
+  },
+  {
+    "name": "common/space/afterColon",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Перечень приобретаемого:КОНДЕНСАТОРЫ КМ,К52-2,ЭТО-2.",
+        "after": "Перечень приобретаемого: КОНДЕНСАТОРЫ КМ,К52-2,ЭТО-2."
+      }
+    ],
+    "file": "src/rules/common/space/afterColon.test.ts"
+  },
+  {
+    "name": "common/space/afterComma",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Солнце садилось за горизонт,и поднялся ветер. Вот.",
+        "after": "Солнце садилось за горизонт, и поднялся ветер. Вот."
+      },
+      {
+        "before": "Солнце садилось за горизонт,?",
+        "after": "Солнце садилось за горизонт,?"
+      },
+      {
+        "before": "Солнце садилось за горизонт1,и поднялся ветер?",
+        "after": "Солнце садилось за горизонт1, и поднялся ветер?"
+      },
+      {
+        "before": "Перечень приобретаемого:КОНДЕНСАТОРЫ КМ,К52-2,ЭТО-2,К10-47,МИКРОСХЕМЫ,ТРАНЗИСТОРЫ,РАЗЬЕМЫ,РЕОХОРДЫ И ПЕРЕКЛЮЧАТЕЛИ С ПРИБОРОВ КСМ,КСП,КСД,РП-160,ТЕРМОПАРЫ ТПП,ТПР,КОНТАКТЫ(СЕРЕБРО),ТИРИСТОРЫ И ДИОДЫ.",
+        "after": "Перечень приобретаемого:КОНДЕНСАТОРЫ КМ, К52-2, ЭТО-2, К10-47, МИКРОСХЕМЫ, ТРАНЗИСТОРЫ, РАЗЬЕМЫ, РЕОХОРДЫ И ПЕРЕКЛЮЧАТЕЛИ С ПРИБОРОВ КСМ, КСП, КСД, РП-160, ТЕРМОПАРЫ ТПП, ТПР, КОНТАКТЫ(СЕРЕБРО), ТИРИСТОРЫ И ДИОДЫ."
+      },
+      {
+        "before": "2,23456",
+        "after": "2,23456"
+      },
+      {
+        "before": "A,2",
+        "after": "A, 2"
+      },
+      {
+        "before": "2,A",
+        "after": "2, A"
+      },
+      {
+        "before": "«Hello world,» said Michael.",
+        "after": "«Hello world,» said Michael."
+      }
+    ],
+    "file": "src/rules/common/space/afterComma.test.ts"
+  },
+  {
+    "name": "common/space/afterComma",
+    "locale": "en-GB",
+    "pairs": [
+      {
+        "before": "‘Hello world,’ said Michael.",
+        "after": "‘Hello world,’ said Michael."
+      }
+    ],
+    "file": "src/rules/common/space/afterComma.test.ts"
+  },
+  {
+    "name": "common/space/afterComma",
+    "locale": "en-US",
+    "pairs": [
+      {
+        "before": "“Hello world,” said Michael.",
+        "after": "“Hello world,” said Michael."
+      }
+    ],
+    "file": "src/rules/common/space/afterComma.test.ts"
+  },
+  {
+    "name": "common/space/afterExclamationMark",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Солнце садилось за горизонт,и поднялся ветер!Вот.",
+        "after": "Солнце садилось за горизонт,и поднялся ветер! Вот."
+      },
+      {
+        "before": "\"Я!\"",
+        "after": "\"Я!\""
+      },
+      {
+        "before": "«Я!»",
+        "after": "«Я!»"
+      },
+      {
+        "before": "‹I!›",
+        "after": "‹I!›"
+      }
+    ],
+    "file": "src/rules/common/space/afterExclamationMark.test.ts"
+  },
+  {
+    "name": "common/space/afterQuestionMark",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Солнце садилось за горизонт,и поднялся ветер?Вот.",
+        "after": "Солнце садилось за горизонт,и поднялся ветер? Вот."
+      },
+      {
+        "before": "Солнце садилось за горизонт,и поднялся ветер??Вот.",
+        "after": "Солнце садилось за горизонт,и поднялся ветер?? Вот."
+      },
+      {
+        "before": "Солнце садилось за горизонт,?",
+        "after": "Солнце садилось за горизонт,?"
+      }
+    ],
+    "file": "src/rules/common/space/afterQuestionMark.test.ts"
+  },
+  {
+    "name": "common/space/afterSemicolon",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Бледно-серое небо светлело, холодело, синело;звёзды то мигали слабым светом, то исчезали;отсырела земля, запотели листья, кое-где стали раздаваться живые звуки, голоса (Тургенев).",
+        "after": "Бледно-серое небо светлело, холодело, синело; звёзды то мигали слабым светом, то исчезали; отсырела земля, запотели листья, кое-где стали раздаваться живые звуки, голоса (Тургенев)."
+      },
+      {
+        "before": "Налево чернело глубокое ущелье;за ним и впереди нас тёмно-синие вершины гор, изрытые морщинами, покрытые слоями снега, рисовались на бледном небосклоне, ещё сохраняющем последний отблеск зари (Лермонтов).",
+        "after": "Налево чернело глубокое ущелье; за ним и впереди нас тёмно-синие вершины гор, изрытые морщинами, покрытые слоями снега, рисовались на бледном небосклоне, ещё сохраняющем последний отблеск зари (Лермонтов)."
+      }
+    ],
+    "file": "src/rules/common/space/afterSemicolon.test.ts"
+  },
+  {
+    "name": "common/space/beforeBracket",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "2*(3+100)/13",
+        "after": "2*(3+100)/13"
+      }
+    ],
+    "file": "src/rules/common/space/beforeBracket.test.ts"
+  },
+  {
+    "name": "common/space/beforeBracket",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "На половине перегона лес кончился, и с(боков) открылись елани(поля)...(Л. Толстой).",
+        "after": "На половине перегона лес кончился, и с (боков) открылись елани (поля)... (Л. Толстой)."
+      },
+      {
+        "before": "Души неопытной волненья смирив со временем(как знать?), по сердцу я нашла бы друга(Пушкин).",
+        "after": "Души неопытной волненья смирив со временем (как знать?), по сердцу я нашла бы друга (Пушкин)."
+      },
+      {
+        "before": "Но целью взоров и суждений в то время жирный был пирог(к несчастию, пересоленный)(Пушкин).",
+        "after": "Но целью взоров и суждений в то время жирный был пирог (к несчастию, пересоленный) (Пушкин)."
+      }
+    ],
+    "file": "src/rules/common/space/beforeBracket.test.ts"
+  },
+  {
+    "name": "common/space/bracket",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " ( ) ",
+        "after": " () "
+      },
+      {
+        "before": "\n\n( \n\n )\n\n",
+        "after": "\n\n(\n\n)\n\n"
+      },
+      {
+        "before": "     (    abc     abc         )     (    abc     )   ( a ( b ( c )  )  )    ",
+        "after": "     (abc     abc)     (abc)   (a (b (c)))    "
+      }
+    ],
+    "file": "src/rules/common/space/bracket.test.ts"
+  },
+  {
+    "name": "common/space/delBeforeDot",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Значение которых понятно из контекста или из ситуации .",
+        "after": "Значение которых понятно из контекста или из ситуации."
+      },
+      {
+        "before": "Нам нужен .Net-разработчик.",
+        "after": "Нам нужен .Net-разработчик."
+      },
+      {
+        "before": "Калибр стрелкового оружия измеряется в долях дюйма. В записи ноль целой части числа и обозначение единицы измерения опускаются, в качестве десятичного разделителя используется точка: .45, .450.",
+        "after": "Калибр стрелкового оружия измеряется в долях дюйма. В записи ноль целой части числа и обозначение единицы измерения опускаются, в качестве десятичного разделителя используется точка: .45, .450."
+      }
+    ],
+    "file": "src/rules/common/space/delBeforeDot.test.ts"
+  },
+  {
+    "name": "common/space/delBeforePercent",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "20 %",
+        "after": "20%"
+      },
+      {
+        "before": "около 4 %",
+        "after": "около 4%"
+      }
+    ],
+    "file": "src/rules/common/space/delBeforePercent.test.ts"
+  },
+  {
+    "name": "common/space/delBeforePunctuation",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "В неполном предложении отсутствует один или несколько членов , значение которых понятно из контекста или из ситуации.",
+        "after": "В неполном предложении отсутствует один или несколько членов, значение которых понятно из контекста или из ситуации."
+      },
+      {
+        "before": "Армия пролетариев, встань стройна !",
+        "after": "Армия пролетариев, встань стройна!"
+      },
+      {
+        "before": "Печально я гляжу на наше поколенье !\nПечально я гляжу на наше поколенье !",
+        "after": "Печально я гляжу на наше поколенье!\nПечально я гляжу на наше поколенье!"
+      },
+      {
+        "before": "Fantastic, we closed the deal !",
+        "after": "Fantastic, we closed the deal!"
+      },
+      {
+        "before": "Were the visitors shown the new pictures ?",
+        "after": "Were the visitors shown the new pictures?"
+      }
+    ],
+    "file": "src/rules/common/space/delBeforePunctuation.test.ts"
+  },
+  {
+    "name": "common/space/delBetweenExclamationMarks",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Печально я гляжу на наше поколенье! ! !",
+        "after": "Печально я гляжу на наше поколенье!!!"
+      },
+      {
+        "before": "Что нам стоит дом построить? !",
+        "after": "Что нам стоит дом построить?!"
+      },
+      {
+        "before": "Fantastic, we closed the deal! ! !\nFantastic, we closed the deal! ! !",
+        "after": "Fantastic, we closed the deal!!!\nFantastic, we closed the deal!!!"
+      }
+    ],
+    "file": "src/rules/common/space/delBetweenExclamationMarks.test.ts"
+  },
+  {
+    "name": "common/space/delLeadingBlanks",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Hello world!  \t \n \t \t  Hello world!       \n\n\n\n   \t\t\t   Hello world!\n",
+        "after": "Hello world!  \t \nHello world!       \n\n\n\nHello world!\n"
+      },
+      {
+        "before": "       \t Hello world!  \t \n \t \t  Hello world!\n",
+        "after": "Hello world!  \t \nHello world!\n"
+      }
+    ],
+    "file": "src/rules/common/space/delLeadingBlanks.test.ts"
+  },
+  {
+    "name": "common/space/delRepeatN",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "asdk oasdk\nas\n\n\n\nd koa\n\n\nsd       ",
+        "after": "asdk oasdk\nas\n\nd koa\n\nsd       "
+      }
+    ],
+    "file": "src/rules/common/space/delRepeatN.test.ts"
+  },
+  {
+    "name": "common/space/delRepeatSpace",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "  \n  \n  Hello   world  !  \n  \n  ",
+        "after": "  \n  \n  Hello world !  \n  \n  "
+      }
+    ],
+    "file": "src/rules/common/space/delRepeatSpace.test.ts"
+  },
+  {
+    "name": "common/space/delTrailingBlanks",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Hello world!  \t \n Hello world!       \n\n\n\nHello world!\n",
+        "after": "Hello world!\n Hello world!\n\n\n\nHello world!\n"
+      }
+    ],
+    "file": "src/rules/common/space/delTrailingBlanks.test.ts"
+  },
+  {
+    "name": "common/space/insertFinalNewline",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Hello world!",
+        "after": "Hello world!\n"
+      },
+      {
+        "before": "Hello world!\nHello world!\n\n\n",
+        "after": "Hello world!\nHello world!\n\n\n"
+      }
+    ],
+    "file": "src/rules/common/space/insertFinalNewline.test.ts"
+  },
+  {
+    "name": "common/space/replaceTab",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "  \t \t \t  ",
+        "after": "                  "
+      }
+    ],
+    "file": "src/rules/common/space/replaceTab.test.ts"
+  },
+  {
+    "name": "common/space/squareBracket",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " [ ] ",
+        "after": " [] "
+      },
+      {
+        "before": "\n\n[ \n\n ]\n\n",
+        "after": "\n\n[\n\n]\n\n"
+      },
+      {
+        "before": "     [    abc     abc         ]     [    abc     ]   [ a [ b [ c ]  ]  ]    ",
+        "after": "     [abc     abc]     [abc]   [a [b [c]]]    "
+      }
+    ],
+    "file": "src/rules/common/space/squareBracket.test.ts"
+  },
+  {
+    "name": "common/space/trimLeft",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "   Hello world!    ",
+        "after": "Hello world!    "
+      },
+      {
+        "before": " \n\n \n Hello world!  \n\n  \n  ",
+        "after": "Hello world!  \n\n  \n  "
+      }
+    ],
+    "file": "src/rules/common/space/trimLeft.test.ts"
+  },
+  {
+    "name": "common/space/trimRight",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "   Hello world!    ",
+        "after": "   Hello world!"
+      },
+      {
+        "before": " \n\n \n Hello world!  \n\n  \n  ",
+        "after": " \n\n \n Hello world!"
+      }
+    ],
+    "file": "src/rules/common/space/trimRight.test.ts"
+  },
+  {
+    "name": "common/symbols/arrow",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "20 + 10 -> 30",
+        "after": "20 + 10 → 30"
+      },
+      {
+        "before": "20 + 10 <- 30",
+        "after": "20 + 10 ← 30"
+      },
+      {
+        "before": "<-",
+        "after": "←"
+      },
+      {
+        "before": "->",
+        "after": "→"
+      }
+    ],
+    "file": "src/rules/common/symbols/arrow.test.ts"
+  },
+  {
+    "name": "common/symbols/cf",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " 200 C",
+        "after": " 200 °C"
+      },
+      {
+        "before": "200 C",
+        "after": "200 °C"
+      },
+      {
+        "before": "&minus;20 C",
+        "after": "−20 °C"
+      },
+      {
+        "before": "-20 C",
+        "after": "-20 °C"
+      },
+      {
+        "before": "+10 C",
+        "after": "+10 °C"
+      },
+      {
+        "before": "±2,4 C",
+        "after": "±2,4 °C"
+      },
+      {
+        "before": "+1.5 C",
+        "after": "+1.5 °C"
+      },
+      {
+        "before": "1,5 C",
+        "after": "1,5 °C"
+      },
+      {
+        "before": "≈99 C",
+        "after": "≈99 °C"
+      },
+      {
+        "before": "B2C",
+        "after": "B2C"
+      },
+      {
+        "before": "200 C\n 300 F",
+        "after": "200 °C\n 300 °F"
+      },
+      {
+        "before": "200 C\n300 F",
+        "after": "200 °C\n300 °F"
+      },
+      {
+        "before": " 200 C.",
+        "after": " 200 °C."
+      },
+      {
+        "before": " 20d C",
+        "after": " 20d C"
+      },
+      {
+        "before": " 20 C1",
+        "after": " 20 C1"
+      },
+      {
+        "before": " 200 F",
+        "after": " 200 °F"
+      },
+      {
+        "before": "200 F",
+        "after": "200 °F"
+      },
+      {
+        "before": "https://ru.wikipedia.org/wiki/%D0%A4%D0%B0%D0%BC%D0%B8%D0%BB%D1%8C",
+        "after": "https://ru.wikipedia.org/wiki/%D0%A4%D0%B0%D0%BC%D0%B8%D0%BB%D1%8C"
+      }
+    ],
+    "file": "src/rules/common/symbols/cf.test.ts"
+  },
+  {
+    "name": "common/symbols/copy",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "(c)",
+        "after": "©"
+      },
+      {
+        "before": "(с)",
+        "after": "©"
+      },
+      {
+        "before": "Copyright (с)",
+        "after": "©"
+      },
+      {
+        "before": "copyright (с)",
+        "after": "©"
+      },
+      {
+        "before": "(r)",
+        "after": "®"
+      },
+      {
+        "before": "(tm)",
+        "after": "™"
+      }
+    ],
+    "file": "src/rules/common/symbols/copy.test.ts"
+  },
+  {
+    "name": "en-GB/dash/main",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "What is serious - and what is not",
+        "after": "What is serious — and what is not"
+      },
+      {
+        "before": "What is serious -\nand what is not",
+        "after": "What is serious —\nand what is not"
+      },
+      {
+        "before": "What is serious -- and what is not",
+        "after": "What is serious — and what is not"
+      }
+    ],
+    "file": "src/rules/en-GB/dash/main.test.ts"
+  },
+  {
+    "name": "en-US/dash/main",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "What is serious - and what is not",
+        "after": "What is serious — and what is not"
+      },
+      {
+        "before": "What is serious -\nand what is not",
+        "after": "What is serious —\nand what is not"
+      },
+      {
+        "before": "What is serious -- and what is not",
+        "after": "What is serious — and what is not"
+      }
+    ],
+    "file": "src/rules/en-US/dash/main.test.ts"
+  },
+  {
+    "name": "ru/dash/centuries",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "XX-XXI",
+        "after": "XX–XXI"
+      },
+      {
+        "before": "XX - XXI",
+        "after": "XX–XXI"
+      }
+    ],
+    "file": "src/rules/ru/dash/centuries.test.ts"
+  },
+  {
+    "name": "ru/dash/daysMonth",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "1-22 сентября",
+        "after": "1–22 сентября"
+      },
+      {
+        "before": "1-22 сентября/n 53-22 марта",
+        "after": "1–22 сентября/n 53-22 марта"
+      }
+    ],
+    "file": "src/rules/ru/dash/daysMonth.test.ts"
+  },
+  {
+    "name": "ru/dash/de",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " А коль увижу де, что казнь ему мала, повешу тут же всех судей вокруг стола",
+        "after": " А коль увижу-де, что казнь ему мала, повешу тут же всех судей вокруг стола"
+      },
+      {
+        "before": "Шарль де Голль",
+        "after": "Шарль де Голль"
+      },
+      {
+        "before": "мадам де Шанталь\n Сезар де Вандом ",
+        "after": "мадам де Шанталь\n Сезар де Вандом "
+      },
+      {
+        "before": "Частица дескать образовалась путем слияния двух слов: де и сказать. ",
+        "after": "Частица дескать образовалась путем слияния двух слов: де и сказать. "
+      }
+    ],
+    "file": "src/rules/ru/dash/de.test.ts"
+  },
+  {
+    "name": "ru/dash/decade",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "80-90-е годы",
+        "after": "80–90-е годы"
+      },
+      {
+        "before": "В 1980-90-е годы",
+        "after": "В 1980–90-е годы"
+      },
+      {
+        "before": "1980-2010-е гг.",
+        "after": "1980–2010-е гг."
+      }
+    ],
+    "file": "src/rules/ru/dash/decade.test.ts"
+  },
+  {
+    "name": "ru/dash/directSpeech",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Маленькая девочка бежала и кричала: \n- Не видали маму?",
+        "after": "Маленькая девочка бежала и кричала: \n— Не видали маму?"
+      },
+      {
+        "before": "- Ты придёшь?\n- Не знаю.",
+        "after": "— Ты придёшь?\n— Не знаю."
+      },
+      {
+        "before": "<p>- Ты придёшь?</p>\n<p>- Не знаю.</p>",
+        "after": "<p>— Ты придёшь?</p>\n<p>— Не знаю.</p>"
+      },
+      {
+        "before": "«Я хотел бы купить крестьян...» - сказал Чичиков",
+        "after": "«Я хотел бы купить крестьян...» — сказал Чичиков"
+      },
+      {
+        "before": "\"Мы все прекрасно понимаем, Николай Васильевич\", – съязвил про себя Солодовников, присаживаясь на белую табуретку (Шукшин).",
+        "after": "\"Мы все прекрасно понимаем, Николай Васильевич\", — съязвил про себя Солодовников, присаживаясь на белую табуретку (Шукшин)."
+      },
+      {
+        "before": "«Я могу читать, – первый опять заговорил Петрусъ, – и скоро выучусь писать пером» (Короленко).",
+        "after": "«Я могу читать, — первый опять заговорил Петрусъ, — и скоро выучусь писать пером» (Короленко)."
+      },
+      {
+        "before": " «Позвольте, – заметил один скептик, – не от лимонов ли этот ящик?» (Гончаров).",
+        "after": " «Позвольте, — заметил один скептик, — не от лимонов ли этот ящик?» (Гончаров)."
+      },
+      {
+        "before": "«Обожди... – сказал Морозно угрюмо. – Давай письмо...» (Фадеев).",
+        "after": "«Обожди... — сказал Морозно угрюмо. — Давай письмо...» (Фадеев)."
+      },
+      {
+        "before": "«Обожди… – сказал Морозно угрюмо. – Давай письмо...» (Фадеев).",
+        "after": "«Обожди… — сказал Морозно угрюмо. — Давай письмо...» (Фадеев)."
+      },
+      {
+        "before": "И только когда он шептал: «Мама! Мама!» – ему становилось как будто легче... (Чехов)",
+        "after": "И только когда он шептал: «Мама! Мама!» — ему становилось как будто легче... (Чехов)"
+      },
+      {
+        "before": "одно- или двухэтажный корпус",
+        "after": "одно- или двухэтажный корпус"
+      }
+    ],
+    "file": "src/rules/ru/dash/directSpeech.test.ts"
+  },
+  {
+    "name": "ru/dash/izpod",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " из под печки",
+        "after": " из-под печки"
+      },
+      {
+        "before": " Из под печки",
+        "after": " Из-под печки"
+      }
+    ],
+    "file": "src/rules/ru/dash/izpod.test.ts"
+  },
+  {
+    "name": "ru/dash/izza",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Из за лесу",
+        "after": "Из-за лесу"
+      },
+      {
+        "before": "  Из за лесу",
+        "after": "  Из-за лесу"
+      },
+      {
+        "before": "из за гор",
+        "after": "из-за гор"
+      },
+      {
+        "before": "  из за гор",
+        "after": "  из-за гор"
+      }
+    ],
+    "file": "src/rules/ru/dash/izza.test.ts"
+  },
+  {
+    "name": "ru/dash/ka",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "скажите ка  на ка? на-кась!",
+        "after": "скажите-ка  на-ка? на-кась!"
+      },
+      {
+        "before": "ну ка, ну кась нате ка! нате кась?",
+        "after": "ну-ка, ну-кась нате-ка! нате-кась?"
+      },
+      {
+        "before": "Ну ка",
+        "after": "Ну-ка"
+      }
+    ],
+    "file": "src/rules/ru/dash/ka.test.ts"
+  },
+  {
+    "name": "ru/dash/kakto",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Как то",
+        "after": "Как-то"
+      },
+      {
+        "before": "как то.",
+        "after": "как-то."
+      },
+      {
+        "before": "Баскак то",
+        "after": "Баскак то"
+      },
+      {
+        "before": "123как то",
+        "after": "123как то"
+      },
+      {
+        "before": "abcdefкак то",
+        "after": "abcdefкак то"
+      }
+    ],
+    "file": "src/rules/ru/dash/kakto.test.ts"
+  },
+  {
+    "name": "ru/dash/koe",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Завелись кое какие деньжонки.",
+        "after": "Завелись кое-какие деньжонки."
+      },
+      {
+        "before": "Кое какие деньжонки.",
+        "after": "Кое-какие деньжонки."
+      },
+      {
+        "before": "Кое как",
+        "after": "Кое-как"
+      },
+      {
+        "before": "Кой как",
+        "after": "Кой-как"
+      },
+      {
+        "before": "кой с каким",
+        "after": "кой с каким"
+      },
+      {
+        "before": "Кое в чем",
+        "after": "Кое в чем"
+      },
+      {
+        "before": "Кой какой",
+        "after": "Кой-какой"
+      }
+    ],
+    "file": "src/rules/ru/dash/koe.test.ts"
+  },
+  {
+    "name": "ru/dash/main",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Правда - небольшая ложь",
+        "after": "Правда — небольшая ложь"
+      },
+      {
+        "before": "Правда - небольшая ложь",
+        "after": "Правда — небольшая ложь"
+      },
+      {
+        "before": "Сатрап смутился изумленный -\nИ гнев в нем душу помрачил...",
+        "after": "Сатрап смутился изумленный —\nИ гнев в нем душу помрачил..."
+      },
+      {
+        "before": "одно- или двухэтажный корпус",
+        "after": "одно- или двухэтажный корпус"
+      }
+    ],
+    "file": "src/rules/ru/dash/main.test.ts"
+  },
+  {
+    "name": "ru/dash/month",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Март-декабрь",
+        "after": "Март–декабрь"
+      },
+      {
+        "before": "январь-май",
+        "after": "январь–май"
+      },
+      {
+        "before": "Выставка пройдёт в апреле-мае этого года.",
+        "after": "Выставка пройдёт в апреле–мае этого года."
+      }
+    ],
+    "file": "src/rules/ru/dash/month.test.ts"
+  },
+  {
+    "name": "ru/dash/surname",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Николай -он",
+        "after": "Николай —он"
+      },
+      {
+        "before": "Николай -2",
+        "after": "Николай -2"
+      },
+      {
+        "before": "(Николай -он; Н. Даниельсон)",
+        "after": "(Николай —он; Н. Даниельсон)"
+      }
+    ],
+    "file": "src/rules/ru/dash/surname.test.ts"
+  },
+  {
+    "name": "ru/dash/taki",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "верно таки",
+        "after": "верно-таки"
+      },
+      {
+        "before": "довольно таки",
+        "after": "довольно-таки"
+      },
+      {
+        "before": "опять таки",
+        "after": "опять-таки"
+      },
+      {
+        "before": "прямо таки",
+        "after": "прямо-таки"
+      },
+      {
+        "before": "так таки",
+        "after": "так-таки"
+      },
+      {
+        "before": "всё таки",
+        "after": "всё-таки"
+      },
+      {
+        "before": "действительно таки",
+        "after": "действительно-таки"
+      },
+      {
+        "before": "неужели таки",
+        "after": "неужели-таки"
+      }
+    ],
+    "file": "src/rules/ru/dash/taki.test.ts"
+  },
+  {
+    "name": "ru/dash/time",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "12:00-13:00",
+        "after": "12:00–13:00"
+      }
+    ],
+    "file": "src/rules/ru/dash/time.test.ts"
+  },
+  {
+    "name": "ru/dash/to",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "когда то",
+        "after": "когда-то"
+      },
+      {
+        "before": "Какой либо",
+        "after": "Какой-либо"
+      },
+      {
+        "before": "откуда либо",
+        "after": "откуда-либо"
+      },
+      {
+        "before": "откуда -либо",
+        "after": "откуда-либо"
+      },
+      {
+        "before": "откуда- либо",
+        "after": "откуда-либо"
+      },
+      {
+        "before": "откуда - либо",
+        "after": "откуда - либо"
+      },
+      {
+        "before": "Кто нибудь",
+        "after": "Кто-нибудь"
+      },
+      {
+        "before": "Ктокто нибудь",
+        "after": "Ктокто нибудь"
+      },
+      {
+        "before": "кое у кого, кое в чем",
+        "after": "кое у кого, кое в чем"
+      },
+      {
+        "before": "кое с какими",
+        "after": "кое с какими"
+      },
+      {
+        "before": "как то",
+        "after": "как то"
+      },
+      {
+        "before": "Как то.",
+        "after": "Как то."
+      },
+      {
+        "before": "Баскак то.",
+        "after": "Баскак то."
+      }
+    ],
+    "file": "src/rules/ru/dash/to.test.ts"
+  },
+  {
+    "name": "ru/dash/weekday",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Вторник-среда",
+        "after": "Вторник–среда"
+      },
+      {
+        "before": "понедельник-четверг",
+        "after": "понедельник–четверг"
+      }
+    ],
+    "file": "src/rules/ru/dash/weekday.test.ts"
+  },
+  {
+    "name": "ru/dash/years",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "2012-2015 г.",
+        "after": "2012–2015 г."
+      },
+      {
+        "before": " 2012-2015 г. ",
+        "after": " 2012–2015 г. "
+      },
+      {
+        "before": "\n2012-2015 г.",
+        "after": "\n2012–2015 г."
+      },
+      {
+        "before": "\n 2012-2015 г.",
+        "after": "\n 2012–2015 г."
+      },
+      {
+        "before": "© 2012-2015 г.",
+        "after": "© 2012–2015 г."
+      },
+      {
+        "before": "2052-2015 г.",
+        "after": "2052-2015 г."
+      },
+      {
+        "before": "1000-2015 гг.\n1000-2015 гг.",
+        "after": "1000–2015 гг.\n1000–2015 гг."
+      },
+      {
+        "before": "5000-2015 г\n1000-2015 гг.",
+        "after": "5000-2015 г\n1000–2015 гг."
+      }
+    ],
+    "file": "src/rules/ru/dash/years.test.ts"
+  },
+  {
+    "name": "ru/date/fromISO",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "2010-02-01",
+        "after": "01.02.2010"
+      },
+      {
+        "before": " 2010-02-01 ",
+        "after": " 01.02.2010 "
+      },
+      {
+        "before": "11/22/2010",
+        "after": "22.11.2010"
+      },
+      {
+        "before": " 11/22/2010 ",
+        "after": " 22.11.2010 "
+      }
+    ],
+    "file": "src/rules/ru/date/fromISO.test.ts"
+  },
+  {
+    "name": "ru/date/weekday",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "25 Мая, Понедельник",
+        "after": "25 мая, понедельник"
+      },
+      {
+        "before": "25 Мая, Понедельник",
+        "after": "25 мая, понедельник"
+      },
+      {
+        "before": "25 Мая, понедельник",
+        "after": "25 мая, понедельник"
+      },
+      {
+        "before": "25 мая, Понедельник",
+        "after": "25 мая, понедельник"
+      }
+    ],
+    "file": "src/rules/ru/date/weekday.test.ts"
+  },
+  {
+    "name": "ru/money/currency",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "100$",
+        "after": "100 $"
+      },
+      {
+        "before": "100 $",
+        "after": "100 $"
+      },
+      {
+        "before": "$100 млн",
+        "after": "100 млн $"
+      },
+      {
+        "before": "$100 млн\n$200 млн",
+        "after": "100 млн $\n200 млн $"
+      },
+      {
+        "before": "$100 тыс.\n$1 млрд",
+        "after": "100 тыс. $\n1 млрд $"
+      },
+      {
+        "before": "$100 000 тыс.\n$2 000 млрд",
+        "after": "100 000 тыс. $\n2 000 млрд $"
+      },
+      {
+        "before": "$100 000",
+        "after": "100 000 $"
+      },
+      {
+        "before": "$100 000 000",
+        "after": "100 000 000 $"
+      },
+      {
+        "before": "YouTube-блогер попросил $22 000 за обзор игры",
+        "after": "YouTube-блогер попросил 22 000 $ за обзор игры"
+      },
+      {
+        "before": "У меня есть $2!",
+        "after": "У меня есть 2 $!"
+      },
+      {
+        "before": "У меня есть $2.5!",
+        "after": "У меня есть 2.5 $!"
+      },
+      {
+        "before": "У меня есть $ 2!",
+        "after": "У меня есть 2 $!"
+      },
+      {
+        "before": "У меня есть $ 2.5!",
+        "after": "У меня есть 2.5 $!"
+      },
+      {
+        "before": "У меня есть $ 2.5! У тебя есть $ 4.5!",
+        "after": "У меня есть 2.5 $! У тебя есть 4.5 $!"
+      },
+      {
+        "before": "20 $ 30 центов",
+        "after": "20 $ 30 центов"
+      },
+      {
+        "before": "100€",
+        "after": "100 €"
+      },
+      {
+        "before": "100 €",
+        "after": "100 €"
+      },
+      {
+        "before": "€100 000",
+        "after": "100 000 €"
+      },
+      {
+        "before": "€100 000 000",
+        "after": "100 000 000 €"
+      },
+      {
+        "before": "У меня есть €2!",
+        "after": "У меня есть 2 €!"
+      },
+      {
+        "before": "У меня есть €2.5!",
+        "after": "У меня есть 2.5 €!"
+      },
+      {
+        "before": "У меня есть € 2!",
+        "after": "У меня есть 2 €!"
+      },
+      {
+        "before": "У меня есть € 2.5!",
+        "after": "У меня есть 2.5 €!"
+      },
+      {
+        "before": "У меня есть € 2.5! У тебя есть € 2.5!",
+        "after": "У меня есть 2.5 €! У тебя есть 2.5 €!"
+      },
+      {
+        "before": "20 € 30 центов",
+        "after": "20 € 30 центов"
+      },
+      {
+        "before": "за 200 млн ₽.",
+        "after": "за 200 млн ₽."
+      }
+    ],
+    "file": "src/rules/ru/money/currency.test.ts"
+  },
+  {
+    "name": "ru/money/ruble",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "100 руб.",
+        "after": "100 ₽"
+      },
+      {
+        "before": "100руб.",
+        "after": "100 ₽"
+      },
+      {
+        "before": "100р.",
+        "after": "100 ₽"
+      },
+      {
+        "before": "100 р.",
+        "after": "100 ₽"
+      },
+      {
+        "before": "100 р.!",
+        "after": "100 ₽!"
+      },
+      {
+        "before": "100 р.?",
+        "after": "100 ₽?"
+      },
+      {
+        "before": "100 р. 20 коп.",
+        "after": "100 р. 20 коп."
+      },
+      {
+        "before": "У меня 100 р., а у тебя нет.",
+        "after": "У меня 100 ₽, а у тебя нет."
+      },
+      {
+        "before": "У меня 100 р., а у тебя нет.",
+        "after": "У меня 100 ₽, а у тебя нет."
+      },
+      {
+        "before": "У меня 100 р., а у тебя 200 р.",
+        "after": "У меня 100 ₽, а у тебя 200 р."
+      },
+      {
+        "before": "У меня 100 р. У Миши 20 р.",
+        "after": "У меня 100 ₽. У Миши 20 р."
+      }
+    ],
+    "file": "src/rules/ru/money/ruble.test.ts"
+  },
+  {
+    "name": "ru/nbsp/abbr",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "т.д.",
+        "after": "т. д."
+      },
+      {
+        "before": "т.п.",
+        "after": "т. п."
+      },
+      {
+        "before": "т.е.",
+        "after": "т. е."
+      },
+      {
+        "before": "т.к.",
+        "after": "т. к."
+      },
+      {
+        "before": "т.н.",
+        "after": "т. н."
+      },
+      {
+        "before": "т.о.",
+        "after": "т. о."
+      },
+      {
+        "before": "т.с.",
+        "after": "т. с."
+      },
+      {
+        "before": "ст.л.",
+        "after": "ст. л."
+      },
+      {
+        "before": "ч.л.",
+        "after": "ч. л."
+      },
+      {
+        "before": "н.ст.",
+        "after": "н. ст."
+      },
+      {
+        "before": "ст.ст.",
+        "after": "ст. ст."
+      },
+      {
+        "before": "н.э.",
+        "after": "н. э."
+      },
+      {
+        "before": "ж.д.",
+        "after": "ж. д."
+      },
+      {
+        "before": "с.х.",
+        "after": "с. х."
+      },
+      {
+        "before": "ед.ч.",
+        "after": "ед. ч."
+      },
+      {
+        "before": "мн.ч.",
+        "after": "мн. ч."
+      },
+      {
+        "before": "с.ш.",
+        "after": "с. ш."
+      },
+      {
+        "before": "ю.ш.",
+        "after": "ю. ш."
+      },
+      {
+        "before": "в.д.",
+        "after": "в. д."
+      },
+      {
+        "before": "з.д.",
+        "after": "з. д."
+      },
+      {
+        "before": "з. д.",
+        "after": "з. д."
+      },
+      {
+        "before": "рт.ст.",
+        "after": "рт. ст."
+      },
+      {
+        "before": "рос.руб.",
+        "after": "рос. руб."
+      },
+      {
+        "before": "рос.р.",
+        "after": "рос. р."
+      },
+      {
+        "before": "ф.ст.",
+        "after": "ф. ст."
+      },
+      {
+        "before": "а.е.м.",
+        "after": "а. е. м."
+      },
+      {
+        "before": "а. е.м.",
+        "after": "а. е. м."
+      },
+      {
+        "before": "а. е. м.",
+        "after": "а. е. м."
+      },
+      {
+        "before": "ст.м.эл. цеха",
+        "after": "ст. м. эл. цеха"
+      },
+      {
+        "before": "ст.м. эл. цеха",
+        "after": "ст. м. эл. цеха"
+      },
+      {
+        "before": "ст. м. эл. цеха",
+        "after": "ст. м. эл. цеха"
+      },
+      {
+        "before": "дд.мм.гггг",
+        "after": "дд.мм.гггг"
+      },
+      {
+        "before": "   дд.мм.гггг   \n   дд.мм.гггг   ",
+        "after": "   дд.мм.гггг   \n   дд.мм.гггг   "
+      },
+      {
+        "before": "ДД.ММ.ГГГГ",
+        "after": "ДД.ММ.ГГГГ"
+      },
+      {
+        "before": "Редакторы, составители, переводчики и т.д., и т.п.",
+        "after": "Редакторы, составители, переводчики и т. д., и т. п."
+      },
+      {
+        "before": "Ищи на кто.рф. Или на кто.ру. Или кто.рус. Или кто.орг. Или кто.укр. Или кто.бг. Или кто.срб.",
+        "after": "Ищи на кто.рф. Или на кто.ру. Или кто.рус. Или кто.орг. Или кто.укр. Или кто.бг. Или кто.срб."
+      },
+      {
+        "before": "Петров И.И.",
+        "after": "Петров И.И."
+      },
+      {
+        "before": "стат.погр.",
+        "after": "стат.погр."
+      },
+      {
+        "before": "Яндекс.Браузер v.1.0",
+        "after": "Яндекс.Браузер v.1.0"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/abbr.test.ts"
+  },
+  {
+    "name": "ru/nbsp/addr",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "г.Москва, ул. Тверская, д.  12",
+        "after": "г. Москва, ул. Тверская, д. 12"
+      },
+      {
+        "before": "Магазин \"Авто\": ул. Набережная, д. 10, эт. -1, оф. 22",
+        "after": "Магазин \"Авто\": ул. Набережная, д. 10, эт. -1, оф. 22"
+      },
+      {
+        "before": "К примеру, ваш адрес: Россия, г. Саратов, ул. Антонова, дом 25, кв. 72.",
+        "after": "К примеру, ваш адрес: Россия, г. Саратов, ул. Антонова, дом 25, кв. 72."
+      },
+      {
+        "before": "Адрес: 119021, Москва, ул. Льва Толстого, 16",
+        "after": "Адрес: 119021, Москва, ул. Льва Толстого, 16"
+      },
+      {
+        "before": "Санкт-Петербург, Пискаревский проспект, дом 2, корпус 2, литер Щ, БЦ «Бенуа».",
+        "after": "Санкт-Петербург, Пискаревский проспект, дом 2, корпус 2, литер Щ, БЦ «Бенуа»."
+      },
+      {
+        "before": "Адрес: 01030, Киев, ул. Б. Хмельницкого 19-21, бизнес-центр «Леонардо», подъезд B2, 6 этаж",
+        "after": "Адрес: 01030, Киев, ул. Б. Хмельницкого 19-21, бизнес-центр «Леонардо», подъезд B2, 6 этаж"
+      },
+      {
+        "before": "220036, Минск, пр. Дзержинского 5, оф. 318 (БЦ Rubin Plaza).",
+        "after": "220036, Минск, пр. Дзержинского 5, оф. 318 (БЦ Rubin Plaza)."
+      },
+      {
+        "before": "г. Пущино, д. 34, мкр. «В»",
+        "after": "г. Пущино, д. 34, мкр. «В»"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/addr.test.ts"
+  },
+  {
+    "name": "ru/nbsp/afterNumberSign",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " № 123",
+        "after": " № 123"
+      },
+      {
+        "before": "№ 123",
+        "after": "№ 123"
+      },
+      {
+        "before": " №123",
+        "after": " № 123"
+      },
+      {
+        "before": " №п/п ",
+        "after": " № п/п "
+      }
+    ],
+    "file": "src/rules/ru/nbsp/afterNumberSign.test.ts"
+  },
+  {
+    "name": "ru/nbsp/beforeParticle",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Может ли быть?",
+        "after": "Может ли быть?"
+      },
+      {
+        "before": "Может же быть?",
+        "after": "Может же быть?"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/beforeParticle.test.ts"
+  },
+  {
+    "name": "ru/nbsp/centuries",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "XXв.",
+        "after": "XX в."
+      },
+      {
+        "before": "XX век",
+        "after": "XX век"
+      },
+      {
+        "before": "XX век\nXX век",
+        "after": "XX век\nXX век"
+      },
+      {
+        "before": "XXв., XXIв.",
+        "after": "XX в., XXI в."
+      },
+      {
+        "before": "XX-XXIвв.",
+        "after": "XX-XXI вв."
+      },
+      {
+        "before": "XX-XXIвв.\nXX-XXIвв.",
+        "after": "XX-XXI вв.\nXX-XXI вв."
+      },
+      {
+        "before": "XX-XXIв. в.",
+        "after": "XX-XXI вв."
+      },
+      {
+        "before": "XX-XXI в. в.",
+        "after": "XX-XXI вв."
+      },
+      {
+        "before": "XX-XXI в.",
+        "after": "XX-XXI вв."
+      },
+      {
+        "before": "XX-XXI веках",
+        "after": "XX-XXI веках"
+      },
+      {
+        "before": "XX-XXI веках\nXX-XXI веках",
+        "after": "XX-XXI веках\nXX-XXI веках"
+      },
+      {
+        "before": "XX-XXI веках,\nXX-XXI веках",
+        "after": "XX-XXI веках,\nXX-XXI веках"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/centuries.test.ts"
+  },
+  {
+    "name": "ru/nbsp/dayMonth",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "20 декабря",
+        "after": "20 декабря"
+      },
+      {
+        "before": "20 дек 2010",
+        "after": "20 дек 2010"
+      },
+      {
+        "before": "1 мая 2015",
+        "after": "1 мая 2015"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/dayMonth.test.ts"
+  },
+  {
+    "name": "ru/nbsp/initials",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "А.С. Пушкин",
+        "after": "А. С. Пушкин"
+      },
+      {
+        "before": "(М. Ю. Лермонтов)",
+        "after": "(М. Ю. Лермонтов)"
+      },
+      {
+        "before": "В.И. Немирович-Данченко",
+        "after": "В. И. Немирович-Данченко"
+      },
+      {
+        "before": "А. С. Пушкин",
+        "after": "А. С. Пушкин"
+      },
+      {
+        "before": "А.С. Пушкин, А. С. Пушкин, А.С. Пушкин\nА. С. Пушкин: А.С. Пушкин",
+        "after": "А. С. Пушкин, А. С. Пушкин, А. С. Пушкин\nА. С. Пушкин: А. С. Пушкин"
+      },
+      {
+        "before": "\"А.С. Пушкин\"",
+        "after": "\"А. С. Пушкин\""
+      },
+      {
+        "before": "«А.С. Пушкин»",
+        "after": "«А. С. Пушкин»"
+      },
+      {
+        "before": "<em>А.С. Пушкин</em>",
+        "after": "<em>А. С. Пушкин</em>"
+      },
+      {
+        "before": "с корреспондентом РАН. Читайте в разделе",
+        "after": "с корреспондентом РАН. Читайте в разделе"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/initials.test.ts"
+  },
+  {
+    "name": "ru/nbsp/m",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " 2 м ",
+        "after": " 2 м "
+      },
+      {
+        "before": " 2м ",
+        "after": " 2 м "
+      },
+      {
+        "before": " 2 м2 ",
+        "after": " 2 м² "
+      },
+      {
+        "before": " 2.0 м2 ",
+        "after": " 2.0 м² "
+      },
+      {
+        "before": " 2,0 м2 ",
+        "after": " 2,0 м² "
+      },
+      {
+        "before": "2,0 м2 ",
+        "after": "2,0 м² "
+      },
+      {
+        "before": "2,0 м2!",
+        "after": "2,0 м²!"
+      },
+      {
+        "before": "2.0 м2?",
+        "after": "2.0 м²?"
+      },
+      {
+        "before": "2.0 м2\n",
+        "after": "2.0 м²\n"
+      },
+      {
+        "before": "\n\n2,0 m2 ",
+        "after": "\n\n2,0 m² "
+      },
+      {
+        "before": " dd м2 ",
+        "after": " dd м2 "
+      },
+      {
+        "before": " 20 м3 ",
+        "after": " 20 м³ "
+      },
+      {
+        "before": "(20 м3)",
+        "after": "(20 м³)"
+      },
+      {
+        "before": " (20 м3) ",
+        "after": " (20 м³) "
+      }
+    ],
+    "file": "src/rules/ru/nbsp/m.test.ts"
+  },
+  {
+    "name": "ru/nbsp/mln",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "10тыс. р\n5тыс руб",
+        "after": "10 тыс. р\n5 тыс руб"
+      },
+      {
+        "before": "одна тыс. руб",
+        "after": "одна тыс. руб"
+      },
+      {
+        "before": "22млн $",
+        "after": "22 млн $"
+      },
+      {
+        "before": "22млнк",
+        "after": "22млнк"
+      },
+      {
+        "before": "2млн",
+        "after": "2 млн"
+      },
+      {
+        "before": "1тыс.",
+        "after": "1 тыс."
+      },
+      {
+        "before": "1тыс.\n2тыс.",
+        "after": "1 тыс.\n2 тыс."
+      },
+      {
+        "before": "1млрд евро",
+        "after": "1 млрд евро"
+      },
+      {
+        "before": "3 трлн долларов",
+        "after": "3 трлн долларов"
+      },
+      {
+        "before": "1000 тыс руб.\n1млн коп.\n1млрд\n1 трлн.",
+        "after": "1000 тыс руб.\n1 млн коп.\n1 млрд\n1 трлн."
+      }
+    ],
+    "file": "src/rules/ru/nbsp/mln.test.ts"
+  },
+  {
+    "name": "ru/nbsp/ooo",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "ООО \"Пример\"",
+        "after": "ООО \"Пример\""
+      },
+      {
+        "before": "ОАО \"Пример\"",
+        "after": "ОАО \"Пример\""
+      },
+      {
+        "before": "НИИ \"Пример\"",
+        "after": "НИИ \"Пример\""
+      },
+      {
+        "before": "ПБОЮЛ \"Пример\"",
+        "after": "ПБОЮЛ \"Пример\""
+      },
+      {
+        "before": "ЗАО \"Пример\"",
+        "after": "ЗАО \"Пример\""
+      },
+      {
+        "before": "ззЗАО \"Пример\"",
+        "after": "ззЗАО \"Пример\""
+      }
+    ],
+    "file": "src/rules/ru/nbsp/ooo.test.ts"
+  },
+  {
+    "name": "ru/nbsp/page",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "На стр. 22",
+        "after": "На стр. 22"
+      },
+      {
+        "before": "На стр.22",
+        "after": "На стр. 22"
+      },
+      {
+        "before": "\nстр.22",
+        "after": "\nстр. 22"
+      },
+      {
+        "before": ")стр.22",
+        "after": ")стр. 22"
+      },
+      {
+        "before": "Стр.22",
+        "after": "Стр. 22"
+      },
+      {
+        "before": "в гл. 2",
+        "after": "в гл. 2"
+      },
+      {
+        "before": "вокруг рис. 7",
+        "after": "вокруг рис. 7"
+      },
+      {
+        "before": "у илл. 5",
+        "after": "у илл. 5"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/page.test.ts"
+  },
+  {
+    "name": "ru/nbsp/ps",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "p.s.: текст",
+        "after": "P. S. текст"
+      },
+      {
+        "before": "\np.p.s.: текст",
+        "after": "\nP. P. S. текст"
+      },
+      {
+        "before": " P.s.: текст",
+        "after": " P. S. текст"
+      },
+      {
+        "before": " з.ы.: текст",
+        "after": " P. S. текст"
+      },
+      {
+        "before": " Ps. текст",
+        "after": " Ps. текст"
+      },
+      {
+        "before": "2P.S. текст",
+        "after": "2P.S. текст"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/ps.test.ts"
+  },
+  {
+    "name": "ru/nbsp/rubleKopek",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "10руб.",
+        "after": "10 руб."
+      },
+      {
+        "before": "10 руб.",
+        "after": "10 руб."
+      },
+      {
+        "before": "10 руб",
+        "after": "10 руб"
+      },
+      {
+        "before": "10руб",
+        "after": "10руб"
+      },
+      {
+        "before": "10.5 руб.",
+        "after": "10.5 руб."
+      },
+      {
+        "before": "10.5 руб.\n20.7 руб.",
+        "after": "10.5 руб.\n20.7 руб."
+      },
+      {
+        "before": "10,5 руб.",
+        "after": "10,5 руб."
+      },
+      {
+        "before": "10руб.",
+        "after": "10 руб."
+      },
+      {
+        "before": "10 руб.",
+        "after": "10 руб."
+      },
+      {
+        "before": "10 руб",
+        "after": "10 руб"
+      },
+      {
+        "before": "10руб",
+        "after": "10руб"
+      },
+      {
+        "before": "1 коп.",
+        "after": "1 коп."
+      },
+      {
+        "before": "1коп.",
+        "after": "1 коп."
+      }
+    ],
+    "file": "src/rules/ru/nbsp/rubleKopek.test.ts"
+  },
+  {
+    "name": "ru/nbsp/see",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "См. также",
+        "after": "См. также"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/see.test.ts"
+  },
+  {
+    "name": "ru/nbsp/year",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "2012 г.",
+        "after": "2012 г."
+      },
+      {
+        "before": " (2012 г.) ",
+        "after": " (2012 г.) "
+      }
+    ],
+    "file": "src/rules/ru/nbsp/year.test.ts"
+  },
+  {
+    "name": "ru/nbsp/years",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "2012-2015 г. г. ",
+        "after": "2012-2015 гг. "
+      },
+      {
+        "before": "2012-2015 г. г.\n2012-2015 г. г.",
+        "after": "2012-2015 гг.\n2012-2015 гг."
+      },
+      {
+        "before": "2012-2015г.г. ",
+        "after": "2012-2015 гг. "
+      },
+      {
+        "before": "2012-2015 годы \n 2022-2025 годы\n",
+        "after": "2012-2015 годы \n 2022-2025 годы\n"
+      },
+      {
+        "before": "2012-2015 годы, \n 2022-2025 годы\n",
+        "after": "2012-2015 годы, \n 2022-2025 годы\n"
+      }
+    ],
+    "file": "src/rules/ru/nbsp/years.test.ts"
+  },
+  {
+    "name": "ru/number/comma",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "123.456.789",
+        "after": "123.456.789"
+      },
+      {
+        "before": "123.4A",
+        "after": "123.4A"
+      },
+      {
+        "before": "1.1%",
+        "after": "1,1%"
+      },
+      {
+        "before": "1.1%\n2.3%",
+        "after": "1,1%\n2,3%"
+      },
+      {
+        "before": "0.1 x 2",
+        "after": "0,1 x 2"
+      },
+      {
+        "before": " 0.1 x 2\n2.71 x 5",
+        "after": " 0,1 x 2\n2,71 x 5"
+      },
+      {
+        "before": "55.5×4",
+        "after": "55,5×4"
+      }
+    ],
+    "file": "src/rules/ru/number/comma.test.ts"
+  },
+  {
+    "name": "ru/number/ordinals",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "5-ая",
+        "after": "5-я"
+      },
+      {
+        "before": "5-ый",
+        "after": "5-й"
+      },
+      {
+        "before": "3%-ый",
+        "after": "3%-й"
+      },
+      {
+        "before": "102-ой",
+        "after": "102-й"
+      },
+      {
+        "before": "2-ое",
+        "after": "2-е"
+      },
+      {
+        "before": "К 13-ому марта",
+        "after": "К 13-му марта"
+      },
+      {
+        "before": "22-ого июля",
+        "after": "22-го июля"
+      },
+      {
+        "before": "Будите 121-ыми",
+        "after": "Будите 121-ми"
+      },
+      {
+        "before": "4-ых",
+        "after": "4-х"
+      }
+    ],
+    "file": "src/rules/ru/number/ordinals.test.ts"
+  },
+  {
+    "name": "ru/optalign/bracket",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "В самом добром (кино)",
+        "after": "В самом добром<span class=\"typograf-oa-sp-lbracket\"> </span><span class=\"typograf-oa-lbracket\">(</span>кино)"
+      },
+      {
+        "before": "В самом добром\n(кино)",
+        "after": "В самом добром\n<span class=\"typograf-oa-n-lbracket\">(</span>кино)"
+      }
+    ],
+    "file": "src/rules/ru/optalign/bracket.test.ts"
+  },
+  {
+    "name": "ru/optalign/bracket",
+    "locale": "ru",
+    "inner": true,
+    "pairs": [
+      {
+        "before": "<span class=\"typograf-oa-sp-lbracket\"> </span>",
+        "after": " "
+      },
+      {
+        "before": "<span class=\"typograf-oa-n-lbracket\"> </span>",
+        "after": " "
+      },
+      {
+        "before": "<span class=\"typograf-oa-n-lbracket\"> </span>\n<span class=\"typograf-oa-n-lbracket\"> </span>",
+        "after": " \n "
+      },
+      {
+        "before": "<span class=\"typograf-oa-lbracket\">(</span>",
+        "after": "("
+      }
+    ],
+    "file": "src/rules/ru/optalign/bracket.test.ts"
+  },
+  {
+    "name": "ru/optalign/comma",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Смеркалось, шёл дождь",
+        "after": "Смеркалось<span class=\"typograf-oa-comma\">,</span><span class=\"typograf-oa-comma-sp\"> </span>шёл дождь"
+      },
+      {
+        "before": "Было 2, стало 5",
+        "after": "Было 2<span class=\"typograf-oa-comma\">,</span><span class=\"typograf-oa-comma-sp\"> </span>стало 5"
+      }
+    ],
+    "file": "src/rules/ru/optalign/comma.test.ts"
+  },
+  {
+    "name": "ru/optalign/comma",
+    "locale": "ru",
+    "inner": true,
+    "pairs": [
+      {
+        "before": "<span class=\"typograf-oa-comma\">,</span>",
+        "after": ","
+      },
+      {
+        "before": "<span class=\"typograf-oa-comma-sp\"> </span>",
+        "after": " "
+      }
+    ],
+    "file": "src/rules/ru/optalign/comma.test.ts"
+  },
+  {
+    "name": "ru/optalign/quote",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Вот у вас «Мой спутник».",
+        "after": "Вот у вас<span class=\"typograf-oa-sp-lquote\"> </span><span class=\"typograf-oa-lquote\">«</span>Мой спутник»."
+      },
+      {
+        "before": "Вот у вас\n«Мой спутник».",
+        "after": "Вот у вас<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>Мой спутник»."
+      },
+      {
+        "before": "«Billboard Hot 100»\n\n«Второе британское вторжение»",
+        "after": "<span class=\"typograf-oa-n-lquote\">«</span>Billboard Hot 100»\n\n<span class=\"typograf-oa-n-lquote\">«</span>Второе британское вторжение»"
+      },
+      {
+        "before": "«Billboard Hot 100»\n«Второе британское вторжение»\n\n«Billboard Hot 100»\n«Второе британское вторжение»",
+        "after": "<span class=\"typograf-oa-n-lquote\">«</span>Billboard Hot 100»<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>Второе британское вторжение»\n\n<span class=\"typograf-oa-n-lquote\">«</span>Billboard Hot 100»<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>Второе британское вторжение»"
+      },
+      {
+        "before": "Вот у вас\n«Мой спутник».\nВот у вас\n«Мой спутник».",
+        "after": "Вот у вас<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>Мой спутник».\nВот у вас<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>Мой спутник»."
+      },
+      {
+        "before": "Вот у вас «Мой спутник».",
+        "after": "Вот у вас <span class=\"typograf-oa-n-lquote\">«</span>Мой спутник»."
+      },
+      {
+        "before": "«что-то», «где-то!»",
+        "after": "<span class=\"typograf-oa-n-lquote\">«</span>что-то»,<span class=\"typograf-oa-sp-lquote\"> </span><span class=\"typograf-oa-lquote\">«</span>где-то!»"
+      },
+      {
+        "before": "«что-то, где-то» и «почему-то.»",
+        "after": "<span class=\"typograf-oa-n-lquote\">«</span>что-то, где-то» и<span class=\"typograf-oa-sp-lquote\"> </span><span class=\"typograf-oa-lquote\">«</span>почему-то.»"
+      },
+      {
+        "before": "тестовый эфир 1 «постно — значит вкусно»",
+        "after": "тестовый эфир 1<span class=\"typograf-oa-sp-lquote\"> </span><span class=\"typograf-oa-lquote\">«</span>постно — значит вкусно»"
+      },
+      {
+        "before": "хранил\n«флаг",
+        "after": "хранил<span class=\"typograf-oa-sp-lquote\">\n</span><span class=\"typograf-oa-lquote\">«</span>флаг"
+      }
+    ],
+    "file": "src/rules/ru/optalign/quote.test.ts"
+  },
+  {
+    "name": "ru/optalign/quote",
+    "locale": "ru",
+    "inner": true,
+    "pairs": [
+      {
+        "before": "<span class=\"typograf-oa-sp-lquote\">\n</span>",
+        "after": "\n"
+      },
+      {
+        "before": "<span class=\"typograf-oa-sp-lquote\"> </span>",
+        "after": " "
+      },
+      {
+        "before": "<span class=\"typograf-oa-lquote\">«</span>",
+        "after": "«"
+      },
+      {
+        "before": "\n<span class=\"typograf-oa-n-lquote\">«</span>",
+        "after": "\n«"
+      },
+      {
+        "before": "\n<span class=\"typograf-oa-n-lquote\">«</span>",
+        "after": "\n«"
+      }
+    ],
+    "file": "src/rules/ru/optalign/quote.test.ts"
+  },
+  {
+    "name": "ru/other/accent",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "ногА",
+        "after": "нога́"
+      },
+      {
+        "before": "(ногА)",
+        "after": "(нога́)"
+      },
+      {
+        "before": " АлексИй ",
+        "after": " Алекси́й "
+      },
+      {
+        "before": "прИнял",
+        "after": "при́нял"
+      },
+      {
+        "before": "клЯтвопреступлЕние",
+        "after": "кля́твопреступле́ние"
+      }
+    ],
+    "file": "src/rules/ru/other/accent.test.ts"
+  },
+  {
+    "name": "ru/other/phone-number",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": " тел.: +74957397000",
+        "after": " тел.: +7 495 739-70-00"
+      },
+      {
+        "before": " ГОСТ 22222 ",
+        "after": " ГОСТ 22222 "
+      },
+      {
+        "before": "тел.: 812 5551234",
+        "after": "тел.: (812) 555-12-34"
+      },
+      {
+        "before": "тел.: +7915178-22-12",
+        "after": "тел.: +7 915 178-22-12"
+      },
+      {
+        "before": "телефон 495 555-1234",
+        "after": "телефон 495 555-12-34"
+      },
+      {
+        "before": "моб. +79225551234",
+        "after": "моб. +7 922 555-12-34"
+      },
+      {
+        "before": "+79225551234",
+        "after": "+7 922 555-12-34"
+      },
+      {
+        "before": "\n+79225551234\n+79225551235",
+        "after": "\n+7 922 555-12-34\n+7 922 555-12-35"
+      },
+      {
+        "before": "+7922555123",
+        "after": "+7922555123"
+      },
+      {
+        "before": ",+79225551234\n",
+        "after": ",+7 922 555-12-34\n"
+      },
+      {
+        "before": "\n+79225551234\n",
+        "after": "\n+7 922 555-12-34\n"
+      },
+      {
+        "before": "моб. +19225551234",
+        "after": "моб. +19225551234"
+      },
+      {
+        "before": "Телефон: (4942)514172",
+        "after": "Телефон: (49-42) 51-41-72"
+      },
+      {
+        "before": "Телефон: 51-41-72",
+        "after": "Телефон: 51-41-72"
+      },
+      {
+        "before": "Телефон: (494533)2223",
+        "after": "Телефон: (494-53) 3-22-23"
+      },
+      {
+        "before": "ф. 84995551234",
+        "after": "ф. 8 499 555-12-34"
+      },
+      {
+        "before": "тел. 84115333443",
+        "after": "тел. 8 (41-15-33) 34-43"
+      },
+      {
+        "before": "тел. 3522255512",
+        "after": "тел. (352-22) 5-55-12"
+      },
+      {
+        "before": "тел. 3522255512\nф. 3522255513",
+        "after": "тел. (352-22) 5-55-12\nф. (352-22) 5-55-13"
+      },
+      {
+        "before": "☎ 3522255512\n☏ 3522255513",
+        "after": "☎ (352-22) 5-55-12\n☏ (352-22) 5-55-13"
+      },
+      {
+        "before": "+7 (391) 271-77-25",
+        "after": "+7 (391) 271-77-25"
+      },
+      {
+        "before": "+7 39132 4-40-25",
+        "after": "+7 (391-32) 4-40-25"
+      },
+      {
+        "before": "+7 39190 7-10-22",
+        "after": "+7 (391-90) 7-10-22"
+      },
+      {
+        "before": "📠 3522255512",
+        "after": "📠 (352-22) 5-55-12"
+      },
+      {
+        "before": "📞 3522255512",
+        "after": "📞 (352-22) 5-55-12"
+      },
+      {
+        "before": "📱 3522255512",
+        "after": "📱 (352-22) 5-55-12"
+      },
+      {
+        "before": "+74951112233",
+        "after": "+7 495 111-22-33"
+      },
+      {
+        "before": "тел.: 88001004888",
+        "after": "тел.: 8 800 100-48-88"
+      }
+    ],
+    "file": "src/rules/ru/other/phone-number.test.ts"
+  },
+  {
+    "name": "ru/punctuation/ano",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Его лодка скользнула вниз но бедняга держался по-прежнему стойко.",
+        "after": "Его лодка скользнула вниз, но бедняга держался по-прежнему стойко."
+      },
+      {
+        "before": "Я пошёл домой а он остался.",
+        "after": "Я пошёл домой, а он остался."
+      },
+      {
+        "before": "Я пошёл домой а он остался.",
+        "after": "Я пошёл домой, а он остался."
+      },
+      {
+        "before": "- Начну делать это сейчас, - сказал он, - а когда ты вернёшься, мы продолжим вместе.",
+        "after": "- Начну делать это сейчас, - сказал он, - а когда ты вернёшься, мы продолжим вместе."
+      },
+      {
+        "before": "Отечество мое в прошедшем \n\tникак не может устояться –\nему раздваиваться между, \n\tа тем и этим оставаться.\nЕго изогнутые сосны \n\tхранят тревожные преданья,\nно откровения несносны,\n\tневыносимы оправданья.",
+        "after": "Отечество мое в прошедшем \n\tникак не может устояться –\nему раздваиваться между, \n\tа тем и этим оставаться.\nЕго изогнутые сосны \n\tхранят тревожные преданья,\nно откровения несносны,\n\tневыносимы оправданья."
+      },
+      {
+        "before": "Михаэль Шарналь попросил читателей в Твиттере поделиться полезными CSS-снипетами https://twitter.com/justmarkup/status/974573989497593856, а потом собрал их с пояснениями у себя в блоге — https://justmarkup.com/log/2018/03/collection-of-css-snippets/",
+        "after": "Михаэль Шарналь попросил читателей в Твиттере поделиться полезными CSS-снипетами https://twitter.com/justmarkup/status/974573989497593856, а потом собрал их с пояснениями у себя в блоге — https://justmarkup.com/log/2018/03/collection-of-css-snippets/"
+      },
+      {
+        "before": "никто не отнимет то, что у тебя в голове ( а там может быть умиротворение и счастье)",
+        "after": "никто не отнимет то, что у тебя в голове ( а там может быть умиротворение и счастье)"
+      },
+      {
+        "before": "Я пошёл домой,<br> а он остался.",
+        "after": "Я пошёл домой,<br> а он остался."
+      },
+      {
+        "before": "Я пошёл домой,<br>а он остался.",
+        "after": "Я пошёл домой,<br>а он остался."
+      },
+      {
+        "before": "<em>Я пошёл домой,</em> а он остался.",
+        "after": "<em>Я пошёл домой,</em> а он остался."
+      },
+      {
+        "before": "<p> а когда ты вернёшься, мы продолжим вместе</p>",
+        "after": "<p> а когда ты вернёшься, мы продолжим вместе</p>"
+      },
+      {
+        "before": "<a href=\"./\">Ссылка</a>, а не ссылка",
+        "after": "<a href=\"./\">Ссылка</a>, а не ссылка"
+      }
+    ],
+    "file": "src/rules/ru/punctuation/ano.test.ts"
+  },
+  {
+    "name": "ru/punctuation/exclamation",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "!!",
+        "after": "!"
+      },
+      {
+        "before": "Ура!!  ",
+        "after": "Ура!  "
+      },
+      {
+        "before": "Ура!!\nУра!!",
+        "after": "Ура!\nУра!"
+      },
+      {
+        "before": "!!!!",
+        "after": "!!!"
+      },
+      {
+        "before": "Ура!!!!  ",
+        "after": "Ура!!!  "
+      },
+      {
+        "before": "Ура!!!!\nУра!!!!",
+        "after": "Ура!!!\nУра!!!"
+      }
+    ],
+    "file": "src/rules/ru/punctuation/exclamation.test.ts"
+  },
+  {
+    "name": "ru/punctuation/exclamationQuestion",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "!?",
+        "after": "?!"
+      },
+      {
+        "before": "Может домой!?",
+        "after": "Может домой?!"
+      }
+    ],
+    "file": "src/rules/ru/punctuation/exclamationQuestion.test.ts"
+  },
+  {
+    "name": "ru/punctuation/hellipQuestion",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Простите, государь!…",
+        "after": "Простите, государь!.."
+      },
+      {
+        "before": "Не правда ль, ты одна?... Ты плачешь?",
+        "after": "Не правда ль, ты одна?.. Ты плачешь?"
+      },
+      {
+        "before": "Сколько жить еще на свете?… (Твардовский); А как вы вчера играли!… (А.Н. Островский).",
+        "after": "Сколько жить еще на свете?.. (Твардовский); А как вы вчера играли!.. (А.Н. Островский)."
+      },
+      {
+        "before": "Моя работа…, но, впрочем, не будем говорить о ней.",
+        "after": "Моя работа… но, впрочем, не будем говорить о ней."
+      }
+    ],
+    "file": "src/rules/ru/punctuation/hellipQuestion.test.ts"
+  },
+  {
+    "name": "ru/space/afterHellip",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Простите, государь!..Стоять я не могу...",
+        "after": "Простите, государь!.. Стоять я не могу..."
+      },
+      {
+        "before": "Не правда ль, ты одна?...Ты плачешь? Я спокоен... Но если... (Пушкин).",
+        "after": "Не правда ль, ты одна?...Ты плачешь? Я спокоен... Но если... (Пушкин)."
+      },
+      {
+        "before": "Не правда ль, ты одна?..Ты плачешь? Я спокоен... Но если... (Пушкин).",
+        "after": "Не правда ль, ты одна?.. Ты плачешь? Я спокоен... Но если... (Пушкин)."
+      },
+      {
+        "before": "Я спокоен...Но если...",
+        "after": "Я спокоен... Но если..."
+      },
+      {
+        "before": "Я спокоен...но если...",
+        "after": "Я спокоен...но если..."
+      },
+      {
+        "before": "Я спокоен…Но если...",
+        "after": "Я спокоен… Но если..."
+      }
+    ],
+    "file": "src/rules/ru/space/afterHellip.test.ts"
+  },
+  {
+    "name": "ru/space/year",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "В 2002году",
+        "after": "В 2002 году"
+      },
+      {
+        "before": "Шёл 2010год.",
+        "after": "Шёл 2010 год."
+      },
+      {
+        "before": "на всём протяжении 1997года\n",
+        "after": "на всём протяжении 1997 года\n"
+      },
+      {
+        "before": "\n\nНачавшиеся в 1957году экономические реформы были слишком поверхностными,",
+        "after": "\n\nНачавшиеся в 1957 году экономические реформы были слишком поверхностными,"
+      }
+    ],
+    "file": "src/rules/ru/space/year.test.ts"
+  },
+  {
+    "name": "ru/symbols/NN",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "№№ 5—10",
+        "after": "№ 5—10"
+      },
+      {
+        "before": "№№ 5—10\n№№ 8—12",
+        "after": "№ 5—10\n№ 8—12"
+      }
+    ],
+    "file": "src/rules/ru/symbols/NN.test.ts"
+  },
+  {
+    "name": "ru/typo/switchingKeyboardLayout",
+    "locale": "ru",
+    "pairs": [
+      {
+        "before": "Ccылка, ccылка и ещё ccылка",
+        "after": "Ссылка, ссылка и ещё ссылка"
+      },
+      {
+        "before": "Первая ccылка\nВторая ccылка\n...\nCедьмая ccылка",
+        "after": "Первая ссылка\nВторая ссылка\n...\nСедьмая ссылка"
+      }
+    ],
+    "file": "src/rules/ru/typo/switchingKeyboardLayout.test.ts"
+  }
+]

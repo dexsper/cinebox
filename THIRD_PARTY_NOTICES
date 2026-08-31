@@ -1,0 +1,31 @@
+Third-Party Notices
+===================
+
+Rust crate licenses live in each crate's own package metadata, not in this
+repository's Cargo.toml. They can be collected from Cargo.lock.
+
+This file lists third-party material that Cargo does not see: IBM Plex and
+typograf are in the repository; libmpv is fetched at Windows build time.
+
+IBM Plex Sans
+----------------
+Path:    cinebox/assets/fonts
+License: SIL Open Font License 1.1 (cinebox/assets/fonts/license.txt)
+Copyright © 2017 IBM Corp. Reserved Font Name "Plex"
+
+typograf
+----------------
+Path:    crates/cinebox-typograf
+License: MIT (crates/cinebox-typograf/LICENSE.md)
+Copyright © 2014–2025 Denis Seleznev <hcodes@yandex.ru>
+https://github.com/typograf/typograf
+
+libmpv
+----------------
+Location: not in git; the Windows build of cinebox-player writes
+          libmpv-2.dll to crates/cinebox-player/mpv-src
+mpv:      GPL-2.0-or-later
+          https://github.com/mpv-player/mpv
+Build:    shinchiro mpv-dev 20260829 (git e8673660ab)
+          https://github.com/shinchiro/mpv-winbuild-cmake
+          This binary links GPL FFmpeg, so the shipped DLL is GPL.

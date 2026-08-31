@@ -3,6 +3,7 @@ resolver = "3"
 members = [
     "cinebox",
     "crates/cinebox-core",
+    "crates/cinebox-typograf",
     "crates/cinebox-tmdb",
     "crates/cinebox-parse",
     "crates/cinebox-indexer",
@@ -21,6 +22,7 @@ homepage = "https://github.com/dexsper/cinebox"
 
 [workspace.dependencies]
 cinebox-core = { path = "crates/cinebox-core" }
+cinebox-typograf = { path = "crates/cinebox-typograf" }
 cinebox-tmdb = { path = "crates/cinebox-tmdb" }
 cinebox-parse = { path = "crates/cinebox-parse" }
 cinebox-indexer = { path = "crates/cinebox-indexer" }

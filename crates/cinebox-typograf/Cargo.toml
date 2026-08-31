@@ -1,0 +1,20 @@
+[package]
+name = "cinebox-typograf"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license = "MIT"
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Rust port of typograf (https://github.com/typograf/typograf) for ru and en-US"
+
+[dependencies]
+fancy-regex = "0.19"
+
+[dev-dependencies]
+serde = { workspace = true, features = ["derive"] }
+serde_json.workspace = true
+
+[lints]
+workspace = true
