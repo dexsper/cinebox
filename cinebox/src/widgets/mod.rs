@@ -5,6 +5,7 @@ pub mod combo;
 pub mod drawer;
 pub mod intro;
 pub mod poster;
+pub mod rating;
 pub mod scroll;
 pub mod skeleton;
 

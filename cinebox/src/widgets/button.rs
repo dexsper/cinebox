@@ -3,8 +3,8 @@
 //! Never call [`egui::Button::fill`]: it freezes the background and kills hover.
 
 use egui::{
-    Atom, Color32, CursorIcon, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2, vec2,
-    WidgetInfo, WidgetType,
+    Atom, Color32, CursorIcon, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2,
+    WidgetInfo, WidgetType, vec2,
 };
 use egui_material_icons::MaterialIcon;
 
@@ -13,7 +13,9 @@ use crate::theme::Theme;
 pub const PAD_X: f32 = 14.0;
 pub const PAD_Y: f32 = 8.0;
 pub const CHIP_MIN_W: f32 = 88.0;
-pub const CHIP_H: f32 = 32.0;
+
+pub const CONTROL_H: f32 = 32.0;
+pub const CHIP_H: f32 = CONTROL_H;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Tone {
@@ -77,6 +79,7 @@ pub fn fill_for_hover(ui: &Ui, id: Id, idle: Color32, hover: Color32) -> Color32
         .ctx()
         .read_response(id)
         .is_some_and(|response| response.hovered() || response.contains_pointer());
+
     if hovered {
         return hover;
     }
@@ -88,12 +91,7 @@ pub fn click_rect(ui: &mut Ui, id: Id, rect: egui::Rect) -> Response {
     pointing(ui.interact(rect, id, Sense::click()))
 }
 
-pub fn add<'a>(
-    ui: &mut Ui,
-    theme: &Theme,
-    atoms: impl IntoAtoms<'a>,
-    opts: Opts,
-) -> Response {
+pub fn add<'a>(ui: &mut Ui, theme: &Theme, atoms: impl IntoAtoms<'a>, opts: Opts) -> Response {
     add_named(ui, theme, atoms, opts, None)
 }
 
@@ -134,13 +132,7 @@ fn announce(response: Response, label: &str) -> Response {
     response
 }
 
-pub fn icon_label(
-    ui: &mut Ui,
-    theme: &Theme,
-    icon: MaterialIcon,
-    label: &str,
-    opts: Opts,
-) -> bool {
+pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> bool {
     let fg = foreground(theme, opts.tone);
     let atoms = (
         Atom::grow(),

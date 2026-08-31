@@ -7,7 +7,7 @@ use super::button::{PAD_X, PAD_Y};
 
 use crate::theme::Theme;
 
-pub const HEIGHT: f32 = 32.0;
+pub const HEIGHT: f32 = super::button::CONTROL_H;
 
 pub fn apply_visuals(ui: &mut Ui, theme: &Theme) {
     ui.spacing_mut().interact_size.y = HEIGHT;

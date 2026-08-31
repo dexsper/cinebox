@@ -9,7 +9,7 @@ pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, T
 use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, TmdbId, tmdb_image_url, typograph};
 use cinebox_torrserver::AddSpec;
-use egui::{Align, Frame, Layout, Margin, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
+use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 
 use crate::jobs;
@@ -256,7 +256,12 @@ impl TorrentsScreen {
                         );
                         ui.add_space(8.0);
                     }
-                    ratings_row(ui, &state.movie, theme);
+                    widgets::rating::row(
+                        ui,
+                        theme,
+                        state.movie.vote,
+                        state.movie.certification.as_deref(),
+                    );
                 });
             });
             ui.add_space(10.0);
@@ -289,57 +294,6 @@ impl TorrentsScreen {
             );
         });
     }
-}
-
-fn ratings_row(ui: &mut Ui, movie: &MovieBits, theme: &Theme) {
-    let vote = movie.vote.filter(|v| *v > 0.0);
-    let cert = movie.certification.as_deref().filter(|s| !s.is_empty());
-    let has_rating = vote.is_some() || cert.is_some();
-    if !has_rating {
-        return;
-    }
-
-    ui.horizontal_wrapped(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        if let Some(vote) = vote {
-            rating_pill(ui, theme, |ui| {
-                ui.label(
-                    RichText::new(format!("{vote:.1}"))
-                        .size(theme.text_subtitle)
-                        .color(theme.rate),
-                );
-                ui.label(RichText::new("TMDB").size(theme.text_caption).color(theme.muted));
-            });
-        }
-        if let Some(cert) = cert {
-            rating_pill(ui, theme, |ui| {
-                ui.label(
-                    RichText::new(cert)
-                        .size(theme.text_subtitle)
-                        .color(theme.title),
-                );
-            });
-        }
-    });
-}
-
-fn rating_pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
-    const INNER_H: f32 = 22.0;
-
-    Frame::new()
-        .fill(theme.rating_pill)
-        .corner_radius(6)
-        .inner_margin(Margin::symmetric(10, 6))
-        .show(ui, |ui| {
-            ui.set_min_height(INNER_H);
-            ui.set_max_height(INNER_H);
-            ui.spacing_mut().item_spacing.x = 6.0;
-            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                ui.set_min_height(INNER_H);
-                ui.set_max_height(INNER_H);
-                add(ui);
-            });
-        });
 }
 
 impl TorrentsScreen {

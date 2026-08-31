@@ -20,7 +20,7 @@ const CATEGORY_H: f32 = 72.0;
 const ICON_WELL: f32 = 40.0;
 const TOGGLE_W: f32 = 44.0;
 const TOGGLE_H: f32 = 26.0;
-const INPUT_H: f32 = 32.0;
+const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
 const ACTION_H: f32 = 36.0;
 
 pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
@@ -36,8 +36,10 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
             .max_rect(inner)
             .layout(Layout::left_to_right(Align::Center)),
     );
+
     row.style_mut().interaction.selectable_labels = false;
     icon_well(&mut row, theme, cat);
+
     row.add_space(12.0);
     row.vertical(|ui| {
         ui.label(
@@ -45,10 +47,20 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
                 .font(theme.title_font(theme.text_section))
                 .color(theme.title),
         );
-        ui.label(RichText::new(cat.subtitle).size(theme.text_small).color(theme.muted));
+        ui.label(
+            RichText::new(cat.subtitle)
+                .size(theme.text_small)
+                .color(theme.muted),
+        );
     });
+
     row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(ICON_CHEVRON_RIGHT.rich_text().size(theme.text_icon_lg).color(theme.muted));
+        ui.label(
+            ICON_CHEVRON_RIGHT
+                .rich_text()
+                .size(theme.text_icon_lg)
+                .color(theme.muted),
+        );
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
@@ -59,9 +71,15 @@ fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(ICON_WELL), Sense::hover());
     ui.painter()
         .rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
+
     ui.new_child(UiBuilder::new().max_rect(rect))
         .centered_and_justified(|ui| {
-            ui.label(cat.icon.rich_text().size(theme.text_icon_lg).color(theme.title));
+            ui.label(
+                cat.icon
+                    .rich_text()
+                    .size(theme.text_icon_lg)
+                    .color(theme.title),
+            );
         });
 }
 
@@ -76,7 +94,10 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let back = crate::widgets::button::add(
         &mut row,
         theme,
-        ICON_ARROW_BACK.rich_text().size(theme.text_icon_md).color(theme.title),
+        ICON_ARROW_BACK
+            .rich_text()
+            .size(theme.text_icon_md)
+            .color(theme.title),
         crate::widgets::button::Opts::secondary(vec2(32.0, 32.0)),
     )
     .on_hover_text(Msg::NavBack.en())
@@ -126,12 +147,23 @@ pub fn toggle_row(
     row.style_mut().interaction.selectable_labels = false;
     row.horizontal_centered(|ui| {
         ui.vertical(|ui| {
-            ui.label(RichText::new(label).size(theme.text_label).color(theme.label));
+            ui.label(
+                RichText::new(label)
+                    .size(theme.text_label)
+                    .color(theme.label),
+            );
+
             let Some(hint) = hint else {
                 return;
             };
-            ui.label(RichText::new(hint).size(theme.text_caption).color(theme.muted));
+
+            ui.label(
+                RichText::new(hint)
+                    .size(theme.text_caption)
+                    .color(theme.muted),
+            );
         });
+
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             paint_switch(ui, theme, *value);
         });
@@ -148,11 +180,13 @@ pub fn toggle_row(
 fn paint_switch(ui: &mut Ui, theme: &Theme, on: bool) {
     let (rect, _) = ui.allocate_exact_size(vec2(TOGGLE_W, TOGGLE_H), Sense::hover());
     let radius = CornerRadius::same((TOGGLE_H / 2.0).round() as u8);
+
     let fill = if on {
         theme.btn_primary_bg
     } else {
         theme.toggle_off
     };
+
     ui.painter().rect_filled(rect, radius, fill);
 
     let pad = 3.0;
@@ -162,13 +196,15 @@ fn paint_switch(ui: &mut Ui, theme: &Theme, on: bool) {
     } else {
         rect.left() + pad + knob_r
     };
+
     let knob = if on {
         theme.btn_primary_fg
     } else {
         theme.title
     };
-    ui.painter()
-        .circle_filled(pos2(knob_x, rect.center().y), knob_r, knob);
+
+    let knob_pos = pos2(knob_x, rect.center().y);
+    ui.painter().circle_filled(knob_pos, knob_r, knob);
 }
 
 pub fn text_row(
@@ -235,6 +271,7 @@ pub fn data_language_row(ui: &mut Ui, theme: &Theme, value: &mut Option<String>)
         Msg::DataLanguage.en(),
         Some(Msg::DataLanguageHint.en()),
     );
+
     let mut lang = value.clone().unwrap_or_default();
     let changed = styled_edit(ui, theme, &mut lang, "en-US", false);
     if !changed {
@@ -298,22 +335,26 @@ pub fn speed_test_row<F, Fut>(
 
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
-    action_button(
-        ui,
-        theme,
-        ICON_DELETE_SWEEP,
-        Msg::ClearCache.en(),
-        false,
-    )
+    action_button(ui, theme, ICON_DELETE_SWEEP, Msg::ClearCache.en(), false)
 }
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
     ui.add_space(4.0);
-    ui.label(RichText::new(label).size(theme.text_small).color(theme.muted_bright));
+    ui.label(
+        RichText::new(label)
+            .size(theme.text_small)
+            .color(theme.muted_bright),
+    );
+
     let Some(hint) = hint else {
         return;
     };
-    ui.label(RichText::new(hint).size(theme.text_caption).color(theme.muted));
+
+    ui.label(
+        RichText::new(hint)
+            .size(theme.text_caption)
+            .color(theme.muted),
+    );
 }
 
 fn styled_edit(
@@ -346,6 +387,7 @@ fn styled_edit(
         .margin(Margin::ZERO)
         .hint_text(placeholder)
         .frame(Frame::NONE);
+
     if password {
         edit = edit.password(true);
     }
