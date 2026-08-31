@@ -18,6 +18,8 @@ mod ui_tests;
 
 use cinebox_core::i18n::Msg;
 
+const ICON_PX: u32 = 256;
+
 /// Run the desktop shell.
 ///
 /// # Errors
@@ -29,7 +31,8 @@ pub fn run() -> eframe::Result {
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
             .with_decorations(false)
-            .with_title(Msg::AppTitle.t()),
+            .with_title(Msg::AppTitle.t())
+            .with_icon(app_icon()),
         ..Default::default()
     };
     eframe::run_native(
@@ -37,4 +40,12 @@ pub fn run() -> eframe::Result {
         native_options,
         Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
     )
+}
+
+fn app_icon() -> egui::IconData {
+    egui::IconData {
+        rgba: include_bytes!(concat!(env!("OUT_DIR"), "/icon-256.rgba")).to_vec(),
+        width: ICON_PX,
+        height: ICON_PX,
+    }
 }
