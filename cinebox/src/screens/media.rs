@@ -25,6 +25,7 @@ pub struct MediaScreen {
     pending_intro: bool,
     force_refresh: bool,
     lang: Option<UiLanguage>,
+    reset_scroll: bool,
 }
 
 impl Default for MediaScreen {
@@ -39,6 +40,7 @@ impl Default for MediaScreen {
             pending_intro: false,
             force_refresh: false,
             lang: None,
+            reset_scroll: false,
         }
     }
 }
@@ -62,6 +64,7 @@ impl MediaScreen {
         self.id = Some(item.id);
         self.preview = Some(item);
         self.pending_intro = true;
+        self.reset_scroll = true;
     }
 
     /// Drop the in-memory card so the next paint reloads for the new language.
@@ -88,6 +91,7 @@ impl MediaScreen {
             self.bind = Bind::new(true);
             self.disk = None;
             self.force_refresh = false;
+            self.reset_scroll = true;
 
             let is_different = self
                 .preview
@@ -154,13 +158,20 @@ impl MediaScreen {
         }
 
         let mut retry = false;
+        let to_top = self.reset_scroll;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.bind.read() {
-                Some(Ok(details)) => ready(ui, details, svc, theme, t),
+                Some(Ok(details)) => {
+                    self.reset_scroll = false;
+                    ready(ui, details, svc, theme, t, to_top)
+                }
                 _ => None,
             },
             super::swr::Swr::Disk => match self.disk.as_ref() {
-                Some(hit) => ready(ui, &hit.value, svc, theme, t),
+                Some(hit) => {
+                    self.reset_scroll = false;
+                    ready(ui, &hit.value, svc, theme, t, to_top)
+                }
                 None => None,
             },
             super::swr::Swr::Failed => {
@@ -173,7 +184,8 @@ impl MediaScreen {
             }
             super::swr::Swr::Pending => {
                 if let Some(item) = self.preview.as_ref() {
-                    loading(ui, svc, theme, t, item);
+                    self.reset_scroll = false;
+                    loading(ui, svc, theme, t, item, to_top);
                 } else {
                     widgets::page_spinner(ui, theme);
                 }
@@ -203,6 +215,7 @@ fn ready(
     svc: &Services,
     theme: &Theme,
     t: f32,
+    to_top: bool,
 ) -> Option<NavAction> {
     let mut action = None;
     let poster_size = Vec2::new(
@@ -214,7 +227,7 @@ fn ready(
     let year_size = intro::lerp(theme.text_caption, theme.text_section, t);
     let head = details.head_line();
 
-    scroll::vertical(ui, "media-page", |ui| {
+    scroll_page(ui, details.kind, details.id, to_top, |ui| {
         ui.add_space(12.0);
         hero(
             ui,
@@ -369,7 +382,7 @@ fn ready(
     action
 }
 
-fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogItem) {
+fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogItem, to_top: bool) {
     let poster_size = Vec2::new(
         intro::lerp(theme.tile_w, theme.poster_w, t),
         intro::lerp(theme.tile_h, theme.poster_h, t),
@@ -383,7 +396,7 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
         .unwrap_or_else(|| String::from("—"));
 
     let pulse = skeleton::pulse(ui);
-    scroll::vertical(ui, "media-page", |ui| {
+    scroll_page(ui, item.kind, item.id, to_top, |ui| {
         ui.add_space(12.0);
         hero(
             ui,
@@ -718,6 +731,22 @@ fn shelf(
     });
 }
 
+fn scroll_page(
+    ui: &mut Ui,
+    kind: MediaKind,
+    id: TmdbId,
+    to_top: bool,
+    add: impl FnOnce(&mut Ui),
+) {
+    let salt = ("media-page", kind, id);
+    if to_top {
+        scroll::vertical_to_top(ui, salt, add);
+        return;
+    }
+
+    scroll::vertical(ui, salt, add);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -755,5 +784,14 @@ mod tests {
 
         screen.start_intro_if_pending(10.0);
         assert!(!intro::running(screen.intro_at, 10.0));
+    }
+
+    #[test]
+    fn seed_asks_to_reset_scroll() {
+        let mut screen = MediaScreen::default();
+        assert!(!screen.reset_scroll);
+
+        screen.seed(sample_item());
+        assert!(screen.reset_scroll);
     }
 }

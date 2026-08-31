@@ -127,7 +127,12 @@ fn source() -> ScrollSource {
 
 /// Vertical page scroll with overlay bar, drag, and inertia.
 pub fn vertical(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, add);
+    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, false, add);
+}
+
+/// Like [`vertical`], but this frame starts at the top (new title, re-entry).
+pub fn vertical_to_top(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
+    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, true, add);
 }
 
 /// Horizontal shelf: height follows content.
@@ -138,6 +143,7 @@ pub fn horizontal(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
         Vec2b::new(true, false),
         Vec2b::new(false, true),
         None,
+        false,
         add,
     );
 }
@@ -148,10 +154,16 @@ fn show(
     enabled: Vec2b,
     auto_shrink: Vec2b,
     max_height: Option<f32>,
+    to_top: bool,
     add: impl FnOnce(&mut Ui),
 ) {
     let coast_id = ui.id().with(("coast", &salt));
     let mut coast: Coast = ui.ctx().data(|d| d.get_temp(coast_id)).unwrap_or_default();
+
+    if to_top {
+        coast.offset = Vec2::ZERO;
+        coast.stop();
+    }
 
     let pointer_down = ui.input(|i| i.pointer.primary_down());
     if coast.dragging || (pointer_down && pointer_over(ui, coast.rect)) {
@@ -176,7 +188,15 @@ fn show(
         area = area.max_height(height);
     }
 
-    if coasting {
+    if to_top {
+        if enabled[0] {
+            area = area.horizontal_scroll_offset(0.0);
+        }
+
+        if enabled[1] {
+            area = area.vertical_scroll_offset(0.0);
+        }
+    } else if coasting {
         if enabled[0] {
             area = area.horizontal_scroll_offset(coast.offset.x);
         }

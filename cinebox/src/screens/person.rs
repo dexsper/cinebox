@@ -26,6 +26,7 @@ pub struct PersonScreen {
     pending_intro: bool,
     force_refresh: bool,
     lang: Option<UiLanguage>,
+    reset_scroll: bool,
 }
 
 impl Default for PersonScreen {
@@ -39,6 +40,7 @@ impl Default for PersonScreen {
             pending_intro: false,
             force_refresh: false,
             lang: None,
+            reset_scroll: false,
         }
     }
 }
@@ -53,6 +55,7 @@ impl PersonScreen {
         self.id = Some(person.id);
         self.preview = Some(person);
         self.pending_intro = true;
+        self.reset_scroll = true;
     }
 
     /// Drop the in-memory card so the next paint reloads for the new language.
@@ -77,6 +80,7 @@ impl PersonScreen {
             self.bind = Bind::new(true);
             self.disk = None;
             self.force_refresh = false;
+            self.reset_scroll = true;
             if self.preview.as_ref().is_none_or(|person| person.id != id) {
                 self.preview = None;
             }
@@ -136,13 +140,20 @@ impl PersonScreen {
         }
 
         let mut retry = false;
+        let to_top = self.reset_scroll;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.bind.read() {
-                Some(Ok(details)) => ready(ui, details, svc, theme, t),
+                Some(Ok(details)) => {
+                    self.reset_scroll = false;
+                    ready(ui, details, svc, theme, t, to_top)
+                }
                 _ => None,
             },
             super::swr::Swr::Disk => match self.disk.as_ref() {
-                Some(hit) => ready(ui, &hit.value, svc, theme, t),
+                Some(hit) => {
+                    self.reset_scroll = false;
+                    ready(ui, &hit.value, svc, theme, t, to_top)
+                }
                 None => None,
             },
             super::swr::Swr::Failed => {
@@ -155,7 +166,8 @@ impl PersonScreen {
             }
             super::swr::Swr::Pending => {
                 if let Some(person) = self.preview.as_ref() {
-                    loading(ui, svc, theme, t, person);
+                    self.reset_scroll = false;
+                    loading(ui, svc, theme, t, person, to_top);
                 } else {
                     widgets::page_spinner(ui, theme);
                 }
@@ -184,11 +196,13 @@ fn ready(
     svc: &Services,
     theme: &Theme,
     t: f32,
+    to_top: bool,
 ) -> Option<NavAction> {
     let mut action = None;
     let photo = Vec2::new(intro::lerp(FROM_W, TO_W, t), intro::lerp(FROM_H, TO_H, t));
     let name_size = intro::lerp(theme.text_caption, theme.text_person, t);
-    scroll::vertical(ui, "person-page", |ui| {
+
+    scroll_page(ui, details.id, to_top, |ui| {
         hero(
             ui,
             svc,
@@ -216,10 +230,12 @@ fn ready(
                 }
             },
         );
+
         if let Some(bio) = details.biography.as_deref() {
             ui.add_space(12.0);
             ui.label(RichText::new(bio).size(theme.text_body).color(theme.body));
         }
+
         if !details.credits.is_empty() {
             ui.add_space(12.0);
             ui.label(
@@ -245,11 +261,18 @@ fn ready(
     action
 }
 
-fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, person: &CreditPerson) {
+fn loading(
+    ui: &mut Ui,
+    svc: &Services,
+    theme: &Theme,
+    t: f32,
+    person: &CreditPerson,
+    to_top: bool,
+) {
     let photo = Vec2::new(intro::lerp(FROM_W, TO_W, t), intro::lerp(FROM_H, TO_H, t));
     let name_size = intro::lerp(theme.text_caption, theme.text_person, t);
     let pulse = skeleton::pulse(ui);
-    scroll::vertical(ui, "person-page", |ui| {
+    scroll_page(ui, person.id, to_top, |ui| {
         hero(
             ui,
             svc,
@@ -300,6 +323,16 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, person: &CreditPe
             }
         });
     });
+}
+
+fn scroll_page(ui: &mut Ui, id: TmdbId, to_top: bool, add: impl FnOnce(&mut Ui)) {
+    let salt = ("person-page", id);
+    if to_top {
+        scroll::vertical_to_top(ui, salt, add);
+        return;
+    }
+
+    scroll::vertical(ui, salt, add);
 }
 
 struct Hero<'a> {
