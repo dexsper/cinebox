@@ -3,7 +3,7 @@
 //! Never call [`egui::Button::fill`]: it freezes the background and kills hover.
 
 use egui::{
-    Atom, Color32, CursorIcon, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2,
+    Atom, Color32, CursorIcon, FontId, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2,
     WidgetInfo, WidgetType, vec2,
 };
 use egui_material_icons::MaterialIcon;
@@ -29,6 +29,7 @@ pub struct Opts {
     pub min_size: Vec2,
     pub selected: bool,
     pub gap: f32,
+    pub pad_y: f32,
 }
 
 impl Opts {
@@ -39,6 +40,7 @@ impl Opts {
             min_size,
             selected: false,
             gap: 8.0,
+            pad_y: PAD_Y,
         }
     }
 
@@ -49,12 +51,20 @@ impl Opts {
             min_size,
             selected: false,
             gap: 6.0,
+            pad_y: PAD_Y,
         }
     }
 
     #[must_use]
     pub fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
+        self
+    }
+
+    /// Cap vertical padding so tall glyphs (material icons) cannot outgrow `min_size.y`.
+    #[must_use]
+    pub fn pad_y(mut self, pad_y: f32) -> Self {
+        self.pad_y = pad_y;
         self
     }
 
@@ -70,6 +80,32 @@ impl Opts {
 
 pub fn pointing(response: Response) -> Response {
     response.on_hover_cursor(CursorIcon::PointingHand)
+}
+
+/// Vertical padding that keeps content set in `fonts` exactly `target_h` tall.
+///
+/// Font row heights exceed their point size (material icons especially), so
+/// the default `PAD_Y` lets a control outgrow its intended height.
+#[must_use]
+pub fn fit_pad_y(ui: &Ui, target_h: f32, fonts: &[FontId]) -> f32 {
+    let content_h = ui.ctx().fonts_mut(|f| {
+        let mut tallest = 0.0_f32;
+        for font in fonts {
+            tallest = tallest.max(f.row_height(font));
+        }
+        tallest
+    });
+
+    ((target_h - content_h) / 2.0).clamp(0.0, PAD_Y)
+}
+
+/// [`fit_pad_y`] for an [`icon_label`] button: icon at `text_icon`, label at `text_body`.
+#[must_use]
+pub fn icon_label_pad_y(ui: &Ui, theme: &Theme, icon: MaterialIcon, target_h: f32) -> f32 {
+    let icon_font = FontId::new(theme.text_icon, icon.font_family());
+    let label_font = theme.ui_font(theme.text_body);
+
+    fit_pad_y(ui, target_h, &[icon_font, label_font])
 }
 
 /// Idle vs hover fill for clickable cards (previous frame’s hover).
@@ -106,7 +142,7 @@ pub fn add_named<'a>(
 
     let response = ui
         .scope(|ui| {
-            paint_visuals(ui, theme, idle, hover, active, stroke, opts.min_size.y);
+            paint_visuals(ui, theme, idle, hover, active, stroke, &opts);
             pointing(
                 ui.add(
                     egui::Button::new(atoms)
@@ -214,11 +250,11 @@ fn paint_visuals(
     hover: Color32,
     active: Color32,
     stroke: Stroke,
-    min_h: f32,
+    opts: &Opts,
 ) {
-    ui.spacing_mut().button_padding = vec2(PAD_X, PAD_Y);
-    if min_h > 0.0 {
-        ui.spacing_mut().interact_size.y = min_h;
+    ui.spacing_mut().button_padding = vec2(PAD_X, opts.pad_y);
+    if opts.min_size.y > 0.0 {
+        ui.spacing_mut().interact_size.y = opts.min_size.y;
     }
 
     let radius = theme.rounding(theme.radius_card);

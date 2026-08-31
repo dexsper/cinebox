@@ -57,26 +57,28 @@ fn interact_harness() -> Harness<'static, InteractState> {
                         Opts::primary(vec2(176.0, 46.0)),
                         Some(Msg::WatchTorrents.en()),
                     );
+                    
                     state.watch_hover = watch.hovered();
                     if watch.clicked() {
                         state.watch = true;
                     }
 
+                    let icon = ICON_FILTER_LIST;
+                    let filters_pad = button::icon_label_pad_y(ui, theme, icon, combo::HEIGHT);
+
                     let filters = button::add_named(
                         ui,
                         theme,
                         (
-                            ICON_FILTER_LIST
-                                .rich_text()
-                                .size(theme.text_icon)
-                                .color(theme.title),
+                            icon.rich_text().size(theme.text_icon).color(theme.title),
                             RichText::new(Msg::Filters.en())
                                 .size(theme.text_body)
                                 .color(theme.title),
                         ),
-                        Opts::secondary(vec2(118.0, combo::HEIGHT)),
+                        Opts::secondary(vec2(118.0, combo::HEIGHT)).pad_y(filters_pad),
                         Some(Msg::Filters.en()),
                     );
+
                     state.filters_hover = filters.hovered();
                     if filters.clicked() {
                         state.filters = true;
@@ -90,6 +92,7 @@ fn interact_harness() -> Harness<'static, InteractState> {
                         SortMode::ALL,
                         |mode| sort_label(mode).to_owned(),
                     );
+
                     ui.add(TextEdit::singleline(&mut state.query).hint_text("search"));
 
                     let id = ui.id().with("hit-row");
@@ -97,8 +100,10 @@ fn interact_harness() -> Harness<'static, InteractState> {
                     let shown = Frame::new().fill(fill).inner_margin(12.0).show(ui, |ui| {
                         ui.label("The Hit");
                     });
+
                     let hit = button::click_rect(ui, id, shown.response.rect);
                     state.hit_hover = hit.hovered();
+                    
                     if hit.clicked() {
                         state.hit = true;
                     }
@@ -192,6 +197,26 @@ fn torrent_row_hover_and_click() {
     harness.get_by_label("The Hit").click();
     harness.run();
     assert!(harness.state().hit);
+}
+
+#[test]
+fn filters_button_matches_combo_height() {
+    let harness = interact_harness();
+    let button_h = harness
+        .get_by_role_and_label(Role::Button, Msg::Filters.en())
+        .rect()
+        .height();
+    let combo_h = harness.get_by_role(Role::ComboBox).rect().height();
+
+    assert!(
+        (button_h - combo_h).abs() < 0.5,
+        "filters button {button_h} vs combo {combo_h}"
+    );
+    assert!(
+        (combo_h - combo::HEIGHT).abs() < 0.5,
+        "combo {combo_h} should be {}",
+        combo::HEIGHT
+    );
 }
 
 #[test]

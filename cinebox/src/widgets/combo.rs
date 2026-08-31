@@ -1,7 +1,7 @@
 //! ComboBox chrome shared by settings and torrent filters.
 
 use egui::style::StyleModifier;
-use egui::{Color32, ComboBox, CursorIcon, Margin, RichText, Stroke, Ui, vec2};
+use egui::{Color32, ComboBox, CursorIcon, Margin, RichText, Stroke, TextStyle, Ui, vec2};
 
 use super::button::{PAD_X, PAD_Y};
 
@@ -11,7 +11,7 @@ pub const HEIGHT: f32 = super::button::CONTROL_H;
 
 pub fn apply_visuals(ui: &mut Ui, theme: &Theme) {
     ui.spacing_mut().interact_size.y = HEIGHT;
-    ui.spacing_mut().button_padding = vec2(PAD_X, PAD_Y);
+    ui.spacing_mut().button_padding = vec2(PAD_X, pad_y(ui));
     ui.style_mut().interaction.selectable_labels = false;
 
     let radius = theme.rounding(theme.radius_card);
@@ -35,6 +35,16 @@ pub fn apply_visuals(ui: &mut Ui, theme: &Theme) {
     widgets.open.weak_bg_fill = theme.input_bg;
     widgets.open.bg_stroke = stroke;
     widgets.open.corner_radius = radius;
+}
+
+/// Vertical padding that keeps the closed combo exactly [`HEIGHT`] tall:
+/// `max(text row, arrow icon) + 2 * PAD_Y` would overshoot it.
+fn pad_y(ui: &Ui) -> f32 {
+    let text_font = TextStyle::Button.resolve(ui.style());
+    let text_h = ui.ctx().fonts_mut(|f| f.row_height(&text_font));
+    let content_h = text_h.max(ui.spacing().icon_width);
+
+    ((HEIGHT - content_h) / 2.0).clamp(0.0, PAD_Y)
 }
 
 pub fn popup_style(theme: &Theme) -> StyleModifier {

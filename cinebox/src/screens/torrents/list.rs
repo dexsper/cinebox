@@ -7,7 +7,8 @@ use cinebox_parse::{
     season_options, voice_filter_options, year_options,
 };
 use egui::{
-    Align, ComboBox, CursorIcon, Frame, Layout, RichText, Sense, Ui, UiBuilder, Vec2, vec2,
+    Align, Color32, ComboBox, CornerRadius, CursorIcon, Frame, Layout, Rect, RichText, Sense,
+    Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_RESTART_ALT};
 
@@ -62,18 +63,29 @@ pub(super) fn list_pane(
             }
 
             scroll::vertical(ui, "torrent-hits", |ui| {
-                ui.spacing_mut().item_spacing.y = 8.0;
-                for (index, hit) in visible {
-                    hit_row(
-                        ui,
-                        hit,
-                        state.kind,
-                        state.runtime_minutes,
-                        theme,
-                        pick,
-                        index,
-                    );
-                }
+                let ring_room = egui::Margin {
+                    left: RING_INSET,
+                    right: 0,
+                    top: RING_INSET,
+                    bottom: 0,
+                };
+
+                Frame::new().inner_margin(ring_room).show(ui, |ui| {
+                    ui.spacing_mut().item_spacing.y = 8.0;
+                    for (index, hit) in visible {
+                        hit_row(
+                            ui,
+                            hit,
+                            state.kind,
+                            state.runtime_minutes,
+                            theme,
+                            pick,
+                            index,
+                        );
+                    }
+                });
+
+                ui.add_space(LIST_BOTTOM_PAD);
             });
         }
     }
@@ -110,7 +122,8 @@ fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, active: bool) -> bool 
     let label = filters_label(active);
     let selected = open || active;
     let size = vec2(FILTERS_BTN_W, combo::HEIGHT);
-    let opts = Opts::secondary(size).selected(selected);
+    let pad_y = button::icon_label_pad_y(ui, theme, ICON_FILTER_LIST, combo::HEIGHT);
+    let opts = Opts::secondary(size).selected(selected).pad_y(pad_y);
 
     button::icon_label(ui, theme, ICON_FILTER_LIST, &label, opts)
 }
@@ -137,7 +150,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
             let selected = state.filter.quality;
-           
+
             if chip(ui, theme, Msg::FilterAny.en(), selected.is_none()) {
                 state.filter.quality = None;
             }
@@ -171,7 +184,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
             &voices,
             |voice| voice_label(voice).to_owned(),
         );
-        
+
         section_label(ui, theme, Msg::FilterLanguage.en());
         combo::show_with(
             ui,
@@ -338,9 +351,8 @@ fn hit_row(
     index: usize,
 ) {
     let id = ui.id().with(("torrent-hit", index));
-    let fill = button::fill_for_hover(ui, id, theme.card, theme.widget_hover);
     let shown = Frame::new()
-        .fill(fill)
+        .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
         .inner_margin(egui::Margin::symmetric(12, 14))
         .show(ui, |ui| {
@@ -356,7 +368,14 @@ fn hit_row(
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 8.0;
                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    pill(ui, hit.size_label(), theme);
+                    let size_label = hit.size_label();
+                    pill(
+                        ui,
+                        theme,
+                        &size_label,
+                        theme.size_pill_bg,
+                        theme.size_pill_fg,
+                    );
                     metrics_bar(
                         ui,
                         theme,
@@ -393,14 +412,37 @@ fn hit_row(
         });
 
     let response = button::click_rect(ui, id, shown.response.rect);
+    if response.hovered() {
+        hit_ring(ui, shown.response.rect, theme);
+    }
+
     if response.clicked() && !hit.magnet.is_empty() {
         *pick = Some(index);
     }
 }
 
+/// Same ring as the poster hover, with a tighter gap to the row.
+fn hit_ring(ui: &Ui, rect: Rect, theme: &Theme) {
+    let pad = theme.ring_w + HIT_RING_GAP;
+    let ring = rect.expand(pad);
+    let radius = theme.radius_card + pad;
+
+    ui.painter().rect_stroke(
+        ring,
+        CornerRadius::same(radius.round() as u8),
+        Stroke::new(theme.ring_w, theme.ring),
+        StrokeKind::Inside,
+    );
+}
+
+const HIT_RING_GAP: f32 = 2.0;
+/// Left/top margin inside the scroll viewport so the hover ring is not clipped.
+const RING_INSET: i8 = 6;
+const LIST_BOTTOM_PAD: f32 = 24.0;
+
 const METRIC_VAL_H: f32 = 16.0;
-const BITRATE_VAL_W: f32 = 36.0;
-const COUNT_VAL_W: f32 = 40.0;
+const METRIC_GAP: f32 = 12.0;
+const METRIC_LABEL_GAP: f32 = 6.0;
 
 pub(super) fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<String> {
     if kind != MediaKind::Movie {
@@ -413,58 +455,46 @@ pub(super) fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<Strin
     )
 }
 
+/// Pairs go straight into the right-to-left row (a nested `horizontal` breaks
+/// vertical centering), so on screen this reads Bitrate, Seeds, Leechers.
 fn metrics_bar(ui: &mut Ui, theme: &Theme, bitrate: Option<&str>, seeds: &str, leechers: &str) {
+    metric_pair(ui, Msg::Leechers.en(), leechers, theme);
+    metric_pair(ui, Msg::Seeds.en(), seeds, theme);
+
+    let Some(bitrate) = bitrate else {
+        return;
+    };
+
+    metric_pair(ui, Msg::Bitrate.en(), bitrate, theme);
+}
+
+/// `item_spacing` applies after a widget, so each widget sets the gap that follows it.
+fn metric_pair(ui: &mut Ui, label: &str, value: &str, theme: &Theme) {
+    ui.spacing_mut().item_spacing.x = METRIC_LABEL_GAP;
+    pill(ui, theme, value, theme.metric_bg, theme.title);
+
+    ui.spacing_mut().item_spacing.x = METRIC_GAP;
+    ui.label(
+        RichText::new(label)
+            .size(theme.text_caption)
+            .color(theme.muted),
+    );
+}
+
+/// Fixed `METRIC_VAL_H` content height keeps every pill in the row the same height.
+fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
     Frame::new()
-        .fill(theme.metric_bg)
+        .fill(bg)
         .corner_radius(4)
         .inner_margin(egui::Margin::symmetric(8, 3))
         .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            ui.horizontal(|ui| {
-                if let Some(bitrate) = bitrate {
-                    metric_pair(ui, Msg::Bitrate.en(), bitrate, BITRATE_VAL_W, theme);
-                }
-                metric_pair(ui, Msg::Seeds.en(), seeds, COUNT_VAL_W, theme);
-                metric_pair(ui, Msg::Leechers.en(), leechers, COUNT_VAL_W, theme);
-            });
-        });
-}
+            let font = theme.ui_font(theme.text_caption);
+            let galley = ui.painter().layout_no_wrap(text.to_owned(), font, fg);
+            let size = Vec2::new(galley.size().x, METRIC_VAL_H);
+            let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+            let pos = pos2(rect.left(), rect.center().y - galley.size().y * 0.5);
 
-fn metric_pair(ui: &mut Ui, label: &str, value: &str, value_w: f32, theme: &Theme) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 4.0;
-        ui.label(
-            RichText::new(label)
-                .size(theme.text_caption)
-                .color(theme.muted),
-        );
-        let (rect, _) = ui.allocate_exact_size(Vec2::new(value_w, METRIC_VAL_H), Sense::hover());
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(rect)
-                .layout(Layout::right_to_left(Align::Center)),
-            |ui| {
-                ui.label(
-                    RichText::new(value)
-                        .size(theme.text_caption)
-                        .color(theme.title),
-                );
-            },
-        );
-    });
-}
-
-fn pill(ui: &mut Ui, label: String, theme: &Theme) {
-    Frame::new()
-        .fill(theme.size_pill_bg)
-        .corner_radius(4)
-        .inner_margin(egui::Margin::symmetric(8, 3))
-        .show(ui, |ui| {
-            ui.label(
-                RichText::new(label)
-                    .size(theme.text_caption)
-                    .color(theme.size_pill_fg),
-            );
+            ui.painter().galley(pos, galley, fg);
         });
 }
 
@@ -478,6 +508,7 @@ mod tests {
             format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(),
             Some("8.2")
         );
+
         assert_eq!(format_bitrate(MediaKind::Movie, None).as_deref(), Some("—"));
         assert_eq!(format_bitrate(MediaKind::Tv, Some(8.2)), None);
         assert_eq!(format_bitrate(MediaKind::Tv, None), None);
