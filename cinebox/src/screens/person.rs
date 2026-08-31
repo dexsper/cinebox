@@ -71,7 +71,7 @@ impl PersonScreen {
             }
         }
         if self.disk.is_none() {
-            let lang = language_key(svc.settings.tmdb.data_language.as_deref());
+            let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
             let cache_id = person_cache_id(id);
             self.disk = svc.db.as_ref().and_then(|db| {
                 db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id)
@@ -97,7 +97,7 @@ impl PersonScreen {
 
         if let Some(url) = url {
             svc.images
-                .request(url, false, svc.settings.interface.use_system_proxy);
+                .request(url, false, svc.settings.general.use_system_proxy);
         }
 
         let settings = svc.settings.clone();
@@ -171,7 +171,7 @@ impl PersonScreen {
 }
 
 fn queue_person_assets(svc: &mut Services, details: &PersonDetails) {
-    let proxy = svc.settings.interface.use_system_proxy;
+    let proxy = svc.settings.general.use_system_proxy;
     let size = svc.settings.tmdb.poster_size;
     if let Some(url) = tmdb_image_url(details.profile_path.as_deref(), "w185") {
         svc.images.request(url, false, proxy);

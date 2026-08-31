@@ -28,7 +28,8 @@ pub use media::{
     format_release_date, format_runtime,
 };
 pub use settings::{
-    DefaultQuality, ParserKind, PlayerSettings, PosterSize, SecretString, Settings, SettingsError,
-    SettingsStore, TorrServerSettings, UiLanguage, VideoScale,
+    GeneralSettings, ParserKind, ParserSettings, PlayerSettings, PosterSize, QualityBand,
+    SecretString, Settings, SettingsError, SettingsStore, TorrServerSettings, UiLanguage,
+    VideoScale,
 };
 pub use typograf::typograph;

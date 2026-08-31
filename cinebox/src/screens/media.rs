@@ -89,7 +89,7 @@ impl MediaScreen {
         }
 
         if self.disk.is_none() {
-            let lang = language_key(svc.settings.tmdb.data_language.as_deref());
+            let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
             let cache_id = media_cache_id(kind, id);
             self.disk = svc.db.as_ref().and_then(|db| {
                 db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id)
@@ -112,7 +112,7 @@ impl MediaScreen {
             svc.images.request_poster(
                 item,
                 svc.settings.tmdb.poster_size,
-                svc.settings.interface.use_system_proxy,
+                svc.settings.general.use_system_proxy,
             );
         }
 
@@ -187,7 +187,7 @@ impl MediaScreen {
 
 fn queue_media_assets(svc: &mut Services, details: &MediaDetails) {
     let size = svc.settings.tmdb.poster_size;
-    let proxy = svc.settings.interface.use_system_proxy;
+    let proxy = svc.settings.general.use_system_proxy;
     let item = CatalogItem {
         id: details.id,
         kind: details.kind,

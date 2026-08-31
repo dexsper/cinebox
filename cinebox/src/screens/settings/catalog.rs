@@ -27,9 +27,12 @@ pub struct Category {
 pub enum SelectId {
     Language,
     Scale,
-    Quality,
     ParserKind,
     PosterSize,
+}
+
+pub enum MultiSelectId {
+    Quality,
 }
 
 pub enum Field {
@@ -58,7 +61,12 @@ pub enum Field {
         hint: Option<&'static str>,
         which: SelectId,
     },
-    DataLanguage,
+    MultiSelect {
+        id: &'static str,
+        label: &'static str,
+        hint: Option<&'static str>,
+        which: MultiSelectId,
+    },
     ProbeParser,
     ProbeTorr,
     ProbeTmdb,
@@ -128,8 +136,8 @@ const GENERAL: &[Field] = &[
     Field::Toggle {
         label: Msg::UseSystemProxy.en(),
         hint: Some(Msg::UseSystemProxyHint.en()),
-        get: |s| s.interface.use_system_proxy,
-        set: |s, v| s.interface.use_system_proxy = v,
+        get: |s| s.general.use_system_proxy,
+        set: |s, v| s.general.use_system_proxy = v,
     },
 ];
 
@@ -158,12 +166,6 @@ const PLAYER: &[Field] = &[
         hint: None,
         which: SelectId::Scale,
     },
-    Field::Select {
-        id: "quality",
-        label: Msg::DefaultQuality.en(),
-        hint: None,
-        which: SelectId::Quality,
-    },
 ];
 
 const PARSER: &[Field] = &[
@@ -185,6 +187,12 @@ const PARSER: &[Field] = &[
         hint: None,
         get: |s| s.parser.api_key.clone(),
         set: |s, v| s.parser.api_key = v,
+    },
+    Field::MultiSelect {
+        id: "parser-quality",
+        label: Msg::DefaultQuality.en(),
+        hint: None,
+        which: MultiSelectId::Quality,
     },
     Field::ProbeParser,
 ];
@@ -239,7 +247,6 @@ const TMDB: &[Field] = &[
         get: |s| s.tmdb.api_key.clone(),
         set: |s, v| s.tmdb.api_key = v,
     },
-    Field::DataLanguage,
     Field::Select {
         id: "poster-size",
         label: Msg::PosterSize.en(),

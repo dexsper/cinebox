@@ -7,7 +7,7 @@ mod state;
 pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState};
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{MediaDetails, MediaKind, TmdbId, tmdb_image_url, typograph};
+use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url, typograph};
 use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
@@ -50,7 +50,7 @@ impl Default for TorrentsScreen {
 }
 
 impl TorrentsScreen {
-    pub fn ensure_open(&mut self, details: &MediaDetails) {
+    pub fn ensure_open(&mut self, details: &MediaDetails, default_quality: &[QualityBand]) {
         if self
             .state
             .as_ref()
@@ -59,7 +59,7 @@ impl TorrentsScreen {
             return;
         }
 
-        self.state = Some(TorrentState::from_details(details));
+        self.state = Some(TorrentState::from_details(details, default_quality));
         self.details = Some(details.clone());
         self.hits = Bind::new(true);
         self.opened = Bind::new(true);
@@ -170,7 +170,6 @@ impl TorrentsScreen {
                     list::list_pane(
                         ui,
                         state,
-                        svc,
                         theme,
                         &mut retry,
                         &mut pick,
@@ -184,7 +183,7 @@ impl TorrentsScreen {
         let mut overlay = std::mem::take(&mut self.filters);
         if let Some(state) = &mut self.state {
             overlay.paint(ui, theme, "cinebox-torrent-filters", |ui, theme| {
-                list::filters_drawer(ui, state, svc, theme);
+                list::filters_drawer(ui, state, theme);
             });
         }
         self.filters = overlay;
@@ -373,7 +372,7 @@ impl TorrentsScreen {
                         svc.images.request(
                             url.clone(),
                             false,
-                            svc.settings.interface.use_system_proxy,
+                            svc.settings.general.use_system_proxy,
                         );
                     }
                 }

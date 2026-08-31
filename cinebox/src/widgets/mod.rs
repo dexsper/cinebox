@@ -1,9 +1,11 @@
 pub mod backdrop;
 pub mod button;
+pub mod chips;
 pub mod chrome;
 pub mod combo;
 pub mod drawer;
 pub mod intro;
+pub mod multiselect;
 pub mod poster;
 pub mod rating;
 pub mod scroll;

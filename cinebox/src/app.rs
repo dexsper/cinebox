@@ -3,7 +3,7 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cinebox_core::{PosterSize, Settings, allowed_image_sizes, tmdb_image_url};
+use cinebox_core::{PosterSize, Settings, UiLanguage, allowed_image_sizes, tmdb_image_url};
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
@@ -17,7 +17,7 @@ use crate::widgets::{backdrop, chrome};
 
 struct TmdbView {
     api_key: String,
-    language: Option<String>,
+    language: UiLanguage,
     poster_size: PosterSize,
     use_system_proxy: bool,
 }
@@ -32,9 +32,9 @@ impl TmdbView {
     fn from_settings(settings: &Settings) -> Self {
         Self {
             api_key: settings.tmdb.api_key.expose().to_owned(),
-            language: settings.tmdb.data_language.clone(),
+            language: settings.general.language,
             poster_size: settings.tmdb.poster_size,
-            use_system_proxy: settings.interface.use_system_proxy,
+            use_system_proxy: settings.general.use_system_proxy,
         }
     }
 
@@ -118,7 +118,8 @@ impl App {
                     return;
                 };
 
-                self.torrents.ensure_open(details);
+                self.torrents
+                    .ensure_open(details, &self.services.settings.parser.default_quality);
                 self.nav.push(Screen::Torrents { kind, id });
             }
             NavAction::OpenUrl(url) => {

@@ -31,17 +31,17 @@ fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
 
 pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<HomeCatalog, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.tmdb.data_language.clone();
-    let use_system_proxy = settings.interface.use_system_proxy;
+    let language = settings.general.language.tmdb_code();
+    let use_system_proxy = settings.general.use_system_proxy;
 
-    let fetched = cinebox_tmdb::fetch_home(&key, language.as_deref(), use_system_proxy)
+    let fetched = cinebox_tmdb::fetch_home(&key, Some(language), use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
 
     let Some(db) = db else {
         return Ok(fetched);
     };
-    let lang = language_key(language.as_deref());
+    let lang = language_key(Some(language));
     let sizes = allowed_image_sizes(settings.tmdb.poster_size);
     let mut rows = Vec::with_capacity(fetched.rows.len());
     for row in fetched.rows {
@@ -72,15 +72,15 @@ pub async fn load_media(
     db: Option<Arc<Store>>,
 ) -> Result<Box<MediaDetails>, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.tmdb.data_language.clone();
-    let use_system_proxy = settings.interface.use_system_proxy;
+    let language = settings.general.language.tmdb_code();
+    let use_system_proxy = settings.general.use_system_proxy;
 
-    let details = cinebox_tmdb::fetch_media(&key, kind, id, language.as_deref(), use_system_proxy)
+    let details = cinebox_tmdb::fetch_media(&key, kind, id, Some(language), use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
 
     if let Some(db) = db {
-        let lang = language_key(language.as_deref());
+        let lang = language_key(Some(language));
         let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = media_cache_id(kind, id);
         let paths = details.image_paths();
@@ -97,15 +97,15 @@ pub async fn load_person(
     db: Option<Arc<Store>>,
 ) -> Result<Box<PersonDetails>, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.tmdb.data_language.clone();
-    let use_system_proxy = settings.interface.use_system_proxy;
+    let language = settings.general.language.tmdb_code();
+    let use_system_proxy = settings.general.use_system_proxy;
 
-    let details = cinebox_tmdb::fetch_person(&key, id, language.as_deref(), use_system_proxy)
+    let details = cinebox_tmdb::fetch_person(&key, id, Some(language), use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
 
     if let Some(db) = db {
-        let lang = language_key(language.as_deref());
+        let lang = language_key(Some(language));
         let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = person_cache_id(id);
         let paths = details.image_paths();
@@ -135,11 +135,10 @@ pub async fn load_torrents(
     let parser_kind = settings.parser.kind;
     let parser_url = settings.parser.url.clone();
     let parser_key = settings.parser.api_key.expose().to_owned();
-    let use_system_proxy = settings.interface.use_system_proxy;
+    let use_system_proxy = settings.general.use_system_proxy;
     let ts_url = settings.torrserver.url.clone();
     let ts_user = settings.torrserver.username.clone();
     let ts_pass = settings.torrserver.password.expose().to_owned();
-    let preferred = settings.player.default_quality;
 
     let raw = cinebox_indexer::search(
         parser_kind,
@@ -165,7 +164,7 @@ pub async fn load_torrents(
         .map(|hit| TorrentHit::new(listing_from_hit(hit), runtime, &hashes))
         .collect();
 
-    sort_hits(&mut hits, kind, preferred, SortMode::Popular);
+    sort_hits(&mut hits, kind, SortMode::Popular);
     Ok(hits)
 }
 
@@ -224,7 +223,7 @@ async fn season_catalog(
         return Vec::new();
     }
 
-    let language = settings.tmdb.data_language.as_deref();
+    let language = Some(settings.general.language.tmdb_code());
     let lang = language_key(language);
     let sizes = allowed_image_sizes(settings.tmdb.poster_size);
     let mut out = Vec::new();
@@ -254,7 +253,7 @@ async fn season_catalog(
         id,
         &need,
         language,
-        settings.interface.use_system_proxy,
+        settings.general.use_system_proxy,
     )
     .await
     {
@@ -418,7 +417,7 @@ pub async fn ping_parser(settings: Settings) -> Result<String, String> {
         settings.parser.kind,
         &settings.parser.url,
         settings.parser.api_key.expose(),
-        settings.interface.use_system_proxy,
+        settings.general.use_system_proxy,
     )
     .await
     .map_err(|error| error.to_string())
@@ -436,7 +435,7 @@ pub async fn ping_tmdb(settings: Settings, db: Option<Arc<Store>>) -> Result<Str
 
     let result = cinebox_tmdb::check_api_key(
         settings.tmdb.api_key.expose(),
-        settings.interface.use_system_proxy,
+        settings.general.use_system_proxy,
     )
     .await
     .map_err(|error| error.to_string());

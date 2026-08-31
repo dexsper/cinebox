@@ -11,7 +11,8 @@ const ELLIPSIS: char = '…';
 /// Apply typography suitable for a catalog title.
 #[must_use]
 pub fn typograph(input: &str) -> String {
-    let mut text = collapse_whitespace(input);
+    let decoded = decode_entities(input);
+    let mut text = collapse_whitespace(&decoded);
     if text.is_empty() {
         return text;
     }
@@ -23,6 +24,91 @@ pub fn typograph(input: &str) -> String {
     text = educate_quotes(&text);
 
     glue_short_words(&text)
+}
+
+const ENTITY_MAX: usize = 10;
+
+fn decode_entities(input: &str) -> String {
+    let chars: Vec<char> = input.chars().collect();
+    let mut out = String::with_capacity(input.len());
+    let mut i = 0;
+
+    while i < chars.len() {
+        if chars[i] != '&' {
+            out.push(chars[i]);
+            i += 1;
+            continue;
+        }
+
+        let Some((ch, next)) = entity_at(&chars, i) else {
+            out.push('&');
+            i += 1;
+            continue;
+        };
+
+        out.push(ch);
+        i = next;
+    }
+
+    out
+}
+
+fn entity_at(chars: &[char], at: usize) -> Option<(char, usize)> {
+    let start = at + 1;
+    let limit = chars.len().min(start + ENTITY_MAX);
+    let mut i = start;
+    while i < limit && chars[i] != ';' {
+        i += 1;
+    }
+
+    let found_semi = chars.get(i).is_some_and(|ch| *ch == ';');
+    if !found_semi {
+        return None;
+    }
+
+    if i == start {
+        return None;
+    }
+
+    let body: String = chars[start..i].iter().collect();
+    let ch = decode_body(&body)?;
+
+    Some((ch, i + 1))
+}
+
+fn decode_body(body: &str) -> Option<char> {
+    if let Some(digits) = body.strip_prefix('#') {
+        return numeric_entity(digits);
+    }
+
+    named_entity(body)
+}
+
+fn named_entity(name: &str) -> Option<char> {
+    let name = name.to_ascii_lowercase();
+    match name.as_str() {
+        "amp" => Some('&'),
+        "lt" => Some('<'),
+        "gt" => Some('>'),
+        "quot" => Some('"'),
+        "apos" => Some('\''),
+        "nbsp" => Some('\u{00A0}'),
+        _ => None,
+    }
+}
+
+fn numeric_entity(body: &str) -> Option<char> {
+    if let Some(hex) = body.strip_prefix(['x', 'X']) {
+        return codepoint(hex, 16);
+    }
+
+    codepoint(body, 10)
+}
+
+fn codepoint(digits: &str, radix: u32) -> Option<char> {
+    let code = u32::from_str_radix(digits, radix).ok()?;
+
+    char::from_u32(code)
 }
 
 fn collapse_whitespace(input: &str) -> String {
@@ -249,5 +335,20 @@ mod tests {
         let out = typograph("Catch Me");
 
         assert_eq!(out, "Catch\u{00A0}Me");
+    }
+
+    #[test]
+    fn html_entities_from_api() {
+        let amp = typograph("Tom &amp; Jerry");
+        assert!(amp.contains("Tom & Jerry"), "{amp:?}");
+        assert!(!amp.contains("&amp;"), "{amp:?}");
+
+        let quotes = typograph("&quot;Hi&quot;");
+        assert!(quotes.contains('\u{201C}'), "{quotes:?}");
+        assert!(quotes.contains('\u{201D}'), "{quotes:?}");
+        assert!(!quotes.contains("&quot;"), "{quotes:?}");
+
+        let apos = typograph("It&#39;s");
+        assert!(apos.contains("It's"), "{apos:?}");
     }
 }

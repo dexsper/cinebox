@@ -9,16 +9,15 @@ mod voices;
 
 pub use episode::{FileEpisode, file_display_name, parse_file_episode};
 
+pub use cinebox_core::QualityBand;
 pub use filter::{
-    AudioLang, QualityBand, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind,
-    filtered_hits, matches_filter, season_options, sort_hits, voice_filter_options, year_options,
+    AudioLang, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind, filtered_hits,
+    matches_filter, season_options, sort_hits, voice_filter_options, year_options,
 };
 pub use title::{
     EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash, parse_title,
 };
 pub use voices::{studios_in_catalog_order, voices};
-
-use cinebox_core::DefaultQuality;
 
 /// Indexer row before title parse.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -80,19 +79,6 @@ impl TorrentHit {
     #[must_use]
     pub fn size_label(&self) -> String {
         format_bytes(self.size_bytes)
-    }
-
-    /// How close this hit’s resolution is to the player default (higher is better).
-    #[must_use]
-    pub fn quality_score(&self, preferred: DefaultQuality) -> i32 {
-        let have = self.info.resolution.map_or(1, Resolution::rank);
-        let want = match preferred {
-            DefaultQuality::Q4k => 3,
-            DefaultQuality::Q1080p => 2,
-            DefaultQuality::Q720p => 1,
-            DefaultQuality::Q480p => 0,
-        };
-        4 - (have - want).abs()
     }
 }
 

@@ -96,6 +96,15 @@ pub enum UiLanguage {
 
 impl UiLanguage {
     pub const ALL: &[Self] = &[Self::English, Self::Russian];
+
+    /// TMDB `language` query token.
+    #[must_use]
+    pub const fn tmdb_code(self) -> &'static str {
+        match self {
+            Self::English => "en-US",
+            Self::Russian => "ru-RU",
+        }
+    }
 }
 
 impl fmt::Display for UiLanguage {
@@ -153,32 +162,36 @@ impl fmt::Display for VideoScale {
     }
 }
 
-/// Preferred torrent quality when ranking results.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
-pub enum DefaultQuality {
+/// Resolution band used by torrent filters and default-quality settings.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum QualityBand {
     #[serde(rename = "4k")]
-    Q4k,
-    #[default]
+    Uhd,
     #[serde(rename = "1080p")]
-    Q1080p,
+    Fhd,
     #[serde(rename = "720p")]
-    Q720p,
+    Hd,
     #[serde(rename = "480p")]
-    Q480p,
+    Sd,
 }
 
-impl DefaultQuality {
-    pub const ALL: &[Self] = &[Self::Q4k, Self::Q1080p, Self::Q720p, Self::Q480p];
+impl QualityBand {
+    pub const ALL: &[Self] = &[Self::Uhd, Self::Fhd, Self::Hd, Self::Sd];
+
+    #[must_use]
+    pub const fn label(self) -> &'static str {
+        match self {
+            Self::Uhd => "4K",
+            Self::Fhd => "1080p",
+            Self::Hd => "720p",
+            Self::Sd => "480p",
+        }
+    }
 }
 
-impl fmt::Display for DefaultQuality {
+impl fmt::Display for QualityBand {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
-            Self::Q4k => "4K",
-            Self::Q1080p => "1080p",
-            Self::Q720p => "720p",
-            Self::Q480p => "480p",
-        })
+        f.write_str(self.label())
     }
 }
 
@@ -218,17 +231,17 @@ fn default_system_proxy() -> bool {
     true
 }
 
-/// Interface category.
+/// General category.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
-pub struct InterfaceSettings {
+pub struct GeneralSettings {
     pub language: UiLanguage,
     /// WinINet / env HTTP(S) proxy for TMDB and parser. TorrServer always direct.
     #[serde(default = "default_system_proxy")]
     pub use_system_proxy: bool,
 }
 
-impl Default for InterfaceSettings {
+impl Default for GeneralSettings {
     fn default() -> Self {
         Self {
             language: UiLanguage::default(),
@@ -245,7 +258,6 @@ pub struct PlayerSettings {
     pub auto_next: bool,
     pub save_timecode: bool,
     pub scale: VideoScale,
-    pub default_quality: DefaultQuality,
 }
 
 /// Parser (Jackett / Prowlarr) category.
@@ -255,6 +267,7 @@ pub struct ParserSettings {
     pub kind: ParserKind,
     pub url: String,
     pub api_key: SecretString,
+    pub default_quality: Vec<QualityBand>,
 }
 
 /// External TorrServer category.
@@ -287,8 +300,6 @@ impl Default for TorrServerSettings {
 #[serde(default)]
 pub struct TmdbSettings {
     pub api_key: SecretString,
-    /// TMDB `language` query. `None` means detect from the OS later.
-    pub data_language: Option<String>,
     pub poster_size: PosterSize,
 }
 
@@ -296,7 +307,7 @@ pub struct TmdbSettings {
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
-    pub interface: InterfaceSettings,
+    pub general: GeneralSettings,
     pub player: PlayerSettings,
     pub parser: ParserSettings,
     pub torrserver: TorrServerSettings,
@@ -395,7 +406,7 @@ mod tests {
     #[test]
     fn settings_roundtrip_json() -> Result<(), serde_json::Error> {
         let settings = Settings::default();
-        assert!(settings.interface.use_system_proxy);
+        assert!(settings.general.use_system_proxy);
 
         let json = serde_json::to_string_pretty(&settings)?;
         let back: Settings = serde_json::from_str(&json)?;
@@ -429,7 +440,7 @@ mod tests {
         let store = SettingsStore::from_path(path.clone());
         let mut settings = Settings::default();
 
-        settings.interface.language = UiLanguage::Russian;
+        settings.general.language = UiLanguage::Russian;
         settings.parser.kind = ParserKind::Prowlarr;
         settings.tmdb.api_key = SecretString::from("not-a-real-key");
         store.save(&settings)?;
@@ -437,7 +448,7 @@ mod tests {
         let loaded = store.load()?;
         let _ = fs::remove_file(&path);
 
-        assert_eq!(loaded.interface.language, UiLanguage::Russian);
+        assert_eq!(loaded.general.language, UiLanguage::Russian);
         assert_eq!(loaded.parser.kind, ParserKind::Prowlarr);
         assert_eq!(loaded.tmdb.api_key.expose(), "not-a-real-key");
 
@@ -446,10 +457,10 @@ mod tests {
 
     #[test]
     fn partial_json_fills_defaults() -> Result<(), serde_json::Error> {
-        let parsed: Settings = serde_json::from_str(r#"{"interface":{"language":"russian"}}"#)?;
+        let parsed: Settings = serde_json::from_str(r#"{"general":{"language":"russian"}}"#)?;
 
-        assert_eq!(parsed.interface.language, UiLanguage::Russian);
-        assert!(parsed.interface.use_system_proxy);
+        assert_eq!(parsed.general.language, UiLanguage::Russian);
+        assert!(parsed.general.use_system_proxy);
         assert_eq!(parsed.torrserver.url, "http://127.0.0.1:8090");
 
         Ok(())

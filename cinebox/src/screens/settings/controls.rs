@@ -264,28 +264,18 @@ pub fn select_row_with<T: Copy + PartialEq>(
     crate::widgets::combo::show_with(ui, theme, id, value, options, option_label)
 }
 
-pub fn data_language_row(ui: &mut Ui, theme: &Theme, value: &mut Option<String>) -> bool {
-    field_label(
-        ui,
-        theme,
-        Msg::DataLanguage.en(),
-        Some(Msg::DataLanguageHint.en()),
-    );
-
-    let mut lang = value.clone().unwrap_or_default();
-    let changed = styled_edit(ui, theme, &mut lang, "en-US", false);
-    if !changed {
-        return false;
-    }
-
-    let trimmed = lang.trim();
-    if trimmed.is_empty() {
-        *value = None;
-        return true;
-    }
-
-    *value = Some(trimmed.to_owned());
-    true
+pub fn multiselect_chip_row<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    _id: &str,
+    label: &str,
+    hint: Option<&str>,
+    selected: &mut Vec<T>,
+    options: &[T],
+    option_label: impl Fn(T) -> String,
+) -> bool {
+    field_label(ui, theme, label, hint);
+    crate::widgets::chips::multi_row(ui, theme, selected, options, option_label)
 }
 
 pub fn probe_row<F, Fut>(

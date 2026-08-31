@@ -44,7 +44,7 @@ impl HomeScreen {
             return None;
         }
 
-        let lang = language_key(svc.settings.tmdb.data_language.as_deref());
+        let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
         let disk = svc
             .db
             .as_ref()
@@ -106,7 +106,7 @@ impl HomeScreen {
 
 fn queue_home_posters(svc: &mut Services, catalog: &HomeCatalog) {
     let size = svc.settings.tmdb.poster_size;
-    let proxy = svc.settings.interface.use_system_proxy;
+    let proxy = svc.settings.general.use_system_proxy;
     for row in &catalog.rows {
         for item in &row.items {
             svc.images.request_poster(item, size, proxy);

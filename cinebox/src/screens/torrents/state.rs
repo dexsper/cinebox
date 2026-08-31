@@ -1,6 +1,6 @@
 //! Torrent explorer state.
 
-use cinebox_core::{DefaultQuality, MediaDetails, MediaKind, TmdbId};
+use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId};
 use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, sort_hits};
 use cinebox_torrserver::AddSpec;
 
@@ -154,7 +154,7 @@ pub struct TorrentState {
 }
 
 impl TorrentState {
-    pub fn from_details(details: &MediaDetails) -> Self {
+    pub fn from_details(details: &MediaDetails, default_quality: &[QualityBand]) -> Self {
         Self {
             kind: details.kind,
             id: details.id,
@@ -162,7 +162,10 @@ impl TorrentState {
             year: details.year,
             runtime_minutes: details.runtime_minutes,
             hits: TorrentHits::Loading,
-            filter: TorrentFilter::default(),
+            filter: TorrentFilter {
+                quality: default_quality.to_vec(),
+                ..TorrentFilter::default()
+            },
             sort: SortMode::Popular,
             files: FilesPane::Closed,
             pick_gen: 0,
@@ -174,9 +177,9 @@ impl TorrentState {
         self.kind == kind && self.id == id
     }
 
-    pub fn apply_filter_sort(&mut self, preferred: DefaultQuality) {
+    pub fn apply_filter_sort(&mut self) {
         if let TorrentHits::Ready(hits) = &mut self.hits {
-            sort_hits(hits, self.kind, preferred, self.sort);
+            sort_hits(hits, self.kind, self.sort);
         }
     }
 }

@@ -2,41 +2,21 @@
 
 use std::fmt;
 
-use cinebox_core::{DefaultQuality, MediaKind};
+use cinebox_core::{MediaKind, QualityBand};
 
 use crate::TorrentHit;
 use crate::title::{Hdr, Resolution, TitleInfo, contains_any};
 use crate::voices::studios_in_catalog_order;
 
-/// Resolution band used by the torrent list chips (4K / 1080p / 720p).
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum QualityBand {
-    Uhd,
-    Fhd,
-    Hd,
-}
-
-impl QualityBand {
-    pub const ALL: &[Self] = &[Self::Uhd, Self::Fhd, Self::Hd];
-
-    #[must_use]
-    pub const fn label(self) -> &'static str {
-        match self {
-            Self::Uhd => "4K",
-            Self::Fhd => "1080p",
-            Self::Hd => "720p",
-        }
-    }
-
-    #[must_use]
-    fn matches(self, resolution: Option<Resolution>) -> bool {
-        matches!(
-            (self, resolution),
-            (Self::Uhd, Some(Resolution::Uhd))
-                | (Self::Fhd, Some(Resolution::Fhd))
-                | (Self::Hd, Some(Resolution::Hd))
-        )
-    }
+#[must_use]
+fn quality_matches(band: QualityBand, resolution: Option<Resolution>) -> bool {
+    matches!(
+        (band, resolution),
+        (QualityBand::Uhd, Some(Resolution::Uhd))
+            | (QualityBand::Fhd, Some(Resolution::Fhd))
+            | (QualityBand::Hd, Some(Resolution::Hd))
+            | (QualityBand::Sd, Some(Resolution::Sd))
+    )
 }
 
 /// Voice-type chips (studio names live on the hit via [`crate::voices`]).
@@ -85,10 +65,8 @@ impl fmt::Display for VoiceKind {
 }
 
 /// Translation menu: voice kind, then studio names found in the results.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VoiceFilter {
-    #[default]
-    Any,
     Dubbing,
     Polyphonic,
     TwoVoice,
@@ -98,7 +76,6 @@ pub enum VoiceFilter {
 
 impl VoiceFilter {
     pub const KINDS: &[Self] = &[
-        Self::Any,
         Self::Dubbing,
         Self::Polyphonic,
         Self::TwoVoice,
@@ -108,7 +85,6 @@ impl VoiceFilter {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Any => "Any",
             Self::Dubbing => "Dubbing",
             Self::Polyphonic => "Polyphonic",
             Self::TwoVoice => "Two-voiced",
@@ -153,10 +129,8 @@ impl fmt::Display for TriChoice {
 }
 
 /// Audio/subtitle language token in the release name.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AudioLang {
-    #[default]
-    Any,
     Ru,
     En,
     Uk,
@@ -169,7 +143,6 @@ pub enum AudioLang {
 
 impl AudioLang {
     pub const ALL: &[Self] = &[
-        Self::Any,
         Self::Ru,
         Self::En,
         Self::Uk,
@@ -183,7 +156,6 @@ impl AudioLang {
     #[must_use]
     pub const fn label(self) -> &'static str {
         match self {
-            Self::Any => "Any",
             Self::Ru => "Russian",
             Self::En => "English",
             Self::Uk => "Ukrainian",
@@ -230,60 +202,141 @@ impl fmt::Display for SortMode {
     }
 }
 
-impl fmt::Display for QualityBand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.label())
-    }
-}
-
 /// Active list filters. Empty / default shows everything.
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct TorrentFilter {
-    pub quality: Option<QualityBand>,
+    pub quality: Vec<QualityBand>,
     pub hdr: TriChoice,
     pub dolby: TriChoice,
     pub subs: TriChoice,
-    pub voice: VoiceFilter,
-    pub lang: AudioLang,
-    pub season: Option<u32>,
-    pub year: Option<u16>,
+    pub voice: Vec<VoiceFilter>,
+    pub lang: Vec<AudioLang>,
+    pub season: Vec<u32>,
+    pub year: Vec<u16>,
 }
 
 impl TorrentFilter {
     #[must_use]
-    pub fn is_active(self) -> bool {
-        self.quality.is_some()
-            || self.hdr != TriChoice::Any
-            || self.dolby != TriChoice::Any
-            || self.subs != TriChoice::Any
-            || self.voice != VoiceFilter::Any
-            || self.lang != AudioLang::Any
-            || self.season.is_some()
-            || self.year.is_some()
+    pub fn is_active(&self) -> bool {
+        self.active_count() > 0
+    }
+
+    /// Unique filter categories that are not "Any".
+    #[must_use]
+    pub fn active_count(&self) -> usize {
+        let mut n = 0;
+        if !self.quality.is_empty() {
+            n += 1;
+        }
+        if self.hdr != TriChoice::Any {
+            n += 1;
+        }
+        if self.dolby != TriChoice::Any {
+            n += 1;
+        }
+        if self.subs != TriChoice::Any {
+            n += 1;
+        }
+        if !self.voice.is_empty() {
+            n += 1;
+        }
+        if !self.lang.is_empty() {
+            n += 1;
+        }
+        if !self.season.is_empty() {
+            n += 1;
+        }
+        if !self.year.is_empty() {
+            n += 1;
+        }
+
+        n
     }
 }
 
 /// Whether `hit` passes the active filter chips.
 #[must_use]
-pub fn matches_filter(hit: &TorrentHit, filter: TorrentFilter) -> bool {
+pub fn matches_filter(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
     if !filter.is_active() {
         return true;
     }
+
     let title = hit.title.to_lowercase();
-    filter
-        .quality
-        .is_none_or(|band| band.matches(hit.info.resolution))
-        && tri_ok(filter.hdr, hit.info.hdr == Some(Hdr::Hdr))
-        && tri_ok(filter.dolby, hit.info.hdr == Some(Hdr::DolbyVision))
-        && tri_ok(filter.subs, has_subs(&title))
-        && voice_ok(hit, filter.voice, &title)
-        && lang_ok(&title, filter.lang)
-        && filter
-            .season
-            .is_none_or(|season| hit.info.seasons.contains(&season))
-        && filter
-            .year
-            .is_none_or(|year| hit.info.year == Some(year) || title.contains(&year.to_string()))
+    if !quality_ok(hit, filter) {
+        return false;
+    }
+
+    if !tri_ok(filter.hdr, hit.info.hdr == Some(Hdr::Hdr)) {
+        return false;
+    }
+
+    if !tri_ok(filter.dolby, hit.info.hdr == Some(Hdr::DolbyVision)) {
+        return false;
+    }
+
+    if !tri_ok(filter.subs, has_subs(&title)) {
+        return false;
+    }
+
+    if !voice_ok(hit, &filter.voice, &title) {
+        return false;
+    }
+
+    if !lang_ok(&title, &filter.lang) {
+        return false;
+    }
+
+    if !season_ok(hit, filter) {
+        return false;
+    }
+
+    year_ok(hit, filter, &title)
+}
+
+fn quality_ok(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
+    if filter.quality.is_empty() {
+        return true;
+    }
+
+    for band in &filter.quality {
+        if quality_matches(*band, hit.info.resolution) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn season_ok(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
+    if filter.season.is_empty() {
+        return true;
+    }
+
+    for season in &filter.season {
+        if hit.info.seasons.contains(season) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn year_ok(hit: &TorrentHit, filter: &TorrentFilter, title: &str) -> bool {
+    if filter.year.is_empty() {
+        return true;
+    }
+
+    for year in &filter.year {
+        if hit.info.year == Some(*year) {
+            return true;
+        }
+
+        if title.contains(&year.to_string()) {
+            return true;
+        }
+    }
+
+    false
 }
 
 fn tri_ok(choice: TriChoice, present: bool) -> bool {
@@ -298,20 +351,38 @@ fn has_subs(title: &str) -> bool {
     title.contains(" sub") || has_token(title, "ст")
 }
 
-fn voice_ok(hit: &TorrentHit, filter: VoiceFilter, title: &str) -> bool {
+fn voice_ok(hit: &TorrentHit, filters: &[VoiceFilter], title: &str) -> bool {
+    if filters.is_empty() {
+        return true;
+    }
+
+    for filter in filters {
+        if voice_one(hit, *filter, title) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn voice_one(hit: &TorrentHit, filter: VoiceFilter, title: &str) -> bool {
     match filter {
-        VoiceFilter::Any => true,
         VoiceFilter::Dubbing => voice_kind_ok(title, VoiceKind::Dubbing),
         VoiceFilter::Polyphonic => voice_kind_ok(title, VoiceKind::Polyphonic),
         VoiceFilter::TwoVoice => voice_kind_ok(title, VoiceKind::TwoVoice),
         VoiceFilter::Amateur => voice_kind_ok(title, VoiceKind::Amateur),
-        VoiceFilter::Studio(name) => {
-            hit.voices
-                .iter()
-                .any(|studio| studio.eq_ignore_ascii_case(name))
-                || title.contains(&name.to_lowercase())
+        VoiceFilter::Studio(name) => studio_ok(hit, name, title),
+    }
+}
+
+fn studio_ok(hit: &TorrentHit, name: &str, title: &str) -> bool {
+    for studio in &hit.voices {
+        if studio.eq_ignore_ascii_case(name) {
+            return true;
         }
     }
+
+    title.contains(&name.to_lowercase())
 }
 
 fn voice_kind_ok(title: &str, kind: VoiceKind) -> bool {
@@ -346,9 +417,22 @@ fn has_token(title: &str, token: &str) -> bool {
         .any(|word| word == token)
 }
 
-fn lang_ok(title: &str, lang: AudioLang) -> bool {
+fn lang_ok(title: &str, langs: &[AudioLang]) -> bool {
+    if langs.is_empty() {
+        return true;
+    }
+
+    for lang in langs {
+        if lang_one(title, *lang) {
+            return true;
+        }
+    }
+
+    false
+}
+
+fn lang_one(title: &str, lang: AudioLang) -> bool {
     match lang {
-        AudioLang::Any => true,
         AudioLang::Ru => {
             has_token(title, "ru") || has_token(title, "rus") || title.contains("russian")
         }
@@ -365,10 +449,10 @@ fn lang_ok(title: &str, lang: AudioLang) -> bool {
 }
 
 /// Hits that pass `filter`, with original list indices.
-pub fn filtered_hits(
-    hits: &[TorrentHit],
-    filter: TorrentFilter,
-) -> impl Iterator<Item = (usize, &TorrentHit)> {
+pub fn filtered_hits<'a>(
+    hits: &'a [TorrentHit],
+    filter: &'a TorrentFilter,
+) -> impl Iterator<Item = (usize, &'a TorrentHit)> {
     hits.iter()
         .enumerate()
         .filter(move |(_, hit)| matches_filter(hit, filter))
@@ -378,27 +462,31 @@ pub fn filtered_hits(
 #[must_use]
 pub fn voice_filter_options<'a>(
     hits: impl IntoIterator<Item = &'a TorrentHit>,
-    selected: VoiceFilter,
+    selected: &[VoiceFilter],
 ) -> Vec<VoiceFilter> {
     let mut choices = VoiceFilter::KINDS.to_vec();
-    let studios =
-        studios_in_catalog_order(hits.into_iter().flat_map(|hit| hit.voices.iter().copied()));
+    let voices = hits.into_iter().flat_map(|hit| hit.voices.iter().copied());
+    let studios = studios_in_catalog_order(voices);
+   
     choices.extend(studios.into_iter().map(VoiceFilter::Studio));
-    if let VoiceFilter::Studio(name) = selected
-        && !choices.contains(&VoiceFilter::Studio(name))
-    {
+    for filter in selected {
+        let VoiceFilter::Studio(name) = filter else {
+            continue;
+        };
+        
+        if choices.contains(&VoiceFilter::Studio(name)) {
+            continue;
+        }
+
         choices.push(VoiceFilter::Studio(name));
     }
+
     choices
 }
 
 /// Card year, then up to 8 distinct hit years (newest first), then `selected` if missing.
 #[must_use]
-pub fn year_options(
-    hits: &[TorrentHit],
-    card_year: Option<u16>,
-    selected: Option<u16>,
-) -> Vec<u16> {
+pub fn year_options(hits: &[TorrentHit], card_year: Option<u16>, selected: &[u16]) -> Vec<u16> {
     let mut years = Vec::new();
     if let Some(year) = card_year {
         years.push(year);
@@ -412,11 +500,14 @@ pub fn year_options(
             years.push(year);
         }
     }
-    if let Some(year) = selected
-        && !years.contains(&year)
-    {
-        years.push(year);
+    for year in selected {
+        if years.contains(year) {
+            continue;
+        }
+
+        years.push(*year);
     }
+
     years
 }
 
@@ -433,12 +524,7 @@ pub fn season_options(hits: &[TorrentHit]) -> Vec<u32> {
 }
 
 /// Sort in place. Started torrents stay at the top.
-pub fn sort_hits(
-    hits: &mut [TorrentHit],
-    kind: MediaKind,
-    preferred: DefaultQuality,
-    mode: SortMode,
-) {
+pub fn sort_hits(hits: &mut [TorrentHit], kind: MediaKind, mode: SortMode) {
     hits.sort_by(|a, b| {
         b.started.cmp(&a.started).then_with(|| match mode {
             SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
@@ -447,9 +533,8 @@ pub fn sort_hits(
                 .then(b.seeders.cmp(&a.seeders))
                 .then(b.size_bytes.cmp(&a.size_bytes)),
             SortMode::Popular => b
-                .quality_score(preferred)
-                .cmp(&a.quality_score(preferred))
-                .then(b.seeders.cmp(&a.seeders))
+                .seeders
+                .cmp(&a.seeders)
                 .then(b.size_bytes.cmp(&a.size_bytes)),
             SortMode::Seeders => b.seeders.cmp(&a.seeders),
             SortMode::Size => b.size_bytes.cmp(&a.size_bytes),
@@ -504,16 +589,16 @@ mod tests {
         let fhd = hit("Film.1080p.WEB-DL", 1, false);
         assert!(matches_filter(
             &uhd,
-            TorrentFilter {
-                quality: Some(QualityBand::Uhd),
+            &TorrentFilter {
+                quality: vec![QualityBand::Uhd],
                 hdr: TriChoice::Yes,
                 ..TorrentFilter::default()
             }
         ));
         assert!(!matches_filter(
             &fhd,
-            TorrentFilter {
-                quality: Some(QualityBand::Uhd),
+            &TorrentFilter {
+                quality: vec![QualityBand::Uhd],
                 ..TorrentFilter::default()
             }
         ));
@@ -525,15 +610,15 @@ mod tests {
         assert!(lost.voices.contains(&"LostFilm"));
         assert!(matches_filter(
             &lost,
-            TorrentFilter {
-                voice: VoiceFilter::Studio("LostFilm"),
+            &TorrentFilter {
+                voice: vec![VoiceFilter::Studio("LostFilm")],
                 ..TorrentFilter::default()
             }
         ));
         assert!(!matches_filter(
             &lost,
-            TorrentFilter {
-                voice: VoiceFilter::Studio("HDrezka"),
+            &TorrentFilter {
+                voice: vec![VoiceFilter::Studio("HDrezka")],
                 ..TorrentFilter::default()
             }
         ));
@@ -542,12 +627,7 @@ mod tests {
     #[test]
     fn started_sorts_first() {
         let mut hits = vec![hit("b", 100, false), hit("a", 1, true)];
-        sort_hits(
-            &mut hits,
-            MediaKind::Movie,
-            DefaultQuality::Q1080p,
-            SortMode::Seeders,
-        );
+        sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
         assert!(hits[0].started);
         assert!(!hits[1].started);
     }
@@ -563,12 +643,7 @@ mod tests {
             hit("Show [03x01-09 из 10] (2026) WEB-DLRip", 119, false),
         ];
 
-        sort_hits(
-            &mut hits,
-            MediaKind::Tv,
-            DefaultQuality::Q1080p,
-            SortMode::Popular,
-        );
+        sort_hits(&mut hits, MediaKind::Tv, SortMode::Popular);
 
         assert_eq!(hits[0].seeders, 119);
     }
@@ -579,13 +654,8 @@ mod tests {
             hit_sized("Film.1080p.WEB-DL", 10, 4_000),
             hit_sized("Film.1080p.WEB-DL", 10, 8_000),
         ];
-        
-        sort_hits(
-            &mut hits,
-            MediaKind::Movie,
-            DefaultQuality::Q1080p,
-            SortMode::Popular,
-        );
+
+        sort_hits(&mut hits, MediaKind::Movie, SortMode::Popular);
 
         assert_eq!(hits[0].size_bytes, 8_000);
     }
@@ -597,12 +667,9 @@ mod tests {
             hit("B (2021)", 1, false),
             hit("C (2021)", 1, false),
         ];
+        assert_eq!(year_options(&hits, Some(2020), &[]), vec![2020, 2021, 2019]);
         assert_eq!(
-            year_options(&hits, Some(2020), None),
-            vec![2020, 2021, 2019]
-        );
-        assert_eq!(
-            year_options(&hits, Some(2020), Some(2018)),
+            year_options(&hits, Some(2020), &[2018]),
             vec![2020, 2021, 2019, 2018]
         );
     }
@@ -615,5 +682,31 @@ mod tests {
             hit("Show.S02", 1, false),
         ];
         assert_eq!(season_options(&hits), vec![1, 2]);
+    }
+
+    #[test]
+    fn quality_or_matches_any_selected_band() {
+        let fhd = hit("Film.1080p.WEB-DL", 1, false);
+        let filter = TorrentFilter {
+            quality: vec![QualityBand::Uhd, QualityBand::Fhd],
+            ..TorrentFilter::default()
+        };
+
+        assert!(matches_filter(&fhd, &filter));
+        assert_eq!(filter.active_count(), 1);
+    }
+
+    #[test]
+    fn active_count_is_unique_categories() {
+        let filter = TorrentFilter {
+            quality: vec![QualityBand::Uhd, QualityBand::Hd],
+            hdr: TriChoice::Yes,
+            voice: vec![VoiceFilter::Dubbing, VoiceFilter::Amateur],
+            ..TorrentFilter::default()
+        };
+
+        assert_eq!(filter.active_count(), 3);
+        assert!(filter.is_active());
+        assert!(!TorrentFilter::default().is_active());
     }
 }

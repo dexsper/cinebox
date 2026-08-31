@@ -5,7 +5,7 @@ mod controls;
 mod speed;
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{DefaultQuality, ParserKind, PosterSize, UiLanguage, VideoScale};
+use cinebox_core::{ParserKind, PosterSize, QualityBand, UiLanguage, VideoScale};
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
@@ -15,9 +15,9 @@ use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::scroll;
 
-use catalog::{CategoryId, Field, SelectId, catalog, category};
+use catalog::{CategoryId, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
-    category_row, clear_cache_row, data_language_row, drawer_title, error_line, nav_header,
+    category_row, clear_cache_row, drawer_title, error_line, multiselect_chip_row, nav_header,
     probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row, toggle_row,
 };
 use speed::SpeedMeter;
@@ -195,9 +195,12 @@ impl SettingsScreen {
                 hint,
                 which,
             } => paint_select(ui, svc, theme, id, label, *hint, which),
-            Field::DataLanguage => {
-                data_language_row(ui, theme, &mut svc.settings.tmdb.data_language)
-            }
+            Field::MultiSelect {
+                id,
+                label,
+                hint,
+                which,
+            } => paint_multiselect(ui, svc, theme, id, label, *hint, which),
             Field::ProbeParser => {
                 let label = Msg::TestParser.en();
                 probe_row(ui, theme, ICON_SEARCH, label, &mut self.parser, || {
@@ -256,7 +259,7 @@ fn paint_select(
             id,
             label,
             hint,
-            &mut svc.settings.interface.language,
+            &mut svc.settings.general.language,
             UiLanguage::ALL,
             |lang| ui_lang_label(lang).to_owned(),
         ),
@@ -269,15 +272,6 @@ fn paint_select(
             &mut svc.settings.player.scale,
             VideoScale::ALL,
             |scale| scale_label(scale).to_owned(),
-        ),
-        SelectId::Quality => select_row(
-            ui,
-            theme,
-            id,
-            label,
-            hint,
-            &mut svc.settings.player.default_quality,
-            DefaultQuality::ALL,
         ),
         SelectId::ParserKind => select_row(
             ui,
@@ -296,6 +290,29 @@ fn paint_select(
             hint,
             &mut svc.settings.tmdb.poster_size,
             PosterSize::ALL,
+        ),
+    }
+}
+
+fn paint_multiselect(
+    ui: &mut Ui,
+    svc: &mut Services,
+    theme: &Theme,
+    id: &str,
+    label: &str,
+    hint: Option<&str>,
+    which: &MultiSelectId,
+) -> bool {
+    match which {
+        MultiSelectId::Quality => multiselect_chip_row(
+            ui,
+            theme,
+            id,
+            label,
+            hint,
+            &mut svc.settings.parser.default_quality,
+            QualityBand::ALL,
+            |band| band.label().to_owned(),
         ),
     }
 }

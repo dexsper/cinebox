@@ -1,30 +1,28 @@
 //! Hit list, sort, and filters.
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{MediaKind, typograph};
+use cinebox_core::{MediaKind, QualityBand, typograph};
 use cinebox_parse::{
-    AudioLang, QualityBand, SortMode, TriChoice, VoiceFilter, filtered_hits, hit_bitrate_mbps,
-    season_options, voice_filter_options, year_options,
+    AudioLang, SortMode, TriChoice, VoiceFilter, filtered_hits, hit_bitrate_mbps, season_options,
+    voice_filter_options, year_options,
 };
 use egui::{
-    Align, Color32, ComboBox, CornerRadius, CursorIcon, Frame, Layout, Rect, RichText, Sense,
-    Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    Align, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, StrokeKind, Ui,
+    Vec2, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_RESTART_ALT};
 
 use super::state::{TorrentHits, TorrentState};
-use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::drawer::Overlay;
-use crate::widgets::{self, combo, scroll};
+use crate::widgets::{self, chips, combo, multiselect, scroll};
 
 const FILTERS_BTN_W: f32 = 152.0;
 
 pub(super) fn list_pane(
     ui: &mut Ui,
     state: &mut TorrentState,
-    svc: &Services,
     theme: &Theme,
     retry: &mut bool,
     pick: &mut Option<usize>,
@@ -36,7 +34,7 @@ pub(super) fn list_pane(
     }
 
     toolbar(ui, state, theme, filters);
-    state.apply_filter_sort(svc.settings.player.default_quality);
+    state.apply_filter_sort();
 
     match &state.hits {
         TorrentHits::Loading => {
@@ -49,7 +47,7 @@ pub(super) fn list_pane(
         }
         TorrentHits::Ready(hits) => {
             let visible: Vec<(usize, &cinebox_parse::TorrentHit)> =
-                filtered_hits(hits, state.filter).collect();
+                filtered_hits(hits, &state.filter).collect();
 
             ui.label(
                 RichText::new(format!("{} / {}", visible.len(), hits.len()))
@@ -112,20 +110,43 @@ fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut O
         );
 
         let open = filters.is_open();
-        if filters_button(ui, theme, open, state.filter.is_active()) {
+        if filters_button(ui, theme, open, state.filter.active_count()) {
             filters.toggle(ui.input(|i| i.time));
         }
     });
 }
 
-fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, active: bool) -> bool {
+fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, count: usize) -> bool {
+    let active = count > 0;
     let label = filters_label(active);
     let selected = open || active;
     let size = vec2(FILTERS_BTN_W, combo::HEIGHT);
     let pad_y = button::icon_label_pad_y(ui, theme, ICON_FILTER_LIST, combo::HEIGHT);
     let opts = Opts::secondary(size).selected(selected).pad_y(pad_y);
+    let fg = theme.title;
+    let icon = ICON_FILTER_LIST.rich_text().size(theme.text_icon).color(fg);
+    let text = RichText::new(&label).size(theme.text_body).color(fg);
+    let atoms = (egui::Atom::grow(), icon, text, egui::Atom::grow());
 
-    button::icon_label(ui, theme, ICON_FILTER_LIST, &label, opts)
+    let response = button::add_named(ui, theme, atoms, opts, Some(&label));
+    if count > 0 {
+        paint_count_badge(ui, response.rect, count, theme);
+    }
+
+    response.clicked()
+}
+
+fn paint_count_badge(ui: &Ui, button: Rect, count: usize, theme: &Theme) {
+    let text = count.to_string();
+    let font = theme.ui_font(theme.text_caption);
+    let galley = ui.painter().layout_no_wrap(text, font, Color32::WHITE);
+    let radius = 9.0;
+    let center = pos2(button.right() - 2.0, button.top() + 2.0);
+    ui.painter().circle_filled(center, radius, theme.err);
+
+    let x = center.x - galley.size().x * 0.5;
+    let y = center.y - galley.size().y * 0.5;
+    ui.painter().galley(pos2(x, y), galley, Color32::WHITE);
 }
 
 fn filters_label(active: bool) -> String {
@@ -136,7 +157,7 @@ fn filters_label(active: bool) -> String {
     Msg::Filters.en().to_owned()
 }
 
-pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Services, theme: &Theme) {
+pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Theme) {
     ui.label(
         RichText::new(Msg::Filters.en())
             .font(theme.title_font(theme.text_display))
@@ -147,20 +168,13 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
     scroll::vertical(ui, "torrent-filters", |ui| {
         ui.spacing_mut().item_spacing.y = 10.0;
         section_label(ui, theme, Msg::FilterQuality.en());
-        ui.horizontal_wrapped(|ui| {
-            ui.spacing_mut().item_spacing.x = 6.0;
-            let selected = state.filter.quality;
-
-            if chip(ui, theme, Msg::FilterAny.en(), selected.is_none()) {
-                state.filter.quality = None;
-            }
-
-            for band in QualityBand::ALL {
-                if chip(ui, theme, band.label(), selected == Some(*band)) {
-                    state.filter.quality = Some(*band);
-                }
-            }
-        });
+        chips::multi_row(
+            ui,
+            theme,
+            &mut state.filter.quality,
+            QualityBand::ALL,
+            |band| band.label().to_owned(),
+        );
 
         section_label(ui, theme, Msg::FilterHdr.en());
         tri_row(ui, theme, &mut state.filter.hdr);
@@ -174,9 +188,9 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
             _ => &[],
         };
 
-        let voices = voice_filter_options(hits, state.filter.voice);
+        let voices = voice_filter_options(hits, &state.filter.voice);
         section_label(ui, theme, Msg::FilterTranslation.en());
-        combo::show_with(
+        multiselect::show_with(
             ui,
             theme,
             "torrent-voice",
@@ -186,7 +200,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
         );
 
         section_label(ui, theme, Msg::FilterLanguage.en());
-        combo::show_with(
+        multiselect::show_with(
             ui,
             theme,
             "torrent-lang",
@@ -195,10 +209,10 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
             |lang| audio_lang_label(lang).to_owned(),
         );
 
-        let years = year_options(hits, state.year, state.filter.year);
+        let years = year_options(hits, state.year, &state.filter.year);
         if years.len() > 1 {
             section_label(ui, theme, Msg::FilterYear.en());
-            optional_combo(
+            multiselect::show_with(
                 ui,
                 theme,
                 "torrent-year",
@@ -212,7 +226,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
             let seasons = season_options(hits);
             if !seasons.is_empty() {
                 section_label(ui, theme, Msg::Season.en());
-                optional_combo(
+                multiselect::show_with(
                     ui,
                     theme,
                     "torrent-season",
@@ -229,7 +243,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, svc: &Servic
         }
     });
 
-    state.apply_filter_sort(svc.settings.player.default_quality);
+    state.apply_filter_sort();
 }
 
 fn section_label(ui: &mut Ui, theme: &Theme, label: &str) {
@@ -239,39 +253,6 @@ fn section_label(ui: &mut Ui, theme: &Theme, label: &str) {
             .size(theme.text_small)
             .color(theme.muted_bright),
     );
-}
-
-fn optional_combo<T: Copy + PartialEq>(
-    ui: &mut Ui,
-    theme: &Theme,
-    id: &str,
-    value: &mut Option<T>,
-    options: &[T],
-    label: impl Fn(T) -> String,
-) {
-    let text = match *value {
-        Some(current) => label(current),
-        None => Msg::FilterAny.en().to_owned(),
-    };
-
-    let selected = RichText::new(text).color(theme.label);
-    let width = ui.available_width();
-
-    ui.scope(|ui| {
-        combo::apply_visuals(ui, theme);
-        ComboBox::from_id_salt(id)
-            .width(width)
-            .selected_text(selected)
-            .popup_style(combo::popup_style(theme))
-            .show_ui(ui, |ui| {
-                ui.selectable_value(value, None, Msg::FilterAny.en());
-                for opt in options {
-                    ui.selectable_value(value, Some(*opt), label(*opt));
-                }
-            })
-            .response
-            .on_hover_cursor(CursorIcon::PointingHand);
-    });
 }
 
 fn tri_row(ui: &mut Ui, theme: &Theme, value: &mut TriChoice) {
@@ -303,7 +284,6 @@ fn sort_label(mode: SortMode) -> &'static str {
 
 fn voice_label(filter: VoiceFilter) -> &'static str {
     match filter {
-        VoiceFilter::Any => Msg::FilterAny.en(),
         VoiceFilter::Dubbing => Msg::VoiceDubbing.en(),
         VoiceFilter::Polyphonic => Msg::VoicePolyphonic.en(),
         VoiceFilter::TwoVoice => Msg::VoiceTwoVoice.en(),
@@ -314,7 +294,6 @@ fn voice_label(filter: VoiceFilter) -> &'static str {
 
 fn audio_lang_label(lang: AudioLang) -> &'static str {
     match lang {
-        AudioLang::Any => Msg::FilterAny.en(),
         AudioLang::Ru => Msg::LangRussian.en(),
         AudioLang::En => Msg::LangEnglish.en(),
         AudioLang::Uk => Msg::LangUkrainian.en(),
