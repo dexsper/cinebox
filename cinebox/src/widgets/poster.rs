@@ -1,6 +1,6 @@
 //! Catalog poster tiles.
 
-use cinebox_core::{CatalogItem, typograph};
+use cinebox_core::CatalogItem;
 use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
@@ -53,7 +53,7 @@ pub fn catalog_tile(
     }
 
     let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + CAPTION_GAP);
-    let title = wrap_title(ui, &typograph(&item.title), theme);
+    let title = wrap_title(ui, &item.title, theme);
     let title_h = title.size().y;
 
     ui.painter().galley(title_pos, title, theme.title);

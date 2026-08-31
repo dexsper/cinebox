@@ -1,5 +1,3 @@
-//! Phase 2: `GET /echo` and `GET /download/{size}`.
-
 use std::time::{Duration, Instant};
 
 use cinebox_core::{join_url, normalize_base_url};

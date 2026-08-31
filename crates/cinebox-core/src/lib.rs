@@ -10,7 +10,6 @@ pub mod ids;
 pub mod media;
 pub mod paths;
 pub mod settings;
-pub mod typograf;
 
 pub use catalog::{
     CatalogItem, HomeCatalog, HomeRow, HomeRowId, normalize_tmdb_path, parse_tmdb_image_url,
@@ -32,4 +31,4 @@ pub use settings::{
     SecretString, Settings, SettingsError, SettingsStore, TorrServerSettings, UiLanguage,
     VideoScale,
 };
-pub use typograf::typograph;
+pub use cinebox_typograf::typograph;

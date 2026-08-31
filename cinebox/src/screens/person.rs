@@ -1,7 +1,7 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
     CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, UiLanguage,
-    language_key, person_cache_id, tmdb_image_url, typograph,
+    language_key, person_cache_id, tmdb_image_url,
 };
 use egui::{RichText, Ui, Vec2};
 use egui_async::Bind;
@@ -100,9 +100,13 @@ impl PersonScreen {
                 db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id)
                     .ok()
                     .flatten()
-                    .map(|hit| CacheHit {
-                        value: Box::new(hit.value),
-                        fetched_at: hit.fetched_at,
+                    .map(|hit| {
+                        let mut value = hit.value;
+                        value.apply_typography();
+                        CacheHit {
+                            value: Box::new(value),
+                            fetched_at: hit.fetched_at,
+                        }
                     })
             });
         }
@@ -231,7 +235,7 @@ fn ready(
                 }
                 if let Some(place) = details.place_of_birth.as_deref() {
                     ui.label(
-                        RichText::new(typograph(place))
+                        RichText::new(place)
                             .size(theme.text_small)
                             .color(theme.muted),
                     );
@@ -240,7 +244,7 @@ fn ready(
         );
         if let Some(bio) = details.biography.as_deref() {
             ui.add_space(12.0);
-            ui.label(RichText::new(typograph(bio)).size(theme.text_body).color(theme.body));
+            ui.label(RichText::new(bio).size(theme.text_body).color(theme.body));
         }
         if !details.credits.is_empty() {
             ui.add_space(12.0);
@@ -333,7 +337,7 @@ fn hero(ui: &mut Ui, svc: &Services, theme: &Theme, hero: Hero<'_>, extra: impl 
         poster::rounded_image(ui, tex, hero.photo, theme);
         ui.vertical(|ui| {
             ui.label(
-                RichText::new(typograph(hero.name))
+                RichText::new(hero.name)
                     .font(theme.title_font(hero.name_size))
                     .color(theme.title),
             );

@@ -85,7 +85,6 @@ pub enum SettingsError {
     },
 }
 
-/// UI language. Full i18n is Phase 8.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum UiLanguage {

@@ -7,7 +7,7 @@ mod state;
 pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState};
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url, typograph};
+use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url};
 use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
@@ -266,7 +266,7 @@ impl TorrentsScreen {
             });
             ui.add_space(10.0);
             ui.label(
-                RichText::new(typograph(&state.movie.title))
+                RichText::new(&state.movie.title)
                     .font(theme.title_font(intro::lerp(
                         theme.text_explorer_from,
                         theme.text_display,
@@ -288,7 +288,7 @@ impl TorrentsScreen {
 
             ui.add_space(18.0);
             ui.label(
-                RichText::new(typograph(overview))
+                RichText::new(overview)
                     .size(overview_size)
                     .color(theme.body),
             );

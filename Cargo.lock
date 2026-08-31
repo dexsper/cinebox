@@ -389,6 +389,7 @@ dependencies = [
 name = "cinebox-core"
 version = "0.1.0"
 dependencies = [
+ "cinebox-typograf",
  "rusqlite",
  "serde",
  "serde_json",

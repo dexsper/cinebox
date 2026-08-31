@@ -1,5 +1,5 @@
 use cinebox_core::i18n::Msg;
-use cinebox_core::{HomeCatalog, HomeRow, language_key};
+use cinebox_core::{HomeCatalog, HomeRow, UiLanguage, language_key};
 use egui::{RichText, Ui};
 use egui_async::Bind;
 
@@ -11,6 +11,9 @@ use crate::widgets::{self, poster, scroll};
 
 pub struct HomeScreen {
     catalog: Bind<HomeCatalog, String>,
+    disk: Option<HomeCatalog>,
+    disk_fresh: bool,
+    lang: Option<UiLanguage>,
     force_refresh: bool,
 }
 
@@ -18,6 +21,9 @@ impl Default for HomeScreen {
     fn default() -> Self {
         Self {
             catalog: Bind::new(true),
+            disk: None,
+            disk_fresh: false,
+            lang: None,
             force_refresh: false,
         }
     }
@@ -26,6 +32,8 @@ impl Default for HomeScreen {
 impl HomeScreen {
     pub fn refresh(&mut self) {
         self.catalog.clear();
+        self.disk = None;
+        self.disk_fresh = false;
         self.force_refresh = true;
     }
 
@@ -44,17 +52,32 @@ impl HomeScreen {
             return None;
         }
 
-        let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
-        let disk = svc
-            .db
-            .as_ref()
-            .and_then(|db| db.home_catalog(lang).ok().flatten());
-        let (disk_catalog, disk_fresh) = match disk {
-            Some((catalog, fresh)) => (Some(catalog), fresh),
-            None => (None, false),
-        };
-        let disk_catalog = disk_catalog.as_ref();
-        let skip_network = !self.force_refresh && disk_fresh;
+        let lang = svc.settings.general.language;
+        if self.lang != Some(lang) {
+            let switched = self.lang.is_some();
+            self.lang = Some(lang);
+            if switched {
+                self.catalog = Bind::new(true);
+                self.disk = None;
+                self.disk_fresh = false;
+                self.force_refresh = true;
+            }
+        }
+
+        if self.disk.is_none() {
+            let lang_key = language_key(Some(svc.settings.general.language.tmdb_code()));
+            if let Some((catalog, fresh)) = svc
+                .db
+                .as_ref()
+                .and_then(|db| db.home_catalog(lang_key).ok().flatten())
+            {
+                self.disk = Some(catalog);
+                self.disk_fresh = fresh;
+            }
+        }
+
+        let disk_catalog = self.disk.as_ref();
+        let skip_network = !self.force_refresh && self.disk_fresh;
         let settings = svc.settings.clone();
         let db = svc.db.clone();
         let outcome = super::swr::resolve(

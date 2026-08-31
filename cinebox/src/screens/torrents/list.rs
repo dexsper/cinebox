@@ -1,7 +1,7 @@
 //! Hit list, sort, and filters.
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{MediaKind, QualityBand, typograph};
+use cinebox_core::{MediaKind, QualityBand};
 use cinebox_parse::{
     AudioLang, SortMode, TriChoice, VoiceFilter, filtered_hits, hit_bitrate_mbps, season_options,
     voice_filter_options, year_options,
@@ -336,7 +336,7 @@ fn hit_row(
         .inner_margin(egui::Margin::symmetric(12, 14))
         .show(ui, |ui| {
             ui.label(
-                RichText::new(typograph(&hit.title))
+                RichText::new(&hit.display_title)
                     .font(theme.title_font(theme.text_label))
                     .color(theme.title),
             );

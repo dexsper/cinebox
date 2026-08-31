@@ -2,7 +2,6 @@ use cinebox_core::i18n::Msg;
 use cinebox_core::{
     CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, UiLanguage,
     format_money, format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url,
-    typograph,
 };
 use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_async::Bind;
@@ -118,9 +117,13 @@ impl MediaScreen {
                 db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id)
                     .ok()
                     .flatten()
-                    .map(|hit| CacheHit {
-                        value: Box::new(hit.value),
-                        fetched_at: hit.fetched_at,
+                    .map(|hit| {
+                        let mut value = hit.value;
+                        value.apply_typography();
+                        CacheHit {
+                            value: Box::new(value),
+                            fetched_at: hit.fetched_at,
+                        }
                     })
             });
         }
@@ -282,7 +285,7 @@ fn ready(
             |ui, col_top| {
                 if let Some(tagline) = details.tagline.as_deref() {
                     ui.label(
-                        RichText::new(typograph(tagline))
+                        RichText::new(tagline)
                             .size(theme.text_subtitle)
                             .color(theme.muted),
                     );
@@ -329,7 +332,7 @@ fn ready(
                         .color(theme.title),
                 );
                 ui.label(
-                    RichText::new(typograph(overview))
+                    RichText::new(overview)
                         .size(theme.text_label)
                         .color(theme.body),
                 );
@@ -404,7 +407,7 @@ fn ready(
                 if crate::widgets::button::label(
                     ui,
                     theme,
-                    &typograph(&trailer.name),
+                    &trailer.name,
                     crate::widgets::button::Opts::secondary(vec2(
                         0.0,
                         crate::widgets::combo::HEIGHT,
@@ -564,7 +567,7 @@ fn hero(
             }
 
             ui.label(
-                RichText::new(typograph(hero.title))
+                RichText::new(hero.title)
                     .font(theme.title_font(hero.title_size))
                     .color(theme.title),
             );
@@ -674,7 +677,7 @@ fn people(
                 let tex = svc.images.slot(url.as_deref());
                 let name = poster::wrap_lines(
                     ui,
-                    &typograph(&person.name),
+                    &person.name,
                     theme.title,
                     name_size,
                     TILE_W,
@@ -684,7 +687,7 @@ fn people(
 
                 let role = poster::wrap_lines(
                     ui,
-                    &typograph(&person.role),
+                    &person.role,
                     theme.muted,
                     role_size,
                     TILE_W,

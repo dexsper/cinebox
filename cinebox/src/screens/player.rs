@@ -1,7 +1,6 @@
 use std::sync::{Arc, Mutex};
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::typograph;
 use cinebox_player::{
     ClickZone, Engine, FOOTER_LOGICAL, HEADER_LOGICAL, SEEK_SECS, click_zone, format_clock,
 };
@@ -137,7 +136,7 @@ impl PlayerScreen {
                 ui.painter().rect_filled(ui.max_rect(), 0.0, theme.panel);
                 ui.add_space(12.0);
                 ui.label(
-                    RichText::new(typograph(&view.title))
+                    RichText::new(&view.title)
                         .font(theme.title_font(theme.text_subtitle))
                         .color(theme.title),
                 );

@@ -4,6 +4,7 @@ use crate::catalog::{CatalogItem, normalize_tmdb_path};
 use crate::ids::{MediaKind, TmdbId};
 use crate::i18n;
 use crate::settings::UiLanguage;
+use crate::typograph;
 use serde::{Deserialize, Serialize};
 
 /// YouTube (or other) trailer/teaser from TMDB `videos`.
@@ -30,7 +31,7 @@ pub struct CreditPerson {
     pub profile_path: Option<String>,
 }
 
-/// Full movie/TV card (Phase 4).
+/// Full movie/TV card
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct MediaDetails {
     pub id: TmdbId,
@@ -153,6 +154,15 @@ impl MediaDetails {
 
         paths
     }
+
+    /// Apply typography to the overview only (long TMDB copy).
+    pub fn apply_typography(&mut self) {
+        let Some(overview) = &mut self.overview else {
+            return;
+        };
+
+        *overview = typograph(overview);
+    }
 }
 
 /// Person page: bio + combined credits grid.
@@ -179,6 +189,15 @@ impl PersonDetails {
         }
 
         paths
+    }
+
+    /// Apply typography to the biography only (long TMDB copy).
+    pub fn apply_typography(&mut self) {
+        let Some(biography) = &mut self.biography else {
+            return;
+        };
+
+        *biography = typograph(biography);
     }
 }
 
@@ -438,6 +457,60 @@ mod tests {
         assert_eq!(
             details.trailers[0].watch_url(),
             "https://www.youtube.com/watch?v=abc"
+        );
+    }
+
+    #[test]
+    fn apply_typography_only_touches_overview() {
+        let mut details = MediaDetails {
+            id: TmdbId::new(1),
+            kind: MediaKind::Movie,
+            title: String::from("The \"Matrix\""),
+            original_title: Some(String::from("The Matrix")),
+            original_language: None,
+            tagline: Some(String::from("Welcome to the real world.")),
+            overview: Some(String::from("A - B wait...")),
+            year: Some(1999),
+            released: None,
+            runtime_minutes: None,
+            number_of_seasons: None,
+            number_of_episodes: None,
+            certification: None,
+            vote: None,
+            budget: None,
+            genre_ids: Vec::new(),
+            genres: Vec::new(),
+            countries: Vec::new(),
+            poster_path: None,
+            backdrop_path: None,
+            directors: Vec::new(),
+            cast: vec![CreditPerson {
+                id: TmdbId::new(2),
+                name: String::from("Keanu Reeves"),
+                role: String::from("Neo"),
+                profile_path: None,
+            }],
+            collection: Vec::new(),
+            recommendations: Vec::new(),
+            similar: Vec::new(),
+            trailers: Vec::new(),
+        };
+
+        details.apply_typography();
+
+        assert_eq!(details.title, "The \"Matrix\"");
+        assert_eq!(details.tagline.as_deref(), Some("Welcome to the real world."));
+        assert_eq!(details.cast[0].name, "Keanu Reeves");
+        assert_eq!(details.cast[0].role, "Neo");
+
+        let Some(overview) = details.overview.as_deref() else {
+            panic!("overview");
+        };
+
+        assert_ne!(overview, "A - B wait...");
+        assert!(
+            overview.contains('\u{2014}') || overview.contains('…'),
+            "{overview:?}"
         );
     }
 }

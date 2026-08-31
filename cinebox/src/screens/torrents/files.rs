@@ -1,7 +1,7 @@
 //! Files modal and per-file rows.
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{MediaKind, typograph};
+use cinebox_core::MediaKind;
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
 
 use super::state::{FilesPane, ReadyFiles, TorrentState};
@@ -139,7 +139,7 @@ fn file_list(
                             ui.set_min_width(ui.available_width());
                             ui.horizontal(|ui| {
                                 ui.label(
-                                    RichText::new(typograph(&file.title))
+                                    RichText::new(&file.title)
                                         .size(theme.text_section)
                                         .color(theme.title),
                                 );

@@ -74,6 +74,11 @@ fn from_char_code(digits: &str, radix: u32) -> String {
 }
 
 const ENTITIES: &[(&str, u32)] = &[
+    ("amp", 38),
+    ("lt", 60),
+    ("gt", 62),
+    ("quot", 34),
+    ("apos", 39),
     ("nbsp", 160),
     ("thinsp", 8201),
     ("ensp", 8194),
@@ -325,3 +330,16 @@ const ENTITIES: &[(&str, u32)] = &[
     ("NestedGreaterGreater", 8811),
     ("NestedLessLess", 8810),
 ];
+
+#[cfg(test)]
+mod tests {
+    use super::to_utf;
+
+    #[test]
+    fn decodes_core_html_entities() {
+        assert_eq!(to_utf("DoMiNo &amp; селезень"), "DoMiNo & селезень");
+        assert_eq!(to_utf("&quot;Hi&quot;"), "\"Hi\"");
+        assert_eq!(to_utf("It&apos;s"), "It's");
+        assert_eq!(to_utf("1 &lt; 2 &gt; 0"), "1 < 2 > 0");
+    }
+}

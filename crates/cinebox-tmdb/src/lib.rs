@@ -122,7 +122,7 @@ pub async fn check_api_key(api_key: &str, use_system_proxy: bool) -> Result<Stri
     Ok(String::from("TMDB key ok"))
 }
 
-/// Fetch all remote home rows in parallel. Recently watched is always empty (Phase 8).
+/// Fetch all remote home rows in parallel.
 ///
 /// # Errors
 ///

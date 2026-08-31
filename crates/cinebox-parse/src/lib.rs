@@ -9,6 +9,8 @@ mod voices;
 
 pub use episode::{FileEpisode, file_display_name, parse_file_episode};
 
+use cinebox_core::typograph;
+
 pub use cinebox_core::QualityBand;
 pub use filter::{
     AudioLang, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind, filtered_hits,
@@ -35,6 +37,8 @@ pub struct Listing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TorrentHit {
     pub title: String,
+    /// Typographed title for the list. `title` stays raw for parse/filter.
+    pub display_title: String,
     pub tracker: String,
     pub size_bytes: u64,
     pub seeders: u32,
@@ -55,13 +59,17 @@ impl TorrentHit {
         let found_voices = voices(&listing.title);
         let bitrate_mbps =
             runtime_minutes.and_then(|mins| estimate_bitrate_mbps(listing.size_bytes, mins));
+
         let started = infohash(&listing.magnet).is_some_and(|hash| {
             started_hashes
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(&hash))
         });
+
+        let display_title = typograph(&listing.title);
         Self {
             title: listing.title,
+            display_title,
             tracker: listing.tracker,
             size_bytes: listing.size_bytes,
             seeders: listing.seeders,
@@ -136,5 +144,40 @@ mod tests {
             None => panic!("bitrate should be set when size and runtime are known"),
         };
         assert!(mbps > 0.0, "{mbps}");
+    }
+
+    #[test]
+    fn display_title_decodes_entities_and_keeps_raw() {
+        let hit = TorrentHit::new(
+            Listing {
+                title: String::from("DoMiNo &amp; селезень &quot;Silo&quot;"),
+                tracker: String::from("rutracker"),
+                size_bytes: 1_000,
+                seeders: 1,
+                peers: 0,
+                magnet: String::new(),
+                published: String::new(),
+            },
+            None,
+            &[],
+        );
+
+        assert_eq!(hit.title, "DoMiNo &amp; селезень &quot;Silo&quot;");
+        assert!(
+            !hit.display_title.contains("&amp;"),
+            "{:?}",
+            hit.display_title
+        );
+        assert!(
+            !hit.display_title.contains("&quot;"),
+            "{:?}",
+            hit.display_title
+        );
+        assert!(hit.display_title.contains("DoMiNo & "), "{:?}", hit.display_title);
+        assert!(
+            hit.display_title.contains('«') || hit.display_title.contains('\u{201C}'),
+            "{:?}",
+            hit.display_title
+        );
     }
 }

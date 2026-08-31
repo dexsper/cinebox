@@ -75,7 +75,7 @@ pub async fn load_media(
     let language = settings.general.language.tmdb_code();
     let use_system_proxy = settings.general.use_system_proxy;
 
-    let details = cinebox_tmdb::fetch_media(&key, kind, id, Some(language), use_system_proxy)
+    let mut details = cinebox_tmdb::fetch_media(&key, kind, id, Some(language), use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
 
@@ -88,6 +88,8 @@ pub async fn load_media(
             warn!(%error, "failed to persist media details");
         }
     }
+
+    details.apply_typography();
     Ok(Box::new(details))
 }
 
@@ -100,7 +102,7 @@ pub async fn load_person(
     let language = settings.general.language.tmdb_code();
     let use_system_proxy = settings.general.use_system_proxy;
 
-    let details = cinebox_tmdb::fetch_person(&key, id, Some(language), use_system_proxy)
+    let mut details = cinebox_tmdb::fetch_person(&key, id, Some(language), use_system_proxy)
         .await
         .map_err(|error| error.to_string())?;
 
@@ -113,6 +115,8 @@ pub async fn load_person(
             warn!(%error, "failed to persist person details");
         }
     }
+
+    details.apply_typography();
     Ok(Box::new(details))
 }
 
