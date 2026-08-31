@@ -12,6 +12,21 @@ use crate::images::ImageSlot;
 use crate::nav::NavAction;
 use crate::theme::Theme;
 
+const CAPTION_GAP: f32 = 4.0;
+const LINE_GAP: f32 = 2.0;
+const TITLE_ROWS: f32 = 2.0;
+
+fn caption_h(ui: &Ui, theme: &Theme) -> f32 {
+    let (title_rows_h, year_h) = ui.ctx().fonts_mut(|f| {
+        (
+            f.row_height(&theme.ui_font(theme.text_small)) * TITLE_ROWS,
+            f.row_height(&theme.ui_font(theme.text_caption)),
+        )
+    });
+
+    CAPTION_GAP + title_rows_h + LINE_GAP + year_h
+}
+
 pub fn catalog_tile(
     ui: &mut Ui,
     item: &CatalogItem,
@@ -19,7 +34,10 @@ pub fn catalog_tile(
     theme: &Theme,
 ) -> Option<NavAction> {
     let pad = theme.ring_pad();
-    let well = vec2(theme.tile_w + pad * 2.0, theme.catalog_shelf_height() - 8.0);
+    let well = vec2(
+        theme.tile_w + pad * 2.0,
+        pad * 2.0 + theme.tile_h + caption_h(ui, theme),
+    );
     let (rect, response) = ui.allocate_exact_size(well, Sense::click());
     let response = pointing(response);
     let poster_rect =
@@ -34,7 +52,7 @@ pub fn catalog_tile(
         hover_ring(ui, poster_rect, theme);
     }
 
-    let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + 4.0);
+    let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + CAPTION_GAP);
     let title = wrap_title(ui, &typograph(&item.title), theme);
     let title_h = title.size().y;
 
@@ -45,7 +63,7 @@ pub fn catalog_tile(
         .unwrap_or_else(|| String::from("—"));
 
     ui.painter().text(
-        title_pos + vec2(0.0, title_h + 2.0),
+        title_pos + vec2(0.0, title_h + LINE_GAP),
         egui::Align2::LEFT_TOP,
         year,
         theme.ui_font(theme.text_caption),

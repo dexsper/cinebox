@@ -5,8 +5,8 @@
 
 use egui::containers::scroll_area::{DragScroll, ScrollSource};
 use egui::{
-    AsIdSalt, Direction, Event, Id, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea, Shape, Ui,
-    Vec2, Vec2b, pos2, vec2,
+    AsIdSalt, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea,
+    Shape, Ui, Vec2, Vec2b, pos2, vec2,
 };
 
 const FRICTION: f32 = 4.2;
@@ -18,6 +18,9 @@ const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: i32 = 12;
+
+/// Gutter kept clear on the scrollbar side so the floating bar never sits on top of content.
+const SCROLL_GUTTER: i8 = 10;
 
 const EDGE_EPS: f32 = 0.5;
 
@@ -105,6 +108,15 @@ impl Coast {
     }
 }
 
+/// Keeps rows away from the floating scrollbar's edge without shrinking the hit area.
+fn gutter_margin(enabled: Vec2b) -> Margin {
+    Margin {
+        right: if enabled[1] { SCROLL_GUTTER } else { 0 },
+        bottom: if enabled[0] { SCROLL_GUTTER } else { 0 },
+        ..Margin::ZERO
+    }
+}
+
 fn source() -> ScrollSource {
     ScrollSource {
         scroll_bar: true,
@@ -157,10 +169,13 @@ fn show(
     let mut area = ScrollArea::new(enabled)
         .id_salt(salt)
         .auto_shrink(auto_shrink)
-        .scroll_source(source());
+        .scroll_source(source())
+        .content_margin(gutter_margin(enabled));
+
     if let Some(height) = max_height {
         area = area.max_height(height);
     }
+
     if coasting {
         if enabled[0] {
             area = area.horizontal_scroll_offset(coast.offset.x);
@@ -190,6 +205,7 @@ fn show(
             output.state.offset,
         );
     }
+
     let hovered = pointer_over(ui, hit);
     let dragging = is_scroll_dragging(ui, output.id);
 
@@ -206,11 +222,12 @@ fn show(
         (output.content_size.x - output.inner_rect.width()).max(0.0),
         (output.content_size.y - output.inner_rect.height()).max(0.0),
     );
-    coast.clamp_edges(enabled);
 
+    coast.clamp_edges(enabled);
     if coast.moving() {
         ui.ctx().request_repaint();
     }
+
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
 }
 
@@ -227,6 +244,7 @@ fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
         pos2(inner.left(), inner.bottom() - BOTTOM_FADE_SIZE),
         inner.right_bottom(),
     );
+
     let n = BOTTOM_FADE_BANDS as f32;
     for i in 0..BOTTOM_FADE_BANDS {
         let a0 = i as f32 / n;
@@ -236,6 +254,7 @@ fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
         let y0 = fade.top() + fade.height() * a0;
         let y1 = fade.top() + fade.height() * a1;
         let band = Rect::from_min_max(pos2(fade.left(), y0), pos2(fade.right(), y1));
+        
         ui.painter()
             .add(Shape::gradient_rect(band, Direction::TopDown, [c0, c1]));
     }
@@ -260,12 +279,15 @@ fn hover_rect(
     if !enabled[0] {
         bottom_right.x = origin.x + content.x.min(inner.width().max(1.0));
     }
+
     if !enabled[1] {
         bottom_right.y = origin.y + content.y;
     }
+
     if bottom_right.y < origin.y {
         bottom_right.y = origin.y;
     }
+
     Rect::from_min_max(origin, bottom_right).intersect(clip)
 }
 
@@ -313,6 +335,7 @@ fn apply_wheel(ui: &Ui, enabled: Vec2b, coast: &mut Coast) {
             })
             .collect()
     });
+
     for dvel in impulses {
         if mark_wheel_taken(ui) {
             continue;
@@ -334,6 +357,7 @@ fn wheel_impulse(
         MouseWheelUnit::Point => (vec2(-delta.x, -delta.y), PIXEL_GAIN),
         MouseWheelUnit::Page => (vec2(-delta.x * 800.0, -delta.y * 800.0), PIXEL_GAIN),
     };
+
     let shift = modifiers.shift;
     let mut dvel = Vec2::ZERO;
     let mut take = false;
@@ -345,6 +369,7 @@ fn wheel_impulse(
             take = true;
         }
     }
+
     if enabled[1] && !shift && px.y.abs() > 0.5 {
         dvel.y = px.y * gain;
         take = true;
@@ -356,6 +381,7 @@ fn wheel_impulse(
 fn mark_wheel_taken(ui: &Ui) -> bool {
     let key = Id::new(WHEEL_TAKEN);
     let pass = ui.ctx().cumulative_pass_nr();
+    
     ui.ctx().data_mut(|d| {
         if d.get_temp::<u64>(key) == Some(pass) {
             true

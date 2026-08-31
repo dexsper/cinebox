@@ -176,11 +176,6 @@ impl Theme {
     }
 
     #[must_use]
-    pub fn catalog_shelf_height(&self) -> f32 {
-        self.tile_h + self.ring_pad() * 2.0 + 72.0
-    }
-
-    #[must_use]
     pub fn rounding(&self, radius: f32) -> CornerRadius {
         CornerRadius::same(radius.round() as u8)
     }
