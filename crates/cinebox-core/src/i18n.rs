@@ -1,4 +1,23 @@
-//! English UI strings for Phase 1. Locale switching is Phase 8.
+//! UI copy. English and Russian; active locale is [`set_ui_language`].
+
+use std::cell::Cell;
+
+use crate::settings::UiLanguage;
+
+thread_local! {
+    static LANG: Cell<UiLanguage> = const { Cell::new(UiLanguage::English) };
+}
+
+/// Active UI language for [`Msg::t`].
+pub fn set_ui_language(lang: UiLanguage) {
+    LANG.set(lang);
+}
+
+/// Language last passed to [`set_ui_language`].
+#[must_use]
+pub fn ui_language() -> UiLanguage {
+    LANG.get()
+}
 
 /// Message keys used by the desktop shell.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -127,10 +146,39 @@ pub enum Msg {
     ScaleKeepAspect,
     ScaleUnscaled,
     ScalePanscan,
+    HomeRecentlyWatched,
+    HomeNowPlaying,
+    HomeTrendingDay,
+    HomeTrendingWeek,
+    HomePopularMovies,
+    HomePopularTv,
+    HomeTopRatedMovies,
+    HomeTopRatedTv,
+    MonthJan,
+    MonthFeb,
+    MonthMar,
+    MonthApr,
+    MonthMay,
+    MonthJun,
+    MonthJul,
+    MonthAug,
+    MonthSep,
+    MonthOct,
+    MonthNov,
+    MonthDec,
 }
 
 impl Msg {
-    /// English copy. Other locales land in Phase 8.
+    /// Copy for the active UI language.
+    #[must_use]
+    pub fn t(self) -> &'static str {
+        match LANG.get() {
+            UiLanguage::English => self.en(),
+            UiLanguage::Russian => self.ru(),
+        }
+    }
+
+    /// English copy.
     #[must_use]
     pub const fn en(self) -> &'static str {
         match self {
@@ -262,6 +310,181 @@ impl Msg {
             Self::ScaleKeepAspect => "Keep aspect",
             Self::ScaleUnscaled => "Unscaled",
             Self::ScalePanscan => "Panscan",
+            Self::HomeRecentlyWatched => "Recently watched",
+            Self::HomeNowPlaying => "Now playing",
+            Self::HomeTrendingDay => "Trending today",
+            Self::HomeTrendingWeek => "Trending this week",
+            Self::HomePopularMovies => "Popular movies",
+            Self::HomePopularTv => "Popular TV",
+            Self::HomeTopRatedMovies => "Top rated movies",
+            Self::HomeTopRatedTv => "Top rated TV",
+            Self::MonthJan => "Jan",
+            Self::MonthFeb => "Feb",
+            Self::MonthMar => "Mar",
+            Self::MonthApr => "Apr",
+            Self::MonthMay => "May",
+            Self::MonthJun => "Jun",
+            Self::MonthJul => "Jul",
+            Self::MonthAug => "Aug",
+            Self::MonthSep => "Sep",
+            Self::MonthOct => "Oct",
+            Self::MonthNov => "Nov",
+            Self::MonthDec => "Dec",
+        }
+    }
+
+    /// Russian copy.
+    #[must_use]
+    pub const fn ru(self) -> &'static str {
+        match self {
+            Self::AppTitle => "Cinebox",
+            Self::NavSettings => "Настройки",
+            Self::NavBack => "Назад",
+            Self::WindowMinimize => "Свернуть",
+            Self::WindowMaximize => "Развернуть",
+            Self::WindowRestore => "Восстановить",
+            Self::WindowClose => "Закрыть",
+            Self::HomeTitle => "Главная",
+            Self::SettingsTitle => "Настройки",
+            Self::SettingsPath => "Файл настроек",
+            Self::SettingsLoadError => "Не удалось загрузить настройки; используются значения по умолчанию.",
+            Self::SettingsApiKeySet => "задан",
+            Self::SettingsApiKeyMissing => "не задан",
+            Self::ClearCache => "Очистить кэш",
+            Self::EmptyRow => "Пока пусто",
+            Self::NeedTmdbKey => "Укажите API-ключ TMDB в Настройках, чтобы загрузить каталог.",
+            Self::LoadingHome => "Загрузка каталога…",
+            Self::LoadingCard => "Загрузка…",
+            Self::WatchTorrents => "Смотреть",
+            Self::LoadingTorrents => "Поиск раздач…",
+            Self::NeedParser => "Укажите URL Jackett или Prowlarr в Настройках.",
+            Self::NoTorrents => "Нет подходящих раздач.",
+            Self::NeedTorrServer => "Укажите URL TorrServer в Настройках.",
+            Self::LoadingFiles => "Загрузка файлов…",
+            Self::TorrentFiles => "Файлы",
+            Self::NoPlayableFiles => "В этой раздаче нет воспроизводимых файлов.",
+            Self::Preloading => "Буферизация…",
+            Self::Play => "Играть",
+            Self::Pause => "Пауза",
+            Self::Audio => "Аудио",
+            Self::Subtitles => "Субтитры",
+            Self::NextFile => "Далее",
+            Self::Season => "Сезон",
+            Self::Episode => "Серия",
+            Self::FilterAny => "Любое",
+            Self::FilterHdr => "HDR",
+            Self::FilterSubs => "Субтитры",
+            Self::FilterYear => "Год",
+            Self::Sort => "Сортировка",
+            Self::Filters => "Фильтры",
+            Self::FilterOn => "вкл",
+            Self::FilterQuality => "Качество",
+            Self::FilterDolby => "Dolby Vision",
+            Self::FilterTranslation => "Перевод",
+            Self::FilterLanguage => "Язык",
+            Self::FilterReset => "Сбросить",
+            Self::Selected => "выбрано",
+            Self::Bitrate => "Битрейт",
+            Self::Seeds => "Сиды",
+            Self::Leechers => "Личи",
+            Self::Yes => "Да",
+            Self::No => "Нет",
+            Self::Retry => "Повторить",
+            Self::Failed => "Ошибка",
+            Self::TagStarted => "Начато",
+            Self::Trailers => "Трейлеры",
+            Self::Directors => "Режиссёры",
+            Self::Cast => "Актёры",
+            Self::Collection => "Коллекция",
+            Self::Recommendations => "Рекомендации",
+            Self::Similar => "Похожее",
+            Self::Overview => "Описание",
+            Self::InDetail => "Подробности",
+            Self::Budget => "Бюджет",
+            Self::Credits => "Фильмография",
+            Self::Release => "Премьера",
+            Self::Countries => "Страны",
+            Self::SpeedTest => "Тест скорости",
+            Self::TestParser => "Проверить парсер",
+            Self::Ping => "Пинг",
+            Self::CheckApiKey => "Проверить ключ",
+            Self::CouldNotSave => "Не удалось сохранить:",
+            Self::Connecting => "Подключение",
+            Self::Testing => "Тест",
+            Self::Ready => "Готово",
+            Self::Mbps => "Мбит/с",
+            Self::MpvRenderFailed => "Не удалось создать контекст отрисовки libmpv",
+            Self::SettingsGeneral => "Общие",
+            Self::SettingsGeneralHint => "Язык и прокси",
+            Self::SettingsPlayer => "Плеер",
+            Self::SettingsPlayerHint => "Воспроизведение",
+            Self::SettingsParser => "Парсер",
+            Self::SettingsParserHint => "Индексатор и качество по умолчанию",
+            Self::SettingsTorrServer => "TorrServer",
+            Self::SettingsTorrServerHint => "Стриминг",
+            Self::SettingsTmdb => "TMDB",
+            Self::SettingsTmdbHint => "Каталог и постеры",
+            Self::UseSystemProxy => "Системный прокси",
+            Self::UseSystemProxyHint => {
+                "Для TMDB и индексатора. TorrServer всегда подключается напрямую."
+            }
+            Self::Loudnorm => "Loudnorm",
+            Self::LoudnormHint => "Выравнивает громкость между файлами.",
+            Self::PlayNextAutomatically => "Играть следующий файл автоматически",
+            Self::SaveTimecode => "Сохранять таймкод",
+            Self::SaveTimecodeHint => "Продолжить с того места, где остановились.",
+            Self::Scale => "Масштаб",
+            Self::DefaultQuality => "Качество по умолчанию",
+            Self::ParserType => "Тип",
+            Self::SaveTorrentsToDb => "Сохранять раздачи в БД сервера",
+            Self::WaitForPreload => "Ждать предзагрузку",
+            Self::TrackTimecodeOnServer => "Вести таймкод на сервере",
+            Self::Username => "Имя пользователя",
+            Self::Password => "Пароль",
+            Self::ApiKey => "API-ключ",
+            Self::TmdbApiKeyHint => {
+                "Короткий API-ключ с themoviedb.org (32 hex). Не JWT access token."
+            }
+            Self::PosterSize => "Размер постера",
+            Self::Url => "URL",
+            Self::SortPopular => "Популярные",
+            Self::SortSeeders => "Сиды",
+            Self::SortSize => "Размер",
+            Self::VoiceDubbing => "Дубляж",
+            Self::VoicePolyphonic => "Многоголосый",
+            Self::VoiceTwoVoice => "Двухголосый",
+            Self::VoiceAmateur => "Любительский",
+            Self::LangRussian => "Русский",
+            Self::LangEnglish => "Английский",
+            Self::LangUkrainian => "Украинский",
+            Self::LangJapanese => "Японский",
+            Self::LangKorean => "Корейский",
+            Self::LangChinese => "Китайский",
+            Self::LangGerman => "Немецкий",
+            Self::LangFrench => "Французский",
+            Self::ScaleKeepAspect => "Сохранять пропорции",
+            Self::ScaleUnscaled => "Без масштаба",
+            Self::ScalePanscan => "Panscan",
+            Self::HomeRecentlyWatched => "Недавно просмотренные",
+            Self::HomeNowPlaying => "Сейчас в кино",
+            Self::HomeTrendingDay => "В тренде сегодня",
+            Self::HomeTrendingWeek => "В тренде за неделю",
+            Self::HomePopularMovies => "Популярные фильмы",
+            Self::HomePopularTv => "Популярные сериалы",
+            Self::HomeTopRatedMovies => "Лучшие фильмы",
+            Self::HomeTopRatedTv => "Лучшие сериалы",
+            Self::MonthJan => "янв",
+            Self::MonthFeb => "фев",
+            Self::MonthMar => "мар",
+            Self::MonthApr => "апр",
+            Self::MonthMay => "май",
+            Self::MonthJun => "июн",
+            Self::MonthJul => "июл",
+            Self::MonthAug => "авг",
+            Self::MonthSep => "сен",
+            Self::MonthOct => "окт",
+            Self::MonthNov => "ноя",
+            Self::MonthDec => "дек",
         }
     }
 }
@@ -269,16 +492,60 @@ impl Msg {
 /// Placeholder home rows matching the ТЗ catalog sections.
 #[must_use]
 pub fn home_row_titles() -> &'static [&'static str] {
-    use crate::catalog::HomeRowId;
     const TITLES: [&str; 8] = [
-        HomeRowId::RecentlyWatched.title(),
-        HomeRowId::NowPlaying.title(),
-        HomeRowId::TrendingDay.title(),
-        HomeRowId::TrendingWeek.title(),
-        HomeRowId::PopularMovies.title(),
-        HomeRowId::PopularTv.title(),
-        HomeRowId::TopRatedMovies.title(),
-        HomeRowId::TopRatedTv.title(),
+        Msg::HomeRecentlyWatched.en(),
+        Msg::HomeNowPlaying.en(),
+        Msg::HomeTrendingDay.en(),
+        Msg::HomeTrendingWeek.en(),
+        Msg::HomePopularMovies.en(),
+        Msg::HomePopularTv.en(),
+        Msg::HomeTopRatedMovies.en(),
+        Msg::HomeTopRatedTv.en(),
     ];
     &TITLES
+}
+
+const MONTHS: [Msg; 12] = [
+    Msg::MonthJan,
+    Msg::MonthFeb,
+    Msg::MonthMar,
+    Msg::MonthApr,
+    Msg::MonthMay,
+    Msg::MonthJun,
+    Msg::MonthJul,
+    Msg::MonthAug,
+    Msg::MonthSep,
+    Msg::MonthOct,
+    Msg::MonthNov,
+    Msg::MonthDec,
+];
+
+/// Abbreviated month name for `1..=12` in the active UI language.
+#[must_use]
+pub fn month_abbr(month: usize) -> Option<&'static str> {
+    let index = month.checked_sub(1)?;
+    let msg = MONTHS.get(index)?;
+
+    Some(msg.t())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::settings::UiLanguage;
+
+    #[test]
+    fn russian_differs_on_chrome() {
+        set_ui_language(UiLanguage::English);
+        assert_eq!(Msg::NavSettings.t(), "Settings");
+
+        set_ui_language(UiLanguage::Russian);
+        assert_eq!(Msg::NavSettings.t(), "Настройки");
+        assert_eq!(Msg::WatchTorrents.t(), "Смотреть");
+        assert_eq!(month_abbr(10), Some("окт"));
+
+        set_ui_language(UiLanguage::English);
+        assert_eq!(month_abbr(10), Some("Oct"));
+        assert_eq!(month_abbr(0), None);
+    }
 }

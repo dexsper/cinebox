@@ -25,6 +25,7 @@ struct TmdbView {
 enum TmdbChange {
     None,
     Catalog,
+    Language,
     PosterSize,
 }
 
@@ -43,8 +44,12 @@ impl TmdbView {
         let language_changed = next.language != self.language;
         let proxy_changed = next.use_system_proxy != self.use_system_proxy;
 
-        if key_changed || language_changed || proxy_changed {
+        if key_changed || proxy_changed {
             return TmdbChange::Catalog;
+        }
+
+        if language_changed {
+            return TmdbChange::Language;
         }
 
         if next.poster_size != self.poster_size {
@@ -80,6 +85,7 @@ impl App {
         let engine = attach_engine(cc);
         let services = Services::boot(engine);
         let last_tmdb = TmdbView::from_settings(&services.settings);
+        cinebox_core::i18n::set_ui_language(services.settings.general.language);
 
         Self {
             nav: Nav::new(),
@@ -155,6 +161,8 @@ impl App {
             self.last_tmdb = next;
             if had_key {
                 self.home.refresh();
+                self.media.forget_live();
+                self.person.forget_live();
                 if let Some(db) = &self.services.db {
                     if let Err(error) = db.clear_tmdb() {
                         error!(%error, "failed to purge tmdb cache");
@@ -170,7 +178,14 @@ impl App {
         match change {
             TmdbChange::Catalog => {
                 self.home.refresh();
+                self.media.forget_live();
+                self.person.forget_live();
                 self.services.images.clear();
+            }
+            TmdbChange::Language => {
+                self.home.refresh();
+                self.media.forget_live();
+                self.person.forget_live();
             }
             TmdbChange::PosterSize => {
                 self.services.images.clear();
@@ -215,6 +230,7 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        cinebox_core::i18n::set_ui_language(self.services.settings.general.language);
         self.services.images.poll(ctx);
         self.sync_tmdb();
         if self.services.take_home_refresh() {

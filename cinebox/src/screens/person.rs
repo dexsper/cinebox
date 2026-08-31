@@ -1,7 +1,7 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
-    CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, language_key,
-    person_cache_id, tmdb_image_url, typograph,
+    CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, UiLanguage,
+    language_key, person_cache_id, tmdb_image_url, typograph,
 };
 use egui::{RichText, Ui, Vec2};
 use egui_async::Bind;
@@ -25,6 +25,7 @@ pub struct PersonScreen {
     intro_at: Option<f64>,
     pending_intro: bool,
     force_refresh: bool,
+    lang: Option<UiLanguage>,
 }
 
 impl Default for PersonScreen {
@@ -37,6 +38,7 @@ impl Default for PersonScreen {
             intro_at: None,
             pending_intro: false,
             force_refresh: false,
+            lang: None,
         }
     }
 }
@@ -51,6 +53,15 @@ impl PersonScreen {
         self.id = Some(person.id);
         self.preview = Some(person);
         self.pending_intro = true;
+    }
+
+    /// Drop the in-memory card so the next paint reloads for the new language.
+    /// Does not touch the SQLite cache.
+    pub fn forget_live(&mut self) {
+        self.lang = None;
+        self.bind = Bind::new(true);
+        self.disk = None;
+        self.force_refresh = true;
     }
 
     pub fn ui(
@@ -70,6 +81,18 @@ impl PersonScreen {
                 self.preview = None;
             }
         }
+
+        let lang = svc.settings.general.language;
+        if self.lang != Some(lang) {
+            let switched = self.lang.is_some();
+            self.lang = Some(lang);
+            if switched {
+                self.bind = Bind::new(true);
+                self.disk = None;
+                self.force_refresh = true;
+            }
+        }
+
         if self.disk.is_none() {
             let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
             let cache_id = person_cache_id(id);
@@ -140,7 +163,7 @@ impl PersonScreen {
             super::swr::Swr::Failed => {
                 let error = match self.bind.read() {
                     Some(Err(error)) => error.clone(),
-                    _ => Msg::Failed.en().to_owned(),
+                    _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -222,7 +245,7 @@ fn ready(
         if !details.credits.is_empty() {
             ui.add_space(12.0);
             ui.label(
-                RichText::new(Msg::Credits.en())
+                RichText::new(Msg::Credits.t())
                     .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );

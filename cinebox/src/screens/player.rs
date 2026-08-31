@@ -120,7 +120,7 @@ impl PlayerScreen {
             aid: s.aid,
             sid: s.sid,
         }) else {
-            ui.label(RichText::new(Msg::LoadingCard.en()).color(theme.muted));
+            ui.label(RichText::new(Msg::LoadingCard.t()).color(theme.muted));
             return None;
         };
 
@@ -189,17 +189,17 @@ impl PlayerScreen {
                         next = true;
                     }
                     let subs = if view.sid > 0 {
-                        format!("{} {}", Msg::Subtitles.en(), view.sid)
+                        format!("{} {}", Msg::Subtitles.t(), view.sid)
                     } else {
-                        Msg::Subtitles.en().to_owned()
+                        Msg::Subtitles.t().to_owned()
                     };
                     if ui.button(subs).clicked() {
                         cycle_subs = true;
                     }
                     let audio = if view.aid > 0 {
-                        format!("{} {}", Msg::Audio.en(), view.aid)
+                        format!("{} {}", Msg::Audio.t(), view.aid)
                     } else {
-                        Msg::Audio.en().to_owned()
+                        Msg::Audio.t().to_owned()
                     };
                     if ui.button(audio).clicked() {
                         cycle_audio = true;
@@ -212,9 +212,9 @@ impl PlayerScreen {
                     if ui
                         .add(egui::Button::new(icon.rich_text().size(theme.text_icon_lg)))
                         .on_hover_text(if view.paused {
-                            Msg::Play.en()
+                            Msg::Play.t()
                         } else {
-                            Msg::Pause.en()
+                            Msg::Pause.t()
                         })
                         .clicked()
                     {
@@ -267,7 +267,7 @@ impl PlayerScreen {
         };
         let Some(engine) = &svc.engine else {
             if let Some(state) = &mut self.state {
-                state.error = Some(Msg::MpvRenderFailed.en().to_owned());
+                state.error = Some(Msg::MpvRenderFailed.t().to_owned());
             }
             return;
         };

@@ -38,7 +38,7 @@ fn pane_harness(show_error: bool) -> Harness<'static, PaneState> {
                 state.toolbar_bottom = bar.bottom();
 
                 if state.show_error {
-                    if widgets::page_error(ui, theme, Msg::NeedParser.en()) {
+                    if widgets::page_error(ui, theme, Msg::NeedParser.t()) {
                         state.retry = true;
                     }
                     return;
@@ -81,9 +81,9 @@ fn spinner_centers_below_toolbar() {
 fn parser_error_centers_below_toolbar() {
     let mut harness = pane_harness(true);
     let retry = harness
-        .get_by_role_and_label(Role::Button, Msg::Retry.en())
+        .get_by_role_and_label(Role::Button, Msg::Retry.t())
         .rect();
-    let copy = harness.get_by_label(Msg::NeedParser.en()).rect();
+    let copy = harness.get_by_label(Msg::NeedParser.t()).rect();
     let group_mid = (copy.center().y + retry.center().y) * 0.5;
     let mid = remaining_mid_y(&harness);
 
@@ -93,7 +93,7 @@ fn parser_error_centers_below_toolbar() {
     );
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::Retry.en())
+        .get_by_role_and_label(Role::Button, Msg::Retry.t())
         .click();
     harness.run();
     assert!(harness.state().retry);

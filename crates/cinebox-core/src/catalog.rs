@@ -95,17 +95,23 @@ impl HomeRowId {
     }
 
     #[must_use]
-    pub const fn title(self) -> &'static str {
+    pub const fn title_msg(self) -> crate::i18n::Msg {
+        use crate::i18n::Msg;
         match self {
-            Self::RecentlyWatched => "Recently watched",
-            Self::NowPlaying => "Now playing",
-            Self::TrendingDay => "Trending today",
-            Self::TrendingWeek => "Trending this week",
-            Self::PopularMovies => "Popular movies",
-            Self::PopularTv => "Popular TV",
-            Self::TopRatedMovies => "Top rated movies",
-            Self::TopRatedTv => "Top rated TV",
+            Self::RecentlyWatched => Msg::HomeRecentlyWatched,
+            Self::NowPlaying => Msg::HomeNowPlaying,
+            Self::TrendingDay => Msg::HomeTrendingDay,
+            Self::TrendingWeek => Msg::HomeTrendingWeek,
+            Self::PopularMovies => Msg::HomePopularMovies,
+            Self::PopularTv => Msg::HomePopularTv,
+            Self::TopRatedMovies => Msg::HomeTopRatedMovies,
+            Self::TopRatedTv => Msg::HomeTopRatedTv,
         }
+    }
+
+    #[must_use]
+    pub const fn title(self) -> &'static str {
+        self.title_msg().en()
     }
 }
 

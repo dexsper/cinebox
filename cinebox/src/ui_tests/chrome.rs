@@ -54,7 +54,7 @@ fn header_harness_with(screen: Screen, settings_open: bool) -> Harness<'static, 
 fn home_header_settings_click_opens_settings() {
     let mut harness = header_harness(Screen::Home);
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavSettings.en())
+        .get_by_role_and_label(Role::Button, Msg::NavSettings.t())
         .click();
     
     harness.run();
@@ -69,7 +69,7 @@ fn media_header_back_click_goes_back() {
     });
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.en())
+        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
         .click();
 
     harness.run();
@@ -80,7 +80,7 @@ fn media_header_back_click_goes_back() {
 fn home_header_back_when_settings_open() {
     let mut harness = header_harness_with(Screen::Home, true);
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.en())
+        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
         .click();
 
     harness.run();

@@ -31,12 +31,12 @@ impl HomeScreen {
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         if svc.settings.tmdb.api_key.is_empty() {
-            ui.label(RichText::new(Msg::NeedTmdbKey.en()).color(theme.muted));
+            ui.label(RichText::new(Msg::NeedTmdbKey.t()).color(theme.muted));
             let settings_size = egui::vec2(160.0, crate::widgets::combo::HEIGHT);
             if crate::widgets::button::label(
                 ui,
                 theme,
-                Msg::NavSettings.en(),
+                Msg::NavSettings.t(),
                 crate::widgets::button::Opts::secondary(settings_size),
             ) {
                 return Some(NavAction::OpenSettings);
@@ -86,7 +86,7 @@ impl HomeScreen {
             super::swr::Swr::Failed => {
                 let error = match self.catalog.read() {
                     Some(Err(error)) => error.clone(),
-                    _ => Msg::Failed.en().to_owned(),
+                    _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -140,7 +140,7 @@ fn shelf(
 ) -> Option<NavAction> {
     ui.add_space(12.0);
     ui.label(
-        RichText::new(row.id.title())
+        RichText::new(row.id.title_msg().t())
             .font(theme.title_font(theme.text_section))
             .color(theme.title),
     );
@@ -150,7 +150,7 @@ fn shelf(
     if row.items.is_empty() {
         if row.error.is_none() {
             ui.label(
-                RichText::new(Msg::EmptyRow.en())
+                RichText::new(Msg::EmptyRow.t())
                     .size(theme.text_small)
                     .color(theme.muted),
             );

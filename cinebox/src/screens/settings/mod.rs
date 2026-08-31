@@ -96,7 +96,7 @@ impl SettingsScreen {
     }
 
     fn paint_list(&mut self, ui: &mut Ui, svc: &Services, theme: &Theme) {
-        drawer_title(ui, theme, Msg::SettingsTitle.en());
+        drawer_title(ui, theme, Msg::SettingsTitle.t());
         ui.add_space(4.0);
         paint_errors(ui, svc, theme);
         ui.add_space(12.0);
@@ -119,7 +119,7 @@ impl SettingsScreen {
         id: CategoryId,
     ) {
         let cat = category(id);
-        if nav_header(ui, theme, cat.title) {
+        if nav_header(ui, theme, cat.title.t()) {
             self.category = None;
             return;
         }
@@ -129,7 +129,7 @@ impl SettingsScreen {
         ui.add_space(8.0);
 
         let mut persist = false;
-        scroll::vertical(ui, ("settings-fields", cat.title), |ui| {
+        scroll::vertical(ui, ("settings-fields", cat.title.en()), |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
             for field in cat.fields {
                 persist |= self.paint_field(ui, svc, theme, field);
@@ -156,7 +156,7 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !toggle_row(ui, theme, label, *hint, &mut value) {
+                if !toggle_row(ui, theme, label.t(), hint.map(Msg::t), &mut value) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -170,7 +170,7 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !text_row(ui, theme, label, *hint, placeholder, &mut value) {
+                if !text_row(ui, theme, label.t(), hint.map(Msg::t), placeholder, &mut value) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -183,7 +183,7 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !secret_row(ui, theme, label, *hint, &mut value) {
+                if !secret_row(ui, theme, label.t(), hint.map(Msg::t), &mut value) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -194,22 +194,22 @@ impl SettingsScreen {
                 label,
                 hint,
                 which,
-            } => paint_select(ui, svc, theme, id, label, *hint, which),
+            } => paint_select(ui, svc, theme, id, label.t(), hint.map(Msg::t), which),
             Field::MultiSelect {
                 id,
                 label,
                 hint,
                 which,
-            } => paint_multiselect(ui, svc, theme, id, label, *hint, which),
+            } => paint_multiselect(ui, svc, theme, id, label.t(), hint.map(Msg::t), which),
             Field::ProbeParser => {
-                let label = Msg::TestParser.en();
+                let label = Msg::TestParser.t();
                 probe_row(ui, theme, ICON_SEARCH, label, &mut self.parser, || {
                     crate::jobs::ping_parser(svc.settings.clone())
                 });
                 false
             }
             Field::ProbeTorr => {
-                let label = Msg::Ping.en();
+                let label = Msg::Ping.t();
                 probe_row(ui, theme, ICON_NETWORK_PING, label, &mut self.torr, || {
                     crate::jobs::ping_torrserver(svc.settings.clone())
                 });
@@ -218,7 +218,7 @@ impl SettingsScreen {
             Field::ProbeTmdb => {
                 let settings = svc.settings.clone();
                 let db = svc.db.clone();
-                let label = Msg::CheckApiKey.en();
+                let label = Msg::CheckApiKey.t();
                 probe_row(ui, theme, ICON_KEY, label, &mut self.tmdb, || {
                     crate::jobs::ping_tmdb(settings, db)
                 });
@@ -319,26 +319,26 @@ fn paint_multiselect(
 
 fn ui_lang_label(lang: UiLanguage) -> &'static str {
     match lang {
-        UiLanguage::English => Msg::LangEnglish.en(),
-        UiLanguage::Russian => Msg::LangRussian.en(),
+        UiLanguage::English => Msg::LangEnglish.t(),
+        UiLanguage::Russian => Msg::LangRussian.t(),
     }
 }
 
 fn scale_label(scale: VideoScale) -> &'static str {
     match scale {
-        VideoScale::KeepAspect => Msg::ScaleKeepAspect.en(),
-        VideoScale::Unscaled => Msg::ScaleUnscaled.en(),
-        VideoScale::Panscan => Msg::ScalePanscan.en(),
+        VideoScale::KeepAspect => Msg::ScaleKeepAspect.t(),
+        VideoScale::Unscaled => Msg::ScaleUnscaled.t(),
+        VideoScale::Panscan => Msg::ScalePanscan.t(),
     }
 }
 
 fn paint_errors(ui: &mut Ui, svc: &Services, theme: &Theme) {
     if let Some(error) = &svc.load_error {
-        error_line(ui, theme, Msg::SettingsLoadError.en());
+        error_line(ui, theme, Msg::SettingsLoadError.t());
         error_line(ui, theme, error);
     }
     if let Some(error) = &svc.save_error {
-        error_line(ui, theme, &format!("{} {error}", Msg::CouldNotSave.en()));
+        error_line(ui, theme, &format!("{} {error}", Msg::CouldNotSave.t()));
     }
 }
 

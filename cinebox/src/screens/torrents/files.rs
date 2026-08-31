@@ -32,7 +32,7 @@ pub(super) fn files_modal(
             ui.set_min_size(size);
             ui.set_max_size(size);
             ui.label(
-                RichText::new(Msg::TorrentFiles.en())
+                RichText::new(Msg::TorrentFiles.t())
                     .font(theme.title_font(theme.text_subtitle))
                     .color(theme.title),
             );
@@ -45,7 +45,7 @@ pub(super) fn files_modal(
                     .map(|file| file.title.as_str())
                     .unwrap_or("");
                 ui.label(
-                    RichText::new(format!("{} {name}", Msg::Preloading.en())).color(theme.muted),
+                    RichText::new(format!("{} {name}", Msg::Preloading.t())).color(theme.muted),
                 );
                 ui.add_space(8.0);
             }
@@ -77,13 +77,13 @@ fn file_list(
     pick_file: &mut Option<i32>,
 ) {
     if files.files.is_empty() {
-        ui.label(RichText::new(Msg::NoPlayableFiles.en()).color(theme.muted));
+        ui.label(RichText::new(Msg::NoPlayableFiles.t()).color(theme.muted));
         return;
     }
 
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
         ui.label(
-            RichText::new(Msg::TagStarted.en())
+            RichText::new(Msg::TagStarted.t())
                 .size(theme.text_caption)
                 .color(theme.ok),
         );
@@ -103,7 +103,7 @@ fn file_list(
         for file in &files.files {
             if show_headers && last_season != Some(file.season) {
                 ui.label(
-                    RichText::new(format!("{} {}", Msg::Season.en(), file.season.unwrap_or(1)))
+                    RichText::new(format!("{} {}", Msg::Season.t(), file.season.unwrap_or(1)))
                         .size(theme.text_small)
                         .color(theme.muted),
                 );
@@ -153,9 +153,9 @@ fn file_list(
 
                             if serial {
                                 let mut line =
-                                    format!("{} {}", Msg::Season.en(), file.season.unwrap_or(1));
+                                    format!("{} {}", Msg::Season.t(), file.season.unwrap_or(1));
                                 if let Some(episode) = file.episode {
-                                    line = format!("{line}  ·  {} {episode}", Msg::Episode.en());
+                                    line = format!("{line}  ·  {} {episode}", Msg::Episode.t());
                                 } else {
                                     line = format!("{line}  ·  {}", file.number);
                                 }

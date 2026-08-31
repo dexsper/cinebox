@@ -51,12 +51,13 @@ impl Default for TorrentsScreen {
 
 impl TorrentsScreen {
     pub fn ensure_open(&mut self, details: &MediaDetails, default_quality: &[QualityBand]) {
-        if self
-            .state
-            .as_ref()
-            .is_some_and(|state| state.matches(details.kind, details.id))
-        {
-            return;
+        if let Some(state) = &mut self.state {
+            let same = state.matches(details.kind, details.id);
+            if same {
+                state.movie = MovieBits::from_details(details);
+                self.details = Some(details.clone());
+                return;
+            }
         }
 
         self.state = Some(TorrentState::from_details(details, default_quality));
@@ -310,7 +311,7 @@ impl TorrentsScreen {
     fn poll_hits(&mut self, svc: &mut Services, ctx: &egui::Context) {
         if svc.settings.parser.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.hits = TorrentHits::Failed(Msg::NeedParser.en().to_owned());
+                state.hits = TorrentHits::Failed(Msg::NeedParser.t().to_owned());
             }
             return;
         }
@@ -465,7 +466,7 @@ impl TorrentsScreen {
             return;
         }
         if svc.settings.torrserver.url.trim().is_empty() {
-            state.files = FilesPane::Failed(Msg::NeedTorrServer.en().to_owned());
+            state.files = FilesPane::Failed(Msg::NeedTorrServer.t().to_owned());
             return;
         }
 
@@ -497,7 +498,7 @@ impl TorrentsScreen {
         };
         if svc.settings.torrserver.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.files = FilesPane::Failed(Msg::NeedTorrServer.en().to_owned());
+                state.files = FilesPane::Failed(Msg::NeedTorrServer.t().to_owned());
             }
             return;
         }

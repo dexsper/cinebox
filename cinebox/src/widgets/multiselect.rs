@@ -46,12 +46,12 @@ pub fn show_with<T: Copy + PartialEq>(
 
 fn closed_label<T: Copy>(selected: &[T], label: &impl Fn(T) -> String) -> String {
     if selected.is_empty() {
-        return Msg::FilterAny.en().to_owned();
+        return Msg::FilterAny.t().to_owned();
     }
 
     if let [only] = selected {
         return label(*only);
     }
 
-    format!("{} {}", selected.len(), Msg::Selected.en())
+    format!("{} {}", selected.len(), Msg::Selected.t())
 }

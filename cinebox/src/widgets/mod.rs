@@ -127,7 +127,7 @@ fn error_body(ui: &mut Ui, theme: &Theme, text: &str) -> bool {
         ui,
         theme,
         ICON_REFRESH,
-        Msg::Retry.en(),
+        Msg::Retry.t(),
         Opts::secondary(retry_size),
     )
 }

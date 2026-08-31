@@ -238,7 +238,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
-        Msg::Mbps.en(),
+        Msg::Mbps.t(),
         theme.ui_font(theme.text_small),
         theme.muted,
     );
@@ -260,10 +260,10 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
 fn status_line(live: &Live, theme: &Theme) -> (&'static str, egui::Color32) {
     match live.phase {
         Phase::Idle => ("", theme.muted),
-        Phase::Connecting => (Msg::Connecting.en(), theme.muted_bright),
-        Phase::Testing => (Msg::Testing.en(), theme.muted_bright),
-        Phase::Ready => (Msg::Ready.en(), theme.ok),
-        Phase::Failed => (Msg::Failed.en(), theme.err),
+        Phase::Connecting => (Msg::Connecting.t(), theme.muted_bright),
+        Phase::Testing => (Msg::Testing.t(), theme.muted_bright),
+        Phase::Ready => (Msg::Ready.t(), theme.ok),
+        Phase::Failed => (Msg::Failed.t(), theme.err),
     }
 }
 

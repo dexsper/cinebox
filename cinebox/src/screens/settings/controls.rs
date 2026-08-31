@@ -40,15 +40,18 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     row.style_mut().interaction.selectable_labels = false;
     icon_well(&mut row, theme, cat);
 
+    let title = cat.title.t();
+    let subtitle = cat.subtitle.t();
+
     row.add_space(12.0);
     row.vertical(|ui| {
         ui.label(
-            RichText::new(cat.title)
+            RichText::new(title)
                 .font(theme.title_font(theme.text_section))
                 .color(theme.title),
         );
         ui.label(
-            RichText::new(cat.subtitle)
+            RichText::new(subtitle)
                 .size(theme.text_small)
                 .color(theme.muted),
         );
@@ -64,7 +67,7 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, cat.title).clicked()
+    hit_on_top(ui, rect, cat.title.en()).clicked()
 }
 
 fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
@@ -100,7 +103,7 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
             .color(theme.title),
         crate::widgets::button::Opts::secondary(vec2(32.0, 32.0)),
     )
-    .on_hover_text(Msg::NavBack.en())
+    .on_hover_text(Msg::NavBack.t())
     .clicked();
 
     row.add_space(8.0);
@@ -311,7 +314,7 @@ pub fn speed_test_row<F, Fut>(
     ui.add_space(10.0);
 
     let busy = meter.is_busy();
-    let clicked = action_button(ui, theme, ICON_SPEED, Msg::SpeedTest.en(), true);
+    let clicked = action_button(ui, theme, ICON_SPEED, Msg::SpeedTest.t(), true);
     if clicked && !busy {
         meter.begin();
         bind.clear();
@@ -325,7 +328,7 @@ pub fn speed_test_row<F, Fut>(
 
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
-    action_button(ui, theme, ICON_DELETE_SWEEP, Msg::ClearCache.en(), false)
+    action_button(ui, theme, ICON_DELETE_SWEEP, Msg::ClearCache.t(), false)
 }
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {

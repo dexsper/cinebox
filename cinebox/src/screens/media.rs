@@ -1,7 +1,8 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
-    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
-    format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url, typograph,
+    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, UiLanguage,
+    format_money, format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url,
+    typograph,
 };
 use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_async::Bind;
@@ -24,6 +25,7 @@ pub struct MediaScreen {
     intro_at: Option<f64>,
     pending_intro: bool,
     force_refresh: bool,
+    lang: Option<UiLanguage>,
 }
 
 impl Default for MediaScreen {
@@ -37,6 +39,7 @@ impl Default for MediaScreen {
             intro_at: None,
             pending_intro: false,
             force_refresh: false,
+            lang: None,
         }
     }
 }
@@ -62,6 +65,15 @@ impl MediaScreen {
         self.pending_intro = true;
     }
 
+    /// Drop the in-memory card so the next paint reloads for the new language.
+    /// Does not touch the SQLite cache.
+    pub fn forget_live(&mut self) {
+        self.lang = None;
+        self.bind = Bind::new(true);
+        self.disk = None;
+        self.force_refresh = true;
+    }
+
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -85,6 +97,17 @@ impl MediaScreen {
 
             if is_different {
                 self.preview = None;
+            }
+        }
+
+        let lang = svc.settings.general.language;
+        if self.lang != Some(lang) {
+            let switched = self.lang.is_some();
+            self.lang = Some(lang);
+            if switched {
+                self.bind = Bind::new(true);
+                self.disk = None;
+                self.force_refresh = true;
             }
         }
 
@@ -154,7 +177,7 @@ impl MediaScreen {
             super::swr::Swr::Failed => {
                 let error = match self.bind.read() {
                     Some(Err(error)) => error.clone(),
-                    _ => Msg::Failed.en().to_owned(),
+                    _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -301,7 +324,7 @@ fn ready(
             ui.vertical(|ui| {
                 ui.set_max_width(theme.overview_max_w);
                 ui.label(
-                    RichText::new(Msg::InDetail.en())
+                    RichText::new(Msg::InDetail.t())
                         .font(theme.title_font(theme.text_section))
                         .color(theme.title),
                 );
@@ -316,9 +339,11 @@ fn ready(
         ui.add_space(28.0);
         facts(ui, details, theme);
         if !details.directors.is_empty() {
+            let title = Msg::Directors.t();
             people(
                 ui,
-                Msg::Directors.en(),
+                title,
+                "media-directors",
                 &details.directors,
                 svc,
                 theme,
@@ -327,12 +352,22 @@ fn ready(
         }
 
         if !details.cast.is_empty() {
-            people(ui, Msg::Cast.en(), &details.cast, svc, theme, &mut action);
+            let title = Msg::Cast.t();
+            people(
+                ui,
+                title,
+                "media-cast",
+                &details.cast,
+                svc,
+                theme,
+                &mut action,
+            );
         }
 
         shelf(
             ui,
-            Msg::Collection.en(),
+            Msg::Collection.t(),
+            "media-collection",
             &details.collection,
             svc,
             theme,
@@ -340,7 +375,8 @@ fn ready(
         );
         shelf(
             ui,
-            Msg::Recommendations.en(),
+            Msg::Recommendations.t(),
+            "media-recommendations",
             &details.recommendations,
             svc,
             theme,
@@ -348,7 +384,8 @@ fn ready(
         );
         shelf(
             ui,
-            Msg::Similar.en(),
+            Msg::Similar.t(),
+            "media-similar",
             &details.similar,
             svc,
             theme,
@@ -358,7 +395,7 @@ fn ready(
         if !details.trailers.is_empty() {
             ui.add_space(8.0);
             ui.label(
-                RichText::new(Msg::Trailers.en())
+                RichText::new(Msg::Trailers.t())
                     .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );
@@ -546,13 +583,13 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
                 .rich_text()
                 .size(theme.text_cta_icon)
                 .color(theme.btn_primary_fg),
-            RichText::new(Msg::WatchTorrents.en())
+            RichText::new(Msg::WatchTorrents.t())
                 .font(theme.emphasis_font(theme.text_subtitle))
                 .color(theme.btn_primary_fg),
             Atom::grow(),
         ),
         crate::widgets::button::Opts::primary(WATCH_BTN_SIZE),
-        Some(Msg::WatchTorrents.en()),
+        Some(Msg::WatchTorrents.t()),
     )
     .clicked()
 }
@@ -566,15 +603,15 @@ fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
             .or_else(|| details.year.map(|year| year.to_string()));
 
         if let Some(release) = release {
-            fact(ui, Msg::Release.en(), release, theme);
+            fact(ui, Msg::Release.t(), release, theme);
         }
 
         if let Some(budget) = details.budget {
-            fact(ui, Msg::Budget.en(), format_money(budget), theme);
+            fact(ui, Msg::Budget.t(), format_money(budget), theme);
         }
 
         if !details.countries.is_empty() {
-            fact(ui, Msg::Countries.en(), details.countries.join(", "), theme);
+            fact(ui, Msg::Countries.t(), details.countries.join(", "), theme);
         }
     });
 }
@@ -599,6 +636,7 @@ fn fact(ui: &mut Ui, label: &str, value: String, theme: &Theme) {
 fn people(
     ui: &mut Ui,
     title: &str,
+    salt: &'static str,
     people: &[CreditPerson],
     svc: &Services,
     theme: &Theme,
@@ -628,7 +666,7 @@ fn people(
 
     let well_w = TILE_W + pad * 2.0;
     let tile_h = pad + PHOTO.y + CAPTION_GAP + name_slot + LINE_GAP + role_slot;
-    scroll::horizontal(ui, title.to_owned(), |ui| {
+    scroll::horizontal(ui, salt, |ui| {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for person in people {
@@ -683,6 +721,7 @@ fn people(
 fn shelf(
     ui: &mut Ui,
     title: &str,
+    salt: &'static str,
     items: &[CatalogItem],
     svc: &Services,
     theme: &Theme,
@@ -699,7 +738,7 @@ fn shelf(
             .color(theme.title),
     );
 
-    scroll::horizontal(ui, title.to_owned(), |ui| {
+    scroll::horizontal(ui, salt, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for item in items {

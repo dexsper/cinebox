@@ -37,7 +37,7 @@ pub fn header(
             ui.add_space(6.0);
             let show_back = settings_open || !matches!(screen, Screen::Home);
             if show_back {
-                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, Msg::NavBack.en(), false, false);
+                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, Msg::NavBack.t(), false, false);
                 if back {
                     action = Some(NavAction::GoBack);
                 }
@@ -50,7 +50,7 @@ pub fn header(
                     ui,
                     theme,
                     ICON_SETTINGS,
-                    Msg::NavSettings.en(),
+                    Msg::NavSettings.t(),
                     false,
                     settings_open,
                 ) {
@@ -158,14 +158,14 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(ui, theme, ICON_CLOSE, Msg::WindowClose.en(), true, false) {
+    if chrome_btn(ui, theme, ICON_CLOSE, Msg::WindowClose.t(), true, false) {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
     let (max_icon, max_hint) = if maximized {
-        (ICON_FULLSCREEN_EXIT, Msg::WindowRestore.en())
+        (ICON_FULLSCREEN_EXIT, Msg::WindowRestore.t())
     } else {
-        (ICON_FULLSCREEN, Msg::WindowMaximize.en())
+        (ICON_FULLSCREEN, Msg::WindowMaximize.t())
     };
 
     if chrome_btn(ui, theme, max_icon, max_hint, false, false) {
@@ -176,7 +176,7 @@ fn window_buttons(ui: &mut Ui, theme: &Theme) {
         ui,
         theme,
         ICON_REMOVE,
-        Msg::WindowMinimize.en(),
+        Msg::WindowMinimize.t(),
         false,
         false,
     ) {

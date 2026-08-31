@@ -27,7 +27,7 @@ pub fn multi_row<T: Copy + PartialEq>(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let any_on = selected.is_empty();
-        let any_clicked = chip(ui, theme, Msg::FilterAny.en(), any_on);
+        let any_clicked = chip(ui, theme, Msg::FilterAny.t(), any_on);
         
         if any_clicked && !any_on {
             selected.clear();
