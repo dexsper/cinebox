@@ -444,11 +444,13 @@ pub fn sort_hits(
             SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
                 .cmp(&season_key(&a.info))
                 .then(episode_key(&b.info).cmp(&episode_key(&a.info)))
-                .then(b.seeders.cmp(&a.seeders)),
+                .then(b.seeders.cmp(&a.seeders))
+                .then(b.size_bytes.cmp(&a.size_bytes)),
             SortMode::Popular => b
                 .quality_score(preferred)
                 .cmp(&a.quality_score(preferred))
-                .then(b.seeders.cmp(&a.seeders)),
+                .then(b.seeders.cmp(&a.seeders))
+                .then(b.size_bytes.cmp(&a.size_bytes)),
             SortMode::Seeders => b.seeders.cmp(&a.seeders),
             SortMode::Size => b.size_bytes.cmp(&a.size_bytes),
         })
@@ -459,7 +461,13 @@ fn season_key(info: &TitleInfo) -> u32 {
     info.seasons.last().copied().unwrap_or(0)
 }
 
+/// Multi-season packs number episodes across the whole show, so their count
+/// must not compete with the per-season numbering of a single-season release.
 fn episode_key(info: &TitleInfo) -> u32 {
+    if info.seasons.len() > 1 {
+        return 0;
+    }
+
     info.episodes.map(|span| span.to).unwrap_or(0)
 }
 
@@ -469,11 +477,17 @@ mod tests {
     use crate::TorrentHit;
 
     fn hit(title: &str, seeders: u32, started: bool) -> TorrentHit {
-        let mut row = TorrentHit::new(
+        let mut row = hit_sized(title, seeders, 1_000);
+        row.started = started;
+        row
+    }
+
+    fn hit_sized(title: &str, seeders: u32, size_bytes: u64) -> TorrentHit {
+        TorrentHit::new(
             crate::Listing {
                 title: title.to_owned(),
                 tracker: String::from("tr"),
-                size_bytes: 1_000,
+                size_bytes,
                 seeders,
                 peers: 0,
                 magnet: String::new(),
@@ -481,9 +495,7 @@ mod tests {
             },
             None,
             &[],
-        );
-        row.started = started;
-        row
+        )
     }
 
     #[test]
@@ -538,6 +550,44 @@ mod tests {
         );
         assert!(hits[0].started);
         assert!(!hits[1].started);
+    }
+
+    #[test]
+    fn popular_tv_prefers_season_release_over_multi_season_pack() {
+        let mut hits = vec![
+            hit(
+                "Show (1–3 сезон: 1–27 серии из 30) WEB-DL (1080p)",
+                2,
+                false,
+            ),
+            hit("Show [03x01-09 из 10] (2026) WEB-DLRip", 119, false),
+        ];
+
+        sort_hits(
+            &mut hits,
+            MediaKind::Tv,
+            DefaultQuality::Q1080p,
+            SortMode::Popular,
+        );
+
+        assert_eq!(hits[0].seeders, 119);
+    }
+
+    #[test]
+    fn popular_breaks_seeder_ties_by_size() {
+        let mut hits = vec![
+            hit_sized("Film.1080p.WEB-DL", 10, 4_000),
+            hit_sized("Film.1080p.WEB-DL", 10, 8_000),
+        ];
+        
+        sort_hits(
+            &mut hits,
+            MediaKind::Movie,
+            DefaultQuality::Q1080p,
+            SortMode::Popular,
+        );
+
+        assert_eq!(hits[0].size_bytes, 8_000);
     }
 
     #[test]
