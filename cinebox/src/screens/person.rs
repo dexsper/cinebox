@@ -117,16 +117,6 @@ impl PersonScreen {
         }
 
         let t = intro::t(self.intro_at, now);
-        let url = self
-            .preview
-            .as_ref()
-            .and_then(|person| tmdb_image_url(person.profile_path.as_deref(), "w185"));
-
-        if let Some(url) = url {
-            svc.images
-                .request(url, false, svc.settings.general.use_system_proxy);
-        }
-
         let settings = svc.settings.clone();
         let db = svc.db.clone();
         let skip_network = !self.force_refresh
@@ -135,12 +125,9 @@ impl PersonScreen {
                 .as_ref()
                 .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
         let has_disk = self.disk.is_some();
-        let outcome = super::swr::resolve(
-            &mut self.bind,
-            has_disk,
-            skip_network,
-            move || jobs::load_person(settings, id, db),
-        );
+        let outcome = super::swr::resolve(&mut self.bind, has_disk, skip_network, move || {
+            jobs::load_person(settings, id, db)
+        });
         if outcome.from_network {
             self.force_refresh = false;
         }
@@ -151,17 +138,11 @@ impl PersonScreen {
         let mut retry = false;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.bind.read() {
-                Some(Ok(details)) => {
-                    queue_person_assets(svc, details);
-                    ready(ui, details, svc, theme, t)
-                }
+                Some(Ok(details)) => ready(ui, details, svc, theme, t),
                 _ => None,
             },
             super::swr::Swr::Disk => match self.disk.as_ref() {
-                Some(hit) => {
-                    queue_person_assets(svc, &hit.value);
-                    ready(ui, &hit.value, svc, theme, t)
-                }
+                Some(hit) => ready(ui, &hit.value, svc, theme, t),
                 None => None,
             },
             super::swr::Swr::Failed => {
@@ -197,17 +178,6 @@ impl PersonScreen {
     }
 }
 
-fn queue_person_assets(svc: &mut Services, details: &PersonDetails) {
-    let proxy = svc.settings.general.use_system_proxy;
-    let size = svc.settings.tmdb.poster_size;
-    if let Some(url) = tmdb_image_url(details.profile_path.as_deref(), "w185") {
-        svc.images.request(url, false, proxy);
-    }
-    for item in &details.credits {
-        svc.images.request_poster(item, size, proxy);
-    }
-}
-
 fn ready(
     ui: &mut Ui,
     details: &PersonDetails,
@@ -231,7 +201,11 @@ fn ready(
             },
             |ui| {
                 if let Some(born) = details.birthday.as_deref() {
-                    ui.label(RichText::new(born).size(theme.text_small).color(theme.muted));
+                    ui.label(
+                        RichText::new(born)
+                            .size(theme.text_small)
+                            .color(theme.muted),
+                    );
                 }
                 if let Some(place) = details.place_of_birth.as_deref() {
                     ui.label(
@@ -255,8 +229,13 @@ fn ready(
             );
             ui.horizontal_wrapped(|ui| {
                 for item in &details.credits {
-                    let tex = svc.images.poster(item, svc.settings.tmdb.poster_size);
-                    if let Some(nav) = poster::catalog_tile(ui, item, tex, theme) {
+                    if let Some(nav) = poster::catalog_tile(
+                        ui,
+                        item,
+                        &svc.images,
+                        svc.settings.tmdb.poster_size,
+                        theme,
+                    ) {
                         action = Some(nav);
                     }
                 }
@@ -332,9 +311,11 @@ struct Hero<'a> {
 
 fn hero(ui: &mut Ui, svc: &Services, theme: &Theme, hero: Hero<'_>, extra: impl FnOnce(&mut Ui)) {
     ui.horizontal(|ui| {
-        let url = tmdb_image_url(hero.profile_path, "w185");
-        let tex = svc.images.slot(url.as_deref());
-        poster::rounded_image(ui, tex, hero.photo, theme);
+        poster::rounded_image(ui, hero.photo, theme, || {
+            let url = tmdb_image_url(hero.profile_path, "w185");
+            svc.images.slot(url.as_deref())
+        });
+
         ui.vertical(|ui| {
             ui.label(
                 RichText::new(hero.name)

@@ -90,12 +90,6 @@ fn file_list(
     }
 
     let serial = state.kind == MediaKind::Tv;
-    let fallback = svc.images.poster_key(
-        state.kind,
-        state.id,
-        state.movie.poster_path.as_deref(),
-        svc.settings.tmdb.poster_size,
-    );
     scroll::vertical(ui, "torrent-files", |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
@@ -111,8 +105,6 @@ fn file_list(
             }
 
             let selected = files.selected_id == Some(file.id);
-            let still = svc.images.slot(file.still_url.as_deref()).or(fallback);
-           
             let id = ui.id().with(("torrent-file", file.id));
             let idle = if selected {
                 theme.card_selected
@@ -131,9 +123,18 @@ fn file_list(
                         ui.spacing_mut().item_spacing.x = 12.0;
                         poster::rounded_image(
                             ui,
-                            still,
                             Vec2::new(theme.still_w, theme.still_h),
                             theme,
+                            || {
+                                svc.images.slot(file.still_url.as_deref()).or_else(|| {
+                                    svc.images.poster_key(
+                                        state.kind,
+                                        state.id,
+                                        state.movie.poster_path.as_deref(),
+                                        svc.settings.tmdb.poster_size,
+                                    )
+                                })
+                            },
                         );
                         ui.vertical(|ui| {
                             ui.set_min_width(ui.available_width());

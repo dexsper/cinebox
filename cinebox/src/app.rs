@@ -7,6 +7,7 @@ use cinebox_core::{PosterSize, Settings, UiLanguage, allowed_image_sizes, tmdb_i
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
+use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, Screen};
 use crate::screens::{
     HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen, TorrentsScreen,
@@ -150,7 +151,7 @@ impl App {
         if self.torrents.on_back(now) {
             return;
         }
-        
+
         self.nav.pop();
     }
 
@@ -221,7 +222,7 @@ impl App {
             _ => None,
         };
         if let Some(url) = url {
-            if let Some(tex) = self.services.images.get(&url) {
+            if let ImageSlot::Ready(tex) = self.services.images.backdrop(Some(&url)) {
                 backdrop::paint(ui, tex, &self.theme);
             }
         }
@@ -231,7 +232,9 @@ impl App {
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         cinebox_core::i18n::set_ui_language(self.services.settings.general.language);
-        self.services.images.poll(ctx);
+        let proxy = self.services.settings.general.use_system_proxy;
+        self.services.images.poll(ctx, proxy);
+
         self.sync_tmdb();
         if self.services.take_home_refresh() {
             self.home.refresh();
@@ -264,7 +267,9 @@ impl eframe::App for App {
             .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
-                if let Some(nav) = chrome::header(ui, screen, &theme, self.settings_screen.is_open()) {
+                if let Some(nav) =
+                    chrome::header(ui, screen, &theme, self.settings_screen.is_open())
+                {
                     action = Some(nav);
                 }
 
@@ -307,6 +312,8 @@ impl eframe::App for App {
         if let Some(action) = action {
             self.apply_nav(action, ui.input(|i| i.time));
         }
+
+        self.services.images.end_frame();
     }
 }
 

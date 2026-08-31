@@ -16,8 +16,8 @@ use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{self, intro, poster, scroll};
 use crate::widgets::drawer::Overlay;
+use crate::widgets::{self, intro, poster, scroll};
 
 pub struct TorrentsScreen {
     state: Option<TorrentState>,
@@ -232,12 +232,6 @@ impl TorrentsScreen {
 
         let poster_w = intro::lerp(theme.poster_w, theme.explorer_poster_w, t);
         let poster_h = intro::lerp(theme.poster_h, theme.explorer_poster_h, t);
-        let tex = svc.images.poster_key(
-            state.kind,
-            state.id,
-            state.movie.poster_path.as_deref(),
-            svc.settings.tmdb.poster_size,
-        );
 
         let head = state.movie.head_line();
         let overview_size = theme.text_small * 1.5;
@@ -245,7 +239,15 @@ impl TorrentsScreen {
         scroll::vertical(ui, "torrent-movie", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
-                poster::rounded_image(ui, tex, Vec2::new(poster_w, poster_h), theme);
+                poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
+                    svc.images.poster_key(
+                        state.kind,
+                        state.id,
+                        state.movie.poster_path.as_deref(),
+                        svc.settings.tmdb.poster_size,
+                    )
+                });
+
                 ui.vertical(|ui| {
                     ui.set_max_width(ui.available_width());
                     if !head.is_empty() {
@@ -368,15 +370,6 @@ impl TorrentsScreen {
 
         match result {
             Ok(ready) => {
-                for file in &ready.files {
-                    if let Some(url) = &file.still_url {
-                        svc.images.request(
-                            url.clone(),
-                            false,
-                            svc.settings.general.use_system_proxy,
-                        );
-                    }
-                }
                 if let Some(state) = &mut self.state {
                     state.files = FilesPane::Ready(ready.clone());
                 }

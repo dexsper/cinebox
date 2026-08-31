@@ -93,17 +93,11 @@ impl HomeScreen {
         let mut retry = false;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.catalog.read() {
-                Some(Ok(catalog)) => {
-                    queue_home_posters(svc, catalog);
-                    catalog_view(ui, catalog, svc, theme)
-                }
+                Some(Ok(catalog)) => catalog_view(ui, catalog, svc, theme),
                 _ => None,
             },
             super::swr::Swr::Disk => match disk_catalog {
-                Some(catalog) => {
-                    queue_home_posters(svc, catalog);
-                    catalog_view(ui, catalog, svc, theme)
-                }
+                Some(catalog) => catalog_view(ui, catalog, svc, theme),
                 None => None,
             },
             super::swr::Swr::Failed => {
@@ -124,16 +118,6 @@ impl HomeScreen {
         }
 
         action
-    }
-}
-
-fn queue_home_posters(svc: &mut Services, catalog: &HomeCatalog) {
-    let size = svc.settings.tmdb.poster_size;
-    let proxy = svc.settings.general.use_system_proxy;
-    for row in &catalog.rows {
-        for item in &row.items {
-            svc.images.request_poster(item, size, proxy);
-        }
     }
 }
 
@@ -185,8 +169,13 @@ fn shelf(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for item in &row.items {
-                let tex = svc.images.poster(item, svc.settings.tmdb.poster_size);
-                if let Some(nav) = poster::catalog_tile(ui, item, tex, theme) {
+                if let Some(nav) = poster::catalog_tile(
+                    ui,
+                    item,
+                    &svc.images,
+                    svc.settings.tmdb.poster_size,
+                    theme,
+                ) {
                     action = Some(nav);
                 }
             }

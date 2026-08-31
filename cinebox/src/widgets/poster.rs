@@ -1,20 +1,23 @@
 //! Catalog poster tiles.
 
-use cinebox_core::CatalogItem;
+use cinebox_core::{CatalogItem, PosterSize};
 use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
 
-use crate::widgets::button::pointing;
-use crate::images::ImageSlot;
+use crate::images::{ImageCache, ImageSlot};
 use crate::nav::NavAction;
 use crate::theme::Theme;
+use crate::widgets::button::pointing;
 
 const CAPTION_GAP: f32 = 4.0;
 const LINE_GAP: f32 = 2.0;
 const TITLE_ROWS: f32 = 2.0;
+
+/// Extra clip margin so a shelf that is about to enter view starts decoding.
+const LOAD_MARGIN: f32 = 280.0;
 
 fn caption_h(ui: &Ui, theme: &Theme) -> f32 {
     let (title_rows_h, year_h) = ui.ctx().fonts_mut(|f| {
@@ -27,10 +30,15 @@ fn caption_h(ui: &Ui, theme: &Theme) -> f32 {
     CAPTION_GAP + title_rows_h + LINE_GAP + year_h
 }
 
+pub fn in_load_window(ui: &Ui, rect: Rect) -> bool {
+    ui.is_rect_visible(rect.expand(LOAD_MARGIN))
+}
+
 pub fn catalog_tile(
     ui: &mut Ui,
     item: &CatalogItem,
-    poster: ImageSlot<'_>,
+    images: &ImageCache,
+    size: PosterSize,
     theme: &Theme,
 ) -> Option<NavAction> {
     let pad = theme.ring_pad();
@@ -40,8 +48,18 @@ pub fn catalog_tile(
     );
     let (rect, response) = ui.allocate_exact_size(well, Sense::click());
     let response = pointing(response);
+
+    if !in_load_window(ui, rect) {
+        if response.clicked() {
+            return Some(NavAction::OpenMedia { item: item.clone() });
+        }
+
+        return None;
+    }
+
     let poster_rect =
         Rect::from_min_size(rect.min + vec2(pad, pad), vec2(theme.tile_w, theme.tile_h));
+    let poster = images.poster(item, size);
 
     paint_poster(ui, poster_rect, poster, theme);
     if let Some(vote) = item.vote.filter(|v| *v > 0.0) {
@@ -73,6 +91,7 @@ pub fn catalog_tile(
     if response.clicked() {
         return Some(NavAction::OpenMedia { item: item.clone() });
     }
+
     None
 }
 
@@ -174,7 +193,16 @@ fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
         .galley(rect.min + vec2(6.0, 2.0), galley, theme.rate);
 }
 
-pub fn rounded_image(ui: &mut Ui, texture: ImageSlot<'_>, size: Vec2, theme: &Theme) {
+pub fn rounded_image<'a>(
+    ui: &mut Ui,
+    size: Vec2,
+    theme: &Theme,
+    texture: impl FnOnce() -> ImageSlot<'a>,
+) {
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-    paint_poster(ui, rect, texture, theme);
+    if !in_load_window(ui, rect) {
+        return;
+    }
+
+    paint_poster(ui, rect, texture(), theme);
 }

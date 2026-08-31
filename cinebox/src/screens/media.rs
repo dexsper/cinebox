@@ -134,14 +134,6 @@ impl MediaScreen {
             ui.ctx().request_repaint();
         }
 
-        if let Some(item) = &self.preview {
-            svc.images.request_poster(
-                item,
-                svc.settings.tmdb.poster_size,
-                svc.settings.general.use_system_proxy,
-            );
-        }
-
         let settings = svc.settings.clone();
         let db = svc.db.clone();
         let cache = self.disk.as_ref();
@@ -164,17 +156,11 @@ impl MediaScreen {
         let mut retry = false;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.bind.read() {
-                Some(Ok(details)) => {
-                    queue_media_assets(svc, details);
-                    ready(ui, details, svc, theme, t)
-                }
+                Some(Ok(details)) => ready(ui, details, svc, theme, t),
                 _ => None,
             },
             super::swr::Swr::Disk => match self.disk.as_ref() {
-                Some(hit) => {
-                    queue_media_assets(svc, &hit.value);
-                    ready(ui, &hit.value, svc, theme, t)
-                }
+                Some(hit) => ready(ui, &hit.value, svc, theme, t),
                 None => None,
             },
             super::swr::Swr::Failed => {
@@ -207,44 +193,6 @@ impl MediaScreen {
         if self.pending_intro {
             self.intro_at = Some(now);
             self.pending_intro = false;
-        }
-    }
-}
-
-fn queue_media_assets(svc: &mut Services, details: &MediaDetails) {
-    let size = svc.settings.tmdb.poster_size;
-    let proxy = svc.settings.general.use_system_proxy;
-    let item = CatalogItem {
-        id: details.id,
-        kind: details.kind,
-        title: String::new(),
-        year: details.year,
-        vote: details.vote,
-        poster_path: details.poster_path.clone(),
-    };
-
-    svc.images.request_poster(&item, size, proxy);
-    let extras = details
-        .collection
-        .iter()
-        .chain(&details.recommendations)
-        .chain(&details.similar);
-
-    for extra in extras {
-        svc.images.request_poster(extra, size, proxy);
-    }
-
-    if let Some(url) = tmdb_image_url(details.poster_path.as_deref(), size.tmdb_path()) {
-        svc.images.request(url, false, proxy);
-    }
-
-    if let Some(url) = tmdb_image_url(details.backdrop_path.as_deref(), "w1280") {
-        svc.images.request(url, true, proxy);
-    }
-
-    for person in details.directors.iter().chain(details.cast.iter()) {
-        if let Some(url) = tmdb_image_url(person.profile_path.as_deref(), "w185") {
-            svc.images.request(url, false, proxy);
         }
     }
 }
@@ -542,14 +490,14 @@ fn hero(
     meta: impl FnOnce(&mut Ui, f32),
 ) {
     ui.horizontal(|ui| {
-        let tex = svc.images.poster_key(
-            hero.kind,
-            hero.id,
-            hero.poster_path,
-            svc.settings.tmdb.poster_size,
-        );
-
-        poster::rounded_image(ui, tex, hero.poster_size, theme);
+        poster::rounded_image(ui, hero.poster_size, theme, || {
+            svc.images.poster_key(
+                hero.kind,
+                hero.id,
+                hero.poster_path,
+                svc.settings.tmdb.poster_size,
+            )
+        });
         ui.add_space(28.0);
 
         let col_w = ui.available_width();
@@ -673,6 +621,20 @@ fn people(
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for person in people {
+                let size = vec2(well_w, tile_h);
+                let (rect, response) = ui.allocate_exact_size(size, Sense::click());
+                let response = crate::widgets::button::pointing(response);
+
+                if !poster::in_load_window(ui, rect) {
+                    if response.clicked() {
+                        *action = Some(NavAction::OpenPerson {
+                            person: person.clone(),
+                        });
+                    }
+
+                    continue;
+                }
+
                 let url = tmdb_image_url(person.profile_path.as_deref(), "w185");
                 let tex = svc.images.slot(url.as_deref());
                 let name = poster::wrap_lines(
@@ -696,9 +658,6 @@ fn people(
                 );
 
                 let name_h = name.size().y;
-                let size = vec2(well_w, tile_h);
-                let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-                let response = crate::widgets::button::pointing(response);
                 let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), PHOTO);
 
                 poster::paint_poster(ui, photo_rect, tex, theme);
@@ -745,8 +704,13 @@ fn shelf(
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for item in items {
-                let tex = svc.images.poster(item, svc.settings.tmdb.poster_size);
-                if let Some(nav) = poster::catalog_tile(ui, item, tex, theme) {
+                if let Some(nav) = poster::catalog_tile(
+                    ui,
+                    item,
+                    &svc.images,
+                    svc.settings.tmdb.poster_size,
+                    theme,
+                ) {
                     *action = Some(nav);
                 }
             }
