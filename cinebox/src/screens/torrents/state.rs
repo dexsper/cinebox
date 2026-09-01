@@ -116,7 +116,6 @@ pub enum FilesPane {
     Loading,
     Failed(String),
     Ready(ReadyFiles),
-    Preloading { files: ReadyFiles, file_id: i32 },
 }
 
 impl FilesPane {
@@ -130,9 +129,9 @@ impl FilesPane {
     }
 
     #[must_use]
-    pub fn ready_or_preload(&self) -> Option<&ReadyFiles> {
+    pub fn ready(&self) -> Option<&ReadyFiles> {
         match self {
-            Self::Ready(files) | Self::Preloading { files, .. } => Some(files),
+            Self::Ready(files) => Some(files),
             Self::Closed | Self::Loading | Self::Failed(_) => None,
         }
     }

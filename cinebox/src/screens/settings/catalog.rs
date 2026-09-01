@@ -26,7 +26,6 @@ pub struct Category {
 
 pub enum SelectId {
     Language,
-    Scale,
     ParserKind,
     PosterSize,
 }
@@ -159,12 +158,6 @@ const PLAYER: &[Field] = &[
         hint: Some(Msg::SaveTimecodeHint),
         get: |s| s.player.save_timecode,
         set: |s, v| s.player.save_timecode = v,
-    },
-    Field::Select {
-        id: "scale",
-        label: Msg::Scale,
-        hint: None,
-        which: SelectId::Scale,
     },
 ];
 

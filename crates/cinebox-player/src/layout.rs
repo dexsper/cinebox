@@ -1,9 +1,5 @@
-//! Chrome sizes and click zones for the in-window player.
+//! Click zones and clock formatting for the in-window player.
 
-/// Player top bar (back + title), logical pixels.
-pub const HEADER_LOGICAL: f32 = 56.0;
-/// Player bottom bar (time + buttons), logical pixels.
-pub const FOOTER_LOGICAL: f32 = 72.0;
 /// Side / center click seek step.
 pub const SEEK_SECS: f64 = 10.0;
 
@@ -25,31 +21,6 @@ pub fn click_zone(x_ratio: f32) -> ClickZone {
         return ClickZone::Pause;
     }
     ClickZone::SeekFwd
-}
-
-/// Video area between header and footer, in physical pixels.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct PixelRect {
-    pub x: i32,
-    pub y: i32,
-    pub w: i32,
-    pub h: i32,
-}
-
-/// Video hole between header and footer. `dpi` is win32 DPI (96 = 100%).
-#[must_use]
-pub fn video_rect(client_w: i32, client_h: i32, dpi: u32) -> PixelRect {
-    let scale = dpi.max(1) as f32 / 96.0;
-    let header = (HEADER_LOGICAL * scale).round() as i32;
-    let footer = (FOOTER_LOGICAL * scale).round() as i32;
-    let y = header.clamp(0, client_h.max(0));
-    let h = (client_h - header - footer).max(0);
-    PixelRect {
-        x: 0,
-        y,
-        w: client_w.max(0),
-        h,
-    }
 }
 
 /// `h:mm:ss` or `m:ss` from a playback position.
@@ -77,14 +48,6 @@ mod tests {
         assert_eq!(click_zone(0.0), ClickZone::SeekBack);
         assert_eq!(click_zone(0.5), ClickZone::Pause);
         assert_eq!(click_zone(0.9), ClickZone::SeekFwd);
-    }
-
-    #[test]
-    fn hole_sits_between_chrome() {
-        let rect = video_rect(1920, 1080, 96);
-        assert_eq!(rect.y, HEADER_LOGICAL as i32);
-        assert_eq!(rect.h, 1080 - HEADER_LOGICAL as i32 - FOOTER_LOGICAL as i32);
-        assert_eq!(rect.w, 1920);
     }
 
     #[test]

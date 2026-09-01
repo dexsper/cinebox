@@ -384,26 +384,15 @@ pub async fn wait_stream(
     file_path: String,
     hash: String,
     file_id: i32,
-) -> Result<String, String> {
+    on_event: impl FnMut(cinebox_torrserver::PreloadEvent) + Send,
+) -> Result<(), String> {
     let url = settings.torrserver.url.clone();
     let user = settings.torrserver.username.clone();
     let pass = settings.torrserver.password.expose().to_owned();
-    let wait = settings.torrserver.wait_preload;
 
-    if wait {
-        cinebox_torrserver::wait_preload(&url, &user, &pass, &file_path, &hash, file_id)
-            .await
-            .map_err(|error| error.to_string())?;
-    }
-
-    cinebox_torrserver::stream_url(
-        &url,
-        &file_path,
-        &hash,
-        file_id,
-        cinebox_torrserver::StreamFlag::Play,
-    )
-    .map_err(|error| error.to_string())
+    cinebox_torrserver::wait_preload(&url, &user, &pass, &file_path, &hash, file_id, on_event)
+        .await
+        .map_err(|error| error.to_string())
 }
 
 pub async fn ping_torrserver(settings: Settings) -> Result<String, String> {

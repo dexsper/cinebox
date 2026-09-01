@@ -1,7 +1,7 @@
 //! Local SQLite: TMDB JSON/image cache now, watch history later.
 
 use rusqlite::{Connection, OptionalExtension, params};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use serde::de::DeserializeOwned;
 use std::io;
 use std::path::Path;
@@ -12,7 +12,7 @@ use crate::catalog::{HomeCatalog, HomeRow, HomeRowId, normalize_tmdb_path};
 use crate::ids::{MediaKind, TmdbId};
 use crate::media::MediaDetails;
 use crate::paths;
-use crate::settings::PosterSize;
+use crate::settings::{PosterSize, VideoScale};
 
 /// TMDB content older than this must be dropped (API ToS).
 pub const MAX_AGE: Duration = Duration::from_secs(183 * 24 * 3600);
@@ -71,6 +71,14 @@ CREATE TABLE watch_progress (
 );
 ";
 
+const SCHEMA_V2: &str = "
+CREATE TABLE torrent_playback_prefs (
+    hash TEXT PRIMARY KEY,
+    payload TEXT NOT NULL,
+    updated_at INTEGER NOT NULL
+);
+";
+
 /// Failures opening or talking to the local database.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -82,6 +90,30 @@ pub enum StoreError {
     Serialize(#[source] serde_json::Error),
     #[error("failed to parse cache payload")]
     Deserialize(#[source] serde_json::Error),
+}
+
+/// Per-torrent playback preferences, stored as one JSON payload by hash.
+///
+/// `aid` / `sid` are mpv track ids. `-1` means "auto" (leave mpv's pick alone);
+/// `sid == 0` means subtitles explicitly off.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct TorrentPlaybackPrefs {
+    pub scale: VideoScale,
+    pub speed: f64,
+    pub aid: i64,
+    pub sid: i64,
+}
+
+impl Default for TorrentPlaybackPrefs {
+    fn default() -> Self {
+        Self {
+            scale: VideoScale::default(),
+            speed: 1.0,
+            aid: -1,
+            sid: -1,
+        }
+    }
 }
 
 /// Cached JSON plus when it was fetched (unix seconds).
@@ -361,6 +393,50 @@ impl Store {
         Ok(())
     }
 
+    /// Playback prefs saved for a torrent hash.
+    ///
+    /// # Errors
+    ///
+    /// Sqlite failures. A payload that no longer parses reads as `None`.
+    pub fn get_torrent_prefs(&self, hash: &str) -> Result<Option<TorrentPlaybackPrefs>, StoreError> {
+        let conn = self.lock();
+        let payload: Option<String> = conn
+            .query_row(
+                "SELECT payload FROM torrent_playback_prefs WHERE hash = ?1",
+                params![hash],
+                |row| row.get(0),
+            )
+            .optional()?;
+
+        let Some(payload) = payload else {
+            return Ok(None);
+        };
+
+        Ok(serde_json::from_str(&payload).ok())
+    }
+
+    /// Insert or replace playback prefs for a torrent hash.
+    ///
+    /// # Errors
+    ///
+    /// Sqlite or JSON serialize failures.
+    pub fn put_torrent_prefs(
+        &self,
+        hash: &str,
+        prefs: &TorrentPlaybackPrefs,
+    ) -> Result<(), StoreError> {
+        let payload = serde_json::to_string(prefs).map_err(StoreError::Serialize)?;
+
+        let conn = self.lock();
+        conn.execute(
+            "INSERT OR REPLACE INTO torrent_playback_prefs (hash, payload, updated_at)
+             VALUES (?1, ?2, ?3)",
+            params![hash, payload, unix_now()],
+        )?;
+
+        Ok(())
+    }
+
     fn purge_expired(&self) -> Result<(), StoreError> {
         let max_age = i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX);
         let cutoff = unix_now().saturating_sub(max_age);
@@ -442,6 +518,11 @@ fn configure(conn: &Connection) -> Result<(), StoreError> {
     if version < 1 {
         conn.execute_batch(SCHEMA_V1)?;
         conn.pragma_update(None, "user_version", 1)?;
+    }
+
+    if version < 2 {
+        conn.execute_batch(SCHEMA_V2)?;
+        conn.pragma_update(None, "user_version", 2)?;
     }
 
     Ok(())
@@ -746,6 +827,44 @@ mod tests {
             assert_eq!(catalog.rows.len(), HomeRowId::ALL.len());
         }
 
+        Ok(())
+    }
+
+    #[test]
+    fn torrent_prefs_roundtrip() -> Result<(), StoreError> {
+        let store = Store::memory()?;
+        assert!(store.get_torrent_prefs("deadbeef")?.is_none());
+
+        let prefs = TorrentPlaybackPrefs {
+            scale: VideoScale::Zoom130,
+            speed: 1.5,
+            aid: 2,
+            sid: 0,
+        };
+        store.put_torrent_prefs("deadbeef", &prefs)?;
+
+        assert_eq!(store.get_torrent_prefs("deadbeef")?, Some(prefs));
+        assert!(store.get_torrent_prefs("cafebabe")?.is_none());
+
+        let updated = TorrentPlaybackPrefs {
+            speed: 2.0,
+            ..prefs
+        };
+        store.put_torrent_prefs("deadbeef", &updated)?;
+
+        assert_eq!(store.get_torrent_prefs("deadbeef")?, Some(updated));
+        Ok(())
+    }
+
+    #[test]
+    fn clear_tmdb_keeps_torrent_prefs() -> Result<(), StoreError> {
+        let store = Store::memory()?;
+        let prefs = TorrentPlaybackPrefs::default();
+
+        store.put_torrent_prefs("deadbeef", &prefs)?;
+        store.clear_tmdb()?;
+
+        assert_eq!(store.get_torrent_prefs("deadbeef")?, Some(prefs));
         Ok(())
     }
 

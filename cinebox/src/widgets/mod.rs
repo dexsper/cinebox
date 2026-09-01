@@ -4,6 +4,7 @@ pub mod chips;
 pub mod chrome;
 pub mod combo;
 pub mod drawer;
+pub mod flyout;
 pub mod intro;
 pub mod multiselect;
 pub mod poster;

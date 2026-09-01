@@ -137,26 +137,41 @@ impl fmt::Display for ParserKind {
     }
 }
 
-/// mpv scale mapping: `keepaspect` / `video-unscaled` / `panscan`.
+/// Video fit inside the window, mpv `keepaspect` / `panscan` / `video-zoom`.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum VideoScale {
+    /// Letterbox: `keepaspect=yes, panscan=0`.
     #[default]
-    KeepAspect,
-    Unscaled,
-    Panscan,
+    Default,
+    /// Crop-to-fill: `keepaspect=yes, panscan=1`.
+    Expand,
+    /// Stretch, ignores aspect: `keepaspect=no`.
+    Fill,
+    /// `keepaspect=yes` + `video-zoom = log2(1.15)`.
+    Zoom115,
+    /// `keepaspect=yes` + `video-zoom = log2(1.30)`.
+    Zoom130,
 }
 
 impl VideoScale {
-    pub const ALL: &[Self] = &[Self::KeepAspect, Self::Unscaled, Self::Panscan];
+    pub const ALL: &[Self] = &[
+        Self::Default,
+        Self::Expand,
+        Self::Fill,
+        Self::Zoom115,
+        Self::Zoom130,
+    ];
 }
 
 impl fmt::Display for VideoScale {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(match self {
-            Self::KeepAspect => "Keep aspect",
-            Self::Unscaled => "Unscaled",
-            Self::Panscan => "Panscan",
+            Self::Default => "Default",
+            Self::Expand => "Expand",
+            Self::Fill => "Fill",
+            Self::Zoom115 => "Zoom 115%",
+            Self::Zoom130 => "Zoom 130%",
         })
     }
 }
@@ -250,13 +265,25 @@ impl Default for GeneralSettings {
 }
 
 /// Player category.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct PlayerSettings {
     pub loudnorm: bool,
     pub auto_next: bool,
     pub save_timecode: bool,
-    pub scale: VideoScale,
+    /// Global playback volume, `0.0..=100.0`.
+    pub volume: f64,
+}
+
+impl Default for PlayerSettings {
+    fn default() -> Self {
+        Self {
+            loudnorm: false,
+            auto_next: false,
+            save_timecode: false,
+            volume: 90.0,
+        }
+    }
 }
 
 /// Parser (Jackett / Prowlarr) category.
@@ -303,7 +330,7 @@ pub struct TmdbSettings {
 }
 
 /// All settings categories from the ТЗ.
-#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
     pub general: GeneralSettings,
@@ -461,6 +488,32 @@ mod tests {
         assert_eq!(parsed.general.language, UiLanguage::Russian);
         assert!(parsed.general.use_system_proxy);
         assert_eq!(parsed.torrserver.url, "http://127.0.0.1:8090");
+        assert!((parsed.player.volume - 90.0).abs() < f64::EPSILON);
+
+        Ok(())
+    }
+
+    #[test]
+    fn video_scale_serde_is_snake_case() -> Result<(), serde_json::Error> {
+        let json = serde_json::to_string(&VideoScale::Zoom115)?;
+        assert_eq!(json, "\"zoom115\"");
+
+        let back: VideoScale = serde_json::from_str("\"expand\"")?;
+        assert_eq!(back, VideoScale::Expand);
+
+        assert_eq!(VideoScale::ALL.len(), 5);
+        assert_eq!(VideoScale::default(), VideoScale::Default);
+
+        Ok(())
+    }
+
+    #[test]
+    fn legacy_scale_field_is_ignored() -> Result<(), serde_json::Error> {
+        let parsed: Settings =
+            serde_json::from_str(r#"{"player":{"scale":"keep_aspect","loudnorm":true}}"#)?;
+
+        assert!(parsed.player.loudnorm);
+        assert!((parsed.player.volume - 90.0).abs() < f64::EPSILON);
 
         Ok(())
     }

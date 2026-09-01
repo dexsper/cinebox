@@ -24,10 +24,8 @@ pub struct TorrentsScreen {
     details: Option<MediaDetails>,
     hits: Bind<Vec<cinebox_parse::TorrentHit>, String>,
     opened: Bind<ReadyFiles, String>,
-    stream: Bind<String, String>,
     intro_at: Option<f64>,
     on_screen: bool,
-    stream_file: Option<i32>,
     pending_play: Option<crate::screens::play::PlayRequest>,
     filters: Overlay,
 }
@@ -39,10 +37,8 @@ impl Default for TorrentsScreen {
             details: None,
             hits: Bind::new(true),
             opened: Bind::new(true),
-            stream: Bind::new(true),
             intro_at: None,
             on_screen: false,
-            stream_file: None,
             pending_play: None,
             filters: Overlay::default(),
         }
@@ -64,9 +60,7 @@ impl TorrentsScreen {
         self.details = Some(details.clone());
         self.hits = Bind::new(true);
         self.opened = Bind::new(true);
-        self.stream = Bind::new(true);
         self.intro_at = None;
-        self.stream_file = None;
         self.pending_play = None;
         self.filters.snap_shut();
     }
@@ -132,7 +126,6 @@ impl TorrentsScreen {
 
         self.poll_hits(svc, ui.ctx());
         self.poll_opened(svc, ui.ctx());
-        self.take_stream();
 
         let t = intro::t(self.intro_at, ui.input(|i| i.time));
         let mut retry = false;
@@ -216,7 +209,7 @@ impl TorrentsScreen {
             self.retry_files(svc);
         }
         if let Some(file_id) = pick_file {
-            self.pick_file(svc, file_id);
+            self.pick_file(file_id);
         }
         if close_files {
             self.leave_files_if_open();
@@ -383,68 +376,6 @@ impl TorrentsScreen {
         }
     }
 
-    fn take_stream(&mut self) {
-        let Some(result) = self.stream.read().clone() else {
-            return;
-        };
-        let Some(file_id) = self.stream_file else {
-            return;
-        };
-        let Some(state) = self.state.as_mut() else {
-            return;
-        };
-        if !matches!(
-            state.files,
-            FilesPane::Ready(_) | FilesPane::Preloading { .. }
-        ) {
-            return;
-        }
-
-        let url = match result {
-            Ok(url) => url,
-            Err(error) => {
-                state.files = FilesPane::Failed(error);
-                self.stream.clear();
-                self.stream_file = None;
-                return;
-            }
-        };
-
-        let mut files = match &state.files {
-            FilesPane::Ready(files) | FilesPane::Preloading { files, .. } => files.clone(),
-            FilesPane::Closed | FilesPane::Loading | FilesPane::Failed(_) => return,
-        };
-        files.selected_id = Some(file_id);
-        let file_index = files
-            .files
-            .iter()
-            .position(|file| file.id == file_id)
-            .unwrap_or(0);
-        let row = files.files.get(file_index);
-        let title = row
-            .map(|file| file.title.clone())
-            .unwrap_or_else(|| state.movie.title.clone());
-        let start = row.map(|file| file.timecode).unwrap_or(0.0);
-        let hash = files.hash.clone();
-        let rows = files.files.clone();
-        let kind = state.kind;
-        let id = state.id;
-        state.files = FilesPane::Ready(files);
-        state.files.close();
-        self.stream.clear();
-        self.stream_file = None;
-        self.pending_play = Some(crate::screens::play::PlayRequest {
-            kind,
-            id,
-            title,
-            hash,
-            files: rows,
-            file_index,
-            url,
-            start,
-        });
-    }
-
     fn pick_torrent(&mut self, svc: &Services, index: usize) {
         let Some(state) = &mut self.state else {
             return;
@@ -524,34 +455,35 @@ impl TorrentsScreen {
         ));
     }
 
-    fn pick_file(&mut self, svc: &Services, file_id: i32) {
+    /// Hand off to the player immediately; buffering (if any) is the player's job.
+    fn pick_file(&mut self, file_id: i32) {
         let Some(state) = &mut self.state else {
             return;
         };
-        let wait = svc.settings.torrserver.wait_preload;
-        let (path, hash) = {
-            let Some(ready) = state.files.ready_or_preload() else {
-                return;
-            };
-            let Some(file) = ready.files.iter().find(|file| file.id == file_id) else {
-                return;
-            };
-            (file.path.clone(), ready.hash.clone())
+        let Some(ready) = state.files.ready() else {
+            return;
         };
-        if wait {
-            if let FilesPane::Ready(files) = &state.files {
-                state.files = FilesPane::Preloading {
-                    files: files.clone(),
-                    file_id,
-                };
-            }
-        }
 
-        self.stream_file = Some(file_id);
-        self.stream.clear();
-        let settings = svc.settings.clone();
-        self.stream
-            .request(jobs::wait_stream(settings, path, hash, file_id));
+        let Some(file_index) = ready.files.iter().position(|file| file.id == file_id) else {
+            return;
+        };
+
+        let Some(file) = ready.files.get(file_index) else {
+            return;
+        };
+
+        self.pending_play = Some(crate::screens::play::PlayRequest {
+            kind: state.kind,
+            id: state.id,
+            title: file.title.clone(),
+            hash: ready.hash.clone(),
+            files: ready.files.clone(),
+            file_index,
+            start: file.timecode,
+            backdrop_path: state.movie.backdrop_path.clone(),
+        });
+
+        state.files.close();
     }
 }
 
@@ -578,8 +510,7 @@ mod tests {
 
     #[test]
     fn refresh_hits_retries_failed() {
-        let mut screen = TorrentsScreen::default();
-        screen.state = Some(TorrentState {
+        let state = Some(TorrentState {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
             movie: MovieBits {
@@ -603,6 +534,11 @@ mod tests {
             pick_gen: 0,
             pending_add: None,
         });
+
+        let mut screen = TorrentsScreen {
+            state,
+            ..TorrentsScreen::default()
+        };
 
         screen.refresh_hits();
 

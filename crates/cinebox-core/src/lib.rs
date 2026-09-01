@@ -17,8 +17,9 @@ pub use catalog::{
 };
 pub use db::{
     CONFIG_TTL, CacheHit, DETAILS_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
-    KIND_SEASON, SEASON_TTL, Store, StoreError, allowed_image_sizes, home_ttl, image_size_key,
-    language_key, media_cache_id, media_ttl, person_cache_id, season_cache_id,
+    KIND_SEASON, SEASON_TTL, Store, StoreError, TorrentPlaybackPrefs, allowed_image_sizes,
+    home_ttl, image_size_key, language_key, media_cache_id, media_ttl, person_cache_id,
+    season_cache_id,
 };
 pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};

@@ -5,7 +5,7 @@ mod controls;
 mod speed;
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{ParserKind, PosterSize, QualityBand, UiLanguage, VideoScale};
+use cinebox_core::{ParserKind, PosterSize, QualityBand, UiLanguage};
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
@@ -263,16 +263,6 @@ fn paint_select(
             UiLanguage::ALL,
             |lang| ui_lang_label(lang).to_owned(),
         ),
-        SelectId::Scale => select_row_with(
-            ui,
-            theme,
-            id,
-            label,
-            hint,
-            &mut svc.settings.player.scale,
-            VideoScale::ALL,
-            |scale| scale_label(scale).to_owned(),
-        ),
         SelectId::ParserKind => select_row(
             ui,
             theme,
@@ -321,14 +311,6 @@ fn ui_lang_label(lang: UiLanguage) -> &'static str {
     match lang {
         UiLanguage::English => Msg::LangEnglish.t(),
         UiLanguage::Russian => Msg::LangRussian.t(),
-    }
-}
-
-fn scale_label(scale: VideoScale) -> &'static str {
-    match scale {
-        VideoScale::KeepAspect => Msg::ScaleKeepAspect.t(),
-        VideoScale::Unscaled => Msg::ScaleUnscaled.t(),
-        VideoScale::Panscan => Msg::ScalePanscan.t(),
     }
 }
 

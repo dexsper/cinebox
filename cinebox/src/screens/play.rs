@@ -9,6 +9,6 @@ pub struct PlayRequest {
     pub hash: String,
     pub files: Vec<TorrentFileRow>,
     pub file_index: usize,
-    pub url: String,
     pub start: f64,
+    pub backdrop_path: Option<String>,
 }

@@ -102,10 +102,10 @@ impl App {
         }
     }
 
-    fn apply_nav(&mut self, action: NavAction, now: f64) {
+    fn apply_nav(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
-            NavAction::GoBack => self.go_back(now),
+            NavAction::GoBack => self.go_back(now, ctx),
             NavAction::OpenMedia { item } => {
                 self.nav.push(Screen::Media {
                     kind: item.kind,
@@ -137,13 +137,13 @@ impl App {
         }
     }
 
-    fn go_back(&mut self, now: f64) {
+    fn go_back(&mut self, now: f64, ctx: &egui::Context) {
         if self.settings_screen.on_back(now) {
             return;
         }
 
         if matches!(self.nav.current(), Screen::Player { .. }) {
-            self.player.stop(&self.services);
+            self.player.stop(&mut self.services, ctx);
             self.nav.pop();
             return;
         }
@@ -201,7 +201,7 @@ impl App {
         }
     }
 
-    fn take_pending_play(&mut self) {
+    fn take_pending_play(&mut self, ctx: &egui::Context) {
         let Some(req) = self.torrents.take_play() else {
             return;
         };
@@ -209,7 +209,7 @@ impl App {
         let id = req.id;
         let kind = req.kind;
 
-        self.player.start(req, &mut self.services);
+        self.player.start(req, &mut self.services, ctx);
         self.nav.push(Screen::Player { kind, id });
     }
 
@@ -241,7 +241,7 @@ impl eframe::App for App {
         }
 
         if matches!(self.nav.current(), Screen::Player { .. }) {
-            self.player.tick(&mut self.services);
+            self.player.tick(&mut self.services, ctx);
             ctx.request_repaint_after(Duration::from_millis(250));
         }
     }
@@ -252,10 +252,16 @@ impl eframe::App for App {
         let mut action = None;
         let screen = self.nav.current();
         let theme = self.theme.clone();
+        let on_player = matches!(screen, Screen::Player { .. });
 
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            action = Some(NavAction::GoBack);
+            let consumed = on_player && self.player.consume_escape(ui.ctx());
+            if !consumed {
+                action = Some(NavAction::GoBack);
+            }
         }
+
+        let player_fullscreen = on_player && self.player.is_fullscreen();
 
         let fill = if matches!(screen, Screen::Player { .. }) {
             theme.video_bg
@@ -267,8 +273,9 @@ impl eframe::App for App {
             .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
-                if let Some(nav) =
-                    chrome::header(ui, screen, &theme, self.settings_screen.is_open())
+                if !player_fullscreen
+                    && let Some(nav) =
+                        chrome::header(ui, screen, &theme, self.settings_screen.is_open())
                 {
                     action = Some(nav);
                 }
@@ -297,8 +304,10 @@ impl eframe::App for App {
                     .show(ui, |ui| screen_ui(self, ui, screen, &theme))
                     .inner;
 
-                chrome::resize_edges(ui, &theme);
-                chrome::window_outline(ui, &theme);
+                if !player_fullscreen {
+                    chrome::resize_edges(ui, &theme);
+                    chrome::window_outline(ui, &theme);
+                }
 
                 self.settings_screen.ui(ui, &mut self.services, &theme);
 
@@ -307,10 +316,11 @@ impl eframe::App for App {
                 }
             });
 
-        self.services.toasts.show(ui.ctx(), &theme);
-        self.take_pending_play();
+        let ctx = ui.ctx().clone();
+        self.services.toasts.show(&ctx, &theme);
+        self.take_pending_play(&ctx);
         if let Some(action) = action {
-            self.apply_nav(action, ui.input(|i| i.time));
+            self.apply_nav(action, ui.input(|i| i.time), &ctx);
         }
 
         self.services.images.end_frame();
@@ -321,6 +331,7 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
     if !matches!(screen, Screen::Torrents { .. }) {
         app.torrents.hide();
     }
+
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),

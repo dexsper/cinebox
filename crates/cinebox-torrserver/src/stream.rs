@@ -91,7 +91,19 @@ pub fn play_url(base_url: &str, hash: &str, index: i32) -> Result<String, Error>
     Ok(join_url(&base, &format!("play/{hash}/{index}")))
 }
 
+/// Progress while a preload wait is running.
+#[derive(Clone, Copy, Debug)]
+pub enum PreloadEvent {
+    Progress {
+        preloaded_bytes: i64,
+        preload_size: i64,
+        percent: f64,
+    },
+}
+
 /// `GET` the preload URL (starts buffer), then poll `?stat` until ~95%.
+///
+/// `on_event` receives a [`PreloadEvent::Progress`] for every poll iteration.
 ///
 /// # Errors
 ///
@@ -103,11 +115,12 @@ pub async fn wait_preload(
     file_path: &str,
     hash: &str,
     index: i32,
+    on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
     let preload = stream_url(base_url, file_path, hash, index, StreamFlag::Preload)?;
     let stat = stream_url(base_url, file_path, hash, index, StreamFlag::Stat)?;
     start_preload(&preload, username, password).await?;
-    poll_stat_until_ready(&stat, username, password).await
+    poll_stat_until_ready(&stat, username, password, on_event).await
 }
 
 async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), Error> {
@@ -120,18 +133,32 @@ async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), 
     Ok(())
 }
 
-async fn poll_stat_until_ready(url: &str, username: &str, password: &str) -> Result<(), Error> {
+async fn poll_stat_until_ready(
+    url: &str,
+    username: &str,
+    password: &str,
+    mut on_event: impl FnMut(PreloadEvent) + Send,
+) -> Result<(), Error> {
     for attempt in 0..STAT_POLL_MAX {
         let client = http_client(Duration::from_secs(10))?;
         let request = apply_basic_auth(client.get(url), username, password);
         let status: TorrentStatus = send_json(request).await?;
+
+        on_event(PreloadEvent::Progress {
+            preloaded_bytes: status.preloaded_bytes,
+            preload_size: status.preload_size,
+            percent: status.preload_percent(),
+        });
+
         if status.preload_ready() {
             return Ok(());
         }
+
         let last = attempt + 1 == STAT_POLL_MAX;
         if last {
             return Err(Error::PreloadTimeout);
         }
+
         tokio::time::sleep(Duration::from_secs(STAT_POLL_SECS)).await;
     }
     Err(Error::PreloadTimeout)

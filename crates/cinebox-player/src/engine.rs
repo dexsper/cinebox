@@ -18,7 +18,6 @@ pub type GlLoader = Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>;
 pub struct PlayOpts<'a> {
     pub http_header_fields: Option<&'a str>,
     pub loudnorm: bool,
-    pub scale: VideoScale,
     pub start_seconds: f64,
 }
 
@@ -31,6 +30,38 @@ pub struct Snapshot {
     pub eof: bool,
     pub aid: i64,
     pub sid: i64,
+    pub volume: f64,
+    pub muted: bool,
+    pub speed: f64,
+}
+
+/// Stream kind from mpv `track-list/N/type`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TrackKind {
+    Video,
+    Audio,
+    Subtitle,
+}
+
+impl TrackKind {
+    fn parse(raw: &str) -> Option<Self> {
+        match raw {
+            "video" => Some(Self::Video),
+            "audio" => Some(Self::Audio),
+            "sub" => Some(Self::Subtitle),
+            _ => None,
+        }
+    }
+}
+
+/// One entry of mpv's `track-list`.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Track {
+    pub id: i64,
+    pub kind: TrackKind,
+    pub lang: Option<String>,
+    pub title: Option<String>,
+    pub selected: bool,
 }
 
 /// Embedded mpv session: OpenGL render context + player.
@@ -155,22 +186,146 @@ impl Engine {
             .map_err(Error::mpv)
     }
 
-    /// Cycle audio tracks.
+    /// Absolute seek in seconds (progress-bar scrubbing).
     ///
     /// # Errors
     ///
     /// mpv command failure.
-    pub fn cycle_audio(&self) -> Result<(), Error> {
-        self.mpv.command("cycle", &["aid"]).map_err(Error::mpv)
+    pub fn seek_abs(&self, seconds: f64) -> Result<(), Error> {
+        let amount = format!("{seconds}");
+        self.mpv
+            .command("seek", &[&amount, "absolute"])
+            .map_err(Error::mpv)
     }
 
-    /// Cycle subtitle tracks (includes “no”).
+    /// Apply a video-fit mode live (no reload needed).
     ///
     /// # Errors
     ///
-    /// mpv command failure.
-    pub fn cycle_subs(&self) -> Result<(), Error> {
-        self.mpv.command("cycle", &["sid"]).map_err(Error::mpv)
+    /// mpv property failures.
+    pub fn set_scale(&self, scale: VideoScale) -> Result<(), Error> {
+        apply_scale(&self.mpv, scale)
+    }
+
+    /// Playback speed multiplier (`1.0` = normal).
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn set_speed(&self, speed: f64) -> Result<(), Error> {
+        self.mpv.set_property("speed", speed).map_err(Error::mpv)
+    }
+
+    /// Playback volume, `0.0..=100.0`.
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn set_volume(&self, volume: f64) -> Result<(), Error> {
+        self.mpv.set_property("volume", volume).map_err(Error::mpv)
+    }
+
+    /// Mute without touching the volume level.
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn set_mute(&self, muted: bool) -> Result<(), Error> {
+        self.mpv.set_property("mute", muted).map_err(Error::mpv)
+    }
+
+    /// Select an audio track by mpv id.
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn select_audio(&self, id: i64) -> Result<(), Error> {
+        self.mpv.set_property("aid", id).map_err(Error::mpv)
+    }
+
+    /// Select a subtitle track by mpv id; `None` turns subtitles off.
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn select_sub(&self, id: Option<i64>) -> Result<(), Error> {
+        let Some(id) = id else {
+            return self
+                .mpv
+                .set_property("sid", "no".to_owned())
+                .map_err(Error::mpv);
+        };
+
+        self.mpv.set_property("sid", id).map_err(Error::mpv)
+    }
+
+    /// Subtitle font scale multiplier (`1.0` = normal).
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn set_sub_scale(&self, scale: f64) -> Result<(), Error> {
+        self.mpv
+            .set_property("sub-scale", scale)
+            .map_err(Error::mpv)
+    }
+
+    /// Subtitle delay in seconds.
+    ///
+    /// # Errors
+    ///
+    /// mpv property failures.
+    pub fn set_sub_delay(&self, seconds: f64) -> Result<(), Error> {
+        self.mpv
+            .set_property("sub-delay", seconds)
+            .map_err(Error::mpv)
+    }
+
+    /// Real track list from mpv's indexed `track-list/N/*` properties.
+    #[must_use]
+    pub fn track_list(&self) -> Vec<Track> {
+        let count: i64 = self.mpv.get_property("track-list/count").unwrap_or(0);
+        let mut tracks = Vec::new();
+
+        for index in 0..count {
+            let kind_raw: String = self
+                .mpv
+                .get_property(&format!("track-list/{index}/type"))
+                .unwrap_or_default();
+
+            let Some(kind) = TrackKind::parse(&kind_raw) else {
+                continue;
+            };
+
+            let Ok(id) = self.mpv.get_property(&format!("track-list/{index}/id")) else {
+                continue;
+            };
+
+            let lang: Option<String> = self
+                .mpv
+                .get_property(&format!("track-list/{index}/lang"))
+                .ok();
+
+            let title: Option<String> = self
+                .mpv
+                .get_property(&format!("track-list/{index}/title"))
+                .ok();
+
+            let selected: bool = self
+                .mpv
+                .get_property(&format!("track-list/{index}/selected"))
+                .unwrap_or(false);
+
+            tracks.push(Track {
+                id,
+                kind,
+                lang,
+                title,
+                selected,
+            });
+        }
+
+        tracks
     }
 
     /// Best-effort playback status.
@@ -183,6 +338,9 @@ impl Engine {
             eof: self.mpv.get_property("eof-reached").unwrap_or(false),
             aid: self.mpv.get_property("aid").unwrap_or(0),
             sid: self.mpv.get_property("sid").unwrap_or(0),
+            volume: self.mpv.get_property("volume").unwrap_or(100.0),
+            muted: self.mpv.get_property("mute").unwrap_or(false),
+            speed: self.mpv.get_property("speed").unwrap_or(1.0),
         }
     }
 }
@@ -223,27 +381,42 @@ fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
         mpv.set_property("af", "loudnorm".to_owned())
             .map_err(Error::mpv)?;
     }
-    apply_scale(mpv, opts.scale)
+    Ok(())
 }
 
 fn apply_scale(mpv: &Mpv, scale: VideoScale) -> Result<(), Error> {
-    match scale {
-        VideoScale::KeepAspect => {
-            mpv.set_property("keepaspect", true).map_err(Error::mpv)?;
-            mpv.set_property("video-unscaled", false)
-                .map_err(Error::mpv)?;
-            mpv.set_property("panscan", 0.0f64).map_err(Error::mpv)?;
-        }
-        VideoScale::Unscaled => {
-            mpv.set_property("video-unscaled", true)
-                .map_err(Error::mpv)?;
-        }
-        VideoScale::Panscan => {
-            mpv.set_property("keepaspect", true).map_err(Error::mpv)?;
-            mpv.set_property("video-unscaled", false)
-                .map_err(Error::mpv)?;
-            mpv.set_property("panscan", 1.0f64).map_err(Error::mpv)?;
-        }
-    }
+    let keep_aspect = scale != VideoScale::Fill;
+    let panscan = if scale == VideoScale::Expand {
+        1.0
+    } else {
+        0.0
+    };
+
+    let zoom = match scale {
+        VideoScale::Zoom115 => 1.15f64.log2(),
+        VideoScale::Zoom130 => 1.30f64.log2(),
+        VideoScale::Default | VideoScale::Expand | VideoScale::Fill => 0.0,
+    };
+
+    mpv.set_property("keepaspect", keep_aspect)
+        .map_err(Error::mpv)?;
+    mpv.set_property("video-unscaled", false)
+        .map_err(Error::mpv)?;
+    mpv.set_property("panscan", panscan).map_err(Error::mpv)?;
+    mpv.set_property("video-zoom", zoom).map_err(Error::mpv)?;
+
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn track_kind_parses_mpv_names() {
+        assert_eq!(TrackKind::parse("video"), Some(TrackKind::Video));
+        assert_eq!(TrackKind::parse("audio"), Some(TrackKind::Audio));
+        assert_eq!(TrackKind::parse("sub"), Some(TrackKind::Subtitle));
+        assert_eq!(TrackKind::parse("unknown"), None);
+    }
 }

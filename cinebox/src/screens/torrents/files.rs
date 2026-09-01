@@ -37,18 +37,6 @@ pub(super) fn files_modal(
                     .color(theme.title),
             );
             ui.add_space(12.0);
-            if let FilesPane::Preloading { files, file_id } = &state.files {
-                let name = files
-                    .files
-                    .iter()
-                    .find(|file| file.id == *file_id)
-                    .map(|file| file.title.as_str())
-                    .unwrap_or("");
-                ui.label(
-                    RichText::new(format!("{} {name}", Msg::Preloading.t())).color(theme.muted),
-                );
-                ui.add_space(8.0);
-            }
             match &state.files {
                 FilesPane::Closed | FilesPane::Loading => {
                     widgets::page_spinner(ui, theme);
@@ -58,7 +46,7 @@ pub(super) fn files_modal(
                         *retry_files = true;
                     }
                 }
-                FilesPane::Ready(files) | FilesPane::Preloading { files, .. } => {
+                FilesPane::Ready(files) => {
                     file_list(ui, state, files, svc, theme, pick_file);
                 }
             }

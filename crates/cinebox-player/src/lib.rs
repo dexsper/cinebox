@@ -8,9 +8,6 @@ mod engine;
 mod error;
 mod layout;
 
-pub use engine::{Engine, GlLoader, PlayOpts, Snapshot};
+pub use engine::{Engine, GlLoader, PlayOpts, Snapshot, Track, TrackKind};
 pub use error::Error;
-pub use layout::{
-    ClickZone, FOOTER_LOGICAL, HEADER_LOGICAL, PixelRect, SEEK_SECS, click_zone, format_clock,
-    video_rect,
-};
+pub use layout::{ClickZone, SEEK_SECS, click_zone, format_clock};

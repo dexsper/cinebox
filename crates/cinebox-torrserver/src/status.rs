@@ -68,11 +68,18 @@ impl TorrentStatus {
 
     #[must_use]
     pub fn preload_ready(&self) -> bool {
+        self.preload_percent() >= 95.0
+    }
+
+    /// Preload progress in percent (`100.0` when nothing needs preloading).
+    #[must_use]
+    pub fn preload_percent(&self) -> f64 {
         if self.preload_size <= 0 {
-            return true;
+            return 100.0;
         }
         let progress = (self.preloaded_bytes as f64) * 100.0 / (self.preload_size as f64);
-        progress >= 95.0
+
+        progress.clamp(0.0, 100.0)
     }
 }
 
@@ -131,19 +138,35 @@ mod tests {
         assert_eq!(files_for_list(&stats).len(), 1);
     }
 
-    #[test]
-    fn preload_ready_when_size_zero() {
-        let status = TorrentStatus {
+    fn status_with_preload(preloaded_bytes: i64, preload_size: i64) -> TorrentStatus {
+        TorrentStatus {
             hash: String::new(),
             title: String::new(),
             stat: 0,
-            preloaded_bytes: 0,
-            preload_size: 0,
+            preloaded_bytes,
+            preload_size,
             download_speed: 0.0,
             active_peers: 0,
             total_peers: 0,
             file_stats: Vec::new(),
-        };
+        }
+    }
+
+    #[test]
+    fn preload_ready_when_size_zero() {
+        let status = status_with_preload(0, 0);
         assert!(status.preload_ready());
+        assert!((status.preload_percent() - 100.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn preload_percent_tracks_bytes() {
+        let half = status_with_preload(50, 100);
+        assert!((half.preload_percent() - 50.0).abs() < f64::EPSILON);
+        assert!(!half.preload_ready());
+
+        let over = status_with_preload(200, 100);
+        assert!((over.preload_percent() - 100.0).abs() < f64::EPSILON);
+        assert!(over.preload_ready());
     }
 }
