@@ -141,12 +141,8 @@ pub fn toggle_row(
     }
 
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    if ui.rect_contains_pointer(rect) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
-    }
 
-    let mut row = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(vec2(12.0, 8.0))));
+    let mut row = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(vec2(0.0, 8.0))));
     row.style_mut().interaction.selectable_labels = false;
     row.horizontal_centered(|ui| {
         ui.vertical(|ui| {

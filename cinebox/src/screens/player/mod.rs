@@ -90,6 +90,7 @@ struct LoadSpec {
 pub struct PlayerScreen {
     phase: Option<PlayerPhase>,
     fullscreen: bool,
+    was_maximized: bool,
     activity: Activity,
     popup: Popup,
     prefs: TorrentPlaybackPrefs,
@@ -103,6 +104,7 @@ impl Default for PlayerScreen {
         Self {
             phase: None,
             fullscreen: false,
+            was_maximized: false,
             activity: Activity::new(),
             popup: Popup::None,
             prefs: TorrentPlaybackPrefs::default(),
@@ -174,6 +176,7 @@ impl PlayerScreen {
     }
 
     pub fn tick(&mut self, svc: &mut Services, ctx: &egui::Context) {
+        self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
         let go_next = {
@@ -252,7 +255,14 @@ impl PlayerScreen {
         overlay::header(ui.ctx(), theme, rect, &state.title, 1.0);
     }
 
-    fn playing_ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, video: Rect, now: f64) {
+    fn playing_ui(
+        &mut self,
+        ui: &mut Ui,
+        svc: &mut Services,
+        theme: &Theme,
+        video: Rect,
+        now: f64,
+    ) {
         let ctx = ui.ctx().clone();
         let popup_was_open = self.popup != Popup::None;
 
@@ -371,10 +381,18 @@ impl PlayerScreen {
         }
     }
 
-    fn popups(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, footer: &overlay::FooterOut) {
+    fn popups(
+        &mut self,
+        ctx: &egui::Context,
+        svc: &mut Services,
+        theme: &Theme,
+        footer: &overlay::FooterOut,
+    ) {
         match self.popup {
             Popup::None => {}
-            Popup::Settings(page) => self.settings_popup(ctx, svc, theme, footer.settings_rect, page),
+            Popup::Settings(page) => {
+                self.settings_popup(ctx, svc, theme, footer.settings_rect, page)
+            }
             Popup::Playlist => self.playlist_popup(ctx, svc, theme, footer.playlist_rect),
             Popup::Volume => self.volume_popup(ctx, svc, theme, footer.volume_rect),
         }
@@ -398,9 +416,18 @@ impl PlayerScreen {
         };
 
         let mut out = settings_popup::Out::default();
-        let fly = flyout::show(ctx, "player-settings-flyout", anchor, theme, 280.0, |ui, theme| {
-            out = settings_popup::paint(ui, theme, &view);
-        });
+        let pad = egui::Margin::same(flyout::PAD);
+        let fly = flyout::show(
+            ctx,
+            "player-settings-flyout",
+            anchor,
+            theme,
+            280.0,
+            pad,
+            |ui, theme| {
+                out = settings_popup::paint(ui, theme, &view);
+            },
+        );
 
         if let Some(next) = out.page {
             self.popup = Popup::Settings(next);
@@ -463,7 +490,13 @@ impl PlayerScreen {
         }
     }
 
-    fn playlist_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
+    fn playlist_popup(
+        &mut self,
+        ctx: &egui::Context,
+        svc: &mut Services,
+        theme: &Theme,
+        anchor: Rect,
+    ) {
         let mut jump = None;
 
         let dismissed = {
@@ -473,9 +506,25 @@ impl PlayerScreen {
             let files = &state.files;
             let current = state.file_index;
 
-            let fly = flyout::show(ctx, "player-playlist-flyout", anchor, theme, 380.0, |ui, theme| {
-                jump = playlist_popup::paint(ui, theme, svc, files, current);
-            });
+            // Bottom margin 0: the list runs flush to the frame edge, covered
+            // by the flyout's own bottom-up shadow.
+            let pad = egui::Margin {
+                left: flyout::PAD,
+                right: flyout::PAD,
+                top: flyout::PAD,
+                bottom: 0,
+            };
+            let fly = flyout::show(
+                ctx,
+                "player-playlist-flyout",
+                anchor,
+                theme,
+                380.0,
+                pad,
+                |ui, theme| {
+                    jump = playlist_popup::paint(ui, theme, svc, files, current);
+                },
+            );
 
             fly.dismissed
         };
@@ -491,13 +540,28 @@ impl PlayerScreen {
         }
     }
 
-    fn volume_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
+    fn volume_popup(
+        &mut self,
+        ctx: &egui::Context,
+        svc: &mut Services,
+        theme: &Theme,
+        anchor: Rect,
+    ) {
         let mut level = svc.settings.player.volume;
         let mut changed = false;
 
-        let fly = flyout::show(ctx, "player-volume-flyout", anchor, theme, volume::WIDTH, |ui, theme| {
-            changed = volume::slider(ui, theme, &mut level);
-        });
+        let pad = egui::Margin::same(flyout::PAD);
+        let fly = flyout::show(
+            ctx,
+            "player-volume-flyout",
+            anchor,
+            theme,
+            volume::WIDTH,
+            pad,
+            |ui, theme| {
+                changed = volume::slider(ui, theme, &mut level);
+            },
+        );
 
         if changed {
             let level = level.clamp(0.0, 100.0);
@@ -540,7 +604,9 @@ impl PlayerScreen {
             i.pointer.delta() != Vec2::ZERO
                 || i.pointer.any_down()
                 || i.smooth_scroll_delta != Vec2::ZERO
-                || i.events.iter().any(|event| matches!(event, egui::Event::Key { .. }))
+                || i.events
+                    .iter()
+                    .any(|event| matches!(event, egui::Event::Key { .. }))
         });
 
         if interacted {
@@ -814,7 +880,39 @@ impl PlayerScreen {
         }
 
         self.fullscreen = on;
-        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(on));
+        if on {
+            // A maximized undecorated window overhangs the screen edges on
+            // Windows; going borderless-fullscreen from it keeps that stale
+            // geometry (footer lands below the screen). Un-maximize first.
+            self.was_maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+            if self.was_maximized {
+                ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+            }
+            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+            return;
+        }
+        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
+        if self.was_maximized {
+            self.was_maximized = false;
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
+        }
+    }
+
+    fn sync_fullscreen(&mut self, ctx: &egui::Context) {
+        if !self.fullscreen {
+            return;
+        }
+
+        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+        if maximized {
+            self.was_maximized = true;
+            ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
+        }
+
+        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
+        if !fullscreen {
+            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
+        }
     }
 
     fn toggle(&mut self, svc: &Services) {

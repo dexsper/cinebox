@@ -135,6 +135,13 @@ pub fn vertical_to_top(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)
     show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, true, add);
 }
 
+/// Like [`vertical`], but capped: grows with content up to `max_height` (popups).
+pub fn vertical_capped(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: impl FnOnce(&mut Ui)) {
+    let auto_shrink = Vec2b::new(false, true);
+
+    show(ui, id, Vec2b::new(false, true), auto_shrink, Some(max_height), false, add);
+}
+
 /// Horizontal shelf: height follows content.
 pub fn horizontal(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
     show(

@@ -2,11 +2,14 @@
 //! and `egui::Modal` (centered). Used by the player's Settings, Playlist, and
 //! Volume controls: video stays visible around it.
 
-use egui::{Align2, Area, Frame, Id, Order, Rect, Stroke, Ui, pos2};
+use egui::{Align2, Area, Frame, Id, Margin, Order, Rect, Stroke, Ui, pos2};
 
 use crate::theme::Theme;
 
 const ANCHOR_GAP: f32 = 10.0;
+
+/// Default padding between the frame edge and the content.
+pub const PAD: i8 = 10;
 
 pub struct FlyoutOut {
     /// Painted popup rect (for hover checks).
@@ -25,6 +28,7 @@ pub fn show(
     anchor: Rect,
     theme: &Theme,
     width: f32,
+    margin: Margin,
     content: impl FnOnce(&mut Ui, &Theme),
 ) -> FlyoutOut {
     let pivot = pos2(anchor.right(), anchor.top() - ANCHOR_GAP);
@@ -39,7 +43,7 @@ pub fn show(
                 .fill(theme.panel_elevated)
                 .stroke(Stroke::new(1.0, theme.window_edge))
                 .corner_radius(theme.rounding(theme.radius_dialog))
-                .inner_margin(10.0)
+                .inner_margin(margin)
                 .show(ui, |ui| {
                     ui.set_width(width);
                     content(ui, theme);

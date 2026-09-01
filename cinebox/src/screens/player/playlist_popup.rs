@@ -1,14 +1,17 @@
 //! Playlist flyout: compact file rows (still, title, episode line, progress).
 
 use cinebox_core::i18n::Msg;
-use egui::{CornerRadius, Frame, RichText, ScrollArea, Sense, Ui, Vec2, vec2};
+use egui::{CornerRadius, Frame, RichText, Sense, Ui, Vec2, vec2};
 
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{button, poster};
+use crate::widgets::{button, poster, scroll};
 
 const STILL_SCALE: f32 = 0.66;
+const ROW_GAP: f32 = 6.0;
+const ROW_MARGIN: f32 = 8.0;
+const VISIBLE_ROWS: f32 = 3.0;
 
 /// Rows for every file; clicking one returns its index.
 pub fn paint(
@@ -19,19 +22,21 @@ pub fn paint(
     current: usize,
 ) -> Option<usize> {
     let mut jump = None;
-    let max_h = ui.ctx().content_rect().height() * 0.55;
+    let row_h = theme.still_h * STILL_SCALE + 2.0 * ROW_MARGIN;
+    let max_h = VISIBLE_ROWS * row_h + (VISIBLE_ROWS - 1.0) * ROW_GAP;
     let still = Vec2::new(theme.still_w * STILL_SCALE, theme.still_h * STILL_SCALE);
 
-    ScrollArea::vertical()
-        .max_height(max_h)
-        .show(ui, |ui| {
-            ui.spacing_mut().item_spacing.y = 6.0;
-            for (index, file) in files.iter().enumerate() {
-                if file_row(ui, theme, svc, file, still, index == current) {
-                    jump = Some(index);
-                }
+    // The scroll widget's bottom fade paints in `panel_fill`; match the flyout.
+    ui.visuals_mut().panel_fill = theme.panel_elevated;
+
+    scroll::vertical_capped(ui, "player-playlist-scroll", max_h, |ui| {
+        ui.spacing_mut().item_spacing.y = ROW_GAP;
+        for (index, file) in files.iter().enumerate() {
+            if file_row(ui, theme, svc, file, still, index == current) {
+                jump = Some(index);
             }
-        });
+        }
+    });
 
     jump
 }
@@ -55,7 +60,7 @@ fn file_row(
     let shown = Frame::new()
         .fill(fill)
         .corner_radius(6)
-        .inner_margin(8.0)
+        .inner_margin(ROW_MARGIN)
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 10.0;
