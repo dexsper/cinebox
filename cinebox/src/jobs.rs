@@ -29,6 +29,20 @@ fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
     }
 }
 
+pub async fn load_catalog_page(
+    settings: Settings,
+    id: HomeRowId,
+    page: u32,
+) -> Result<cinebox_tmdb::CatalogPage, String> {
+    let key = settings.tmdb.api_key.expose().to_owned();
+    let language = settings.general.language.tmdb_code();
+    let use_system_proxy = settings.general.use_system_proxy;
+
+    cinebox_tmdb::fetch_catalog_page(&key, id, page, Some(language), use_system_proxy)
+        .await
+        .map_err(|error| error.to_string())
+}
+
 pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<HomeCatalog, String> {
     let key = settings.tmdb.api_key.expose().to_owned();
     let language = settings.general.language.tmdb_code();

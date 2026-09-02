@@ -14,7 +14,7 @@ use std::time::Duration;
 use cinebox_core::HomeCatalog;
 use serde::de::DeserializeOwned;
 
-pub use home::MAX_ROW_ITEMS;
+pub use home::{CatalogPage, MAX_ROW_ITEMS};
 
 const CONFIG_URL: &str = "https://api.themoviedb.org/3/configuration";
 pub(crate) const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
@@ -133,6 +133,23 @@ pub async fn fetch_home(
     use_system_proxy: bool,
 ) -> Result<HomeCatalog, Error> {
     home::fetch_home(api_key, language, use_system_proxy).await
+}
+
+/// One TMDB list page for a home shelf (`page` starts at 1).
+///
+/// Local history rows return an empty page. Remote rows follow TMDB pagination.
+///
+/// # Errors
+///
+/// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
+pub async fn fetch_catalog_page(
+    api_key: &str,
+    id: cinebox_core::HomeRowId,
+    page: u32,
+    language: Option<&str>,
+    use_system_proxy: bool,
+) -> Result<CatalogPage, Error> {
+    home::fetch_catalog_page(api_key, id, page, language, use_system_proxy).await
 }
 
 /// Movie/TV card: details, credits, videos, recs, similar, collection.

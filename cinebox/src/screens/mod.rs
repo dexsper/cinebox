@@ -1,3 +1,4 @@
+pub mod category;
 pub mod home;
 pub mod media;
 pub mod person;
@@ -7,6 +8,7 @@ pub mod settings;
 mod swr;
 pub mod torrents;
 
+pub use category::CategoryScreen;
 pub use home::HomeScreen;
 pub use media::MediaScreen;
 pub use person::PersonScreen;

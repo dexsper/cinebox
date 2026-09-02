@@ -113,6 +113,12 @@ impl HomeRowId {
     pub const fn title(self) -> &'static str {
         self.title_msg().en()
     }
+
+    /// TMDB list rows that can load extra pages. Local history cannot.
+    #[must_use]
+    pub const fn is_remote(self) -> bool {
+        !matches!(self, Self::RecentlyWatched)
+    }
 }
 
 /// One movie/TV tile on the home screen.
@@ -213,5 +219,14 @@ mod tests {
     fn year_parses_iso_date() {
         assert_eq!(year_from_date("2024-12-01"), Some(2024));
         assert_eq!(year_from_date(""), None);
+    }
+
+    #[test]
+    fn remote_rows_match_tmdb_shelves() {
+        assert!(!HomeRowId::RecentlyWatched.is_remote());
+
+        for id in HomeRowId::REMOTE {
+            assert!(id.is_remote());
+        }
     }
 }

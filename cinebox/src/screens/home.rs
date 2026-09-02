@@ -1,12 +1,14 @@
 use cinebox_core::i18n::Msg;
-use cinebox_core::{HomeCatalog, HomeRow, UiLanguage, language_key};
-use egui::{RichText, Ui};
+use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, UiLanguage, language_key};
+use egui::{FontId, RichText, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
 use egui_async::Bind;
+use egui_material_icons::icons::ICON_CHEVRON_RIGHT;
 
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
+use crate::widgets::button::pointing;
 use crate::widgets::{self, poster, scroll};
 
 pub struct HomeScreen {
@@ -146,11 +148,15 @@ fn shelf(
     theme: &Theme,
 ) -> Option<NavAction> {
     ui.add_space(12.0);
-    ui.label(
-        RichText::new(row.id.title_msg().t())
-            .font(theme.title_font(theme.text_section))
-            .color(theme.title),
-    );
+
+    let mut action = None;
+    if shelf_heading(ui, row.id, theme) {
+        action = Some(NavAction::OpenCategory {
+            id: row.id,
+            items: row.items.clone(),
+        });
+    }
+
     if let Some(error) = &row.error {
         ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
     }
@@ -162,25 +168,59 @@ fn shelf(
                     .color(theme.muted),
             );
         }
-        return None;
+        return action;
     }
-    let mut action = None;
     scroll::horizontal(ui, format!("home-row-{index}"), |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for item in &row.items {
-                if let Some(nav) = poster::catalog_tile(
+                let opened = poster::catalog_tile(
                     ui,
                     item,
                     &svc.images,
                     svc.settings.tmdb.poster_size,
                     theme,
                     svc.is_watched(item.kind, item.id),
-                ) {
-                    action = Some(nav);
+                );
+                if action.is_none() {
+                    action = opened;
                 }
             }
         });
     });
     action
+}
+
+pub(crate) fn shelf_heading(ui: &mut Ui, id: HomeRowId, theme: &Theme) -> bool {
+    let title = id.title_msg().t();
+    let icon = ICON_CHEVRON_RIGHT;
+    let title_font = theme.title_font(theme.text_section);
+    let icon_font = FontId::new(theme.text_icon_md, icon.font_family());
+    let title_galley = ui
+        .painter()
+        .layout_no_wrap(title.to_owned(), title_font, theme.title);
+    
+    let icon_galley = ui.painter().layout_no_wrap(
+        icon.codepoint.to_owned(),
+        icon_font,
+        theme.muted,
+    );
+    
+    let gap = 4.0;
+    let width = title_galley.size().x + gap + icon_galley.size().x;
+    let height = title_galley.size().y.max(icon_galley.size().y);
+    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
+    let response = pointing(response);
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, title));
+
+    let title_pos = pos2(rect.left(), rect.center().y - title_galley.size().y * 0.5);
+    ui.painter().galley(title_pos, title_galley, theme.title);
+
+    let icon_pos = pos2(
+        rect.right() - icon_galley.size().x,
+        rect.center().y - icon_galley.size().y * 0.5,
+    );
+    ui.painter().galley(icon_pos, icon_galley, theme.muted);
+
+    response.clicked()
 }

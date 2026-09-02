@@ -56,7 +56,7 @@ fn home_header_settings_click_opens_settings() {
     harness
         .get_by_role_and_label(Role::Button, Msg::NavSettings.t())
         .click();
-    
+
     harness.run();
     assert_eq!(harness.state().action, Some(NavAction::OpenSettings));
 }
@@ -79,6 +79,20 @@ fn media_header_back_click_goes_back() {
 #[test]
 fn home_header_back_when_settings_open() {
     let mut harness = header_harness_with(Screen::Home, true);
+    harness
+        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
+        .click();
+
+    harness.run();
+    assert_eq!(harness.state().action, Some(NavAction::GoBack));
+}
+
+#[test]
+fn category_header_back_click_goes_back() {
+    let mut harness = header_harness(Screen::Category {
+        id: cinebox_core::HomeRowId::NowPlaying,
+    });
+
     harness
         .get_by_role_and_label(Role::Button, Msg::NavBack.t())
         .click();

@@ -10,7 +10,8 @@ use tracing::error;
 use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, Screen};
 use crate::screens::{
-    HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen, TorrentsScreen,
+    CategoryScreen, HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen,
+    TorrentsScreen,
 };
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
@@ -67,6 +68,7 @@ pub struct App {
     services: Services,
     last_tmdb: TmdbView,
     home: HomeScreen,
+    category: CategoryScreen,
     settings_screen: SettingsScreen,
     media: MediaScreen,
     person: PersonScreen,
@@ -94,6 +96,7 @@ impl App {
             services,
             last_tmdb,
             home: HomeScreen::default(),
+            category: CategoryScreen::default(),
             settings_screen: SettingsScreen::default(),
             media: MediaScreen::default(),
             person: PersonScreen::default(),
@@ -106,6 +109,10 @@ impl App {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
             NavAction::GoBack => self.go_back(now, ctx),
+            NavAction::OpenCategory { id, items } => {
+                self.nav.push(Screen::Category { id });
+                self.category.seed(id, items);
+            }
             NavAction::OpenMedia { item } => {
                 self.nav.push(Screen::Media {
                     kind: item.kind,
@@ -162,6 +169,7 @@ impl App {
             self.last_tmdb = next;
             if had_key {
                 self.home.refresh();
+                self.category.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
                 if let Some(db) = &self.services.db {
@@ -179,12 +187,14 @@ impl App {
         match change {
             TmdbChange::Catalog => {
                 self.home.refresh();
+                self.category.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
                 self.services.images.clear();
             }
             TmdbChange::Language => {
                 self.home.refresh();
+                self.category.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
             }
@@ -283,7 +293,10 @@ impl eframe::App for App {
                 let pad = theme.pad.round() as i8;
                 let content_margin = match screen {
                     Screen::Player { .. } => egui::Margin::ZERO,
-                    Screen::Media { .. } | Screen::Person { .. } | Screen::Torrents { .. } => {
+                    Screen::Media { .. }
+                    | Screen::Person { .. }
+                    | Screen::Category { .. }
+                    | Screen::Torrents { .. } => {
                         egui::Margin {
                             left: pad,
                             right: pad,
@@ -334,6 +347,7 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
 
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
+        Screen::Category { id } => app.category.ui(ui, &mut app.services, theme, id),
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {

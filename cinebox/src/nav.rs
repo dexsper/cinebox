@@ -1,8 +1,9 @@
-use cinebox_core::{CatalogItem, CreditPerson, MediaKind, TmdbId};
+use cinebox_core::{CatalogItem, CreditPerson, HomeRowId, MediaKind, TmdbId};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Home,
+    Category { id: HomeRowId },
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
     Torrents { kind: MediaKind, id: TmdbId },
@@ -13,6 +14,7 @@ pub enum Screen {
 pub enum NavAction {
     OpenSettings,
     GoBack,
+    OpenCategory { id: HomeRowId, items: Vec<CatalogItem> },
     OpenMedia { item: CatalogItem },
     OpenPerson { person: CreditPerson },
     WatchTorrents,
@@ -151,5 +153,19 @@ mod tests {
 
         nav.pop();
         assert_eq!(nav.current(), torrents);
+    }
+
+    #[test]
+    fn category_stacks_on_home() {
+        let mut nav = Nav::new();
+        let category = Screen::Category {
+            id: HomeRowId::NowPlaying,
+        };
+
+        nav.push(category);
+        assert_eq!(nav.current(), category);
+
+        nav.pop();
+        assert_eq!(nav.current(), Screen::Home);
     }
 }
