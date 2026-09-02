@@ -14,7 +14,7 @@ use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::{self, intro, poster, scroll};
@@ -121,7 +121,7 @@ impl TorrentsScreen {
 
         if arriving {
             self.intro_at = Some(now);
-            self.refresh_hits();
+            self.retag_local_hits(svc);
         }
 
         self.poll_hits(svc, ui.ctx());
@@ -182,7 +182,7 @@ impl TorrentsScreen {
         }
         self.filters = overlay;
 
-        if let Some(state) = &self.state {
+        if let Some(state) = &mut self.state {
             if state.files.is_open() {
                 files::files_modal(
                     ui.ctx(),
@@ -197,20 +197,21 @@ impl TorrentsScreen {
         }
 
         if retry {
-            self.hits.clear();
-            if let Some(state) = &mut self.state {
-                state.hits = TorrentHits::Loading;
-            }
+            self.refresh_hits();
         }
+
         if let Some(index) = pick {
             self.pick_torrent(svc, index);
         }
+
         if retry_files {
             self.retry_files(svc);
         }
+
         if let Some(file_id) = pick_file {
             self.pick_file(file_id);
         }
+
         if close_files {
             self.leave_files_if_open();
         }
@@ -232,14 +233,15 @@ impl TorrentsScreen {
         scroll::vertical(ui, "torrent-movie", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
-                let poster = poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
-                    svc.images.poster_key(
-                        state.kind,
-                        state.id,
-                        state.movie.poster_path.as_deref(),
-                        svc.settings.tmdb.poster_size,
-                    )
-                });
+                let poster =
+                    poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
+                        svc.images.poster_key(
+                            state.kind,
+                            state.id,
+                            state.movie.poster_path.as_deref(),
+                            svc.settings.tmdb.poster_size,
+                        )
+                    });
                 if svc.is_watched(state.kind, state.id) {
                     poster::watched_badge(ui, poster, theme);
                 }
@@ -262,6 +264,7 @@ impl TorrentsScreen {
                     );
                 });
             });
+
             ui.add_space(10.0);
             ui.label(
                 RichText::new(&state.movie.title)
@@ -272,6 +275,7 @@ impl TorrentsScreen {
                     )))
                     .color(theme.title),
             );
+
             if !state.movie.genres.is_empty() {
                 ui.add_space(4.0);
                 ui.label(
@@ -280,6 +284,7 @@ impl TorrentsScreen {
                         .color(theme.muted),
                 );
             }
+
             let Some(overview) = state.movie.overview.as_deref() else {
                 return;
             };
@@ -295,6 +300,22 @@ impl TorrentsScreen {
 }
 
 impl TorrentsScreen {
+    fn retag_local_hits(&mut self, svc: &Services) {
+        let Some(state) = &mut self.state else {
+            return;
+        };
+
+        let Some(db) = &svc.db else {
+            return;
+        };
+
+        let Ok(hashes) = db_block_on(db.watch_release_hashes(state.kind, state.id)) else {
+            return;
+        };
+
+        state.mark_local_hashes(&hashes);
+    }
+
     fn refresh_hits(&mut self) {
         self.hits.clear();
         let Some(state) = &mut self.state else {
@@ -319,6 +340,7 @@ impl TorrentsScreen {
             .state
             .as_ref()
             .is_some_and(|state| matches!(state.hits, TorrentHits::Loading));
+
         if bind_settled && !waiting {
             return;
         }
@@ -556,5 +578,55 @@ mod tests {
             screen.state.as_ref().map(|state| &state.hits),
             Some(TorrentHits::Loading)
         ));
+    }
+
+    #[test]
+    fn mark_local_hashes_promotes_ready_hits() {
+        let hash = String::from("dddddddddddddddddddddddddddddddddddddddd");
+        let hit = cinebox_parse::TorrentHit::new(
+            cinebox_parse::Listing {
+                title: String::from("Dune.2021.1080p"),
+                tracker: String::from("rutracker"),
+                size_bytes: 1,
+                seeders: 1,
+                peers: 0,
+                magnet: format!("magnet:?xt=urn:btih:{hash}&dn=dune"),
+                published: String::new(),
+            },
+            None,
+            &[],
+            &[],
+        );
+        let mut state = TorrentState {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+            movie: MovieBits {
+                title: String::from("Dune"),
+                overview: None,
+                year: Some(2021),
+                vote: None,
+                genres: Vec::new(),
+                countries: Vec::new(),
+                certification: None,
+                poster_path: None,
+                backdrop_path: None,
+                number_of_seasons: None,
+            },
+            year: Some(2021),
+            runtime_minutes: None,
+            hits: TorrentHits::Ready(vec![hit]),
+            filter: cinebox_parse::TorrentFilter::default(),
+            sort: cinebox_parse::SortMode::Popular,
+            files: FilesPane::Closed,
+            pick_gen: 0,
+            pending_add: None,
+        };
+
+        state.mark_local_hashes(&[hash]);
+
+        let TorrentHits::Ready(hits) = &state.hits else {
+            panic!("hits should stay ready");
+        };
+        assert!(hits[0].local);
     }
 }

@@ -35,6 +35,8 @@ pub const KIND_CONFIG: &str = "config";
 
 /// Home shelf and query cap for local watch history.
 pub const RECENT_ROW_LIMIT: usize = 20;
+/// Recent torrent hashes kept per movie/show (shared TV, multiple seasons).
+pub const RECENT_RELEASE_LIMIT: usize = 3;
 
 /// Per-torrent playback preferences, stored as one JSON payload by hash.
 ///
@@ -79,8 +81,6 @@ pub struct WatchHistoryEntry {
     pub episode_title: Option<String>,
     pub time: f64,
     pub duration: f64,
-    /// Torrent hash last used for this media.
-    pub last_hash: Option<String>,
 }
 
 impl WatchHistoryEntry {

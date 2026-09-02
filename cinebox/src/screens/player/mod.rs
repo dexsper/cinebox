@@ -936,7 +936,6 @@ impl PlayerScreen {
                 episode_title: Some(episode_title),
                 time: state.time,
                 duration: state.duration,
-                last_hash: Some(state.hash.clone()),
             };
             let hash = state.hash.clone();
             let time = state.time;
@@ -965,7 +964,7 @@ impl PlayerScreen {
                 warn!(%error, "failed to save watch timeline");
             }
 
-            if let Err(error) = db_block_on(db.upsert_watch_history(&entry)) {
+            if let Err(error) = db_block_on(db.upsert_watch_history(&entry, Some(&hash))) {
                 warn!(%error, "failed to save watch history");
             }
         }

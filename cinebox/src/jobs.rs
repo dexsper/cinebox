@@ -179,19 +179,22 @@ pub async fn load_torrents(
     };
 
     let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
-    let watched_hash = match db.as_ref() {
-        Some(db) => db
-            .watch_history_last_hash(kind, details.id)
-            .await
-            .ok()
-            .flatten(),
-        None => None,
+    let local_hashes = match db.as_ref() {
+        Some(db) => match db.watch_release_hashes(kind, details.id).await {
+            Ok(hashes) => hashes,
+            Err(error) => {
+                warn!(%error, "failed to load local torrent hashes");
+                Vec::new()
+            }
+        },
+        None => Vec::new(),
     };
+    
     let mut hits: Vec<TorrentHit> = raw
         .into_iter()
         .map(|hit| {
             let listing = listing_from_hit(hit);
-            TorrentHit::new(listing, runtime, &hashes, watched_hash.as_deref())
+            TorrentHit::new(listing, runtime, &hashes, &local_hashes)
         })
         .collect();
 

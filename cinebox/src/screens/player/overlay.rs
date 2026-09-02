@@ -3,7 +3,7 @@
 use cinebox_core::i18n::Msg;
 use cinebox_player::{SEEK_SECS, format_clock};
 use egui::{
-    Align, Area, Color32, CornerRadius, Frame, Id, Layout, Margin, Mesh, Order, Pos2, Rect,
+    Align, Area, Color32, CornerRadius, Frame, Id, Label, Layout, Margin, Mesh, Order, Pos2, Rect,
     Response, RichText, Sense, Stroke, Ui, UiBuilder, Vec2, epaint::Vertex, pos2, vec2,
 };
 use egui_material_icons::MaterialIcon;
@@ -118,21 +118,27 @@ pub fn header(
         return None;
     }
 
+    let max_w = (video.width() - 48.0).max(280.0);
     let response = Area::new(Id::new("player-header"))
         .order(Order::Foreground)
         .fixed_pos(video.left_top() + vec2(16.0, 16.0))
         .constrain(false)
         .show(ctx, |ui| {
             ui.set_opacity(alpha);
+            ui.set_max_width(max_w);
             Frame::new()
                 .fill(theme.badge_bg)
                 .corner_radius(theme.rounding(theme.radius_card))
-                .inner_margin(Margin::symmetric(12, 8))
+                .inner_margin(Margin::symmetric(14, 10))
                 .show(ui, |ui| {
-                    ui.label(
-                        RichText::new(title)
-                            .font(theme.title_font(theme.text_subtitle))
-                            .color(theme.title),
+                    ui.set_max_width(max_w - 28.0);
+                    ui.add(
+                        Label::new(
+                            RichText::new(title)
+                                .font(theme.title_font(theme.text_subtitle))
+                                .color(theme.title),
+                        )
+                        .wrap(),
                     );
                 });
         })

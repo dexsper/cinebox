@@ -56,9 +56,18 @@ CREATE TABLE watch_history (
     episode_title TEXT,
     time REAL NOT NULL,
     duration REAL NOT NULL,
-    last_hash TEXT,
     updated_at INTEGER NOT NULL,
     PRIMARY KEY (kind, id)
 );
 
 CREATE INDEX watch_history_updated ON watch_history(updated_at);
+
+CREATE TABLE watch_release (
+    kind TEXT NOT NULL,
+    id INTEGER NOT NULL,
+    hash TEXT NOT NULL,
+    updated_at INTEGER NOT NULL,
+    PRIMARY KEY (kind, id, hash)
+);
+
+CREATE INDEX watch_release_updated ON watch_release(kind, id, updated_at);

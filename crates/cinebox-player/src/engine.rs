@@ -144,17 +144,11 @@ impl Engine {
     /// mpv command/property failures.
     pub fn load(&self, url: &str, opts: PlayOpts<'_>) -> Result<(), Error> {
         apply_play_opts(&self.mpv, opts)?;
-        let start = opts.start_seconds.max(0.0);
-        if start > 0.5 {
-            let extra = format!("start={start}");
-            return self
-                .mpv
-                .command("loadfile", &[url, "replace", &extra])
-                .map_err(Error::mpv);
-        }
-        self.mpv
-            .command("loadfile", &[url, "replace"])
-            .map_err(Error::mpv)
+
+        let owned = loadfile_args(url, opts.start_seconds);
+        let args: Vec<&str> = owned.iter().map(String::as_str).collect();
+
+        self.mpv.command("loadfile", &args).map_err(Error::mpv)
     }
 
     /// Stop playback and clear the playlist.
@@ -372,6 +366,22 @@ fn load_gl(loader: &GlLoader, name: &str) -> *mut c_void {
     loader(cname.as_c_str()) as *mut c_void
 }
 
+/// mpv 0.38+ parses the 3rd `loadfile` argument as playlist index, not options.
+/// `start=12` there is `MPV_ERROR_INVALID_PARAMETER` (-4).
+fn loadfile_args(url: &str, start_seconds: f64) -> Vec<String> {
+    let start = start_seconds.max(0.0);
+    if start > 0.5 {
+        return vec![
+            url.to_owned(),
+            String::from("replace"),
+            String::from("-1"),
+            format!("start={start}"),
+        ];
+    }
+
+    vec![url.to_owned(), String::from("replace")]
+}
+
 fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
     if let Some(header) = opts.http_header_fields.filter(|h| !h.is_empty()) {
         mpv.set_property("http-header-fields", header.to_owned())
@@ -418,5 +428,28 @@ mod tests {
         assert_eq!(TrackKind::parse("audio"), Some(TrackKind::Audio));
         assert_eq!(TrackKind::parse("sub"), Some(TrackKind::Subtitle));
         assert_eq!(TrackKind::parse("unknown"), None);
+    }
+
+    #[test]
+    fn loadfile_resume_uses_index_then_start_option() {
+        let args = loadfile_args("http://ts/stream", 42.5);
+        assert_eq!(
+            args,
+            vec![
+                String::from("http://ts/stream"),
+                String::from("replace"),
+                String::from("-1"),
+                String::from("start=42.5"),
+            ]
+        );
+    }
+
+    #[test]
+    fn loadfile_without_resume_has_no_start_option() {
+        let args = loadfile_args("http://ts/stream", 0.0);
+        assert_eq!(
+            args,
+            vec![String::from("http://ts/stream"), String::from("replace")]
+        );
     }
 }

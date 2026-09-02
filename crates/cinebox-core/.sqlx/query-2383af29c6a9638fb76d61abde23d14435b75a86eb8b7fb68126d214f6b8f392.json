@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO watch_history\n                (kind, id, title, poster_path, year, vote, season, episode,\n                 episode_title, time, duration, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 12
+    },
+    "nullable": []
+  },
+  "hash": "2383af29c6a9638fb76d61abde23d14435b75a86eb8b7fb68126d214f6b8f392"
+}

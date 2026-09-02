@@ -523,26 +523,36 @@ pub fn season_options(hits: &[TorrentHit]) -> Vec<u32> {
     seasons
 }
 
-/// Sort in place. Watched releases stay at the top, then started torrents.
+/// Sort in place. Newest local play first, then other local, then TorrServer-started, then the mode.
 pub fn sort_hits(hits: &mut [TorrentHit], kind: MediaKind, mode: SortMode) {
     hits.sort_by(|a, b| {
-        b.watched
-            .cmp(&a.watched)
+        let recency = a
+            .local_rank
+            .unwrap_or(u8::MAX)
+            .cmp(&b.local_rank.unwrap_or(u8::MAX));
+
+        b.local
+            .cmp(&a.local)
+            .then(recency)
             .then(b.started.cmp(&a.started))
-            .then_with(|| match mode {
-            SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
-                .cmp(&season_key(&a.info))
-                .then(episode_key(&b.info).cmp(&episode_key(&a.info)))
-                .then(b.seeders.cmp(&a.seeders))
-                .then(b.size_bytes.cmp(&a.size_bytes)),
-            SortMode::Popular => b
-                .seeders
-                .cmp(&a.seeders)
-                .then(b.size_bytes.cmp(&a.size_bytes)),
-            SortMode::Seeders => b.seeders.cmp(&a.seeders),
-            SortMode::Size => b.size_bytes.cmp(&a.size_bytes),
-        })
+            .then_with(|| mode_order(kind, mode, a, b))
     });
+}
+
+fn mode_order(kind: MediaKind, mode: SortMode, a: &TorrentHit, b: &TorrentHit) -> std::cmp::Ordering {
+    match mode {
+        SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
+            .cmp(&season_key(&a.info))
+            .then(episode_key(&b.info).cmp(&episode_key(&a.info)))
+            .then(b.seeders.cmp(&a.seeders))
+            .then(b.size_bytes.cmp(&a.size_bytes)),
+        SortMode::Popular => b
+            .seeders
+            .cmp(&a.seeders)
+            .then(b.size_bytes.cmp(&a.size_bytes)),
+        SortMode::Seeders => b.seeders.cmp(&a.seeders),
+        SortMode::Size => b.size_bytes.cmp(&a.size_bytes),
+    }
 }
 
 fn season_key(info: &TitleInfo) -> u32 {
@@ -583,7 +593,7 @@ mod tests {
             },
             None,
             &[],
-            None,
+            &[],
         )
     }
 
@@ -637,15 +647,32 @@ mod tests {
     }
 
     #[test]
-    fn watched_sorts_above_started() {
-        let mut hits = vec![hit("started", 50, true), hit("watched", 1, false)];
-        hits[1].watched = true;
+    fn local_sorts_above_started() {
+        let mut hits = vec![hit("started", 50, true), hit("local", 1, false)];
+        hits[1].local = true;
 
         sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
 
-        assert!(hits[0].watched);
+        assert!(hits[0].local);
         assert!(hits[1].started);
-        assert!(!hits[1].watched);
+        assert!(!hits[1].local);
+    }
+
+    #[test]
+    fn newest_local_sorts_above_older_local() {
+        let mut older = hit("older", 500, false);
+        older.local = true;
+        older.local_rank = Some(1);
+
+        let mut newest = hit("newest", 1, false);
+        newest.local = true;
+        newest.local_rank = Some(0);
+
+        let mut hits = vec![older, newest];
+        sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
+
+        assert_eq!(hits[0].title, "newest");
+        assert_eq!(hits[1].title, "older");
     }
 
     #[test]
@@ -660,7 +687,6 @@ mod tests {
         ];
 
         sort_hits(&mut hits, MediaKind::Tv, SortMode::Popular);
-
         assert_eq!(hits[0].seeders, 119);
     }
 
@@ -672,7 +698,6 @@ mod tests {
         ];
 
         sort_hits(&mut hits, MediaKind::Movie, SortMode::Popular);
-
         assert_eq!(hits[0].size_bytes, 8_000);
     }
 
@@ -683,6 +708,7 @@ mod tests {
             hit("B (2021)", 1, false),
             hit("C (2021)", 1, false),
         ];
+
         assert_eq!(year_options(&hits, Some(2020), &[]), vec![2020, 2021, 2019]);
         assert_eq!(
             year_options(&hits, Some(2020), &[2018]),
@@ -697,6 +723,7 @@ mod tests {
             hit("Show.S01", 1, false),
             hit("Show.S02", 1, false),
         ];
+
         assert_eq!(season_options(&hits), vec![1, 2]);
     }
 

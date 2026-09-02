@@ -17,7 +17,8 @@ use crate::paths;
 
 pub use types::{
     CONFIG_TTL, CacheHit, DETAILS_TTL, HOME_FAST_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME,
-    KIND_MEDIA, KIND_PERSON, KIND_SEASON, MAX_AGE, RECENT_ROW_LIMIT, SEASON_TTL,
+    KIND_MEDIA, KIND_PERSON, KIND_SEASON, MAX_AGE, RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT,
+    SEASON_TTL,
     TorrentPlaybackPrefs, WatchHistoryEntry, allowed_image_sizes, home_ttl, image_size_key,
     language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id,
     season_cache_id,
@@ -232,7 +233,6 @@ mod tests {
             episode_title: None,
             time: 12.0,
             duration: 7200.0,
-            last_hash: Some(String::from("deadbeef")),
         }
     }
 
@@ -457,13 +457,13 @@ mod tests {
         let store = Store::memory().await?;
 
         store
-            .upsert_watch_history(&history_entry(1, "First"))
+            .upsert_watch_history(&history_entry(1, "First"), Some("deadbeef"))
             .await?;
         store
-            .upsert_watch_history(&history_entry(2, "Second"))
+            .upsert_watch_history(&history_entry(2, "Second"), None)
             .await?;
         store
-            .upsert_watch_history(&history_entry(1, "First again"))
+            .upsert_watch_history(&history_entry(1, "First again"), Some("deadbeef"))
             .await?;
 
         let recent = store.recently_watched(20).await?;
@@ -477,9 +477,9 @@ mod tests {
 
         assert_eq!(
             store
-                .watch_history_last_hash(MediaKind::Movie, TmdbId::new(1))
+                .watch_release_hashes(MediaKind::Movie, TmdbId::new(1))
                 .await?,
-            Some(String::from("deadbeef"))
+            vec![String::from("deadbeef")]
         );
 
         let row = store.recently_watched_row().await?;
@@ -490,10 +490,41 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn watch_release_keeps_three_newest_hashes() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        let id = TmdbId::new(1);
+
+        store
+            .upsert_watch_history(&history_entry(1, "A"), Some("hash1"))
+            .await?;
+        store
+            .upsert_watch_history(&history_entry(1, "A"), Some("hash2"))
+            .await?;
+        store
+            .upsert_watch_history(&history_entry(1, "A"), Some("hash3"))
+            .await?;
+        store
+            .upsert_watch_history(&history_entry(1, "A"), Some("hash4"))
+            .await?;
+
+        let hashes = store.watch_release_hashes(MediaKind::Movie, id).await?;
+        assert_eq!(
+            hashes,
+            vec![
+                String::from("hash4"),
+                String::from("hash3"),
+                String::from("hash2")
+            ]
+        );
+
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn clear_tmdb_keeps_watch_history() -> Result<(), StoreError> {
         let store = Store::memory().await?;
         store
-            .upsert_watch_history(&history_entry(9, "Kept"))
+            .upsert_watch_history(&history_entry(9, "Kept"), None)
             .await?;
         store.clear_tmdb().await?;
 

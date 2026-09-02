@@ -1,7 +1,7 @@
 //! Files modal and per-file rows.
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::MediaKind;
+use cinebox_core::{MediaKind, TmdbId};
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
 
 use super::state::{FilesPane, ReadyFiles, TorrentState};
@@ -11,7 +11,7 @@ use crate::widgets::{self, button, poster, scroll};
 
 pub(super) fn files_modal(
     ctx: &egui::Context,
-    state: &TorrentState,
+    state: &mut TorrentState,
     svc: &Services,
     theme: &Theme,
     pick_file: &mut Option<i32>,
@@ -37,7 +37,7 @@ pub(super) fn files_modal(
                     .color(theme.title),
             );
             ui.add_space(12.0);
-            match &state.files {
+            match &mut state.files {
                 FilesPane::Closed | FilesPane::Loading => {
                     widgets::page_spinner(ui, theme);
                 }
@@ -47,7 +47,12 @@ pub(super) fn files_modal(
                     }
                 }
                 FilesPane::Ready(files) => {
-                    file_list(ui, state, files, svc, theme, pick_file);
+                    let media = FileListMedia {
+                        kind: state.kind,
+                        id: state.id,
+                        poster_path: state.movie.poster_path.as_deref(),
+                    };
+                    file_list(ui, media, files, svc, theme, pick_file);
                 }
             }
         });
@@ -56,10 +61,17 @@ pub(super) fn files_modal(
     }
 }
 
+#[derive(Clone, Copy)]
+struct FileListMedia<'a> {
+    kind: MediaKind,
+    id: TmdbId,
+    poster_path: Option<&'a str>,
+}
+
 fn file_list(
     ui: &mut Ui,
-    state: &TorrentState,
-    files: &ReadyFiles,
+    media: FileListMedia<'_>,
+    files: &mut ReadyFiles,
     svc: &Services,
     theme: &Theme,
     pick_file: &mut Option<i32>,
@@ -77,8 +89,9 @@ fn file_list(
         );
     }
 
-    let serial = state.kind == MediaKind::Tv;
-    scroll::vertical(ui, "torrent-files", |ui| {
+    let serial = media.kind == MediaKind::Tv;
+    let mut scrolled = false;
+    scroll::vertical(ui, ("torrent-files", files.hash.as_str()), |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
         let show_headers = serial && files.files.iter().any(|file| file.season.is_some());
@@ -93,14 +106,14 @@ fn file_list(
             }
 
             let selected = files.selected_id == Some(file.id);
-            let id = ui.id().with(("torrent-file", file.id));
+            let row_id = ui.id().with(("torrent-file", file.id));
             let idle = if selected {
                 theme.card_selected
             } else {
                 theme.panel
             };
-            
-            let bg = button::fill_for_hover(ui, id, idle, theme.widget_hover);
+
+            let bg = button::fill_for_hover(ui, row_id, idle, theme.widget_hover);
 
             let shown = Frame::new()
                 .fill(bg)
@@ -116,9 +129,9 @@ fn file_list(
                             || {
                                 svc.images.slot(file.still_url.as_deref()).or_else(|| {
                                     svc.images.poster_key(
-                                        state.kind,
-                                        state.id,
-                                        state.movie.poster_path.as_deref(),
+                                        media.kind,
+                                        media.id,
+                                        media.poster_path,
                                         svc.settings.tmdb.poster_size,
                                     )
                                 })
@@ -160,12 +173,20 @@ fn file_list(
                         });
                     });
                 });
-            let response = button::click_rect(ui, id, shown.response.rect);
+            if files.scroll_to_resume && selected {
+                shown.response.scroll_to_me(Some(Align::Center));
+                scrolled = true;
+            }
+            let response = button::click_rect(ui, row_id, shown.response.rect);
             if response.clicked() {
                 *pick_file = Some(file.id);
             }
         }
     });
+
+    if scrolled {
+        files.scroll_to_resume = false;
+    }
 }
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
@@ -209,5 +230,16 @@ mod tests {
         assert!(tight.y <= 600.0 - FILES_MODAL_EDGE);
         assert!(tight.x >= 320.0);
         assert!(tight.y >= 320.0);
+    }
+
+    #[test]
+    fn ready_files_scrolls_to_resume_once() {
+        let with_resume = ReadyFiles::from_rows(String::from("hash"), Some(7), Vec::new());
+        assert!(with_resume.scroll_to_resume);
+        assert_eq!(with_resume.selected_id, Some(7));
+
+        let fresh = ReadyFiles::from_rows(String::from("hash"), None, Vec::new());
+        assert!(!fresh.scroll_to_resume);
+        assert!(fresh.selected_id.is_none());
     }
 }

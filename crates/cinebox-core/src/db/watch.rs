@@ -4,7 +4,8 @@ use crate::catalog::{CatalogItem, HomeRow, HomeRowId};
 use crate::ids::{MediaKind, TmdbId};
 
 use super::types::{
-    RECENT_ROW_LIMIT, WatchHistoryEntry, episode_key, media_kind_from_key, media_kind_key, unix_now,
+    RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, WatchHistoryEntry, episode_key, media_kind_from_key,
+    media_kind_key, unix_now,
 };
 use super::{Store, StoreError};
 
@@ -86,10 +87,16 @@ impl Store {
 
     /// Insert or replace the one history row for a movie/show.
     ///
+    /// `hash` is the torrent just played; kept in `watch_release` (up to 3).
+    ///
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn upsert_watch_history(&self, entry: &WatchHistoryEntry) -> Result<(), StoreError> {
+    pub async fn upsert_watch_history(
+        &self,
+        entry: &WatchHistoryEntry,
+        hash: Option<&str>,
+    ) -> Result<(), StoreError> {
         let kind = media_kind_key(entry.kind);
         let id = i64::from(entry.id.get());
         let year = entry.year.map(i64::from);
@@ -98,15 +105,14 @@ impl Store {
         let episode = entry.episode.map(i64::from);
         let poster_path = entry.poster_path.as_deref();
         let episode_title = entry.episode_title.as_deref();
-        let last_hash = entry.last_hash.as_deref();
         let now = unix_now();
 
         sqlx::query!(
             r#"
             INSERT OR REPLACE INTO watch_history
                 (kind, id, title, poster_path, year, vote, season, episode,
-                 episode_title, time, duration, last_hash, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 episode_title, time, duration, updated_at)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             kind,
             id,
@@ -119,11 +125,67 @@ impl Store {
             episode_title,
             entry.time,
             entry.duration,
-            last_hash,
             now
         )
         .execute(&self.pool)
         .await?;
+
+        self.touch_watch_release(entry.kind, entry.id, hash).await?;
+
+        Ok(())
+    }
+
+    async fn touch_watch_release(
+        &self,
+        kind: MediaKind,
+        id: TmdbId,
+        hash: Option<&str>,
+    ) -> Result<(), StoreError> {
+        let Some(hash) = hash.filter(|hash| !hash.is_empty()) else {
+            return Ok(());
+        };
+
+        let kind = media_kind_key(kind);
+        let id = i64::from(id.get());
+        let now = unix_now();
+
+        sqlx::query!(
+            r#"
+            INSERT OR REPLACE INTO watch_release (kind, id, hash, updated_at)
+            VALUES (?, ?, ?, ?)
+            "#,
+            kind,
+            id,
+            hash,
+            now
+        )
+        .execute(&self.pool)
+        .await?;
+
+        let rows = sqlx::query!(
+            r#"
+            SELECT hash
+            FROM watch_release
+            WHERE kind = ? AND id = ?
+            ORDER BY updated_at DESC, rowid DESC
+            "#,
+            kind,
+            id
+        )
+        .fetch_all(&self.pool)
+        .await?;
+
+        let extra = rows.into_iter().skip(RECENT_RELEASE_LIMIT);
+        for row in extra {
+            sqlx::query!(
+                "DELETE FROM watch_release WHERE kind = ? AND id = ? AND hash = ?",
+                kind,
+                id,
+                row.hash
+            )
+            .execute(&self.pool)
+            .await?;
+        }
 
         Ok(())
     }
@@ -199,27 +261,35 @@ impl Store {
         Ok(keys)
     }
 
-    /// Torrent hash last used for this media, if any.
+    /// Recent torrent hashes played for this media, newest first (capped at 3).
     ///
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn watch_history_last_hash(
+    pub async fn watch_release_hashes(
         &self,
         kind: MediaKind,
         id: TmdbId,
-    ) -> Result<Option<String>, StoreError> {
+    ) -> Result<Vec<String>, StoreError> {
         let kind = media_kind_key(kind);
         let id = i64::from(id.get());
-        let row = sqlx::query!(
-            "SELECT last_hash FROM watch_history WHERE kind = ? AND id = ?",
+        let limit = i64::try_from(RECENT_RELEASE_LIMIT).unwrap_or(3);
+        let rows = sqlx::query!(
+            r#"
+            SELECT hash
+            FROM watch_release
+            WHERE kind = ? AND id = ?
+            ORDER BY updated_at DESC, rowid DESC
+            LIMIT ?
+            "#,
             kind,
-            id
+            id,
+            limit
         )
-        .fetch_optional(&self.pool)
+        .fetch_all(&self.pool)
         .await?;
 
-        Ok(row.and_then(|row| row.last_hash))
+        Ok(rows.into_iter().map(|row| row.hash).collect())
     }
 
     /// The local "recently watched" home shelf. Always queried live: it is

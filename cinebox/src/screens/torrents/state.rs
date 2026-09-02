@@ -97,6 +97,7 @@ pub struct ReadyFiles {
     pub files: Vec<TorrentFileRow>,
     pub resume_id: Option<i32>,
     pub selected_id: Option<i32>,
+    pub scroll_to_resume: bool,
 }
 
 impl ReadyFiles {
@@ -106,6 +107,7 @@ impl ReadyFiles {
             files,
             resume_id,
             selected_id: resume_id,
+            scroll_to_resume: resume_id.is_some(),
         }
     }
 }
@@ -174,6 +176,21 @@ impl TorrentState {
 
     pub fn matches(&self, kind: MediaKind, id: TmdbId) -> bool {
         self.kind == kind && self.id == id
+    }
+
+    /// Promote hits whose magnet is in local play history. Does not refetch.
+    pub fn mark_local_hashes(&mut self, hashes: &[String]) {
+        if hashes.is_empty() {
+            return;
+        }
+
+        let TorrentHits::Ready(hits) = &mut self.hits else {
+            return;
+        };
+
+        for hit in hits.iter_mut() {
+            hit.mark_local(hashes);
+        }
     }
 
     pub fn apply_filter_sort(&mut self) {

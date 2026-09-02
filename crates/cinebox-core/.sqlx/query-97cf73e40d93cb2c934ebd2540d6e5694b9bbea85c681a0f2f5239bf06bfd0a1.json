@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT hash\n            FROM watch_release\n            WHERE kind = ? AND id = ?\n            ORDER BY updated_at DESC, rowid DESC\n            LIMIT ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "hash",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "watch_release",
+            "name": "hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "97cf73e40d93cb2c934ebd2540d6e5694b9bbea85c681a0f2f5239bf06bfd0a1"
+}

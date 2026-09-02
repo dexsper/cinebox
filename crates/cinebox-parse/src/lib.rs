@@ -49,7 +49,8 @@ pub struct TorrentHit {
     pub voices: Vec<&'static str>,
     pub bitrate_mbps: Option<f64>,
     pub started: bool,
-    pub watched: bool,
+    pub local: bool,
+    pub local_rank: Option<u8>,
 }
 
 impl TorrentHit {
@@ -59,7 +60,7 @@ impl TorrentHit {
         listing: Listing,
         runtime_minutes: Option<u32>,
         started_hashes: &[String],
-        watched_hash: Option<&str>,
+        local_hashes: &[String],
     ) -> Self {
         let info = parse_title(&listing.title);
         let found_voices = voices(&listing.title);
@@ -72,9 +73,9 @@ impl TorrentHit {
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(hash))
         });
-        let watched = hash.is_some_and(|hash| {
-            watched_hash.is_some_and(|known| known.eq_ignore_ascii_case(&hash))
-        });
+
+        let local_rank = local_rank_of(&listing.magnet, local_hashes);
+        let local = local_rank.is_some();
 
         let display_title = typograph(&listing.title);
         Self {
@@ -90,8 +91,19 @@ impl TorrentHit {
             voices: found_voices,
             bitrate_mbps,
             started,
-            watched,
+            local,
+            local_rank,
         }
+    }
+
+    /// Refresh local recency from play history. Never clears an existing tag.
+    pub fn mark_local(&mut self, local_hashes: &[String]) {
+        let Some(rank) = local_rank_of(&self.magnet, local_hashes) else {
+            return;
+        };
+
+        self.local = true;
+        self.local_rank = Some(rank);
     }
 
     /// Short size label (`1.8 GB`).
@@ -99,6 +111,15 @@ impl TorrentHit {
     pub fn size_label(&self) -> String {
         format_bytes(self.size_bytes)
     }
+}
+
+fn local_rank_of(magnet: &str, local_hashes: &[String]) -> Option<u8> {
+    let hash = infohash(magnet)?;
+    let rank = local_hashes
+        .iter()
+        .position(|known| known.eq_ignore_ascii_case(&hash))?;
+
+    u8::try_from(rank).ok()
 }
 
 /// Mbps from byte size and runtime minutes: `(size * 8 / 1e6) / (minutes * 60)`.
@@ -146,9 +167,10 @@ mod tests {
             },
             Some(155),
             std::slice::from_ref(&hash),
-            None,
+            &[],
         );
         assert!(hit.started);
+        assert!(!hit.local);
         assert_eq!(hit.info.resolution, Some(Resolution::Fhd));
         assert_eq!(hit.info.quality, Some(SourceQuality::WebDlRip));
         let mbps = match hit.bitrate_mbps {
@@ -156,11 +178,10 @@ mod tests {
             None => panic!("bitrate should be set when size and runtime are known"),
         };
         assert!(mbps > 0.0, "{mbps}");
-        assert!(!hit.watched);
     }
 
     #[test]
-    fn watched_matches_magnet_btih() {
+    fn local_matches_magnet_btih() {
         let hash = String::from("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
         let hit = TorrentHit::new(
             Listing {
@@ -174,11 +195,66 @@ mod tests {
             },
             None,
             &[],
-            Some(&hash),
+            std::slice::from_ref(&hash),
         );
 
-        assert!(hit.watched);
+        assert!(hit.local);
         assert!(!hit.started);
+        assert_eq!(hit.local_rank, Some(0));
+    }
+
+    #[test]
+    fn mark_local_promotes_without_clearing_started() {
+        let hash = String::from("cccccccccccccccccccccccccccccccccccccccc");
+        let mut hit = TorrentHit::new(
+            Listing {
+                title: String::from("Dune.2021.1080p.WEB-DLRip"),
+                tracker: String::from("rutracker"),
+                size_bytes: 1_000,
+                seeders: 10,
+                peers: 1,
+                magnet: format!("magnet:?xt=urn:btih:{hash}&dn=dune"),
+                published: String::new(),
+            },
+            None,
+            std::slice::from_ref(&hash),
+            &[],
+        );
+
+        assert!(hit.started);
+        assert!(!hit.local);
+
+        hit.mark_local(&[hash]);
+
+        assert!(hit.local);
+        assert!(hit.started);
+        assert_eq!(hit.local_rank, Some(0));
+    }
+
+    #[test]
+    fn mark_local_refreshes_rank_on_rewatch() {
+        let older = String::from("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+        let newest = String::from("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let mut hit = TorrentHit::new(
+            Listing {
+                title: String::from("Dune.2021.1080p.WEB-DLRip"),
+                tracker: String::from("rutracker"),
+                size_bytes: 1_000,
+                seeders: 1,
+                peers: 0,
+                magnet: format!("magnet:?xt=urn:btih:{newest}&dn=dune"),
+                published: String::new(),
+            },
+            None,
+            &[],
+            &[older.clone(), newest.clone()],
+        );
+
+        assert_eq!(hit.local_rank, Some(1));
+
+        hit.mark_local(&[newest, older]);
+
+        assert_eq!(hit.local_rank, Some(0));
     }
 
     #[test]
@@ -195,7 +271,7 @@ mod tests {
             },
             None,
             &[],
-            None,
+            &[],
         );
 
         assert_eq!(hit.title, "DoMiNo &amp; селезень &quot;Silo&quot;");
