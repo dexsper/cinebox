@@ -4,12 +4,15 @@ use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::VideoScale;
 use cinebox_core::i18n::Msg;
 use cinebox_player::{Track, TrackKind};
-use egui::{Align, CursorIcon, Layout, RichText, Sense, Ui, UiBuilder, vec2};
+use egui::{Align, CursorIcon, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
 
 use crate::theme::Theme;
+use crate::widgets::poster;
 
 const ROW_H: f32 = 36.0;
+const ROW_GAP: f32 = 8.0;
+const VALUE_MIN_W: f32 = 48.0;
 const STEPPER_BTN: f32 = 26.0;
 
 pub const SPEEDS: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
@@ -242,39 +245,101 @@ fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
     (rect, response)
 }
 
+/// How much of `inner_w` the left label may take vs the right-hand value.
+///
+/// The value shrinks first; the label only yields once the value is down to
+/// [`VALUE_MIN_W`]. Trailing is the chevron/check width (gap added here).
+fn split_row_widths(
+    inner_w: f32,
+    label_desired: f32,
+    trailing_w: f32,
+    has_value: bool,
+) -> (f32, f32) {
+    let after_icon = (inner_w - trailing_w).max(0.0);
+
+    if !has_value {
+        return (label_desired.min(after_icon), 0.0);
+    }
+
+    let usable = (after_icon - 2.0 * ROW_GAP).max(0.0);
+    let max_label = (usable - VALUE_MIN_W).max(0.0);
+    let label = label_desired.min(max_label);
+    let value = (usable - label).max(0.0);
+
+    (label, value)
+}
+
+fn galley_y(rect: egui::Rect, height: f32) -> f32 {
+    rect.center().y - height * 0.5
+}
+
 fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
-    let (rect, response) = hover_row(ui, label);
+    let (rect, mut response) = hover_row(ui, label);
     if response.hovered() {
         ui.painter()
             .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
+    let has_value = !value.is_empty();
+
+    let icon = ICON_CHEVRON_RIGHT;
+    let icon_font = FontId::new(theme.text_icon, icon.font_family());
+    let icon_text = icon.codepoint.to_owned();
+    let icon_galley = ui.painter().layout_no_wrap(icon_text, icon_font, theme.muted);
+    let icon_w = icon_galley.size().x;
+
+    let label_font = theme.ui_font(theme.text_body);
+    let label_text = label.to_owned();
+    let label_full = ui.painter().layout_no_wrap(label_text, label_font, theme.label);
+    let label_desired = label_full.size().x;
+    let inner_w = inner.width();
+    let (label_budget, value_budget) = split_row_widths(inner_w, label_desired, icon_w, has_value);
+
+    let label_width = label_budget.max(1.0);
+    let label_galley = poster::wrap_lines(
+        ui,
+        label,
+        theme.label,
+        theme.text_body,
+        label_width,
+        1,
+        theme,
     );
 
-    row.label(
-        RichText::new(label)
-            .size(theme.text_body)
-            .color(theme.label),
+    let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
+    ui.painter().galley(label_pos, label_galley, theme.label);
+
+    let icon_pos = pos2(inner.right() - icon_w, galley_y(inner, icon_galley.size().y));
+    ui.painter().galley(icon_pos, icon_galley, theme.muted);
+
+    if !has_value {
+        return response.clicked();
+    }
+
+    let value_font = theme.ui_font(theme.text_small);
+    let value_text = value.to_owned();
+    let value_full = ui.painter().layout_no_wrap(value_text, value_font, theme.muted);
+    let value_desired = value_full.size().x;
+
+    if value_desired > value_budget + 0.5 {
+        response = response.on_hover_text(value);
+    }
+
+    let value_width = value_budget.max(1.0);
+    let value_galley = poster::wrap_lines(
+        ui,
+        value,
+        theme.muted,
+        theme.text_small,
+        value_width,
+        1,
+        theme,
     );
 
-    row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(
-            ICON_CHEVRON_RIGHT
-                .rich_text()
-                .size(theme.text_icon)
-                .color(theme.muted),
-        );
-        ui.label(
-            RichText::new(value)
-                .size(theme.text_small)
-                .color(theme.muted),
-        );
-    });
+    let value_x = icon_pos.x - ROW_GAP - value_galley.size().x;
+    let value_pos = pos2(value_x, galley_y(inner, value_galley.size().y));
+    ui.painter().galley(value_pos, value_galley, theme.muted);
 
     response.clicked()
 }
@@ -311,12 +376,13 @@ fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
 }
 
 fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
-    let (rect, response) = hover_row(ui, label);
+    let (rect, mut response) = hover_row(ui, label);
     let idle = if selected {
         theme.card_selected
     } else {
         egui::Color32::TRANSPARENT
     };
+
     let fill = if response.hovered() {
         theme.widget_hover
     } else {
@@ -329,27 +395,47 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
+
+    let check = ICON_CHECK;
+    let check_font = FontId::new(theme.text_icon, check.font_family());
+    let check_text = check.codepoint.to_owned();
+    let check_galley = ui.painter().layout_no_wrap(check_text, check_font, theme.title);
+
+    let trailing = if selected {
+        check_galley.size().x + ROW_GAP
+    } else {
+        0.0
+    };
+
+    let text_w = (inner.width() - trailing).max(1.0);
+    let label_font = theme.ui_font(theme.text_body);
+    let label_text = label.to_owned();
+    let label_full = ui.painter().layout_no_wrap(label_text, label_font, theme.label);
+    let label_desired = label_full.size().x;
+
+    if label_desired > text_w + 0.5 {
+        response = response.on_hover_text(label);
+    }
+
+    let label_galley = poster::wrap_lines(
+        ui,
+        label,
+        theme.label,
+        theme.text_body,
+        text_w,
+        1,
+        theme,
     );
 
-    row.label(
-        RichText::new(label)
-            .size(theme.text_body)
-            .color(theme.label),
-    );
+    let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
+    ui.painter().galley(label_pos, label_galley, theme.label);
 
     if selected {
-        row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            ui.label(
-                ICON_CHECK
-                    .rich_text()
-                    .size(theme.text_icon)
-                    .color(theme.title),
-            );
-        });
+        let check_pos = pos2(
+            inner.right() - check_galley.size().x,
+            galley_y(inner, check_galley.size().y),
+        );
+        ui.painter().galley(check_pos, check_galley, theme.title);
     }
 
     response.clicked()
@@ -360,16 +446,29 @@ fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
     let mut step = 0.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
     let inner = rect.shrink2(vec2(10.0, 4.0));
+
+    let value_font = theme.ui_font(theme.text_small);
+    let value_text = value.to_owned();
+    let value_galley = ui.painter().layout_no_wrap(value_text, value_font, theme.muted_bright);
+    let value_w = value_galley.size().x;
+
+    let cluster = STEPPER_BTN * 2.0 + 6.0 * 2.0 + value_w;
+    let label_w = (inner.width() - cluster - ROW_GAP).max(1.0);
+
     let mut row = ui.new_child(
         UiBuilder::new()
             .max_rect(inner)
             .layout(Layout::left_to_right(Align::Center)),
     );
 
-    row.label(
-        RichText::new(label)
-            .size(theme.text_small)
-            .color(theme.label),
+    row.add_sized(
+        vec2(label_w, inner.height()),
+        Label::new(
+            RichText::new(label)
+                .size(theme.text_small)
+                .color(theme.label),
+        )
+        .truncate(),
     );
 
     row.with_layout(Layout::right_to_left(Align::Center), |ui| {
@@ -425,5 +524,29 @@ mod tests {
     fn speed_label_marks_normal() {
         assert_eq!(speed_label(1.0), "Normal");
         assert_eq!(speed_label(1.5), "1.5×");
+    }
+
+    #[test]
+    fn split_row_widths_keeps_short_label_and_gives_rest_to_value() {
+        let (label, value) = split_row_widths(200.0, 60.0, 16.0, true);
+
+        assert!((label - 60.0).abs() < f32::EPSILON);
+        assert!((value - 108.0).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn split_row_widths_shrinks_value_before_label() {
+        let (label, value) = split_row_widths(120.0, 200.0, 16.0, true);
+
+        assert!((label - 40.0).abs() < f32::EPSILON);
+        assert!((value - VALUE_MIN_W).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn split_row_widths_without_value_gives_all_to_label() {
+        let (label, value) = split_row_widths(100.0, 80.0, 16.0, false);
+
+        assert!((label - 80.0).abs() < f32::EPSILON);
+        assert_eq!(value, 0.0);
     }
 }
