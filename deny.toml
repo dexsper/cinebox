@@ -74,9 +74,11 @@ ignore = [
 # More documentation for the licenses section can be found here:
 # https://embarkstudios.github.io/cargo-deny/checks/licenses/cfg.html
 [licenses]
-# List of explicitly allowed licenses
-# See https://spdx.org/licenses/ for list of possible licenses
-# [possible values: any SPDX 3.11 short identifier (+ optional exception)].
+# Cinebox is GPL-3.0-or-later. Only FSF-compatible licenses belong here.
+# Apache-2.0 is GPLv3-compatible (not GPLv2). Boost and bzip2 are permissive.
+# CDLA-Permissive-2.0 covers CA root data (rustls), not application code.
+# LGPL-2.1 is the deprecated SPDX id used by libmpv2; same terms as LGPL-2.1-only.
+unused-allowed-license = "allow"
 allow = [
     "MIT",
     "Apache-2.0",
@@ -87,9 +89,15 @@ allow = [
     "Zlib",
     "CC0-1.0",
     "Unicode-3.0",
+    "BSL-1.0",
+    "bzip2-1.0.6",
+    "CDLA-Permissive-2.0",
 
     "GPL-3.0-only",
     "GPL-3.0-or-later",
+    "LGPL-2.1",
+    "LGPL-2.1-only",
+    "LGPL-2.1-or-later",
     "LGPL-3.0-only",
     "LGPL-3.0-or-later",
 ]
@@ -98,12 +106,17 @@ allow = [
 # canonical license text of a valid SPDX license file.
 # [possible values: any between 0.0 and 1.0].
 confidence-threshold = 0.8
-# Allow 1 or more licenses on a per-crate basis, so that particular licenses
-# aren't accepted for every possible crate as with the normal allow list
+
+# OFL-1.1 / Ubuntu Font Licence are FSF-listed as GPL-incompatible (reserved
+# font names). They appear only as glyph data in egui's default fonts, not as
+# linked code. Keep them off the global allow list.
 exceptions = [
-    # Each entry is the crate and version constraint, and its specific allow
-    # list
-    #{ allow = ["Zlib"], crate = "adler32" },
+    { crate = "epaint_default_fonts", allow = [
+        "MIT",
+        "Apache-2.0",
+        "OFL-1.1",
+        "Ubuntu-font-1.0",
+    ] },
 ]
 
 # Some crates don't have (easily) machine readable licensing information,
