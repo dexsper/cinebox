@@ -49,21 +49,31 @@ pub struct TorrentHit {
     pub voices: Vec<&'static str>,
     pub bitrate_mbps: Option<f64>,
     pub started: bool,
+    pub watched: bool,
 }
 
 impl TorrentHit {
     /// Parse a release name and attach tags.
     #[must_use]
-    pub fn new(listing: Listing, runtime_minutes: Option<u32>, started_hashes: &[String]) -> Self {
+    pub fn new(
+        listing: Listing,
+        runtime_minutes: Option<u32>,
+        started_hashes: &[String],
+        watched_hash: Option<&str>,
+    ) -> Self {
         let info = parse_title(&listing.title);
         let found_voices = voices(&listing.title);
         let bitrate_mbps =
             runtime_minutes.and_then(|mins| estimate_bitrate_mbps(listing.size_bytes, mins));
 
-        let started = infohash(&listing.magnet).is_some_and(|hash| {
+        let hash = infohash(&listing.magnet);
+        let started = hash.as_ref().is_some_and(|hash| {
             started_hashes
                 .iter()
-                .any(|known| known.eq_ignore_ascii_case(&hash))
+                .any(|known| known.eq_ignore_ascii_case(hash))
+        });
+        let watched = hash.is_some_and(|hash| {
+            watched_hash.is_some_and(|known| known.eq_ignore_ascii_case(&hash))
         });
 
         let display_title = typograph(&listing.title);
@@ -80,6 +90,7 @@ impl TorrentHit {
             voices: found_voices,
             bitrate_mbps,
             started,
+            watched,
         }
     }
 
@@ -135,6 +146,7 @@ mod tests {
             },
             Some(155),
             std::slice::from_ref(&hash),
+            None,
         );
         assert!(hit.started);
         assert_eq!(hit.info.resolution, Some(Resolution::Fhd));
@@ -144,6 +156,29 @@ mod tests {
             None => panic!("bitrate should be set when size and runtime are known"),
         };
         assert!(mbps > 0.0, "{mbps}");
+        assert!(!hit.watched);
+    }
+
+    #[test]
+    fn watched_matches_magnet_btih() {
+        let hash = String::from("bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb");
+        let hit = TorrentHit::new(
+            Listing {
+                title: String::from("Dune.2021.1080p.WEB-DLRip"),
+                tracker: String::from("rutracker"),
+                size_bytes: 1_000,
+                seeders: 10,
+                peers: 1,
+                magnet: format!("magnet:?xt=urn:btih:{hash}&dn=dune"),
+                published: String::new(),
+            },
+            None,
+            &[],
+            Some(&hash),
+        );
+
+        assert!(hit.watched);
+        assert!(!hit.started);
     }
 
     #[test]
@@ -160,6 +195,7 @@ mod tests {
             },
             None,
             &[],
+            None,
         );
 
         assert_eq!(hit.title, "DoMiNo &amp; селезень &quot;Silo&quot;");

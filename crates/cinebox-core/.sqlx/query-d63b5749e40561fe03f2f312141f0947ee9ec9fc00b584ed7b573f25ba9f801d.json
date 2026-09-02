@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM tmdb_image_ref\n            WHERE language = ? AND kind = ? AND id = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "d63b5749e40561fe03f2f312141f0947ee9ec9fc00b584ed7b573f25ba9f801d"
+}

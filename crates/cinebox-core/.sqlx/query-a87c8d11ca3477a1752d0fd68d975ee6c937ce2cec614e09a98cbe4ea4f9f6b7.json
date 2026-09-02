@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO tmdb_image (size, path, fetched_at, accessed_at, bytes)\n            VALUES (?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "a87c8d11ca3477a1752d0fd68d975ee6c937ce2cec614e09a98cbe4ea4f9f6b7"
+}

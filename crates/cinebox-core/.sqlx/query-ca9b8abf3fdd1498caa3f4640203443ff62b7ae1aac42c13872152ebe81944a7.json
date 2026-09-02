@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM tmdb_image_ref\n            WHERE NOT EXISTS (\n                SELECT 1 FROM tmdb_cache c\n                WHERE c.language = tmdb_image_ref.language\n                  AND c.kind = tmdb_image_ref.kind\n                  AND c.id = tmdb_image_ref.id\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "ca9b8abf3fdd1498caa3f4640203443ff62b7ae1aac42c13872152ebe81944a7"
+}

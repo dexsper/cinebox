@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM tmdb_image\n            WHERE path NOT IN (SELECT path FROM tmdb_image_ref)\n              AND accessed_at < ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "fd60c43073dfaada9eb05a785a7accb75bb3e76d393120d1727e7bfc9459f0e0"
+}

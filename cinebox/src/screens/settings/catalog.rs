@@ -153,12 +153,6 @@ const PLAYER: &[Field] = &[
         get: |s| s.player.auto_next,
         set: |s, v| s.player.auto_next = v,
     },
-    Field::Toggle {
-        label: Msg::SaveTimecode,
-        hint: Some(Msg::SaveTimecodeHint),
-        get: |s| s.player.save_timecode,
-        set: |s, v| s.player.save_timecode = v,
-    },
 ];
 
 const PARSER: &[Field] = &[

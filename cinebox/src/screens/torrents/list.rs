@@ -382,6 +382,10 @@ fn hit_row(
                                 .color(theme.muted),
                         );
 
+                        if hit.watched {
+                            ui.label(RichText::new(Msg::TagWatched.t()).color(theme.ok));
+                        }
+
                         if hit.started {
                             ui.label(RichText::new(Msg::TagStarted.t()).color(theme.ok));
                         }

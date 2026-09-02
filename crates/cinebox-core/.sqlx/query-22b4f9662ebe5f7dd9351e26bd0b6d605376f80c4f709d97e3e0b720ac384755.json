@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT time, duration\n            FROM watch_timeline\n            WHERE kind = ? AND id = ? AND season = ? AND episode = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "time",
+        "ordinal": 0,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "watch_timeline",
+            "name": "time"
+          }
+        }
+      },
+      {
+        "name": "duration",
+        "ordinal": 1,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "watch_timeline",
+            "name": "duration"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "22b4f9662ebe5f7dd9351e26bd0b6d605376f80c4f709d97e3e0b720ac384755"
+}

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO torrent_playback_prefs (hash, payload, updated_at)\n            VALUES (?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "961f892ea1bcaf0149f7507317a73736366001d8f09bdb4f9725a476b79ecb11"
+}

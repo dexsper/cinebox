@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            UPDATE tmdb_image\n            SET accessed_at = ?\n            WHERE size = ? AND path = ?\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e598f38cfd05fc6bcc821a75dbefbc5a70766da770a7a341d33439f79cbeb385"
+}

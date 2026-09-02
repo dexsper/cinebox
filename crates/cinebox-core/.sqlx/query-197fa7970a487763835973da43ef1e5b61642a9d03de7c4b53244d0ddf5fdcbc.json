@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                DELETE FROM tmdb_image\n                WHERE rowid = (\n                    SELECT rowid FROM tmdb_image ORDER BY accessed_at ASC LIMIT 1\n                )\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "197fa7970a487763835973da43ef1e5b61642a9d03de7c4b53244d0ddf5fdcbc"
+}

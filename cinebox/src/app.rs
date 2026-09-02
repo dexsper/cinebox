@@ -12,7 +12,7 @@ use crate::nav::{Nav, NavAction, Screen};
 use crate::screens::{
     HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen, TorrentsScreen,
 };
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::{backdrop, chrome};
 
@@ -165,7 +165,7 @@ impl App {
                 self.media.forget_live();
                 self.person.forget_live();
                 if let Some(db) = &self.services.db {
-                    if let Err(error) = db.clear_tmdb() {
+                    if let Err(error) = db_block_on(db.clear_tmdb()) {
                         error!(%error, "failed to purge tmdb cache");
                     }
                 }
@@ -192,7 +192,7 @@ impl App {
                 self.services.images.clear();
                 if let Some(db) = &self.services.db {
                     let sizes = allowed_image_sizes(self.services.settings.tmdb.poster_size);
-                    if let Err(error) = db.gc_images(&sizes) {
+                    if let Err(error) = db_block_on(db.gc_images(&sizes)) {
                         error!(%error, "failed to gc tmdb images");
                     }
                 }
@@ -206,8 +206,8 @@ impl App {
             return;
         };
 
-        let id = req.id;
-        let kind = req.kind;
+        let id = req.card.id;
+        let kind = req.card.kind;
 
         self.player.start(req, &mut self.services, ctx);
         self.nav.push(Screen::Player { kind, id });

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM tmdb_cache",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "964ddd271628890238bdcfa33b1983147cbbbee19a6594c3ead66e3bc609723f"
+}

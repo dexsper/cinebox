@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO watch_timeline\n                (kind, id, season, episode, time, duration, updated_at)\n            VALUES (?, ?, ?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 7
+    },
+    "nullable": []
+  },
+  "hash": "8d54f085309b2b2e9ca66db08ac9468b3e87df268c06e38ea37403af0edc863a"
+}

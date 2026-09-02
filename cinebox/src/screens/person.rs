@@ -8,7 +8,7 @@ use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::{self, intro, poster, scroll, skeleton};
 
@@ -101,7 +101,7 @@ impl PersonScreen {
             let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
             let cache_id = person_cache_id(id);
             self.disk = svc.db.as_ref().and_then(|db| {
-                db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id)
+                db_block_on(db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id))
                     .ok()
                     .flatten()
                     .map(|hit| {
@@ -251,6 +251,7 @@ fn ready(
                         &svc.images,
                         svc.settings.tmdb.poster_size,
                         theme,
+                        svc.is_watched(item.kind, item.id),
                     ) {
                         action = Some(nav);
                     }

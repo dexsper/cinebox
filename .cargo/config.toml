@@ -3,3 +3,4 @@
 # crates/cinebox-player/build.rs (shinchiro mpv-dev, then MSVC mpv.lib).
 [env]
 MPV_SOURCE = { value = "crates/cinebox-player/mpv-src", relative = true }
+SQLX_OFFLINE = { value = "true", force = true }

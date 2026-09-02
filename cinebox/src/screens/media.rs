@@ -9,7 +9,7 @@ use egui_material_icons::icons::ICON_PLAY_CIRCLE;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::{self, intro, poster, scroll, skeleton};
 
@@ -118,7 +118,7 @@ impl MediaScreen {
             let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
             let cache_id = media_cache_id(kind, id);
             self.disk = svc.db.as_ref().and_then(|db| {
-                db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id)
+                db_block_on(db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id))
                     .ok()
                     .flatten()
                     .map(|hit| {
@@ -503,7 +503,7 @@ fn hero(
     meta: impl FnOnce(&mut Ui, f32),
 ) {
     ui.horizontal(|ui| {
-        poster::rounded_image(ui, hero.poster_size, theme, || {
+        let poster = poster::rounded_image(ui, hero.poster_size, theme, || {
             svc.images.poster_key(
                 hero.kind,
                 hero.id,
@@ -511,6 +511,9 @@ fn hero(
                 svc.settings.tmdb.poster_size,
             )
         });
+        if svc.is_watched(hero.kind, hero.id) {
+            poster::watched_badge(ui, poster, theme);
+        }
         ui.add_space(28.0);
 
         let col_w = ui.available_width();
@@ -723,6 +726,7 @@ fn shelf(
                     &svc.images,
                     svc.settings.tmdb.poster_size,
                     theme,
+                    svc.is_watched(item.kind, item.id),
                 ) {
                     *action = Some(nav);
                 }

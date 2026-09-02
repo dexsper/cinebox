@@ -8,19 +8,19 @@ mod settings_popup;
 mod volume;
 
 use std::sync::{Arc, Mutex};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
-use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::i18n::Msg;
+use cinebox_core::{TorrentPlaybackPrefs, WatchHistoryEntry};
 use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
 use egui::{Align2, Rect, RichText, Sense, Ui, Vec2, ViewportCommand};
 use egui_async::Bind;
 use tracing::warn;
 
 use crate::nav::NavAction;
-use crate::screens::play::PlayRequest;
+use crate::screens::play::{PlayRequest, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::flyout;
 
@@ -28,6 +28,7 @@ use buffering::{Buffering, PreloadMeter};
 use overlay::{Activity, FooterView};
 
 struct PlayerState {
+    card: WatchCard,
     title: String,
     hash: String,
     files: Vec<TorrentFileRow>,
@@ -44,6 +45,7 @@ struct PlayerState {
 impl PlayerState {
     fn from_spec(spec: &LoadSpec) -> Self {
         Self {
+            card: spec.card.clone(),
             title: spec.title.clone(),
             hash: spec.hash.clone(),
             files: spec.files.clone(),
@@ -79,6 +81,7 @@ enum Popup {
 
 /// Everything one load needs; the single path shared by start / next / prev / jump.
 struct LoadSpec {
+    card: WatchCard,
     title: String,
     hash: String,
     files: Vec<TorrentFileRow>,
@@ -97,6 +100,8 @@ pub struct PlayerScreen {
     sub_scale: f64,
     sub_delay: f64,
     volume_dirty: bool,
+    progress_saved_at: Option<Instant>,
+    viewed_job: Bind<(), String>,
 }
 
 impl Default for PlayerScreen {
@@ -111,6 +116,8 @@ impl Default for PlayerScreen {
             sub_scale: 1.0,
             sub_delay: 0.0,
             volume_dirty: false,
+            progress_saved_at: None,
+            viewed_job: Bind::new(true),
         }
     }
 }
@@ -120,7 +127,7 @@ impl PlayerScreen {
         self.prefs = svc
             .db
             .as_ref()
-            .and_then(|db| db.get_torrent_prefs(&req.hash).ok().flatten())
+            .and_then(|db| db_block_on(db.get_torrent_prefs(&req.hash)).ok().flatten())
             .unwrap_or_default();
         self.sub_scale = 1.0;
         self.sub_delay = 0.0;
@@ -130,6 +137,7 @@ impl PlayerScreen {
             svc,
             ctx,
             LoadSpec {
+                card: req.card,
                 title: req.title,
                 hash: req.hash,
                 files: req.files,
@@ -141,6 +149,7 @@ impl PlayerScreen {
     }
 
     pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) {
+        self.save_progress(svc, true);
         stop_engine(svc);
 
         self.phase = None;
@@ -201,6 +210,9 @@ impl PlayerScreen {
 
             snap.eof && snap.duration > 1.0 && svc.settings.player.auto_next && state.has_next()
         };
+
+        let _ = self.viewed_job.read();
+        self.save_progress(svc, false);
 
         if go_next {
             self.next_file(svc, ctx);
@@ -669,6 +681,7 @@ impl PlayerScreen {
         });
 
         self.phase = Some(PlayerPhase::Buffering(Buffering {
+            card: spec.card,
             title: spec.title,
             backdrop_path: spec.backdrop_path,
             hash: spec.hash,
@@ -698,6 +711,7 @@ impl PlayerScreen {
         };
 
         let mut state = PlayerState::from_spec(&LoadSpec {
+            card: buffered.card,
             title: buffered.title,
             hash: buffered.hash,
             files: buffered.files,
@@ -820,21 +834,28 @@ impl PlayerScreen {
     }
 
     fn jump_to_file(&mut self, svc: &mut Services, ctx: &egui::Context, index: usize) {
+        self.save_progress(svc, true);
+
         let spec = {
             let Some(phase) = &self.phase else {
                 return;
             };
 
-            let (hash, files, backdrop_path, current) = match phase {
+            let (card, hash, files, backdrop_path, current) = match phase {
                 PlayerPhase::Playing(state) => (
+                    &state.card,
                     &state.hash,
                     &state.files,
                     &state.backdrop_path,
                     Some(state.file_index),
                 ),
-                PlayerPhase::Buffering(state) => {
-                    (&state.hash, &state.files, &state.backdrop_path, None)
-                }
+                PlayerPhase::Buffering(state) => (
+                    &state.card,
+                    &state.hash,
+                    &state.files,
+                    &state.backdrop_path,
+                    None,
+                ),
             };
 
             if current == Some(index) {
@@ -846,6 +867,7 @@ impl PlayerScreen {
             };
 
             LoadSpec {
+                card: card.clone(),
                 title: file.title.clone(),
                 hash: hash.clone(),
                 files: files.clone(),
@@ -869,9 +891,105 @@ impl PlayerScreen {
             None => return,
         };
 
-        if let Err(error) = db.put_torrent_prefs(hash, &self.prefs) {
+        if let Err(error) = db_block_on(db.put_torrent_prefs(hash, &self.prefs)) {
             warn!(%error, "failed to save torrent playback prefs");
         }
+    }
+
+    fn save_progress(&mut self, svc: &mut Services, force: bool) {
+        if !force {
+            let recent = self
+                .progress_saved_at
+                .is_some_and(|at| at.elapsed() < Duration::from_secs(10));
+
+            if recent {
+                return;
+            }
+        }
+
+        let (entry, hash, time, duration, kind, id, file_id) = {
+            let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
+                return;
+            };
+
+            if state.error.is_some() {
+                return;
+            }
+
+            let Some(file) = state.files.get(state.file_index) else {
+                return;
+            };
+
+            let season = file.season;
+            let episode = file.episode;
+            let episode_title = file.title.clone();
+            let file_id = file.id;
+            let entry = WatchHistoryEntry {
+                kind: state.card.kind,
+                id: state.card.id,
+                title: state.card.title.clone(),
+                poster_path: state.card.poster_path.clone(),
+                year: state.card.year,
+                vote: state.card.vote,
+                season,
+                episode,
+                episode_title: Some(episode_title),
+                time: state.time,
+                duration: state.duration,
+                last_hash: Some(state.hash.clone()),
+            };
+            let hash = state.hash.clone();
+            let time = state.time;
+            let duration = state.duration;
+            let kind = state.card.kind;
+            let id = state.card.id;
+
+            if let Some(file) = state.files.get_mut(state.file_index) {
+                file.timecode = time;
+            }
+
+            (entry, hash, time, duration, kind, id, file_id)
+        };
+
+        let track = svc.settings.torrserver.track_timecode;
+
+        if let Some(db) = &svc.db {
+            if let Err(error) = db_block_on(db.upsert_watch_timeline(
+                kind,
+                id,
+                entry.season,
+                entry.episode,
+                time,
+                duration,
+            )) {
+                warn!(%error, "failed to save watch timeline");
+            }
+
+            if let Err(error) = db_block_on(db.upsert_watch_history(&entry)) {
+                warn!(%error, "failed to save watch history");
+            }
+        }
+
+        svc.mark_watched(kind, id);
+        self.progress_saved_at = Some(Instant::now());
+
+        if !track {
+            return;
+        }
+
+        let settings = svc.settings.clone();
+        self.viewed_job.request(async move {
+            cinebox_torrserver::viewed_set(
+                &settings.torrserver.url,
+                &settings.torrserver.username,
+                settings.torrserver.password.expose(),
+                &hash,
+                file_id,
+                time,
+            )
+            .await
+            .map_err(|error| error.to_string())
+        });
     }
 
     fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
@@ -1010,6 +1128,14 @@ mod tests {
 
     fn spec(file_index: usize, count: i32) -> LoadSpec {
         LoadSpec {
+            card: WatchCard {
+                kind: cinebox_core::MediaKind::Tv,
+                id: cinebox_core::TmdbId::new(1),
+                title: String::from("Show"),
+                poster_path: None,
+                year: Some(2024),
+                vote: Some(8.0),
+            },
             title: String::from("Episode"),
             hash: String::from("deadbeef"),
             files: (1..=count).map(file).collect(),
@@ -1066,5 +1192,36 @@ mod tests {
         assert!(!screen.is_fullscreen());
 
         assert!(!screen.consume_escape(&ctx));
+    }
+
+    #[test]
+    fn save_progress_upserts_by_media_id() -> Result<(), cinebox_core::StoreError> {
+        let db = std::sync::Arc::new(db_block_on(cinebox_core::Store::memory())?);
+        let mut svc = Services::test_with_db(db.clone());
+        let mut screen = PlayerScreen {
+            phase: Some(PlayerPhase::Playing(PlayerState::from_spec(&spec(1, 3)))),
+            ..PlayerScreen::default()
+        };
+
+        if let Some(PlayerPhase::Playing(state)) = &mut screen.phase {
+            state.time = 42.0;
+            state.duration = 2400.0;
+        }
+
+        screen.save_progress(&mut svc, true);
+
+        let kind = cinebox_core::MediaKind::Tv;
+        let id = cinebox_core::TmdbId::new(1);
+        let got = db_block_on(db.get_watch_timeline(kind, id, Some(1), Some(2)))?;
+
+        assert_eq!(got, Some((42.0, 2400.0)));
+
+        let recent = db_block_on(db.recently_watched(10))?;
+        assert_eq!(recent.len(), 1);
+        assert_eq!(recent[0].id, id);
+        assert_eq!(recent[0].title, "Show");
+        assert!(svc.is_watched(kind, id));
+
+        Ok(())
     }
 }

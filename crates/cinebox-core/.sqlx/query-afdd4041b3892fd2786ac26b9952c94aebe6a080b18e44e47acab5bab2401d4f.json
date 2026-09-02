@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT fetched_at, bytes\n            FROM tmdb_image\n            WHERE size = ? AND path = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "fetched_at",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tmdb_image",
+            "name": "fetched_at"
+          }
+        }
+      },
+      {
+        "name": "bytes",
+        "ordinal": 1,
+        "type_info": "Blob",
+        "origin": {
+          "Table": {
+            "table": "tmdb_image",
+            "name": "bytes"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "afdd4041b3892fd2786ac26b9952c94aebe6a080b18e44e47acab5bab2401d4f"
+}

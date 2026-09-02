@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO tmdb_cache (language, kind, id, fetched_at, payload)\n            VALUES (?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "c5bb7007c4f5d8a14cff8e59a2dd21af15892020edcccba1ac2f9bc3b13b6a5b"
+}

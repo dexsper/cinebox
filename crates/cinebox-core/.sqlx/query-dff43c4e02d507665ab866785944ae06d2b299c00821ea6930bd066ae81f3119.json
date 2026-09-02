@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM tmdb_image WHERE fetched_at < ?",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "dff43c4e02d507665ab866785944ae06d2b299c00821ea6930bd066ae81f3119"
+}

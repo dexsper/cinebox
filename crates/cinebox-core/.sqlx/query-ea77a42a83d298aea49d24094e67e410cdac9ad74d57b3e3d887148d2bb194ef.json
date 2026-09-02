@@ -1,0 +1,86 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT kind, id, title, poster_path, year, vote\n            FROM watch_history\n            ORDER BY updated_at DESC, rowid DESC\n            LIMIT ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "kind",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "id",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "title",
+        "ordinal": 2,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "title"
+          }
+        }
+      },
+      {
+        "name": "poster_path",
+        "ordinal": 3,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "poster_path"
+          }
+        }
+      },
+      {
+        "name": "year",
+        "ordinal": 4,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "year"
+          }
+        }
+      },
+      {
+        "name": "vote",
+        "ordinal": 5,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "watch_history",
+            "name": "vote"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false,
+      false,
+      true,
+      true,
+      true
+    ]
+  },
+  "hash": "ea77a42a83d298aea49d24094e67e410cdac9ad74d57b3e3d887148d2bb194ef"
+}

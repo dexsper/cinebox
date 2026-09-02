@@ -5,7 +5,7 @@ use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::Services;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::{self, poster, scroll};
 
@@ -69,7 +69,7 @@ impl HomeScreen {
             if let Some((catalog, fresh)) = svc
                 .db
                 .as_ref()
-                .and_then(|db| db.home_catalog(lang_key).ok().flatten())
+                .and_then(|db| db_block_on(db.home_catalog(lang_key)).ok().flatten())
             {
                 self.disk = Some(catalog);
                 self.disk_fresh = fresh;
@@ -175,6 +175,7 @@ fn shelf(
                     &svc.images,
                     svc.settings.tmdb.poster_size,
                     theme,
+                    svc.is_watched(item.kind, item.id),
                 ) {
                     action = Some(nav);
                 }

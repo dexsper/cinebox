@@ -5,7 +5,7 @@ use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use egui_material_icons::MaterialIcon;
-use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE};
+use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE, ICON_PLAY_ARROW};
 
 use crate::images::{ImageCache, ImageSlot};
 use crate::nav::NavAction;
@@ -40,6 +40,7 @@ pub fn catalog_tile(
     images: &ImageCache,
     size: PosterSize,
     theme: &Theme,
+    watched: bool,
 ) -> Option<NavAction> {
     let pad = theme.ring_pad();
     let well = vec2(
@@ -62,6 +63,9 @@ pub fn catalog_tile(
     let poster = images.poster(item, size);
 
     paint_poster(ui, poster_rect, poster, theme);
+    if watched {
+        watched_badge(ui, poster_rect, theme);
+    }
     if let Some(vote) = item.vote.filter(|v| *v > 0.0) {
         vote_badge(ui, poster_rect, vote, theme);
     }
@@ -172,6 +176,26 @@ fn paint_slot_icon(ui: &Ui, rect: Rect, icon: MaterialIcon, theme: &Theme) {
     ui.painter().galley(pos, galley, theme.muted);
 }
 
+/// Play-icon badge, top-center: this media has been started at least once.
+pub fn watched_badge(ui: &Ui, poster: Rect, theme: &Theme) {
+    let radius = 13.0;
+    let center = pos2(poster.center().x, poster.top() + radius + 8.0);
+
+    ui.painter()
+        .circle_filled(center, radius, theme.badge_bg);
+
+    let icon = ICON_PLAY_ARROW;
+    let font = FontId::new(16.0, icon.font_family());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(icon.codepoint.to_owned(), font, theme.title);
+    let pos = Align2::CENTER_CENTER
+        .anchor_size(center, galley.size())
+        .min;
+
+    ui.painter().galley(pos, galley, theme.title);
+}
+
 fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme) {
     let text = format!("{vote:.1}");
     let galley = ui
@@ -198,11 +222,12 @@ pub fn rounded_image<'a>(
     size: Vec2,
     theme: &Theme,
     texture: impl FnOnce() -> ImageSlot<'a>,
-) {
+) -> Rect {
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     if !in_load_window(ui, rect) {
-        return;
+        return rect;
     }
 
     paint_poster(ui, rect, texture(), theme);
+    rect
 }

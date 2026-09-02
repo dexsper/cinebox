@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT fetched_at, payload\n            FROM tmdb_cache\n            WHERE language = ? AND kind = ? AND id = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "fetched_at",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "tmdb_cache",
+            "name": "fetched_at"
+          }
+        }
+      },
+      {
+        "name": "payload",
+        "ordinal": 1,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "tmdb_cache",
+            "name": "payload"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "698173d4eb43fe850f27414d526616182ad57c0aaa58ec643c8f19d579178b8a"
+}

@@ -11,10 +11,13 @@ description = "Shared models, settings, and i18n keys for Cinebox"
 
 [dependencies]
 cinebox-typograf.workspace = true
-rusqlite.workspace = true
+sqlx.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["macros", "rt-multi-thread"] }
 
 [lints]
 workspace = true

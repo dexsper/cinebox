@@ -270,8 +270,6 @@ impl Default for GeneralSettings {
 pub struct PlayerSettings {
     pub loudnorm: bool,
     pub auto_next: bool,
-    pub save_timecode: bool,
-    /// Global playback volume, `0.0..=100.0`.
     pub volume: f64,
 }
 
@@ -280,7 +278,6 @@ impl Default for PlayerSettings {
         Self {
             loudnorm: false,
             auto_next: false,
-            save_timecode: false,
             volume: 90.0,
         }
     }

@@ -58,6 +58,7 @@ impl PreloadMeter {
 
 /// One in-flight preload wait plus everything needed to start playback after it.
 pub struct Buffering {
+    pub card: crate::screens::play::WatchCard,
     pub title: String,
     pub backdrop_path: Option<String>,
     pub hash: String,

@@ -232,7 +232,7 @@ impl TorrentsScreen {
         scroll::vertical(ui, "torrent-movie", |ui| {
             ui.horizontal(|ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
-                poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
+                let poster = poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
                     svc.images.poster_key(
                         state.kind,
                         state.id,
@@ -240,6 +240,9 @@ impl TorrentsScreen {
                         svc.settings.tmdb.poster_size,
                     )
                 });
+                if svc.is_watched(state.kind, state.id) {
+                    poster::watched_badge(ui, poster, theme);
+                }
 
                 ui.vertical(|ui| {
                     ui.set_max_width(ui.available_width());
@@ -325,9 +328,10 @@ impl TorrentsScreen {
         };
 
         let settings = svc.settings.clone();
+        let db = svc.db.clone();
         let Some(result) = self
             .hits
-            .read_or_request(move || jobs::load_torrents(settings, details))
+            .read_or_request(move || jobs::load_torrents(settings, details, db))
         else {
             ctx.request_repaint();
             return;
@@ -473,8 +477,14 @@ impl TorrentsScreen {
         };
 
         self.pending_play = Some(crate::screens::play::PlayRequest {
-            kind: state.kind,
-            id: state.id,
+            card: crate::screens::play::WatchCard {
+                kind: state.kind,
+                id: state.id,
+                title: state.movie.title.clone(),
+                poster_path: state.movie.poster_path.clone(),
+                year: state.movie.year,
+                vote: state.movie.vote,
+            },
             title: file.title.clone(),
             hash: ready.hash.clone(),
             files: ready.files.clone(),

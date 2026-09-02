@@ -5,3 +5,6 @@
 *.pdb
 .cursor/
 crates/cinebox-player/mpv-src/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm

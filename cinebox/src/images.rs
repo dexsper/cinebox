@@ -162,26 +162,11 @@ impl ImageCache {
 
         let url = url.to_owned();
         let proxy = self.proxy.get();
-
-        if let Some(db) = &self.db {
-            if let Some((size, path)) = parse_tmdb_image_url(&url) {
-                let key = image_size_key(&size, soften);
-                if let Ok(Some(bytes)) = db.get_image(&key, &path) {
-                    let tx = self.tx.clone();
-                    egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-                        let result = decode(&bytes);
-                        let _ = tx.send((url, result));
-                        request_repaint();
-                    });
-                    return;
-                }
-            }
-        }
-
         let tx = self.tx.clone();
         let db = self.db.clone();
+
         egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-            let result = download(url.clone(), soften, proxy, db).await;
+            let result = load_image(url.clone(), soften, proxy, db).await;
             let _ = tx.send((url, result));
             request_repaint();
         });
@@ -294,6 +279,24 @@ fn request_repaint() {
     }
 }
 
+async fn load_image(
+    url: String,
+    soften: bool,
+    use_system_proxy: bool,
+    db: Option<Arc<Store>>,
+) -> Result<ColorImage, String> {
+    if let Some(db) = &db
+        && let Some((size, path)) = parse_tmdb_image_url(&url)
+    {
+        let key = image_size_key(&size, soften);
+        if let Ok(Some(bytes)) = db.get_image(&key, &path).await {
+            return decode(&bytes);
+        }
+    }
+
+    download(url, soften, use_system_proxy, db).await
+}
+
 async fn download(
     url: String,
     soften: bool,
@@ -319,7 +322,7 @@ async fn download(
     if let Some(db) = db {
         if let Some((size, path)) = parse_tmdb_image_url(&url) {
             let key = image_size_key(&size, soften);
-            if let Err(error) = db.put_image(&key, &path, &bytes) {
+            if let Err(error) = db.put_image(&key, &path, &bytes).await {
                 warn!(%error, "failed to persist tmdb image");
             }
         }

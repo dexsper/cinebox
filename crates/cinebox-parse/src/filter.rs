@@ -523,10 +523,13 @@ pub fn season_options(hits: &[TorrentHit]) -> Vec<u32> {
     seasons
 }
 
-/// Sort in place. Started torrents stay at the top.
+/// Sort in place. Watched releases stay at the top, then started torrents.
 pub fn sort_hits(hits: &mut [TorrentHit], kind: MediaKind, mode: SortMode) {
     hits.sort_by(|a, b| {
-        b.started.cmp(&a.started).then_with(|| match mode {
+        b.watched
+            .cmp(&a.watched)
+            .then(b.started.cmp(&a.started))
+            .then_with(|| match mode {
             SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
                 .cmp(&season_key(&a.info))
                 .then(episode_key(&b.info).cmp(&episode_key(&a.info)))
@@ -580,6 +583,7 @@ mod tests {
             },
             None,
             &[],
+            None,
         )
     }
 
@@ -630,6 +634,18 @@ mod tests {
         sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
         assert!(hits[0].started);
         assert!(!hits[1].started);
+    }
+
+    #[test]
+    fn watched_sorts_above_started() {
+        let mut hits = vec![hit("started", 50, true), hit("watched", 1, false)];
+        hits[1].watched = true;
+
+        sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
+
+        assert!(hits[0].watched);
+        assert!(hits[1].started);
+        assert!(!hits[1].watched);
     }
 
     #[test]

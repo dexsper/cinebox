@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n                INSERT OR IGNORE INTO tmdb_image_ref (language, kind, id, path)\n                VALUES (?, ?, ?, ?)\n                ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "716cb93af101644cdfb9336f4bdb16cedf7b3737a9f954981e6703265e4fcbd1"
+}

@@ -46,18 +46,27 @@ pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<Hom
     let mut rows = Vec::with_capacity(fetched.rows.len());
     for row in fetched.rows {
         if row.id == HomeRowId::RecentlyWatched {
-            rows.push(row);
+            match db.recently_watched_row().await {
+                Ok(local) => rows.push(local),
+                Err(error) => {
+                    warn!(%error, "failed to load recently watched");
+                    rows.push(HomeRow::empty(HomeRowId::RecentlyWatched));
+                }
+            }
             continue;
         }
         let stale_empty = row.error.is_some() && row.items.is_empty();
         if stale_empty {
-            if let Ok(Some(hit)) = db.get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key()) {
+            if let Ok(Some(hit)) = db.get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key()).await {
                 rows.push(hit.value);
                 continue;
             }
         }
         let paths = row.image_paths();
-        if let Err(error) = db.put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths, &sizes) {
+        if let Err(error) = db
+            .put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths, &sizes)
+            .await
+        {
             warn!(%error, "failed to persist home row");
         }
         rows.push(row);
@@ -84,7 +93,10 @@ pub async fn load_media(
         let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = media_cache_id(kind, id);
         let paths = details.image_paths();
-        if let Err(error) = db.put_json(lang, KIND_MEDIA, &cache_id, &details, &paths, &sizes) {
+        if let Err(error) = db
+            .put_json(lang, KIND_MEDIA, &cache_id, &details, &paths, &sizes)
+            .await
+        {
             warn!(%error, "failed to persist media details");
         }
     }
@@ -111,7 +123,10 @@ pub async fn load_person(
         let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = person_cache_id(id);
         let paths = details.image_paths();
-        if let Err(error) = db.put_json(lang, KIND_PERSON, &cache_id, &details, &paths, &sizes) {
+        if let Err(error) = db
+            .put_json(lang, KIND_PERSON, &cache_id, &details, &paths, &sizes)
+            .await
+        {
             warn!(%error, "failed to persist person details");
         }
     }
@@ -123,6 +138,7 @@ pub async fn load_person(
 pub async fn load_torrents(
     settings: Settings,
     details: MediaDetails,
+    db: Option<Arc<Store>>,
 ) -> Result<Vec<TorrentHit>, String> {
     let kind = details.kind;
     let query = cinebox_indexer::SearchQuery {
@@ -163,9 +179,20 @@ pub async fn load_torrents(
     };
 
     let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
+    let watched_hash = match db.as_ref() {
+        Some(db) => db
+            .watch_history_last_hash(kind, details.id)
+            .await
+            .ok()
+            .flatten(),
+        None => None,
+    };
     let mut hits: Vec<TorrentHit> = raw
         .into_iter()
-        .map(|hit| TorrentHit::new(listing_from_hit(hit), runtime, &hashes))
+        .map(|hit| {
+            let listing = listing_from_hit(hit);
+            TorrentHit::new(listing, runtime, &hashes, watched_hash.as_deref())
+        })
         .collect();
 
     sort_hits(&mut hits, kind, SortMode::Popular);
@@ -192,15 +219,27 @@ pub async fn open_magnet(
         .map_err(|error| error.to_string())?;
 
     let serial = kind == MediaKind::Tv || movie.number_of_seasons.is_some();
-    let catalog = season_catalog(&opened.files, serial, id, &api_key, &settings, db).await;
+    let catalog = season_catalog(
+        &opened.files,
+        serial,
+        id,
+        &api_key,
+        &settings,
+        db.clone(),
+    )
+    .await;
 
-    Ok(decorate_files(
+    let files = decorate_files(
         opened,
         &movie,
         serial,
         runtime_minutes,
         &catalog,
-    ))
+        db.as_deref().map(|db| (db, kind, id)),
+    )
+    .await;
+
+    Ok(files)
 }
 
 async fn season_catalog(
@@ -234,11 +273,14 @@ async fn season_catalog(
     let mut need = Vec::new();
     for season in seasons {
         let cache_id = season_cache_id(id, season);
-        let cached = db.as_ref().and_then(|db| {
-            db.get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(lang, KIND_SEASON, &cache_id)
+        let cached = match db.as_ref() {
+            Some(db) => db
+                .get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(lang, KIND_SEASON, &cache_id)
+                .await
                 .ok()
-                .flatten()
-        });
+                .flatten(),
+            None => None,
+        };
         if let Some(hit) = cached {
             if hit.is_fresh(SEASON_TTL) {
                 out.extend(hit.value);
@@ -277,7 +319,10 @@ async fn season_catalog(
                 .collect();
             let paths = episode_paths(&eps);
             let cache_id = season_cache_id(id, season);
-            if let Err(error) = db.put_json(lang, KIND_SEASON, &cache_id, &eps, &paths, &sizes) {
+            if let Err(error) = db
+                .put_json(lang, KIND_SEASON, &cache_id, &eps, &paths, &sizes)
+                .await
+            {
                 warn!(%error, "failed to persist season episodes");
             }
         }
@@ -319,12 +364,13 @@ fn file_title(
     movie_title.to_owned()
 }
 
-fn decorate_files(
+async fn decorate_files(
     opened: cinebox_torrserver::OpenedTorrent,
     movie: &MovieBits,
     serial: bool,
     runtime_minutes: Option<u32>,
     catalog: &[cinebox_tmdb::SeasonEpisode],
+    timeline: Option<(&Store, MediaKind, TmdbId)>,
 ) -> ReadyFiles {
     let fallback_still = tmdb_image_url(movie.backdrop_path.as_deref(), "w300")
         .or_else(|| tmdb_image_url(movie.poster_path.as_deref(), "w300"));
@@ -351,11 +397,21 @@ fn decorate_files(
             .filter(|d| !d.is_empty())
             .map(format_release_date);
 
+        let local = match timeline {
+            Some((db, kind, id)) => db
+                .get_watch_timeline(kind, id, parsed.season, parsed.episode)
+                .await
+                .ok()
+                .flatten(),
+            None => None,
+        };
+        let timecode = local.map(|(time, _)| time).unwrap_or(file.timecode);
+
         rows.push(TorrentFileRow {
             id: file.id,
             path: file.path,
             length: file.length,
-            timecode: file.timecode,
+            timecode,
             number,
             season: parsed.season,
             episode: parsed.episode,
@@ -376,7 +432,13 @@ fn decorate_files(
         });
     }
 
-    ReadyFiles::from_rows(opened.hash, opened.resume_id, rows)
+    let resume_id = rows
+        .iter()
+        .rev()
+        .find(|file| file.timecode > 0.0)
+        .map(|file| file.id);
+
+    ReadyFiles::from_rows(opened.hash, resume_id, rows)
 }
 
 pub async fn wait_stream(
@@ -420,7 +482,7 @@ pub async fn ping_tmdb(settings: Settings, db: Option<Arc<Store>>) -> Result<Str
     let fp = key_fingerprint(settings.tmdb.api_key.expose());
     let cache_id = format!("ping:{fp:x}");
     if let Some(db) = &db
-        && let Ok(Some(hit)) = db.get_json::<String>("", KIND_CONFIG, &cache_id)
+        && let Ok(Some(hit)) = db.get_json::<String>("", KIND_CONFIG, &cache_id).await
         && hit.is_fresh(CONFIG_TTL)
     {
         return Ok(hit.value);
@@ -435,15 +497,17 @@ pub async fn ping_tmdb(settings: Settings, db: Option<Arc<Store>>) -> Result<Str
 
     if let Ok(msg) = &result
         && let Some(db) = db
-        && let Err(error) = db.put_json(
-            "",
-            KIND_CONFIG,
-            &cache_id,
-            msg,
-            &[],
-            &allowed_image_sizes(settings.tmdb.poster_size),
-        )
-    {
+        && let Err(error) = db
+            .put_json(
+                "",
+                KIND_CONFIG,
+                &cache_id,
+                msg,
+                &[],
+                &allowed_image_sizes(settings.tmdb.poster_size),
+            )
+            .await
+        {
         warn!(%error, "failed to persist tmdb ping");
     }
     result

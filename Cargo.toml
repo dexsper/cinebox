@@ -41,7 +41,12 @@ thiserror = "2"
 anyhow = "1"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-rusqlite = { version = "0.40.2", features = ["bundled"] }
+sqlx = { version = "0.9.0", default-features = false, features = [
+    "runtime-tokio",
+    "sqlite",
+    "macros",
+    "migrate",
+] }
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream", "charset", "http2", "system-proxy"] }
