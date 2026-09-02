@@ -1,5 +1,5 @@
-use serde::Deserialize;
 use cinebox_typograf::Typograf;
+use serde::Deserialize;
 
 #[derive(Deserialize)]
 struct Suite {
@@ -37,7 +37,11 @@ struct Pair {
 #[test]
 fn original_rule_fixtures() {
     let json = include_str!("fixtures/rules.json");
-    let suites: Vec<Suite> = serde_json::from_str(json).expect("rules.json");
+    let suites: Vec<Suite> = match serde_json::from_str(json) {
+        Ok(suites) => suites,
+        Err(error) => panic!("rules.json: {error}"),
+    };
+
     let mut failed = 0usize;
     let mut report = String::new();
 

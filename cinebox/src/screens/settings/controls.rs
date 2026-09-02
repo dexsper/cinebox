@@ -249,31 +249,33 @@ pub fn select_row<T: Copy + PartialEq + std::fmt::Display>(
     crate::widgets::combo::show(ui, theme, id, value, options)
 }
 
+pub struct Labeled<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub hint: Option<&'a str>,
+}
+
 pub fn select_row_with<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
-    id: &str,
-    label: &str,
-    hint: Option<&str>,
+    field: Labeled<'_>,
     value: &mut T,
     options: &[T],
     option_label: impl Fn(T) -> String,
 ) -> bool {
-    field_label(ui, theme, label, hint);
-    crate::widgets::combo::show_with(ui, theme, id, value, options, option_label)
+    field_label(ui, theme, field.label, field.hint);
+    crate::widgets::combo::show_with(ui, theme, field.id, value, options, option_label)
 }
 
 pub fn multiselect_chip_row<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
-    _id: &str,
-    label: &str,
-    hint: Option<&str>,
+    field: Labeled<'_>,
     selected: &mut Vec<T>,
     options: &[T],
     option_label: impl Fn(T) -> String,
 ) -> bool {
-    field_label(ui, theme, label, hint);
+    field_label(ui, theme, field.label, field.hint);
     crate::widgets::chips::multi_row(ui, theme, selected, options, option_label)
 }
 

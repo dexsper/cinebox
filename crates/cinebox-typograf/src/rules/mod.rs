@@ -32,8 +32,8 @@ pub enum Queue {
 pub enum Live {
     Any,
     #[allow(dead_code)]
-    OnlyLive,
-    NotLive,
+    On,
+    Off,
 }
 
 pub struct Rule {
@@ -53,6 +53,7 @@ pub fn all() -> &'static [Rule] {
     RULES
 }
 
+#[allow(clippy::too_many_arguments)]
 const fn r(
     order: u16,
     locale: &'static str,
@@ -95,11 +96,11 @@ const RULES: &[Rule] = &[
     r(10, "common", "common/nbsp/afterSectionMark", Queue::Default, 510, true, Live::Any, true, false, nbsp::after_section_mark),
     r(11, "common", "common/nbsp/afterShortWord", Queue::Default, 510, true, Live::Any, true, false, nbsp::after_short_word),
     r(12, "common", "common/nbsp/afterShortWordByList", Queue::Default, 510, true, Live::Any, true, false, nbsp::after_short_word_by_list),
-    r(13, "common", "common/nbsp/beforeShortLastNumber", Queue::Default, 510, true, Live::NotLive, true, false, nbsp::before_short_last_number),
+    r(13, "common", "common/nbsp/beforeShortLastNumber", Queue::Default, 510, true, Live::Off, true, false, nbsp::before_short_last_number),
     r(14, "common", "common/nbsp/beforeShortLastWord", Queue::Default, 510, true, Live::Any, true, false, nbsp::before_short_last_word),
     r(15, "common", "common/nbsp/dpi", Queue::Default, 510, true, Live::Any, true, false, nbsp::dpi),
     r(16, "common", "common/nbsp/nowrap", Queue::End, 510, true, Live::Any, true, false, nbsp::nowrap),
-    r(17, "common", "common/nbsp/replaceNbsp", Queue::Utf, 510, false, Live::NotLive, true, false, nbsp::replace_nbsp),
+    r(17, "common", "common/nbsp/replaceNbsp", Queue::Utf, 510, false, Live::Off, true, false, nbsp::replace_nbsp),
     // common/number
     r(18, "common", "common/number/digitGrouping", Queue::Default, 460, false, Live::Any, true, false, number::digit_grouping),
     r(19, "common", "common/number/fraction", Queue::Default, 150, true, Live::Any, true, false, number::fraction),
@@ -130,11 +131,11 @@ const RULES: &[Rule] = &[
     r(41, "common", "common/space/delRepeatN", Queue::Default, 209, true, Live::Any, true, false, space::del_repeat_n),
     r(42, "common", "common/space/delRepeatSpace", Queue::Default, 209, true, Live::Any, true, false, space::del_repeat_space),
     r(43, "common", "common/space/delTrailingBlanks", Queue::Default, 207, true, Live::Any, true, false, space::del_trailing_blanks),
-    r(44, "common", "common/space/insertFinalNewline", Queue::End, 210, false, Live::NotLive, true, false, space::insert_final_newline),
+    r(44, "common", "common/space/insertFinalNewline", Queue::End, 210, false, Live::Off, true, false, space::insert_final_newline),
     r(45, "common", "common/space/replaceTab", Queue::Default, 205, true, Live::Any, true, false, space::replace_tab),
     r(46, "common", "common/space/squareBracket", Queue::Default, 210, true, Live::Any, true, false, space::square_bracket),
     r(47, "common", "common/space/trimLeft", Queue::Default, 206, true, Live::Any, true, false, space::trim_left),
-    r(48, "common", "common/space/trimRight", Queue::Default, 207, true, Live::NotLive, true, false, space::trim_right),
+    r(48, "common", "common/space/trimRight", Queue::Default, 207, true, Live::Off, true, false, space::trim_right),
     // common/symbols
     r(49, "common", "common/symbols/arrow", Queue::Default, 110, true, Live::Any, true, false, symbols::arrow),
     r(50, "common", "common/symbols/cf", Queue::Default, 110, true, Live::Any, true, false, symbols::cf),
@@ -199,10 +200,10 @@ const RULES: &[Rule] = &[
     r(102, "ru", "ru/optalign/quote", Queue::End, 1010, true, Live::Any, false, true, optalign::quote_end),
     // ru/other
     r(103, "ru", "ru/other/accent", Queue::Default, 910, false, Live::Any, true, false, ru::other_accent),
-    r(104, "ru", "ru/other/phone-number", Queue::Default, 910, true, Live::NotLive, true, false, phone::phone_number),
+    r(104, "ru", "ru/other/phone-number", Queue::Default, 910, true, Live::Off, true, false, phone::phone_number),
     // ru/punctuation
     r(105, "ru", "ru/punctuation/ano", Queue::Default, 410, true, Live::Any, true, false, ru::punct_ano),
-    r(106, "ru", "ru/punctuation/exclamation", Queue::Default, 410, true, Live::NotLive, true, false, ru::punct_exclamation),
+    r(106, "ru", "ru/punctuation/exclamation", Queue::Default, 410, true, Live::Off, true, false, ru::punct_exclamation),
     r(107, "ru", "ru/punctuation/exclamationQuestion", Queue::Default, 415, true, Live::Any, true, false, ru::punct_exclamation_question),
     r(108, "ru", "ru/punctuation/hellipQuestion", Queue::Default, 410, true, Live::Any, true, false, ru::punct_hellip_question),
     // ru/space

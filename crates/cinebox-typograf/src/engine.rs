@@ -250,7 +250,7 @@ impl Typograf {
 
     fn apply_rule(&self, text: &mut String, ctx: &mut Context<'_>, rule: &Rule) {
         match (ctx.live, rule.live) {
-            (true, Live::NotLive) | (false, Live::OnlyLive) => return,
+            (true, Live::Off) | (false, Live::On) => return,
             _ => {}
         }
 

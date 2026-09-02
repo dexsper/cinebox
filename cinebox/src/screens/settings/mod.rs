@@ -17,8 +17,9 @@ use crate::widgets::scroll;
 
 use catalog::{CategoryId, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
-    category_row, clear_cache_row, drawer_title, error_line, multiselect_chip_row, nav_header,
-    probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row, toggle_row,
+    Labeled, category_row, clear_cache_row, drawer_title, error_line, multiselect_chip_row,
+    nav_header, probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row,
+    toggle_row,
 };
 use speed::SpeedMeter;
 
@@ -256,9 +257,7 @@ fn paint_select(
         SelectId::Language => select_row_with(
             ui,
             theme,
-            id,
-            label,
-            hint,
+            Labeled { id, label, hint },
             &mut svc.settings.general.language,
             UiLanguage::ALL,
             |lang| ui_lang_label(lang).to_owned(),
@@ -297,9 +296,7 @@ fn paint_multiselect(
         MultiSelectId::Quality => multiselect_chip_row(
             ui,
             theme,
-            id,
-            label,
-            hint,
+            Labeled { id, label, hint },
             &mut svc.settings.parser.default_quality,
             QualityBand::ALL,
             |band| band.label().to_owned(),
