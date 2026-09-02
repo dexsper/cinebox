@@ -371,7 +371,9 @@ impl Msg {
             Self::HomeTitle => "Главная",
             Self::SettingsTitle => "Настройки",
             Self::SettingsPath => "Файл настроек",
-            Self::SettingsLoadError => "Не удалось загрузить настройки; используются значения по умолчанию.",
+            Self::SettingsLoadError => {
+                "Не удалось загрузить настройки; используются значения по умолчанию."
+            }
             Self::SettingsApiKeySet => "задан",
             Self::SettingsApiKeyMissing => "не задан",
             Self::ClearCache => "Очистить кэш",
@@ -502,8 +504,8 @@ impl Msg {
             Self::Fullscreen => "Во весь экран",
             Self::ExitFullscreen => "Выйти из полноэкранного режима",
             Self::HomeRecentlyWatched => "Недавно просмотренные",
-            Self::HomeNowPlaying => "Сейчас в кино",
-            Self::HomeTrendingDay => "В тренде сегодня",
+            Self::HomeNowPlaying => "Сейчас смотрят",
+            Self::HomeTrendingDay => "Сегодня в тренде",
             Self::HomeTrendingWeek => "В тренде за неделю",
             Self::HomePopularMovies => "Популярные фильмы",
             Self::HomePopularTv => "Популярные сериалы",
