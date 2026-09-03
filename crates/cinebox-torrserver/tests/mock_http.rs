@@ -54,7 +54,7 @@ async fn list_parses_rows_and_skips_hashless() -> Result<(), Error> {
         .mock_async(|when, then| {
             when.method(POST)
                 .path("/torrents")
-                .json_body_partial(r#"{ "action": "list" }"#);
+                .json_body_includes(r#"{ "action": "list" }"#);
             then.status(200).json_body_obj(&serde_json::json!([
                 { "hash": "aa", "title": "Kept" },
                 { "title": "No hash" },
@@ -80,7 +80,8 @@ async fn add_sends_basic_auth_and_parses_status() -> Result<(), Error> {
             when.method(POST)
                 .path("/torrents")
                 .header("authorization", "Basic dXNlcjpwYXNz")
-                .json_body_partial(r#"{ "action": "add", "link": "magnet:?xt=urn:btih:aa" }"#);
+                .json_body_includes(r#"{ "action": "add", "link": "magnet:?xt=urn:btih:aa" }"#);
+
             then.status(200).json_body_obj(&serde_json::json!({
                 "hash": "aa",
                 "stat": 2,

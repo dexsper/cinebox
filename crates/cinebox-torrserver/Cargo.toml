@@ -11,6 +11,7 @@ description = "TorrServer HTTP client (echo, torrents, stream, viewed)"
 
 [dependencies]
 cinebox-core.workspace = true
+cinebox-net.workspace = true
 base64 = "0.23"
 futures-util.workspace = true
 reqwest.workspace = true

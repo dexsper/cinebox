@@ -1,11 +1,12 @@
 //! Home-row HTTP. Catalog endpoints.
 
 use cinebox_core::{CatalogItem, HomeCatalog, HomeRow, HomeRowId, MediaKind};
+use cinebox_net::NetConfig;
 use futures_util::future::join_all;
 use serde::Deserialize;
 
 use crate::catalog_map::{CatalogListItem, catalog_items_from};
-use crate::{Error, http_client, send_json};
+use crate::{Error, send_json};
 
 const API_BASE: &str = crate::API_BASE;
 pub const MAX_ROW_ITEMS: usize = 20;
@@ -68,7 +69,7 @@ fn page_bounds(
 }
 
 async fn fetch_page(
-    client: reqwest::Client,
+    net: NetConfig,
     api_key: String,
     language: Option<String>,
     id: HomeRowId,
@@ -85,16 +86,20 @@ async fn fetch_page(
     let url = format!("{API_BASE}/{path}");
     let page = page.max(1);
     let page_s = page.to_string();
-    let mut request = client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(20))
-        .query(&[("api_key", api_key.as_str()), ("page", page_s.as_str())]);
 
-    if let Some(language) = language.as_deref().filter(|s| !s.is_empty()) {
-        request = request.query(&[("language", language)]);
-    }
+    let parsed: ListResponse = send_json(&net, |client| {
+        let mut request = client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(20))
+            .query(&[("api_key", api_key.as_str()), ("page", page_s.as_str())]);
 
-    let parsed: ListResponse = send_json(request).await?;
+        if let Some(language) = language.as_deref().filter(|s| !s.is_empty()) {
+            request = request.query(&[("language", language)]);
+        }
+
+        request
+    })
+    .await?;
     let raw = parsed.results.unwrap_or_default();
     let items = catalog_items_from(raw, default_kind(id), MAX_ROW_ITEMS);
     let (page, total_pages) = page_bounds(page, parsed.page, parsed.total_pages, items.len());
@@ -107,12 +112,12 @@ async fn fetch_page(
 }
 
 async fn fetch_row(
-    client: reqwest::Client,
+    net: NetConfig,
     api_key: String,
     language: Option<String>,
     id: HomeRowId,
 ) -> HomeRow {
-    match fetch_page(client, api_key, language, id, 1).await {
+    match fetch_page(net, api_key, language, id, 1).await {
         Ok(page) => HomeRow {
             id,
             items: page.items,
@@ -129,21 +134,21 @@ async fn fetch_row(
 pub async fn fetch_home(
     api_key: &str,
     language: Option<&str>,
-    use_system_proxy: bool,
+    net: &NetConfig,
 ) -> Result<HomeCatalog, Error> {
     let api_key = crate::prepare_api_key(api_key)?;
-    let client = http_client(use_system_proxy)?;
     let language = language.map(str::to_owned);
     let futs = HomeRowId::REMOTE.into_iter().map(|id| {
-        let client = client.clone();
+        let net = net.clone();
         let key = api_key.to_owned();
         let language = language.clone();
-        async move { fetch_row(client, key, language, id).await }
+        async move { fetch_row(net, key, language, id).await }
     });
-    
+
     let mut rows = Vec::with_capacity(HomeRowId::ALL.len());
     rows.push(HomeRow::empty(HomeRowId::RecentlyWatched));
     rows.extend(join_all(futs).await);
+
     Ok(HomeCatalog { rows })
 }
 
@@ -152,7 +157,7 @@ pub async fn fetch_catalog_page(
     id: HomeRowId,
     page: u32,
     language: Option<&str>,
-    use_system_proxy: bool,
+    net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
     if path_for(id).is_none() {
         return Ok(CatalogPage {
@@ -163,10 +168,9 @@ pub async fn fetch_catalog_page(
     }
 
     let api_key = crate::prepare_api_key(api_key)?;
-    let client = http_client(use_system_proxy)?;
     let language = language.map(str::to_owned);
 
-    fetch_page(client, api_key.to_owned(), language, id, page).await
+    fetch_page(net.clone(), api_key.to_owned(), language, id, page).await
 }
 
 #[cfg(test)]

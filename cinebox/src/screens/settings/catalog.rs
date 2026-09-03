@@ -138,6 +138,19 @@ const GENERAL: &[Field] = &[
         get: |s| s.general.use_system_proxy,
         set: |s, v| s.general.use_system_proxy = v,
     },
+    Field::Toggle {
+        label: Msg::DnsBypass,
+        hint: Some(Msg::DnsBypassHint),
+        get: |s| s.general.dns_bypass,
+        set: |s, v| s.general.dns_bypass = v,
+    },
+    Field::Text {
+        label: Msg::CustomDohUrl,
+        hint: Some(Msg::CustomDohUrlHint),
+        placeholder: "https://dns.example.com/dns-query",
+        get: |s| s.general.custom_doh_url.clone(),
+        set: |s, v| s.general.custom_doh_url = v,
+    },
 ];
 
 const PLAYER: &[Field] = &[

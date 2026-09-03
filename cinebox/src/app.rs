@@ -21,7 +21,7 @@ struct TmdbView {
     api_key: String,
     language: UiLanguage,
     poster_size: PosterSize,
-    use_system_proxy: bool,
+    net: cinebox_net::NetConfig,
 }
 
 enum TmdbChange {
@@ -37,16 +37,16 @@ impl TmdbView {
             api_key: settings.tmdb.api_key.expose().to_owned(),
             language: settings.general.language,
             poster_size: settings.tmdb.poster_size,
-            use_system_proxy: settings.general.use_system_proxy,
+            net: crate::jobs::net_config(settings),
         }
     }
 
     fn change_from(&self, next: &Self) -> TmdbChange {
         let key_changed = next.api_key != self.api_key;
         let language_changed = next.language != self.language;
-        let proxy_changed = next.use_system_proxy != self.use_system_proxy;
+        let net_changed = next.net != self.net;
 
-        if key_changed || proxy_changed {
+        if key_changed || net_changed {
             return TmdbChange::Catalog;
         }
 
@@ -171,7 +171,9 @@ impl App {
         last.api_key == settings.tmdb.api_key.expose()
             && last.language == settings.general.language
             && last.poster_size == settings.tmdb.poster_size
-            && last.use_system_proxy == settings.general.use_system_proxy
+            && last.net.use_system_proxy == settings.general.use_system_proxy
+            && last.net.dns_bypass == settings.general.dns_bypass
+            && last.net.custom_doh_url == settings.general.custom_doh_url
     }
 
     fn sync_tmdb(&mut self) {
@@ -262,8 +264,8 @@ impl eframe::App for App {
             cinebox_core::i18n::set_ui_language(language);
         }
 
-        let proxy = self.services.settings.general.use_system_proxy;
-        self.services.images.poll(ctx, proxy);
+        let net = crate::jobs::net_config(&self.services.settings);
+        self.services.images.poll(ctx, &net);
 
         self.sync_tmdb();
         if self.services.take_home_refresh() {

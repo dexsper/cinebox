@@ -10,6 +10,7 @@ use cinebox_core::{
     TmdbId, format_release_date, language_key, media_cache_id, normalize_tmdb_path,
     person_cache_id, season_cache_id, tmdb_image_url,
 };
+use cinebox_net::NetConfig;
 use cinebox_parse::{
     Listing, SortMode, TorrentHit, file_display_name, parse_file_episode, sort_hits,
 };
@@ -30,12 +31,21 @@ pub enum JobError {
     TorrServer(#[from] cinebox_torrserver::Error),
 }
 
+/// Network snapshot shared by TMDB and parser jobs (the setting is global).
+pub fn net_config(settings: &Settings) -> NetConfig {
+    NetConfig {
+        use_system_proxy: settings.general.use_system_proxy,
+        dns_bypass: settings.general.dns_bypass,
+        custom_doh_url: settings.general.custom_doh_url.clone(),
+    }
+}
+
 /// Narrow snapshot of the TMDB settings a job needs.
 #[derive(Clone)]
 pub struct TmdbCtx {
     pub api_key: String,
     pub language: &'static str,
-    pub use_system_proxy: bool,
+    pub net: NetConfig,
 }
 
 impl From<&Settings> for TmdbCtx {
@@ -43,7 +53,7 @@ impl From<&Settings> for TmdbCtx {
         Self {
             api_key: settings.tmdb.api_key.expose().to_owned(),
             language: settings.general.language.tmdb_code(),
-            use_system_proxy: settings.general.use_system_proxy,
+            net: net_config(settings),
         }
     }
 }
@@ -54,7 +64,7 @@ pub struct ParserCtx {
     pub kind: ParserKind,
     pub url: String,
     pub api_key: String,
-    pub use_system_proxy: bool,
+    pub net: NetConfig,
 }
 
 impl From<&Settings> for ParserCtx {
@@ -63,7 +73,7 @@ impl From<&Settings> for ParserCtx {
             kind: settings.parser.kind,
             url: settings.parser.url.clone(),
             api_key: settings.parser.api_key.expose().to_owned(),
-            use_system_proxy: settings.general.use_system_proxy,
+            net: net_config(settings),
         }
     }
 }
@@ -113,22 +123,16 @@ pub async fn load_catalog_page(
     id: HomeRowId,
     page: u32,
 ) -> Result<cinebox_tmdb::CatalogPage, JobError> {
-    let page = cinebox_tmdb::fetch_catalog_page(
-        &tmdb.api_key,
-        id,
-        page,
-        Some(tmdb.language),
-        tmdb.use_system_proxy,
-    )
-    .await?;
+    let page =
+        cinebox_tmdb::fetch_catalog_page(&tmdb.api_key, id, page, Some(tmdb.language), &tmdb.net)
+            .await?;
 
     Ok(page)
 }
 
 pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
-    let proxy = tmdb.use_system_proxy;
     let language = Some(tmdb.language);
-    let fetched = cinebox_tmdb::fetch_home(&tmdb.api_key, language, proxy).await?;
+    let fetched = cinebox_tmdb::fetch_home(&tmdb.api_key, language, &tmdb.net).await?;
 
     let Some(db) = db else {
         return Ok(fetched);
@@ -181,14 +185,8 @@ pub async fn load_media(
     id: TmdbId,
     db: Option<Arc<Store>>,
 ) -> Result<Box<MediaDetails>, JobError> {
-    let mut details = cinebox_tmdb::fetch_media(
-        &tmdb.api_key,
-        kind,
-        id,
-        Some(tmdb.language),
-        tmdb.use_system_proxy,
-    )
-    .await?;
+    let mut details =
+        cinebox_tmdb::fetch_media(&tmdb.api_key, kind, id, Some(tmdb.language), &tmdb.net).await?;
 
     if let Some(db) = db {
         let lang = language_key(Some(tmdb.language));
@@ -212,13 +210,8 @@ pub async fn load_person(
     id: TmdbId,
     db: Option<Arc<Store>>,
 ) -> Result<Box<PersonDetails>, JobError> {
-    let mut details = cinebox_tmdb::fetch_person(
-        &tmdb.api_key,
-        id,
-        Some(tmdb.language),
-        tmdb.use_system_proxy,
-    )
-    .await?;
+    let mut details =
+        cinebox_tmdb::fetch_person(&tmdb.api_key, id, Some(tmdb.language), &tmdb.net).await?;
 
     if let Some(db) = db {
         let lang = language_key(Some(tmdb.language));
@@ -260,7 +253,7 @@ pub async fn load_torrents(
         &parser.url,
         &parser.api_key,
         &query,
-        parser.use_system_proxy,
+        &parser.net,
     )
     .await?;
 
@@ -381,21 +374,16 @@ async fn season_catalog(
         return out;
     }
 
-    let fetched = match cinebox_tmdb::fetch_season_episodes(
-        &tmdb.api_key,
-        id,
-        &need,
-        language,
-        tmdb.use_system_proxy,
-    )
-    .await
-    {
-        Ok(episodes) => episodes,
-        Err(error) => {
-            warn!(%error, "season episode catalog failed");
-            Vec::new()
-        }
-    };
+    let fetched =
+        match cinebox_tmdb::fetch_season_episodes(&tmdb.api_key, id, &need, language, &tmdb.net)
+            .await
+        {
+            Ok(episodes) => episodes,
+            Err(error) => {
+                warn!(%error, "season episode catalog failed");
+                Vec::new()
+            }
+        };
 
     if let Some(db) = db {
         for season in need {
@@ -575,13 +563,8 @@ pub async fn ping_torrserver(torr: TorrCtx) -> Result<String, JobError> {
 }
 
 pub async fn ping_parser(parser: ParserCtx) -> Result<String, JobError> {
-    let version = cinebox_indexer::ping(
-        parser.kind,
-        &parser.url,
-        &parser.api_key,
-        parser.use_system_proxy,
-    )
-    .await?;
+    let version =
+        cinebox_indexer::ping(parser.kind, &parser.url, &parser.api_key, &parser.net).await?;
 
     Ok(version)
 }
@@ -599,7 +582,7 @@ pub async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, 
         }
     }
 
-    let result = cinebox_tmdb::check_api_key(&tmdb.api_key, tmdb.use_system_proxy).await;
+    let result = cinebox_tmdb::check_api_key(&tmdb.api_key, &tmdb.net).await;
 
     if let Ok(msg) = &result
         && let Some(db) = db

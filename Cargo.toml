@@ -4,6 +4,7 @@ members = [
     "cinebox",
     "crates/cinebox-core",
     "crates/cinebox-typograf",
+    "crates/cinebox-net",
     "crates/cinebox-tmdb",
     "crates/cinebox-parse",
     "crates/cinebox-indexer",
@@ -23,6 +24,7 @@ homepage = "https://github.com/dexsper/cinebox"
 [workspace.dependencies]
 cinebox-core = { path = "crates/cinebox-core" }
 cinebox-typograf = { path = "crates/cinebox-typograf" }
+cinebox-net = { path = "crates/cinebox-net" }
 cinebox-tmdb = { path = "crates/cinebox-tmdb" }
 cinebox-parse = { path = "crates/cinebox-parse" }
 cinebox-indexer = { path = "crates/cinebox-indexer" }
@@ -53,7 +55,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "que
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 regex = "1"
 aho-corasick = "1"
-httpmock = "0.7"
+httpmock = "0.8.3"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

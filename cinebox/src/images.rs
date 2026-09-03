@@ -11,6 +11,7 @@ use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
 use cinebox_core::{CatalogItem, MediaKind, Store, TmdbId, image_size_key, parse_tmdb_image_url};
+use cinebox_net::NetConfig;
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
 use tracing::warn;
 
@@ -49,7 +50,7 @@ pub struct ImageCache {
     epoch: Cell<u64>,
     pending: RefCell<HashSet<String>>,
     failed: HashSet<String>,
-    proxy: Cell<bool>,
+    net: NetConfig,
     tx: Sender<(String, Result<ColorImage, String>)>,
     rx: Receiver<(String, Result<ColorImage, String>)>,
     db: Option<Arc<Store>>,
@@ -70,15 +71,18 @@ impl ImageCache {
             epoch: Cell::new(0),
             pending: RefCell::new(HashSet::new()),
             failed: HashSet::new(),
-            proxy: Cell::new(false),
+            net: NetConfig::direct(),
             tx,
             rx,
             db,
         }
     }
 
-    pub fn poll(&mut self, ctx: &Context, use_system_proxy: bool) {
-        self.proxy.set(use_system_proxy);
+    pub fn poll(&mut self, ctx: &Context, net: &NetConfig) {
+        if self.net != *net {
+            self.net = net.clone();
+        }
+
         let epoch = self.epoch.get();
         while let Ok((url, result)) = self.rx.try_recv() {
             self.pending.borrow_mut().remove(&url);
@@ -161,12 +165,12 @@ impl ImageCache {
         }
 
         let url = url.to_owned();
-        let proxy = self.proxy.get();
+        let net = self.net.clone();
         let tx = self.tx.clone();
         let db = self.db.clone();
 
         egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-            let result = load_image(url.clone(), soften, proxy, db).await;
+            let result = load_image(url.clone(), soften, net, db).await;
             let _ = tx.send((url, result));
             request_repaint();
         });
@@ -282,7 +286,7 @@ fn request_repaint() {
 async fn load_image(
     url: String,
     soften: bool,
-    use_system_proxy: bool,
+    net: NetConfig,
     db: Option<Arc<Store>>,
 ) -> Result<ColorImage, String> {
     if let Some(db) = &db
@@ -294,16 +298,16 @@ async fn load_image(
         }
     }
 
-    download(url, soften, use_system_proxy, db).await
+    download(url, soften, net, db).await
 }
 
 async fn download(
     url: String,
     soften: bool,
-    use_system_proxy: bool,
+    net: NetConfig,
     db: Option<Arc<Store>>,
 ) -> Result<ColorImage, String> {
-    let bytes = cinebox_tmdb::download_image(&url, use_system_proxy)
+    let bytes = cinebox_tmdb::download_image(&url, &net)
         .await
         .map_err(|error| error.to_string())?;
 

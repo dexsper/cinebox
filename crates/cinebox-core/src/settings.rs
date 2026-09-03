@@ -253,6 +253,8 @@ pub struct GeneralSettings {
     /// WinINet / env HTTP(S) proxy for TMDB and parser. TorrServer always direct.
     #[serde(default = "default_system_proxy")]
     pub use_system_proxy: bool,
+    pub dns_bypass: bool,
+    pub custom_doh_url: String,
 }
 
 impl Default for GeneralSettings {
@@ -260,6 +262,8 @@ impl Default for GeneralSettings {
         Self {
             language: UiLanguage::default(),
             use_system_proxy: true,
+            dns_bypass: true,
+            custom_doh_url: String::new(),
         }
     }
 }

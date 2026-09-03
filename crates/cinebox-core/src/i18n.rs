@@ -111,6 +111,10 @@ pub enum Msg {
     SettingsTmdbHint,
     UseSystemProxy,
     UseSystemProxyHint,
+    DnsBypass,
+    DnsBypassHint,
+    CustomDohUrl,
+    CustomDohUrlHint,
     Loudnorm,
     LoudnormHint,
     PlayNextAutomatically,
@@ -285,6 +289,15 @@ impl Msg {
             Self::UseSystemProxyHint => {
                 "Applies to TMDB and the indexer. TorrServer always connects directly."
             }
+            Self::DnsBypass => "DNS blocking bypass",
+            Self::DnsBypassHint => {
+                "Resolves TMDB and the indexer via DNS-over-HTTPS (Quad9, DNS.SB, AliDNS) \
+                 when the usual path — including the system proxy — cannot reach them."
+            }
+            Self::CustomDohUrl => "Custom DoH server",
+            Self::CustomDohUrlHint => {
+                "Optional DNS-over-HTTPS URL tried before the built-in providers."
+            }
             Self::Loudnorm => "Audio normalization",
             Self::LoudnormHint => "Normalize volume across files.",
             Self::PlayNextAutomatically => "Play next file automatically",
@@ -453,6 +466,15 @@ impl Msg {
             Self::UseSystemProxy => "Системный прокси",
             Self::UseSystemProxyHint => {
                 "Для TMDB и индексатора. TorrServer всегда подключается напрямую."
+            }
+            Self::DnsBypass => "Обход DNS-блокировки",
+            Self::DnsBypassHint => {
+                "Резолвит TMDB и индексатор через DNS-over-HTTPS (Quad9, DNS.SB, AliDNS), \
+                 когда обычный путь — включая системный прокси — не может достучаться."
+            }
+            Self::CustomDohUrl => "Свой DoH-сервер",
+            Self::CustomDohUrlHint => {
+                "Необязательный DNS-over-HTTPS URL, пробуется раньше встроенных провайдеров."
             }
             Self::Loudnorm => "Нормализация звука",
             Self::LoudnormHint => "Выравнивает громкость между файлами.",

@@ -1,9 +1,10 @@
 //! TMDB `GET /tv/{id}/season/{n}` for episode names and stills.
 
 use cinebox_core::TmdbId;
+use cinebox_net::NetConfig;
 use serde::{Deserialize, Serialize};
 
-use crate::{API_BASE, Error, http_client, prepare_api_key, send_json};
+use crate::{API_BASE, Error, prepare_api_key, send_json};
 
 /// One episode from a season payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -49,10 +50,9 @@ pub async fn fetch_season_episodes(
     tv_id: TmdbId,
     seasons: &[u32],
     language: Option<&str>,
-    use_system_proxy: bool,
+    net: &NetConfig,
 ) -> Result<Vec<SeasonEpisode>, Error> {
     let api_key = prepare_api_key(api_key)?;
-    let client = http_client(use_system_proxy)?;
 
     let mut wanted: Vec<u32> = seasons.iter().copied().filter(|s| *s > 0).collect();
     wanted.sort_unstable();
@@ -60,7 +60,7 @@ pub async fn fetch_season_episodes(
 
     let fetches = wanted
         .iter()
-        .map(|season| fetch_one_season(&client, api_key, tv_id, *season, language));
+        .map(|season| fetch_one_season(net, api_key, tv_id, *season, language));
 
     let mut out = Vec::new();
     let results = futures_util::future::join_all(fetches).await;
@@ -76,23 +76,26 @@ pub async fn fetch_season_episodes(
 }
 
 async fn fetch_one_season(
-    client: &reqwest::Client,
+    net: &NetConfig,
     api_key: &str,
     tv_id: TmdbId,
     season: u32,
     language: Option<&str>,
 ) -> Result<Vec<SeasonEpisode>, Error> {
     let url = format!("{API_BASE}/tv/{}/season/{season}", tv_id.get());
-    let mut request = client
-        .get(&url)
-        .timeout(std::time::Duration::from_secs(25))
-        .query(&[("api_key", api_key)]);
+    let body: SeasonBody = send_json(net, |client| {
+        let mut request = client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(25))
+            .query(&[("api_key", api_key)]);
 
-    if let Some(language) = language.filter(|s| !s.is_empty()) {
-        request = request.query(&[("language", language)]);
-    }
+        if let Some(language) = language.filter(|s| !s.is_empty()) {
+            request = request.query(&[("language", language)]);
+        }
 
-    let body: SeasonBody = send_json(request).await?;
+        request
+    })
+    .await?;
 
     Ok(map_season(body, season))
 }

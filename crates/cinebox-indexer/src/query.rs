@@ -25,10 +25,12 @@ pub(crate) fn sanitize_query(raw: &str) -> String {
             }
             other => other,
         };
+
         if !mapped.is_whitespace() {
             out.push(mapped);
             continue;
         }
+
         if out.ends_with(' ') {
             continue;
         }
@@ -42,6 +44,7 @@ pub(crate) fn search_text(raw: &str) -> String {
     if cleaned.is_empty() {
         return raw.trim().to_owned();
     }
+
     cleaned
 }
 

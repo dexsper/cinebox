@@ -1,30 +1,19 @@
 //! Shared HTTP client: no proxy, optional Basic auth.
 
-use std::sync::OnceLock;
 use std::time::Duration;
 
+use cinebox_net::NetConfig;
 use reqwest::StatusCode;
 use serde::de::DeserializeOwned;
 
 use super::error::Error;
 
-static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
-
-/// Shared long-lived client. Set request timeouts with
-/// [`reqwest::RequestBuilder::timeout`].
+/// Shared long-lived client from the common factory. TorrServer is local, so
+/// the config is forced direct: no WinINet / env proxies and no DoH. Set
+/// request timeouts with [`reqwest::RequestBuilder::timeout`].
 pub(crate) fn http_client() -> Result<reqwest::Client, Error> {
-    if let Some(client) = CLIENT.get() {
-        return Ok(client.clone());
-    }
-
-    // Local TorrServer must not inherit WinINet / env proxies.
-    let client = reqwest::Client::builder()
-        .no_proxy()
-        .connect_timeout(Duration::from_secs(5))
-        .build()
-        .map_err(Error::Client)?;
-
-    Ok(CLIENT.get_or_init(|| client).clone())
+    cinebox_net::plain_client(&NetConfig::direct(), Duration::from_secs(5), None)
+        .map_err(Error::Client)
 }
 
 pub(crate) fn apply_basic_auth(

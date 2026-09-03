@@ -11,6 +11,7 @@ description = "Jackett JSON and Prowlarr REST client"
 
 [dependencies]
 cinebox-core.workspace = true
+cinebox-net.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

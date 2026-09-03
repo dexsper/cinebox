@@ -1,5 +1,5 @@
 [package]
-name = "cinebox-tmdb"
+name = "cinebox-net"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -7,19 +7,16 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "TMDB facade (async reqwest; tmdb_client 1.8.0 is blocking-only)"
+description = "Unified outgoing-HTTP layer: proxy toggle, DoH bypass resolver, resilient send"
 
 [dependencies]
-cinebox-core.workspace = true
-cinebox-net.workspace = true
-futures-util.workspace = true
+hickory-resolver = { version = "0.26.2", features = ["https-aws-lc-rs", "webpki-roots", "rustls-platform-verifier"] }
 reqwest.workspace = true
-serde.workspace = true
-serde_json.workspace = true
-thiserror.workspace = true
+tokio = { version = "1", features = ["net", "time"] }
 tracing.workspace = true
 
 [dev-dependencies]
+httpmock.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
 
 [lints]
