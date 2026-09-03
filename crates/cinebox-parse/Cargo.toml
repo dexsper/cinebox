@@ -12,6 +12,7 @@ description = "Release-title parser, voices, and torrent filters"
 [dependencies]
 cinebox-core.workspace = true
 regex.workspace = true
+aho-corasick.workspace = true
 
 [lints]
 workspace = true

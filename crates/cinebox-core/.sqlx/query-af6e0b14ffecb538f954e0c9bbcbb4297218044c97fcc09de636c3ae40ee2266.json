@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM tmdb_image\n            WHERE rowid IN (\n                SELECT rowid FROM (\n                    SELECT rowid,\n                           LENGTH(bytes) AS len,\n                           SUM(LENGTH(bytes)) OVER (\n                               ORDER BY accessed_at ASC, rowid ASC\n                           ) AS running\n                    FROM tmdb_image\n                )\n                WHERE running - len < ?\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "af6e0b14ffecb538f954e0c9bbcbb4297218044c97fcc09de636c3ae40ee2266"
+}

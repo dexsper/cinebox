@@ -1,42 +1,23 @@
 use cinebox_core::i18n::Msg;
-use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, UiLanguage, language_key};
+use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, language_key};
 use egui::{FontId, RichText, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
-use egui_async::Bind;
 use egui_material_icons::icons::ICON_CHEVRON_RIGHT;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::{Services, db_block_on};
+use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;
 use crate::widgets::{self, poster, scroll};
 
+#[derive(Default)]
 pub struct HomeScreen {
-    catalog: Bind<HomeCatalog, String>,
-    disk: Option<HomeCatalog>,
-    disk_fresh: bool,
-    lang: Option<UiLanguage>,
-    force_refresh: bool,
-}
-
-impl Default for HomeScreen {
-    fn default() -> Self {
-        Self {
-            catalog: Bind::new(true),
-            disk: None,
-            disk_fresh: false,
-            lang: None,
-            force_refresh: false,
-        }
-    }
+    cache: super::swr::Cached<HomeCatalog, (HomeCatalog, bool)>,
 }
 
 impl HomeScreen {
     pub fn refresh(&mut self) {
-        self.catalog.clear();
-        self.disk = None;
-        self.disk_fresh = false;
-        self.force_refresh = true;
+        self.cache.invalidate();
     }
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
@@ -54,56 +35,40 @@ impl HomeScreen {
             return None;
         }
 
-        let lang = svc.settings.general.language;
-        if self.lang != Some(lang) {
-            let switched = self.lang.is_some();
-            self.lang = Some(lang);
-            if switched {
-                self.catalog = Bind::new(true);
-                self.disk = None;
-                self.disk_fresh = false;
-                self.force_refresh = true;
-            }
+        self.cache.sync_lang(svc.settings.general.language);
+
+        let lang_key = language_key(Some(svc.settings.general.language.tmdb_code())).to_owned();
+        let db = svc.db.clone();
+        let hydrated = self.cache.hydrate(async move {
+            let db = db?;
+
+            db.home_catalog(&lang_key).await.ok().flatten()
+        });
+
+        if !hydrated {
+            widgets::page_spinner(ui, theme);
+            return None;
         }
 
-        if self.disk.is_none() {
-            let lang_key = language_key(Some(svc.settings.general.language.tmdb_code()));
-            if let Some((catalog, fresh)) = svc
-                .db
-                .as_ref()
-                .and_then(|db| db_block_on(db.home_catalog(lang_key)).ok().flatten())
-            {
-                self.disk = Some(catalog);
-                self.disk_fresh = fresh;
-            }
-        }
-
-        let disk_catalog = self.disk.as_ref();
-        let skip_network = !self.force_refresh && self.disk_fresh;
+        let disk_fresh = self.cache.disk.as_ref().is_some_and(|(_, fresh)| *fresh);
         let settings = svc.settings.clone();
         let db = svc.db.clone();
-        let outcome = super::swr::resolve(
-            &mut self.catalog,
-            disk_catalog.is_some(),
-            skip_network,
-            move || jobs::load_home(settings, db),
-        );
-        if outcome.from_network {
-            self.force_refresh = false;
-        }
+        let outcome = self
+            .cache
+            .resolve(disk_fresh, move || jobs::load_home(settings, db));
 
         let mut retry = false;
         let action = match outcome.view {
-            super::swr::Swr::Live => match self.catalog.read() {
+            super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(catalog)) => catalog_view(ui, catalog, svc, theme),
                 _ => None,
             },
-            super::swr::Swr::Disk => match disk_catalog {
-                Some(catalog) => catalog_view(ui, catalog, svc, theme),
+            super::swr::Swr::Disk => match self.cache.disk.as_ref() {
+                Some((catalog, _)) => catalog_view(ui, catalog, svc, theme),
                 None => None,
             },
             super::swr::Swr::Failed => {
-                let error = match self.catalog.read() {
+                let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.clone(),
                     _ => Msg::Failed.t().to_owned(),
                 };

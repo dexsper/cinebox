@@ -1,5 +1,7 @@
+use std::borrow::Cow;
 use std::cell::RefCell;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use crate::data;
 use crate::entities;
@@ -132,7 +134,9 @@ impl Typograf {
             self.run_queue(&mut piece, &mut ctx, Queue::HideSafeTagsUrl);
             self.run_queue(&mut piece, &mut ctx, Queue::HideSafeTags);
 
-            piece = entities::to_utf(&piece);
+            if let Cow::Owned(decoded) = entities::to_utf(&piece) {
+                piece = decoded;
+            }
 
             if ctx.live {
                 piece = piece.replace('\u{00A0}', " ");
@@ -201,7 +205,9 @@ impl Typograf {
                 continue;
             }
 
-            out = (rule.handler)(self, &out, &ctx);
+            if let Cow::Owned(next) = (rule.handler)(self, &out, &ctx) {
+                out = next;
+            }
         }
 
         out
@@ -233,17 +239,7 @@ impl Typograf {
     }
 
     fn run_queue(&self, text: &mut String, ctx: &mut Context<'_>, queue: Queue) {
-        let mut batch: Vec<&Rule> = rules::all()
-            .iter()
-            .filter(|r| r.queue == queue)
-            .collect();
-
-        batch.sort_by(|a, b| a.index.cmp(&b.index).then(a.order.cmp(&b.order)));
-
-        let inners: Vec<&Rule> = batch.iter().copied().filter(|r| r.inner).collect();
-        let mains: Vec<&Rule> = batch.iter().copied().filter(|r| !r.inner).collect();
-
-        for rule in inners.into_iter().chain(mains) {
+        for rule in queue_rules(queue) {
             self.apply_rule(text, ctx, rule);
         }
     }
@@ -268,7 +264,11 @@ impl Typograf {
             return;
         }
 
-        *text = (rule.handler)(self, text, ctx);
+        let out = (rule.handler)(self, text.as_str(), ctx);
+
+        if let Cow::Owned(out) = out {
+            *text = out;
+        }
     }
 
     pub fn execute_nested(&self, text: &str, ctx: &Context<'_>) -> String {
@@ -285,6 +285,31 @@ impl Typograf {
 
         nested.execute(text)
     }
+}
+
+static QUEUE_RULES: LazyLock<Vec<(Queue, Vec<&'static Rule>)>> = LazyLock::new(|| {
+    let queues = rules::QUEUES.iter().map(|&queue| {
+        let mut batch: Vec<&'static Rule> = rules::all().iter().filter(|r| r.queue == queue).collect();
+
+        batch.sort_by(|a, b| {
+            b.inner
+                .cmp(&a.inner)
+                .then(a.index.cmp(&b.index))
+                .then(a.order.cmp(&b.order))
+        });
+
+        (queue, batch)
+    });
+
+    queues.collect()
+});
+
+fn queue_rules(queue: Queue) -> &'static [&'static Rule] {
+    QUEUE_RULES
+        .iter()
+        .find(|(q, _)| *q == queue)
+        .map(|(_, batch)| batch.as_slice())
+        .unwrap_or(&[])
 }
 
 fn split_parts(text: &str, split: bool) -> Vec<String> {

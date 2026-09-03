@@ -38,11 +38,12 @@ struct EpisodeBody {
     air_date: Option<String>,
 }
 
-/// Fetch episode stills/names for the given season numbers.
+/// Fetch episode stills/names for the given season numbers, in parallel.
 ///
 /// # Errors
 ///
-/// Empty key or HTTP/JSON failures. Missing seasons are skipped.
+/// Empty key. A failed season is logged and skipped instead of failing the
+/// whole batch.
 pub async fn fetch_season_episodes(
     api_key: &str,
     tv_id: TmdbId,
@@ -51,40 +52,65 @@ pub async fn fetch_season_episodes(
     use_system_proxy: bool,
 ) -> Result<Vec<SeasonEpisode>, Error> {
     let api_key = prepare_api_key(api_key)?;
-    let client = http_client(std::time::Duration::from_secs(25), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
+
+    let mut wanted: Vec<u32> = seasons.iter().copied().filter(|s| *s > 0).collect();
+    wanted.sort_unstable();
+    wanted.dedup();
+
+    let fetches = wanted
+        .iter()
+        .map(|season| fetch_one_season(&client, api_key, tv_id, *season, language));
+
     let mut out = Vec::new();
-    let mut seen = Vec::new();
+    let results = futures_util::future::join_all(fetches).await;
 
-    for season in seasons {
-        if *season == 0 || seen.contains(season) {
-            continue;
-        }
-        seen.push(*season);
-        let url = format!("{API_BASE}/tv/{}/season/{season}", tv_id.get());
-        let mut request = client.get(&url).query(&[("api_key", api_key)]);
-        if let Some(language) = language.filter(|s| !s.is_empty()) {
-            request = request.query(&[("language", language)]);
-        }
-
-        let body: SeasonBody = match send_json(request).await {
-            Ok(body) => body,
-            Err(_) => continue,
-        };
-
-        let season_no = body.season_number.unwrap_or(*season);
-        for ep in body.episodes.unwrap_or_default() {
-            let Some(episode) = ep.episode_number.filter(|n| *n > 0) else {
-                continue;
-            };
-            out.push(SeasonEpisode {
-                season: season_no,
-                episode,
-                name: ep.name.unwrap_or_default(),
-                still_path: ep.still_path.filter(|p| !p.is_empty()),
-                runtime_minutes: ep.runtime.filter(|n| *n > 0),
-                air_date: ep.air_date.filter(|d| !d.is_empty()),
-            });
+    for (season, result) in wanted.iter().zip(results) {
+        match result {
+            Ok(episodes) => out.extend(episodes),
+            Err(error) => tracing::warn!(%error, season, "tmdb season fetch failed"),
         }
     }
+
+    Ok(out)
+}
+
+async fn fetch_one_season(
+    client: &reqwest::Client,
+    api_key: &str,
+    tv_id: TmdbId,
+    season: u32,
+    language: Option<&str>,
+) -> Result<Vec<SeasonEpisode>, Error> {
+    let url = format!("{API_BASE}/tv/{}/season/{season}", tv_id.get());
+    let mut request = client
+        .get(&url)
+        .timeout(std::time::Duration::from_secs(25))
+        .query(&[("api_key", api_key)]);
+
+    if let Some(language) = language.filter(|s| !s.is_empty()) {
+        request = request.query(&[("language", language)]);
+    }
+
+    let body: SeasonBody = send_json(request).await?;
+
+    let mut out = Vec::new();
+    let season_no = body.season_number.unwrap_or(season);
+
+    for ep in body.episodes.unwrap_or_default() {
+        let Some(episode) = ep.episode_number.filter(|n| *n > 0) else {
+            continue;
+        };
+
+        out.push(SeasonEpisode {
+            season: season_no,
+            episode,
+            name: ep.name.unwrap_or_default(),
+            still_path: ep.still_path.filter(|p| !p.is_empty()),
+            runtime_minutes: ep.runtime.filter(|n| *n > 0),
+            air_date: ep.air_date.filter(|d| !d.is_empty()),
+        });
+    }
+
     Ok(out)
 }

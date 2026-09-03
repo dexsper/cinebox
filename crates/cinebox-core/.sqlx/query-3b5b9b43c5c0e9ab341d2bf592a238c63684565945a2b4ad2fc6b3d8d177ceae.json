@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        INSERT OR REPLACE INTO watch_release (kind, id, hash, updated_at)\n        VALUES (?, ?, ?, ?)\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "3b5b9b43c5c0e9ab341d2bf592a238c63684565945a2b4ad2fc6b3d8d177ceae"
+}

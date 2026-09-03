@@ -261,7 +261,7 @@ pub fn matches_filter(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
         return true;
     }
 
-    let title = hit.title.to_lowercase();
+    let title = hit.title_lower.as_str();
     if !quality_ok(hit, filter) {
         return false;
     }
@@ -274,15 +274,15 @@ pub fn matches_filter(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
         return false;
     }
 
-    if !tri_ok(filter.subs, has_subs(&title)) {
+    if !tri_ok(filter.subs, has_subs(title)) {
         return false;
     }
 
-    if !voice_ok(hit, &filter.voice, &title) {
+    if !voice_ok(hit, &filter.voice, title) {
         return false;
     }
 
-    if !lang_ok(&title, &filter.lang) {
+    if !lang_ok(title, &filter.lang) {
         return false;
     }
 
@@ -290,7 +290,7 @@ pub fn matches_filter(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
         return false;
     }
 
-    year_ok(hit, filter, &title)
+    year_ok(hit, filter, title)
 }
 
 fn quality_ok(hit: &TorrentHit, filter: &TorrentFilter) -> bool {
@@ -467,13 +467,13 @@ pub fn voice_filter_options<'a>(
     let mut choices = VoiceFilter::KINDS.to_vec();
     let voices = hits.into_iter().flat_map(|hit| hit.voices.iter().copied());
     let studios = studios_in_catalog_order(voices);
-   
+
     choices.extend(studios.into_iter().map(VoiceFilter::Studio));
     for filter in selected {
         let VoiceFilter::Studio(name) = filter else {
             continue;
         };
-        
+
         if choices.contains(&VoiceFilter::Studio(name)) {
             continue;
         }
@@ -526,20 +526,22 @@ pub fn season_options(hits: &[TorrentHit]) -> Vec<u32> {
 /// Sort in place. Newest local play first, then other local, then TorrServer-started, then the mode.
 pub fn sort_hits(hits: &mut [TorrentHit], kind: MediaKind, mode: SortMode) {
     hits.sort_by(|a, b| {
-        let recency = a
-            .local_rank
-            .unwrap_or(u8::MAX)
-            .cmp(&b.local_rank.unwrap_or(u8::MAX));
+        let a_rank = a.local_rank.unwrap_or(u8::MAX);
+        let b_rank = b.local_rank.unwrap_or(u8::MAX);
 
-        b.local
-            .cmp(&a.local)
-            .then(recency)
+        a_rank
+            .cmp(&b_rank)
             .then(b.started.cmp(&a.started))
             .then_with(|| mode_order(kind, mode, a, b))
     });
 }
 
-fn mode_order(kind: MediaKind, mode: SortMode, a: &TorrentHit, b: &TorrentHit) -> std::cmp::Ordering {
+fn mode_order(
+    kind: MediaKind,
+    mode: SortMode,
+    a: &TorrentHit,
+    b: &TorrentHit,
+) -> std::cmp::Ordering {
     match mode {
         SortMode::Popular if kind == MediaKind::Tv => season_key(&b.info)
             .cmp(&season_key(&a.info))
@@ -649,23 +651,21 @@ mod tests {
     #[test]
     fn local_sorts_above_started() {
         let mut hits = vec![hit("started", 50, true), hit("local", 1, false)];
-        hits[1].local = true;
+        hits[1].local_rank = Some(0);
 
         sort_hits(&mut hits, MediaKind::Movie, SortMode::Seeders);
 
-        assert!(hits[0].local);
+        assert_eq!(hits[0].local_rank, Some(0));
         assert!(hits[1].started);
-        assert!(!hits[1].local);
+        assert_eq!(hits[1].local_rank, None);
     }
 
     #[test]
     fn newest_local_sorts_above_older_local() {
         let mut older = hit("older", 500, false);
-        older.local = true;
         older.local_rank = Some(1);
 
         let mut newest = hit("newest", 1, false);
-        newest.local = true;
         newest.local_rank = Some(0);
 
         let mut hits = vec![older, newest];

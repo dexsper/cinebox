@@ -7,9 +7,9 @@ use serde::Deserialize;
 use serde_json::Value;
 use tracing::{info, warn};
 
-use crate::Error;
 use crate::map::{Hit, hit_from_jackett, hit_from_prowlarr};
 use crate::query::{SearchQuery, search_text};
+use crate::{Error, http_client};
 
 #[derive(Debug, Deserialize)]
 struct JackettResults {
@@ -49,16 +49,7 @@ fn log_jackett_indexers(parsed: &JackettResults, query: &str) {
     }
 }
 
-fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
-    crate::apply_system_proxy(
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(45))
-            .connect_timeout(Duration::from_secs(8)),
-        use_system_proxy,
-    )
-    .build()
-    .map_err(Error::Client)
-}
+const SEARCH_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Search Jackett or Prowlarr. The API key is never included in error text.
 ///
@@ -125,7 +116,10 @@ async fn jackett_get(
     q: &str,
     mode: JackettMode,
 ) -> Result<JackettResults, Error> {
-    let mut request = client.get(url).query(&[("apikey", api_key), ("Query", q)]);
+    let mut request = client
+        .get(url)
+        .timeout(SEARCH_TIMEOUT)
+        .query(&[("apikey", api_key), ("Query", q)]);
     let year = query.year.map(|year| year.to_string());
     let genres = if query.genres.is_empty() {
         None
@@ -190,11 +184,11 @@ async fn prowlarr_get(
     search_type: &str,
     query: Option<&SearchQuery>,
 ) -> Result<Vec<Value>, Error> {
-    let mut request = client.get(url).header("X-Api-Key", api_key).query(&[
-        ("apikey", api_key),
-        ("query", q),
-        ("type", search_type),
-    ]);
+    let mut request = client
+        .get(url)
+        .timeout(SEARCH_TIMEOUT)
+        .header("X-Api-Key", api_key)
+        .query(&[("apikey", api_key), ("query", q), ("type", search_type)]);
     if let Some(query) = query {
         let category = match query.kind {
             MediaKind::Tv => "5000",

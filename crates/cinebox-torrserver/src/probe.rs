@@ -63,20 +63,24 @@ pub enum SpeedEvent {
 pub async fn echo(base_url: &str, username: &str, password: &str) -> Result<String, Error> {
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
     let url = join_url(&base, "echo");
-    let client = http_client(Duration::from_secs(10))?;
-    let response = apply_basic_auth(client.get(&url), username, password)
+    let client = http_client()?;
+    let get = client.get(&url).timeout(Duration::from_secs(10));
+    let response = apply_basic_auth(get, username, password)
         .send()
         .await
         .map_err(Error::Request)?;
+
     let status = response.status();
     if !status.is_success() {
         return Err(Error::Http(status.as_u16()));
     }
+
     let body = response.text().await.map_err(Error::Request)?;
     let version = body.trim();
     if version.is_empty() {
         return Err(Error::EmptyEcho);
     }
+
     Ok(version.to_owned())
 }
 
@@ -94,14 +98,17 @@ pub async fn speed_test(
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
     let path = format!("download/{SPEED_TEST_FILE_MB}");
     let url = join_url(&base, &path);
-    let client = http_client(Duration::from_secs(20))?;
-    let response = apply_basic_auth(client.get(&url), username, password)
+    let client = http_client()?;
+    let get = client.get(&url).timeout(Duration::from_secs(20));
+    let response = apply_basic_auth(get, username, password)
         .send()
         .await
         .map_err(Error::Request)?;
+
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err(Error::Http(401));
     }
+    
     if !response.status().is_success() {
         return Err(Error::Http(response.status().as_u16()));
     }

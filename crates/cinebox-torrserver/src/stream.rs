@@ -124,11 +124,13 @@ pub async fn wait_preload(
 }
 
 async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), Error> {
-    let client = http_client(Duration::from_secs(PRELOAD_GET_SECS))?;
-    let response = apply_basic_auth(client.get(url), username, password)
+    let client = http_client()?;
+    let get = client.get(url).timeout(Duration::from_secs(PRELOAD_GET_SECS));
+    let response = apply_basic_auth(get, username, password)
         .send()
         .await
         .map_err(Error::Request)?;
+    
     check_status(response.status())?;
     Ok(())
 }
@@ -139,9 +141,11 @@ async fn poll_stat_until_ready(
     password: &str,
     mut on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
+    let client = http_client()?;
+
     for attempt in 0..STAT_POLL_MAX {
-        let client = http_client(Duration::from_secs(10))?;
-        let request = apply_basic_auth(client.get(url), username, password);
+        let get = client.get(url).timeout(Duration::from_secs(10));
+        let request = apply_basic_auth(get, username, password);
         let status: TorrentStatus = send_json(request).await?;
 
         on_event(PreloadEvent::Progress {

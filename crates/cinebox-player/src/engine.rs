@@ -1,4 +1,6 @@
-//! libmpv OpenGL render API. The only `unsafe` in the workspace.
+//! libmpv OpenGL render API. The only `unsafe` in the workspace: a `Send`
+//! impl (all access is serialized through `Arc<Mutex<Engine>>`) and the
+//! self-referential render-context setup.
 
 use std::ffi::{CStr, CString, c_void};
 use std::sync::Arc;
@@ -76,11 +78,12 @@ pub struct Engine {
     mpv: Box<Mpv>,
 }
 
-// SAFETY: `Engine` is driven exclusively on the eframe/glow UI thread. The
-// glow paint callback is `Send + Sync` so the handle must cross that bound,
-// but mpv APIs are never called from another thread.
+// SAFETY: `Engine` is driven exclusively on the eframe/glow UI thread, but the
+// glow paint callback closure must be `Send + Sync`, so the captured
+// `Arc<Mutex<Engine>>` has to cross that bound. `Mutex<Engine>: Sync` only
+// needs `Engine: Send`; all access goes through the mutex, so no `Sync` impl
+// is required (and mpv APIs are never called concurrently).
 unsafe impl Send for Engine {}
-unsafe impl Sync for Engine {}
 
 impl Engine {
     /// Create libmpv with `vo=libmpv` and an OpenGL render context.

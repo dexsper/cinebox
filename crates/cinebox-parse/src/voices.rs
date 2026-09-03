@@ -2,6 +2,8 @@
 
 use std::sync::LazyLock;
 
+use aho_corasick::AhoCorasick;
+
 const RAW: &str = include_str!("voices.txt");
 
 /// `(lowercase needle, original line)`. Deduped by needle once at startup.
@@ -17,18 +19,35 @@ static VOICES: LazyLock<Vec<(String, &'static str)>> = LazyLock::new(|| {
     out
 });
 
+/// One automaton scan finds every studio at once instead of ~900 `contains`
+/// passes per title.
+static MATCHER: LazyLock<AhoCorasick> = LazyLock::new(|| {
+    let needles = VOICES.iter().map(|(needle, _)| needle.as_str());
+
+    AhoCorasick::new(needles).unwrap_or_else(|error| panic!("voices automaton: {error}"))
+});
+
 /// Studios whose names appear in `title` (original casing from the list).
 #[must_use]
 pub fn voices(title: &str) -> Vec<&'static str> {
     if title.is_empty() {
         return Vec::new();
     }
-    let lower = title.to_lowercase();
-    VOICES
-        .iter()
-        .filter(|(needle, _)| lower.contains(needle.as_str()))
-        .map(|(_, display)| *display)
-        .collect()
+
+    voices_lower(&title.to_lowercase())
+}
+
+/// [`voices`] for a title the caller has already lowercased.
+pub(crate) fn voices_lower(lower: &str) -> Vec<&'static str> {
+    let mut seen = vec![false; VOICES.len()];
+
+    for found in MATCHER.find_overlapping_iter(lower) {
+        seen[found.pattern().as_usize()] = true;
+    }
+
+    let hits = seen.iter().enumerate().filter(|(_, hit)| **hit);
+
+    hits.map(|(index, _)| VOICES[index].1).collect()
 }
 
 /// Detected studios in catalog order (same sequence as `voices.txt`).

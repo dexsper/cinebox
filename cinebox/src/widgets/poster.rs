@@ -19,7 +19,26 @@ const TITLE_ROWS: f32 = 2.0;
 /// Extra clip margin so a shelf that is about to enter view starts decoding.
 const LOAD_MARGIN: f32 = 280.0;
 
+thread_local! {
+    /// (text_small, text_caption, pixels_per_point) -> caption height, so a
+    /// grid of tiles does not lock the font atlas twice per tile per frame.
+    static CAPTION_H: std::cell::Cell<Option<(u32, u32, u32, f32)>> =
+        const { std::cell::Cell::new(None) };
+}
+
 fn caption_h(ui: &Ui, theme: &Theme) -> f32 {
+    let key = (
+        theme.text_small.to_bits(),
+        theme.text_caption.to_bits(),
+        ui.ctx().pixels_per_point().to_bits(),
+    );
+
+    let cached = CAPTION_H.get().filter(|(s, c, p, _)| (*s, *c, *p) == key);
+
+    if let Some((_, _, _, height)) = cached {
+        return height;
+    }
+
     let (title_rows_h, year_h) = ui.ctx().fonts_mut(|f| {
         (
             f.row_height(&theme.ui_font(theme.text_small)) * TITLE_ROWS,
@@ -27,7 +46,10 @@ fn caption_h(ui: &Ui, theme: &Theme) -> f32 {
         )
     });
 
-    CAPTION_GAP + title_rows_h + LINE_GAP + year_h
+    let height = CAPTION_GAP + title_rows_h + LINE_GAP + year_h;
+    CAPTION_H.set(Some((key.0, key.1, key.2, height)));
+
+    height
 }
 
 pub fn in_load_window(ui: &Ui, rect: Rect) -> bool {
@@ -124,6 +146,9 @@ fn wrap_title(ui: &Ui, title: &str, theme: &Theme) -> std::sync::Arc<egui::Galle
 }
 
 /// Wrap `text` to `max_rows` at `width`, ellipsizing overflow.
+///
+/// The actual layout is memoized by egui's galley cache (keyed by the job),
+/// so repeated frames only pay for building the `LayoutJob`.
 pub fn wrap_lines(
     ui: &Ui,
     text: &str,

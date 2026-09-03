@@ -1,7 +1,7 @@
 //! Torrent explorer state.
 
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId};
-use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, sort_hits};
+use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_hits};
 use cinebox_torrserver::AddSpec;
 
 #[derive(Debug, Clone)]
@@ -10,49 +10,53 @@ pub struct MovieBits {
     pub overview: Option<String>,
     pub year: Option<u16>,
     pub vote: Option<f32>,
-    pub genres: Vec<String>,
-    pub countries: Vec<String>,
     pub certification: Option<String>,
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub number_of_seasons: Option<u32>,
+    /// Precomputed "year, country | country" line for the left pane.
+    pub head_line: String,
+    /// Precomputed ", "-joined genres line; empty when there are none.
+    pub genres_line: String,
 }
 
 impl MovieBits {
     pub fn from_details(details: &MediaDetails) -> Self {
+        let genres: Vec<&str> = details.genres.iter().take(3).map(String::as_str).collect();
+
         Self {
             title: details.title.clone(),
             overview: details.overview.clone(),
             year: details.year,
             vote: details.vote,
-            genres: details.genres.iter().take(3).cloned().collect(),
-            countries: details.countries.clone(),
             certification: details.certification.clone(),
             poster_path: details.poster_path.clone(),
             backdrop_path: details.backdrop_path.clone(),
             number_of_seasons: details.number_of_seasons,
+            head_line: head_line(details.year, &details.countries),
+            genres_line: genres.join(", "),
         }
     }
+}
 
-    pub(crate) fn head_line(&self) -> String {
-        let mut parts = Vec::new();
-        if let Some(year) = self.year {
-            parts.push(year.to_string());
-        }
+fn head_line(year: Option<u16>, countries: &[String]) -> String {
+    let mut parts = Vec::new();
 
-        if !self.countries.is_empty() {
-            let countries = self
-                .countries
-                .iter()
-                .take(5)
-                .cloned()
-                .collect::<Vec<_>>()
-                .join(" | ");
-            parts.push(countries);
-        }
-
-        parts.join(", ")
+    if let Some(year) = year {
+        parts.push(year.to_string());
     }
+
+    if !countries.is_empty() {
+        let countries = countries
+            .iter()
+            .take(5)
+            .cloned()
+            .collect::<Vec<_>>()
+            .join(" | ");
+        parts.push(countries);
+    }
+
+    parts.join(", ")
 }
 
 #[derive(Debug, Clone)]
@@ -152,6 +156,10 @@ pub struct TorrentState {
     pub files: FilesPane,
     pub pick_gen: u64,
     pub pending_add: Option<AddSpec>,
+    /// The (sort, filter) pair `visible` was computed for; `None` = dirty.
+    pub view_key: Option<(SortMode, TorrentFilter)>,
+    /// Indices into sorted `hits` that pass the current filter.
+    pub visible: Vec<usize>,
 }
 
 impl TorrentState {
@@ -171,11 +179,19 @@ impl TorrentState {
             files: FilesPane::Closed,
             pick_gen: 0,
             pending_add: None,
+            view_key: None,
+            visible: Vec::new(),
         }
     }
 
     pub fn matches(&self, kind: MediaKind, id: TmdbId) -> bool {
         self.kind == kind && self.id == id
+    }
+
+    /// Replace the hit list and mark the sorted/filtered view dirty.
+    pub fn set_hits(&mut self, hits: TorrentHits) {
+        self.hits = hits;
+        self.view_key = None;
     }
 
     /// Promote hits whose magnet is in local play history. Does not refetch.
@@ -191,11 +207,34 @@ impl TorrentState {
         for hit in hits.iter_mut() {
             hit.mark_local(hashes);
         }
+
+        // `local_rank` participates in the sort order.
+        self.view_key = None;
     }
 
+    /// Re-sort `hits` and recompute `visible`, but only when the hit list,
+    /// sort mode, or filters actually changed since the last call.
     pub fn apply_filter_sort(&mut self) {
-        if let TorrentHits::Ready(hits) = &mut self.hits {
-            sort_hits(hits, self.kind, self.sort);
+        let TorrentHits::Ready(hits) = &mut self.hits else {
+            self.view_key = None;
+            self.visible.clear();
+            return;
+        };
+
+        let current = self
+            .view_key
+            .as_ref()
+            .is_some_and(|(sort, filter)| *sort == self.sort && *filter == self.filter);
+
+        if current {
+            return;
         }
+
+        sort_hits(hits, self.kind, self.sort);
+
+        self.visible = filtered_hits(hits, &self.filter)
+            .map(|(index, _)| index)
+            .collect();
+        self.view_key = Some((self.sort, self.filter.clone()));
     }
 }

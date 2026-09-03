@@ -82,9 +82,10 @@ pub async fn list(
     password: &str,
 ) -> Result<Vec<ListedTorrent>, Error> {
     let url = torrents_url(base_url)?;
-    let client = http_client(Duration::from_secs(15))?;
-    let request = apply_basic_auth(client.post(&url), username, password)
-        .json(&serde_json::json!({ "action": "list" }));
+    let client = http_client()?;
+    let post = client.post(&url).timeout(Duration::from_secs(15));
+    let request =
+        apply_basic_auth(post, username, password).json(&serde_json::json!({ "action": "list" }));
 
     let parsed: Vec<ListedRaw> = send_json(request).await?;
     Ok(parsed
@@ -115,7 +116,7 @@ pub async fn add(
     }
 
     let url = torrents_url(base_url)?;
-    let client = http_client(JSON_TIMEOUT)?;
+    let client = http_client()?;
     let body = AddBody {
         action: "add",
         link: spec.link.trim(),
@@ -125,7 +126,8 @@ pub async fn add(
         save_to_db: spec.save_to_db,
     };
 
-    let request = apply_basic_auth(client.post(&url), username, password).json(&body);
+    let post = client.post(&url).timeout(JSON_TIMEOUT);
+    let request = apply_basic_auth(post, username, password).json(&body);
     send_json(request).await
 }
 
@@ -145,12 +147,12 @@ pub async fn get(
     }
 
     let url = torrents_url(base_url)?;
-    let client = http_client(JSON_TIMEOUT)?;
-    let request =
-        apply_basic_auth(client.post(&url), username, password).json(&serde_json::json!({
-            "action": "get",
-            "hash": hash,
-        }));
+    let client = http_client()?;
+    let post = client.post(&url).timeout(JSON_TIMEOUT);
+    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+        "action": "get",
+        "hash": hash,
+    }));
 
     send_json(request).await
 }
@@ -200,12 +202,12 @@ pub async fn drop_torrent(
     }
 
     let url = torrents_url(base_url)?;
-    let client = http_client(JSON_TIMEOUT)?;
-    let request =
-        apply_basic_auth(client.post(&url), username, password).json(&serde_json::json!({
-            "action": "drop",
-            "hash": hash,
-        }));
+    let client = http_client()?;
+    let post = client.post(&url).timeout(JSON_TIMEOUT);
+    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+        "action": "drop",
+        "hash": hash,
+    }));
 
     let response = request.send().await.map_err(Error::Request)?;
     super::client::check_status(response.status())

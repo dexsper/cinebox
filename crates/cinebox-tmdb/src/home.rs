@@ -87,6 +87,7 @@ async fn fetch_page(
     let page_s = page.to_string();
     let mut request = client
         .get(&url)
+        .timeout(std::time::Duration::from_secs(20))
         .query(&[("api_key", api_key.as_str()), ("page", page_s.as_str())]);
 
     if let Some(language) = language.as_deref().filter(|s| !s.is_empty()) {
@@ -131,7 +132,7 @@ pub async fn fetch_home(
     use_system_proxy: bool,
 ) -> Result<HomeCatalog, Error> {
     let api_key = crate::prepare_api_key(api_key)?;
-    let client = http_client(std::time::Duration::from_secs(20), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
     let language = language.map(str::to_owned);
     let futs = HomeRowId::REMOTE.into_iter().map(|id| {
         let client = client.clone();
@@ -139,6 +140,7 @@ pub async fn fetch_home(
         let language = language.clone();
         async move { fetch_row(client, key, language, id).await }
     });
+    
     let mut rows = Vec::with_capacity(HomeRowId::ALL.len());
     rows.push(HomeRow::empty(HomeRowId::RecentlyWatched));
     rows.extend(join_all(futs).await);
@@ -161,7 +163,7 @@ pub async fn fetch_catalog_page(
     }
 
     let api_key = crate::prepare_api_key(api_key)?;
-    let client = http_client(std::time::Duration::from_secs(20), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
     let language = language.map(str::to_owned);
 
     fetch_page(client, api_key.to_owned(), language, id, page).await

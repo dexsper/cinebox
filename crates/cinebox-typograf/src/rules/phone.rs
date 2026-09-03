@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
@@ -146,11 +147,20 @@ enum Exception {
     R(u32, u32),
 }
 
-pub fn phone_number(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_m(&format!(
-        "(^|,| |{PRIVATE})(\\+7[\\d\\(\\) \u{00A0}-]{{10,18}})(?=,|;|{PRIVATE}|$)"
-    ));
-    let step = re::replace_all_fn(&re, text, |caps| {
+pub fn phone_number<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        re::compile_m(&format!(
+            "(^|,| |{PRIVATE})(\\+7[\\d\\(\\) \u{00A0}-]{{10,18}})(?=,|;|{PRIVATE}|$)"
+        ))
+    });
+    
+    static LABELED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        re::compile_i(
+            "(^|[^а-яё])([☎☏✆📠📞📱]|т\\.|тел\\.|ф\\.|моб\\.|факс|сотовый|мобильный|телефон)(:?\\s*?)([+\\d(][\\d \u{00A0}\\-()]{3,}\\d)",
+        )
+    });
+
+    let step = re::replace_all_fn(&RE, text, |caps| {
         let buf = clear_phone(&caps[2]);
 
         if buf.chars().count() == 12 {
@@ -160,11 +170,7 @@ pub fn phone_number(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
         }
     });
 
-    let labeled = re::compile_i(
-        "(^|[^а-яё])([☎☏✆📠📞📱]|т\\.|тел\\.|ф\\.|моб\\.|факс|сотовый|мобильный|телефон)(:?\\s*?)([+\\d(][\\d \u{00A0}\\-()]{3,}\\d)",
-    );
-
-    re::replace_all_fn(&labeled, &step, |caps| {
+    re::chain_fn(&LABELED, step, |caps| {
         let buf = clear_phone(&caps[4]);
 
         if buf.chars().count() >= 5 {

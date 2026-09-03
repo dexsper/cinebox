@@ -133,15 +133,14 @@ impl Store {
         &self,
         language: &str,
     ) -> Result<Option<(HomeCatalog, bool)>, StoreError> {
+        let mut cached = self.home_rows(language).await?;
+
         let mut rows = vec![self.recently_watched_row().await?];
         let mut any = false;
         let mut fresh = true;
 
         for id in HomeRowId::REMOTE {
-            let cached = self
-                .get_json::<HomeRow>(language, KIND_HOME, id.as_key())
-                .await?;
-            let Some(hit) = cached else {
+            let Some(hit) = cached.remove(id.as_key()) else {
                 fresh = false;
                 rows.push(HomeRow::empty(id));
                 continue;
@@ -163,6 +162,46 @@ impl Store {
         }
 
         Ok(Some((HomeCatalog { rows }, fresh)))
+    }
+
+    /// All remote home rows for `language` in one `IN` query instead of one
+    /// `get_json` round-trip per shelf.
+    async fn home_rows(
+        &self,
+        language: &str,
+    ) -> Result<std::collections::HashMap<String, CacheHit<HomeRow>>, StoreError> {
+        let placeholders = vec!["?"; HomeRowId::REMOTE.len()].join(", ");
+        let sql = format!(
+            "SELECT id, fetched_at, payload FROM tmdb_cache \
+             WHERE language = ? AND kind = ? AND id IN ({placeholders})"
+        );
+
+        // The SQL is built from a fixed template plus `?` placeholders only.
+        let sql = sqlx::AssertSqlSafe(sql);
+        let mut query = sqlx::query_as::<_, (String, i64, String)>(sql)
+            .bind(language)
+            .bind(KIND_HOME);
+        for id in HomeRowId::REMOTE {
+            query = query.bind(id.as_key());
+        }
+
+        let rows = query.fetch_all(&self.pool).await?;
+
+        let max_age = i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX);
+        let mut out = std::collections::HashMap::new();
+
+        for (id, fetched_at, payload) in rows {
+            if types::age_secs(fetched_at) >= max_age {
+                continue;
+            }
+
+            let value: HomeRow =
+                serde_json::from_str(&payload).map_err(StoreError::Deserialize)?;
+
+            out.insert(id, CacheHit { value, fetched_at });
+        }
+
+        Ok(out)
     }
 }
 
@@ -242,14 +281,7 @@ mod tests {
         let row = sample_row("/a.jpg");
 
         store
-            .put_json(
-                "en-US",
-                KIND_HOME,
-                row.id.as_key(),
-                &row,
-                &row.image_paths(),
-                &sizes(),
-            )
+            .put_json("en-US", KIND_HOME, row.id.as_key(), &row, &row.image_paths())
             .await?;
 
         let got = store
@@ -278,15 +310,7 @@ mod tests {
         let old = unix_now() - i64::try_from(MAX_AGE.as_secs()).unwrap_or(0) - 10;
 
         store
-            .put_json_at(
-                "",
-                KIND_HOME,
-                row.id.as_key(),
-                &row,
-                &row.image_paths(),
-                old,
-                &sizes(),
-            )
+            .put_json_at("", KIND_HOME, row.id.as_key(), &row, &row.image_paths(), old)
             .await?;
 
         assert!(
@@ -308,15 +332,10 @@ mod tests {
 
         let row = sample_row("/new.jpg");
         store
-            .put_json(
-                "",
-                KIND_HOME,
-                row.id.as_key(),
-                &row,
-                &row.image_paths(),
-                &sizes(),
-            )
+            .put_json("", KIND_HOME, row.id.as_key(), &row, &row.image_paths())
             .await?;
+
+        store.gc_images(&sizes()).await?;
 
         assert!(store.get_image("w500", "/old.jpg").await?.is_none());
         assert_eq!(
@@ -339,14 +358,7 @@ mod tests {
                 error: None,
             };
             store
-                .put_json(
-                    "",
-                    KIND_HOME,
-                    id.as_key(),
-                    &row,
-                    &row.image_paths(),
-                    &sizes(),
-                )
+                .put_json("", KIND_HOME, id.as_key(), &row, &row.image_paths())
                 .await?;
         }
 

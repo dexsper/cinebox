@@ -9,6 +9,7 @@ mod details_map;
 mod home;
 mod seasons;
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use cinebox_core::HomeCatalog;
@@ -89,19 +90,27 @@ fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest
     builder.no_proxy()
 }
 
-pub(crate) fn http_client(
-    timeout: Duration,
-    use_system_proxy: bool,
-) -> Result<reqwest::Client, Error> {
-    apply_system_proxy(
+static CLIENTS: [OnceLock<reqwest::Client>; 2] = [OnceLock::new(), OnceLock::new()];
+
+/// Shared long-lived client (one per proxy mode). Set request timeouts with
+/// [`reqwest::RequestBuilder::timeout`].
+pub(crate) fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
+    let slot = &CLIENTS[usize::from(use_system_proxy)];
+
+    if let Some(client) = slot.get() {
+        return Ok(client.clone());
+    }
+
+    let client = apply_system_proxy(
         reqwest::Client::builder()
             .user_agent(USER_AGENT)
-            .timeout(timeout)
             .connect_timeout(Duration::from_secs(5)),
         use_system_proxy,
     )
     .build()
-    .map_err(|err| Error::Client(hide_url(err)))
+    .map_err(|err| Error::Client(hide_url(err)))?;
+
+    Ok(slot.get_or_init(|| client).clone())
 }
 
 /// `GET /3/configuration` with `api_key`. 401 means a bad key.
@@ -111,13 +120,15 @@ pub(crate) fn http_client(
 /// Empty key, HTTP failures, or 401 from TMDB.
 pub async fn check_api_key(api_key: &str, use_system_proxy: bool) -> Result<String, Error> {
     let api_key = prepare_api_key(api_key)?;
-    let client = http_client(Duration::from_secs(15), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
     let response = client
         .get(CONFIG_URL)
+        .timeout(Duration::from_secs(15))
         .query(&[("api_key", api_key)])
         .send()
         .await
         .map_err(into_request)?;
+    
     check_tmdb_status(response.status())?;
     Ok(String::from("TMDB key ok"))
 }
@@ -204,8 +215,13 @@ pub use seasons::SeasonEpisode;
 ///
 /// HTTP failures or a non-success status.
 pub async fn download_image(url: &str, use_system_proxy: bool) -> Result<Vec<u8>, Error> {
-    let client = http_client(Duration::from_secs(20), use_system_proxy)?;
-    let response = client.get(url).send().await.map_err(into_request)?;
+    let client = http_client(use_system_proxy)?;
+    let response = client
+        .get(url)
+        .timeout(Duration::from_secs(20))
+        .send()
+        .await
+        .map_err(into_request)?;
     let status = response.status();
     if !status.is_success() {
         return Err(Error::Http(status.as_u16()));

@@ -1,3 +1,5 @@
+use std::borrow::Cow;
+
 use crate::data::{self, QuoteData};
 use crate::engine::Context;
 use crate::re;
@@ -28,11 +30,11 @@ impl From<&QuoteData> for OwnedQuote {
     }
 }
 
-pub fn process(text: &str, settings: &QuoteData, ctx: &Context<'_>) -> String {
+pub fn process<'a>(text: &'a str, settings: &QuoteData, ctx: &Context<'_>) -> Cow<'a, str> {
     let count = count_quotes(text, Some(settings));
 
     if count.total == 0 {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
 
     let original = OwnedQuote::from(settings);
@@ -66,7 +68,7 @@ pub fn process(text: &str, settings: &QuoteData, ctx: &Context<'_>) -> String {
         out = return_original(&out, &original, &work);
     }
 
-    out
+    Cow::Owned(out)
 }
 
 fn take_prefix(s: &'static str, n: usize) -> &'static str {
@@ -95,7 +97,7 @@ fn all_quote_chars(settings: Option<&QuoteData>) -> String {
 fn count_quotes(text: &str, settings: Option<&QuoteData>) -> Counts {
     let quotes = all_quote_chars(settings);
     let class = char_class(&quotes);
-    let re = re::compile(&format!("[{class}]"));
+    let re = re::cached(&format!("[{class}]"));
     let mut total = 0;
     let mut left0 = 0;
     let mut right0 = 0;
@@ -164,10 +166,10 @@ fn remove_spacing(text: &str, settings: &OwnedQuote) -> String {
     for i in 0..n {
         let lq = left[i];
         let rq = right[i];
-        let re_l = re::compile(&format!("{lq}([ \u{202F}\u{00A0}])"));
-        let re_r = re::compile(&format!("([ \u{202F}\u{00A0}]){rq}"));
-        out = re::replace_all(&re_l, &out, &lq.to_string());
-        out = re::replace_all(&re_r, &out, &rq.to_string());
+        let re_l = re::cached(&format!("{lq}([ \u{202F}\u{00A0}])"));
+        let re_r = re::cached(&format!("([ \u{202F}\u{00A0}]){rq}"));
+        out = re::replace_all(&re_l, &out, &lq.to_string()).into_owned();
+        out = re::replace_all(&re_r, &out, &rq.to_string()).into_owned();
     }
 
     out
@@ -187,10 +189,10 @@ fn set_spacing(text: &str, settings: &OwnedQuote) -> String {
     for i in 0..n {
         let lq = left[i];
         let rq = right[i];
-        let re_l = re::compile(&format!("{lq}([^\u{202F}])"));
-        let re_r = re::compile(&format!("([^\u{202F}]){rq}"));
-        out = re::replace_all(&re_l, &out, &format!("{lq}\u{202F}$1"));
-        out = re::replace_all(&re_r, &out, &format!("$1\u{202F}{rq}"));
+        let re_l = re::cached(&format!("{lq}([^\u{202F}])"));
+        let re_r = re::cached(&format!("([^\u{202F}]){rq}"));
+        out = re::replace_all(&re_l, &out, &format!("{lq}\u{202F}$1")).into_owned();
+        out = re::replace_all(&re_r, &out, &format!("$1\u{202F}{rq}")).into_owned();
     }
 
     out
@@ -210,19 +212,21 @@ fn set_quotes(text: &str, settings: &OwnedQuote, ctx: &Context<'_>) -> String {
     let before = char_class(BEFORE_LEFT);
     let after = char_class(AFTER_RIGHT);
 
-    let re_l = re::compile_im(&format!(
+    let re_l = re::cached_im(&format!(
         "(^|[{before}])([{qclass}]+)(?=[^\\s{PRIVATE}])"
     ));
-    let re_r = re::compile_im(&format!(
+    let re_r = re::cached_im(&format!(
         "([^\\s{PRIVATE}])([{qclass}]+)(?=[{after}]|$)"
     ));
 
     let mut out = re::replace_all_fn(&re_l, text, |caps| {
         format!("{}{}", &caps[1], repeat_char(lquote, caps[2].chars().count()))
-    });
+    })
+    .into_owned();
     out = re::replace_all_fn(&re_r, &out, |caps| {
         format!("{}{}", &caps[1], repeat_char(rquote, caps[2].chars().count()))
-    });
+    })
+    .into_owned();
 
     out = set_above_tags(&out, settings, ctx, &qclass, lquote, rquote);
 
@@ -249,9 +253,10 @@ fn set_above_tags(
     lquote: char,
     rquote: char,
 ) -> String {
-    let re = re::compile_m(&format!("(^|.)([{qclass}])(.|$)"));
+    let re = re::cached_m(&format!("(^|.)([{qclass}])(.|$)"));
+    let chars: Vec<(usize, char)> = text.char_indices().collect();
 
-    re::replace_all_fn(&re, text, |caps| {
+    let replaced = re::replace_all_fn(&re, text, |caps| {
         let original = &caps[0];
         let prev = &caps[1];
         let quote = &caps[2];
@@ -266,7 +271,7 @@ fn set_above_tags(
 
         if prev_priv && next_priv {
             if quote == "\"" {
-                let above = get_above_two_tags(text, pos + prev.len(), ctx, lquote, rquote);
+                let above = get_above_two_tags(&chars, text, pos + prev.len(), ctx, lquote, rquote);
 
                 return format!("{prev}{above}{next}");
             }
@@ -279,7 +284,7 @@ fn set_above_tags(
 
         if prev_priv {
             let has_right = AFTER_RIGHT.contains(next);
-            let prev_info = tags.get_prev_tag_info(text, quote_pos);
+            let prev_info = tags.get_prev_tag_info(&chars, text, quote_pos);
 
             if has_right && prev_info.as_ref().is_some_and(|i| i.group == "html") {
                 let q = if prev_info.is_some_and(|i| i.is_closing) {
@@ -301,7 +306,7 @@ fn set_above_tags(
         }
 
         let has_left = BEFORE_LEFT.contains(prev);
-        let next_info = tags.get_next_tag_info(text, quote_pos);
+        let next_info = tags.get_next_tag_info(&chars, text, quote_pos);
 
         if has_left && next_info.as_ref().is_some_and(|i| i.group == "html") {
             let q = if next_info.is_some_and(|i| i.is_closing) {
@@ -320,10 +325,13 @@ fn set_above_tags(
         };
 
         format!("{prev}{q}{next}")
-    })
+    });
+
+    replaced.into_owned()
 }
 
 fn get_above_two_tags(
+    chars: &[(usize, char)],
     text: &str,
     pos: usize,
     ctx: &Context<'_>,
@@ -331,8 +339,8 @@ fn get_above_two_tags(
     rquote: char,
 ) -> String {
     let tags = ctx.safe_tags.borrow();
-    let prev_info = tags.get_prev_tag_info(text, pos);
-    let next_info = tags.get_next_tag_info(text, pos);
+    let prev_info = tags.get_prev_tag_info(chars, text, pos);
+    let next_info = tags.get_next_tag_info(chars, text, pos);
 
     if let Some(prev) = prev_info {
         if prev.group == "html" {

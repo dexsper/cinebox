@@ -1,4 +1,7 @@
+use std::borrow::Cow;
 use std::sync::LazyLock;
+
+use fancy_regex::Regex;
 
 use crate::data::{self};
 use crate::engine::{Context, Typograf};
@@ -7,153 +10,202 @@ use crate::PRIVATE;
 
 const NDASH: &str = "\u{2013}";
 
-pub fn dash_centuries(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(X|I|V)[ |\u{00A0}]?({})[ |\u{00A0}]?(X|I|V)",
-        data::COMMON_DASH
-    ));
+pub fn dash_centuries<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(X|I|V)[ |\u{00A0}]?({})[ |\u{00A0}]?(X|I|V)",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re, text, &format!("$1{NDASH}$3"))
+    re::replace_all(&RE, text, &format!("$1{NDASH}$3"))
 }
 
-pub fn dash_days_month(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(^|\\s)([123]?\\d)({})([123]?\\d)[ \u{00A0}]({})",
-        data::COMMON_DASH,
-        data::RU_MONTH_GEN
-    ));
+pub fn dash_days_month<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(^|\\s)([123]?\\d)({})([123]?\\d)[ \u{00A0}]({})",
+            data::COMMON_DASH,
+            data::RU_MONTH_GEN
+        ))
+    });
 
-    re::replace_all(&re, text, &format!("$1$2{NDASH}$4\u{00A0}$5"))
+    re::replace_all(&RE, text, &format!("$1$2{NDASH}$4\u{00A0}$5"))
 }
 
-pub fn dash_de(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!("([a-яё]+) де{}", data::RU_DASH_AFTER_DE));
+pub fn dash_de<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!("([a-яё]+) де{}", data::RU_DASH_AFTER_DE))
+    });
 
-    re::replace_all(&re, text, "$1-де")
+    re::replace_all(&RE, text, "$1-де")
 }
 
-pub fn dash_decade(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(^|\\s)(\\d{{3}}|\\d)0({})(\\d{{3}}|\\d)0(-е[ \u{00A0}])(?=г\\.?[ \u{00A0}]?г|год)",
-        data::COMMON_DASH
-    ));
+pub fn dash_decade<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(^|\\s)(\\d{{3}}|\\d)0({})(\\d{{3}}|\\d)0(-е[ \u{00A0}])(?=г\\.?[ \u{00A0}]?г|год)",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re, text, &format!("$1$20{NDASH}$40$5"))
+    re::replace_all(&RE, text, &format!("$1$20{NDASH}$40$5"))
 }
 
-pub fn dash_direct_speech(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let dashes = data::COMMON_DASH;
-    let re1 = re::compile(&format!("([\"»‘“,])[ |\u{00A0}]?({dashes})[ |\u{00A0}]"));
-    let re2 = re::compile_m(&format!("(^|{PRIVATE})({dashes})( |\u{00A0})"));
-    let re3 = re::compile(&format!("([.…?!])[ \u{00A0}]({dashes})[ \u{00A0}]"));
-    let a = re::replace_all(&re1, text, "$1\u{00A0}\u{2014} ");
-    let b = re::replace_all(&re2, &a, "$1\u{2014}\u{00A0}");
+pub fn dash_direct_speech<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE1: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "([\"»‘“,])[ |\u{00A0}]?({})[ |\u{00A0}]",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re3, &b, "$1 \u{2014}\u{00A0}")
+    static RE2: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!("(^|{PRIVATE})({})( |\u{00A0})", data::COMMON_DASH))
+    });
+    
+    static RE3: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!("([.…?!])[ \u{00A0}]({})[ \u{00A0}]", data::COMMON_DASH))
+    });
+
+    let a = re::replace_all(&RE1, text, "$1\u{00A0}\u{2014} ");
+    let b = re::chain(&RE2, a, "$1\u{2014}\u{00A0}");
+
+    re::chain(&RE3, b, "$1 \u{2014}\u{00A0}")
 }
 
-pub fn dash_izpod(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "{}(И|и)з под{}",
-        data::RU_DASH_BEFORE,
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_izpod<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "{}(И|и)з под{}",
+            data::RU_DASH_BEFORE,
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2з-под")
+    re::replace_all(&RE, text, "$1$2з-под")
 }
 
-pub fn dash_izza(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "{}(И|и)з за{}",
-        data::RU_DASH_BEFORE,
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_izza<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "{}(И|и)з за{}",
+            data::RU_DASH_BEFORE,
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2з-за")
+    re::replace_all(&RE, text, "$1$2з-за")
 }
 
-pub fn dash_ka(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!("([a-яё]+) ка(сь)?{}", data::RU_DASH_AFTER));
+pub fn dash_ka<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!("([a-яё]+) ка(сь)?{}", data::RU_DASH_AFTER))
+    });
 
-    re::replace_all(&re, text, "$1-ка$2")
+    re::replace_all(&RE, text, "$1-ка$2")
 }
 
-pub fn dash_kakto(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(^|[^А-ЯЁа-яё\\w])([Кк]ак) то{}",
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_kakto<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(^|[^А-ЯЁа-яё\\w])([Кк]ак) то{}",
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2-то")
+    re::replace_all(&RE, text, "$1$2-то")
 }
 
-pub fn dash_koe(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "{}([Кк]о[ей])\\s([а-яё]{{3,}}){}",
-        data::RU_DASH_BEFORE,
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_koe<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "{}([Кк]о[ей])\\s([а-яё]{{3,}}){}",
+            data::RU_DASH_BEFORE,
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2-$3")
+    re::replace_all(&RE, text, "$1$2-$3")
 }
 
-pub fn dash_main(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "([ \u{00A0}])({})([ \u{00A0}\\n])",
-        data::COMMON_DASH
-    ));
+pub fn dash_main<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "([ \u{00A0}])({})([ \u{00A0}\\n])",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re, text, "\u{00A0}\u{2014}$3")
+    re::replace_all(&RE, text, "\u{00A0}\u{2014}$3")
 }
 
-pub fn dash_month(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let months = format!("({})", data::RU_MONTH);
-    let months_pre = format!("({})", data::RU_MONTH_PRE);
-    let dashes = data::COMMON_DASH;
-    let re = re::compile_i(&format!("{months} ?({dashes}) ?{months}"));
-    let re_pre = re::compile_i(&format!("{months_pre} ?({dashes}) ?{months_pre}"));
+pub fn dash_month<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!(
+            "({months}) ?({dashes}) ?({months})",
+            months = data::RU_MONTH,
+            dashes = data::COMMON_DASH
+        ))
+    });
+
+    static RE_PRE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!(
+            "({months}) ?({dashes}) ?({months})",
+            months = data::RU_MONTH_PRE,
+            dashes = data::COMMON_DASH
+        ))
+    });
+
     let repl = format!("$1{NDASH}$3");
-    let step = re::replace_all(&re, text, &repl);
+    let step = re::replace_all(&RE, text, &repl);
 
-    re::replace_all(&re_pre, &step, &repl)
+    re::chain(&RE_PRE, step, &repl)
 }
 
-pub fn dash_surname(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn dash_surname<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("([А-ЯЁ][а-яё]+)\\s-([а-яё]{1,3})(?![^а-яё]|$)")
     });
 
     re::replace_all(&RE, text, "$1\u{00A0}\u{2014}$2")
 }
 
-pub fn dash_taki(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(верно|довольно|опять|прямо|так|вс[её]|действительно|неужели)\\s(таки){}",
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_taki<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(верно|довольно|опять|прямо|так|вс[её]|действительно|неужели)\\s(таки){}",
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, "$1-$2")
+    re::replace_all(&RE, text, "$1-$2")
 }
 
-pub fn dash_time(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "{}(\\d?\\d:[0-5]\\d){}(\\d?\\d:[0-5]\\d){}",
-        data::RU_DASH_BEFORE,
-        data::COMMON_DASH,
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_time<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "{}(\\d?\\d:[0-5]\\d){}(\\d?\\d:[0-5]\\d){}",
+            data::RU_DASH_BEFORE,
+            data::COMMON_DASH,
+            data::RU_DASH_AFTER
+        ))
+    });
 
-    re::replace_all(&re, text, &format!("$1$2{NDASH}$3"))
+    re::replace_all(&RE, text, &format!("$1$2{NDASH}$3"))
 }
 
-pub fn dash_to(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let words = "[Оо]ткуда|[Кк]уда|[Гг]де|[Кк]огда|[Зз]ачем|[Пп]очему|[Кк]ак|[Кк]ако[ейм]|[Кк]акая|[Кк]аки[емх]|[Кк]акими|[Кк]акую|[Чч]то|[Чч]его|[Чч]е[йм]|[Чч]ьим?|[Кк]то|[Кк]ого|[Кк]ому|[Кк]ем";
-    let re = re::compile(&format!(
-        "(^|[^А-ЯЁа-яё\\w])({words})( | -|- )(то|либо|нибудь){}",
-        data::RU_DASH_AFTER
-    ));
+pub fn dash_to<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        let words = "[Оо]ткуда|[Кк]уда|[Гг]де|[Кк]огда|[Зз]ачем|[Пп]очему|[Кк]ак|[Кк]ако[ейм]|[Кк]акая|[Кк]аки[емх]|[Кк]акими|[Кк]акую|[Чч]то|[Чч]его|[Чч]е[йм]|[Чч]ьим?|[Кк]то|[Кк]ого|[Кк]ому|[Кк]ем";
 
-    re::replace_all_fn(&re, text, |caps| {
+        re::compile(&format!(
+            "(^|[^А-ЯЁа-яё\\w])({words})( | -|- )(то|либо|нибудь){}",
+            data::RU_DASH_AFTER
+        ))
+    });
+
+    re::replace_all_fn(&RE, text, |caps| {
         let kakto = format!("{}{}{}", &caps[2], &caps[3], &caps[4]);
 
         if kakto == "как то" || kakto == "Как то" {
@@ -164,20 +216,27 @@ pub fn dash_to(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn dash_weekday(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let part = format!("({})", data::RU_WEEKDAY);
-    let re = re::compile_i(&format!("{part} ?({}) ?{part}", data::COMMON_DASH));
+pub fn dash_weekday<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!(
+            "({part}) ?({dashes}) ?({part})",
+            part = data::RU_WEEKDAY,
+            dashes = data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re, text, &format!("$1{NDASH}$3"))
+    re::replace_all(&RE, text, &format!("$1{NDASH}$3"))
 }
 
-pub fn dash_years(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(\\D|^)(\\d{{4}})[ \u{00A0}]?({})[ \u{00A0}]?(\\d{{4}})(?=[ \u{00A0}]?г)",
-        data::COMMON_DASH
-    ));
+pub fn dash_years<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(\\D|^)(\\d{{4}})[ \u{00A0}]?({})[ \u{00A0}]?(\\d{{4}})(?=[ \u{00A0}]?г)",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all_fn(&re, text, |caps| {
+    re::replace_all_fn(&RE, text, |caps| {
         let a: i32 = caps[2].parse().unwrap_or(0);
         let b: i32 = caps[4].parse().unwrap_or(0);
 
@@ -189,26 +248,29 @@ pub fn dash_years(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn date_from_iso(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE1: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn date_from_iso<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE1: LazyLock<Regex> = LazyLock::new(|| {
         re::compile_i("(^|\\D)(\\d{4})(-|\\.|/)(\\d{2})(-|\\.|/)(\\d{2})(\\D|$)")
     });
-    static RE2: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+
+    static RE2: LazyLock<Regex> = LazyLock::new(|| {
         re::compile_i("(^|\\D)(\\d{2})(-|/)(\\d{2})(-|/)(\\d{4})(\\D|$)")
     });
     let step = re::replace_all(&RE1, text, "$1$6.$4.$2$7");
 
-    re::replace_all(&RE2, &step, "$1$4.$2.$6$7")
+    re::chain(&RE2, step, "$1$4.$2.$6$7")
 }
 
-pub fn date_weekday(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_i(&format!(
-        "(\\d)( |\u{00A0})({}),( |\u{00A0})({})",
-        data::RU_MONTH_GEN,
-        data::RU_WEEKDAY
-    ));
+pub fn date_weekday<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!(
+            "(\\d)( |\u{00A0})({}),( |\u{00A0})({})",
+            data::RU_MONTH_GEN,
+            data::RU_WEEKDAY
+        ))
+    });
 
-    re::replace_all_fn(&re, text, |caps| {
+    re::replace_all_fn(&RE, text, |caps| {
         format!(
             "{}{}{},{}{}",
             &caps[1],
@@ -220,15 +282,22 @@ pub fn date_weekday(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn money_currency(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let currency = "([$€¥Ұ£₤₽])";
-    let space = "[ \u{00A0}\u{2009}\u{202F}]";
-    let number = "\\d+([.,]\\d+)?";
-    let re1 = re::compile_m(&format!(
-        "(^|[\\D]{{2}}){currency} ?({number}({space}\\d{{3}})*)({space}?(тыс\\.|млн|млрд|трлн))?"
-    ));
-    let re2 = re::compile_m(&format!("(^|[\\D])({number}) ?{currency}"));
-    let step = re::replace_all_fn(&re1, text, |caps| {
+pub fn money_currency<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    const CURRENCY: &str = "([$€¥Ұ£₤₽])";
+    const SPACE: &str = "[ \u{00A0}\u{2009}\u{202F}]";
+    const NUMBER: &str = "\\d+([.,]\\d+)?";
+
+    static RE1: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!(
+            "(^|[\\D]{{2}}){CURRENCY} ?({NUMBER}({SPACE}\\d{{3}})*)({SPACE}?(тыс\\.|млн|млрд|трлн))?"
+        ))
+    });
+
+    static RE2: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!("(^|[\\D])({NUMBER}) ?{CURRENCY}"))
+    });
+
+    let step = re::replace_all_fn(&RE1, text, |caps| {
         let suffix = caps.get(7).map(|m| m.as_str()).unwrap_or("");
         let mid = if suffix.is_empty() {
             String::new()
@@ -239,24 +308,28 @@ pub fn money_currency(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String 
         format!("{}{}{mid}\u{00A0}{}", &caps[1], &caps[3], &caps[2])
     });
 
-    re::replace_all(&re2, &step, "$1$2\u{00A0}$4")
+    re::chain(&RE2, step, "$1$2\u{00A0}$4")
 }
 
-pub fn money_ruble(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let common = "(\\d+)( |\u{00A0})?(р|руб)\\.";
-    let re1 = re::compile(&format!("^{common}$"));
-    let re2 = re::compile(&format!("{common}(?=[!?,:;])"));
-    let re3 = re::compile(&format!("{common}(?=\\s+[A-ЯЁ])"));
-    let a = re::replace_all(&re1, text, "$1\u{00A0}₽");
-    let b = re::replace_all(&re2, &a, "$1\u{00A0}₽");
+pub fn money_ruble<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    const COMMON: &str = "(\\d+)( |\u{00A0})?(р|руб)\\.";
 
-    re::replace_all(&re3, &b, "$1\u{00A0}₽.")
+    static RE1: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("^{COMMON}$")));
+    static RE2: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("{COMMON}(?=[!?,:;])")));
+    static RE3: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("{COMMON}(?=\\s+[A-ЯЁ])")));
+
+    let a = re::replace_all(&RE1, text, "$1\u{00A0}₽");
+    let b = re::chain(&RE2, a, "$1\u{00A0}₽");
+
+    re::chain(&RE3, b, "$1\u{00A0}₽.")
 }
 
-pub fn nbsp_abbr(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "(^|\\s|{PRIVATE})([а-яё]{{1,3}})\\. ?([а-яё]{{1,3}})\\."
-    ));
+pub fn nbsp_abbr<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "(^|\\s|{PRIVATE})([а-яё]{{1,3}})\\. ?([а-яё]{{1,3}})\\."
+        ))
+    });
 
     fn abbr(caps: &fancy_regex::Captures<'_, str>) -> String {
         if &caps[2] == "дд" && &caps[3] == "мм" {
@@ -270,102 +343,114 @@ pub fn nbsp_abbr(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
         format!("{}{}.\u{00A0}{}.", &caps[1], &caps[2], &caps[3])
     }
 
-    let step = re::replace_all_fn(&re, text, abbr);
+    let step = re::replace_all_fn(&RE, text, abbr);
 
-    re::replace_all_fn(&re, &step, abbr)
+    re::chain_fn(&RE, step, abbr)
 }
 
-pub fn nbsp_addr(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let mut out = re::replace_all(
-        &re::compile_i("(\\s|^)(дом|д\\.|кв\\.|под\\.|п-д) *(\\d+)"),
-        text,
-        "$1$2\u{00A0}$3",
-    );
-    out = re::replace_all(
-        &re::compile_i("(\\s|^)(мкр-н|мк-н|мкр\\.|мкрн)\\s"),
-        &out,
-        "$1$2\u{00A0}",
-    );
-    out = re::replace_all(
-        &re::compile_i("(\\s|^)(эт\\.) *(-?\\d+)"),
-        &out,
-        "$1$2\u{00A0}$3",
-    );
-    out = re::replace_all(
-        &re::compile_i("(\\s|^)(\\d+) +этаж([^а-яё]|$)"),
-        &out,
-        "$1$2\u{00A0}этаж$3",
-    );
-    out = re::replace_all(
-        &re::compile_i("(\\s|^)литер\\s([А-Я]|$)"),
-        &out,
-        "$1литер\u{00A0}$2",
-    );
-    out = re::replace_all(
-        &re::compile_i("(\\s|^)(обл|кр|ст|пос|с|д|ул|пер|пр|пр-т|просп|пл|бул|б-р|наб|ш|туп|оф|комн?|уч|вл|влад|стр|кор)\\. *([а-яёa-z\\d]+)"),
-        &out,
-        "$1$2.\u{00A0}$3",
-    );
+pub fn nbsp_addr<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static HOUSE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i("(\\s|^)(дом|д\\.|кв\\.|под\\.|п-д) *(\\d+)")
+    });
 
-    re::replace_all(
-        &re::compile_m("(\\D[ \u{00A0}]|^)г\\. ?([А-ЯЁ])"),
-        &out,
-        "$1г.\u{00A0}$2",
-    )
+    static MKRN: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i("(\\s|^)(мкр-н|мк-н|мкр\\.|мкрн)\\s")
+    });
+
+    static FLOOR: LazyLock<Regex> = LazyLock::new(|| re::compile_i("(\\s|^)(эт\\.) *(-?\\d+)"));
+    static FLOOR_WORD: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i("(\\s|^)(\\d+) +этаж([^а-яё]|$)")
+    });
+
+    static LITER: LazyLock<Regex> = LazyLock::new(|| re::compile_i("(\\s|^)литер\\s([А-Я]|$)"));
+    static STREET: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i("(\\s|^)(обл|кр|ст|пос|с|д|ул|пер|пр|пр-т|просп|пл|бул|б-р|наб|ш|туп|оф|комн?|уч|вл|влад|стр|кор)\\. *([а-яёa-z\\d]+)")
+    });
+
+    static CITY: LazyLock<Regex> = LazyLock::new(|| re::compile_m("(\\D[ \u{00A0}]|^)г\\. ?([А-ЯЁ])"));
+
+    let mut out = re::replace_all(&HOUSE, text, "$1$2\u{00A0}$3");
+    out = re::chain(&MKRN, out, "$1$2\u{00A0}");
+    out = re::chain(&FLOOR, out, "$1$2\u{00A0}$3");
+    out = re::chain(&FLOOR_WORD, out, "$1$2\u{00A0}этаж$3");
+    out = re::chain(&LITER, out, "$1литер\u{00A0}$2");
+    out = re::chain(&STREET, out, "$1$2.\u{00A0}$3");
+
+    re::chain(&CITY, out, "$1г.\u{00A0}$2")
 }
 
-pub fn nbsp_after_number_sign(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn nbsp_after_number_sign<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("№[ \u{00A0}\u{2009}]?(\\d|п/п)")
     });
 
     re::replace_all(&RE, text, "№\u{202F}$1")
 }
 
-pub fn nbsp_before_particle(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let particles = "(ли|ль|же|ж|бы|б)";
-    let re1 = re::compile(&format!("([А-ЯЁа-яё]) {particles}(?=[,;:?!\"‘“»])"));
-    let re2 = re::compile(&format!("([А-ЯЁа-яё])[ \u{00A0}]{particles}[ \u{00A0}]"));
-    let step = re::replace_all(&re1, text, "$1\u{00A0}$2");
+pub fn nbsp_before_particle<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    const PARTICLES: &str = "(ли|ль|же|ж|бы|б)";
 
-    re::replace_all(&re2, &step, "$1\u{00A0}$2 ")
+    static RE1: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!("([А-ЯЁа-яё]) {PARTICLES}(?=[,;:?!\"‘“»])"))
+    });
+
+    static RE2: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!("([А-ЯЁа-яё])[ \u{00A0}]{PARTICLES}[ \u{00A0}]"))
+    });
+
+    let step = re::replace_all(&RE1, text, "$1\u{00A0}$2");
+
+    re::chain(&RE2, step, "$1\u{00A0}$2 ")
 }
 
-pub fn nbsp_centuries(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let dashes = data::COMMON_DASH;
-    let before = "(^|\\s)([VIX]+)";
-    let after = "(?=[,;:?!\"‘“»]|$)";
-    let re1 = re::compile_m(&format!("{before}[ \u{00A0}]?в\\.?{after}"));
-    let re2 = re::compile_m(&format!(
-        "{before}({dashes})([VIX]+)[ \u{00A0}]?в\\.?([ \u{00A0}]?в\\.?)?{after}"
-    ));
-    let step = re::replace_all(&re1, text, "$1$2\u{00A0}в.");
+pub fn nbsp_centuries<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    const BEFORE: &str = "(^|\\s)([VIX]+)";
+    const AFTER: &str = "(?=[,;:?!\"‘“»]|$)";
 
-    re::replace_all(&re2, &step, "$1$2$3$4\u{00A0}вв.")
+    static RE1: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!("{BEFORE}[ \u{00A0}]?в\\.?{AFTER}"))
+    });
+
+    static RE2: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!(
+            "{BEFORE}({})([VIX]+)[ \u{00A0}]?в\\.?([ \u{00A0}]?в\\.?)?{AFTER}",
+            data::COMMON_DASH
+        ))
+    });
+
+    let step = re::replace_all(&RE1, text, "$1$2\u{00A0}в.");
+    re::chain(&RE2, step, "$1$2$3$4\u{00A0}вв.")
 }
 
-pub fn nbsp_day_month(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_i(&format!("(\\d{{1,2}}) ({})", data::RU_SHORT_MONTH));
+pub fn nbsp_day_month<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!("(\\d{{1,2}}) ({})", data::RU_SHORT_MONTH))
+    });
 
-    re::replace_all(&re, text, "$1\u{00A0}$2")
+    re::replace_all(&RE, text, "$1\u{00A0}$2")
 }
 
-pub fn nbsp_initials(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let spaces = "\u{00A0}\u{202F} ";
-    let quote = data::quote("ru").map(|q| q.left).unwrap_or("«„‚");
-    let re = re::compile_m(&format!(
-        "(^|[({spaces}{quote}{PRIVATE}\"])([А-ЯЁ])\\.[{spaces}]?([А-ЯЁ])\\.[{spaces}]?([А-ЯЁ][а-яё]+)"
-    ));
+pub fn nbsp_initials<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        let spaces = "\u{00A0}\u{202F} ";
+        let quote = data::quote("ru").map(|q| q.left).unwrap_or("«„‚");
 
-    re::replace_all(&re, text, "$1$2.\u{00A0}$3.\u{00A0}$4")
+        re::compile_m(&format!(
+            "(^|[({spaces}{quote}{PRIVATE}\"])([А-ЯЁ])\\.[{spaces}]?([А-ЯЁ])\\.[{spaces}]?([А-ЯЁ][а-яё]+)"
+        ))
+    });
+
+    re::replace_all(&RE, text, "$1$2.\u{00A0}$3.\u{00A0}$4")
 }
 
-pub fn nbsp_m(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_m(&format!(
-        "(^|[\\s,.\\({PRIVATE}])(\\d+)[ \u{00A0}]?(мм?|см|км|дм|гм|mm?|km|cm|dm)([23²³])?([\\s\\).!?,;{PRIVATE}]|$)"
-    ));
+pub fn nbsp_m<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!(
+            "(^|[\\s,.\\({PRIVATE}])(\\d+)[ \u{00A0}]?(мм?|см|км|дм|гм|mm?|km|cm|dm)([23²³])?([\\s\\).!?,;{PRIVATE}]|$)"
+        ))
+    });
 
-    re::replace_all_fn(&re, text, |caps| {
+    re::replace_all_fn(&RE, text, |caps| {
         let pow = match caps.get(4).map(|m| m.as_str()).unwrap_or("") {
             "2" | "²" => "²",
             "3" | "³" => "³",
@@ -378,36 +463,40 @@ pub fn nbsp_m(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn nbsp_mln(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn nbsp_mln<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile_i("(\\d) ?(тыс|млн|млрд|трлн)(\\.|\\s|$)")
     });
 
     re::replace_all(&RE, text, "$1\u{00a0}$2$3")
 }
 
-pub fn nbsp_ooo(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn nbsp_ooo<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("(^|[^a-яёA-ЯЁ])(ООО|ОАО|ЗАО|НИИ|ПБОЮЛ) ")
     });
 
     re::replace_all(&RE, text, "$1$2\u{00A0}")
 }
 
-pub fn nbsp_page(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_im(&format!(
-        "(^|[)\\s{PRIVATE}])(стр|гл|рис|илл?|ст|п|c)\\. *(\\d+)([\\s.,?!;:]|$)"
-    ));
+pub fn nbsp_page<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_im(&format!(
+            "(^|[)\\s{PRIVATE}])(стр|гл|рис|илл?|ст|п|c)\\. *(\\d+)([\\s.,?!;:]|$)"
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2.\u{00A0}$3$4")
+    re::replace_all(&RE, text, "$1$2.\u{00A0}$3$4")
 }
 
-pub fn nbsp_ps(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_im(&format!(
-        "(^|\\s|{PRIVATE})[pз]\\.[ \u{00A0}]?([pз]\\.[ \u{00A0}]?)?[sы]\\.:? "
-    ));
+pub fn nbsp_ps<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_im(&format!(
+            "(^|\\s|{PRIVATE})[pз]\\.[ \u{00A0}]?([pз]\\.[ \u{00A0}]?)?[sы]\\.:? "
+        ))
+    });
 
-    re::replace_all_fn(&re, text, |caps| {
+    re::replace_all_fn(&RE, text, |caps| {
         let prefix = if caps.get(2).is_some_and(|m| !m.as_str().is_empty()) {
             "P.\u{00A0}P.\u{00A0}S. "
         } else {
@@ -418,52 +507,56 @@ pub fn nbsp_ps(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn nbsp_ruble_kopek(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\d) ?(?=(руб|коп)\\.)"));
+pub fn nbsp_ruble_kopek<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| re::compile("(\\d) ?(?=(руб|коп)\\.)"));
 
     re::replace_all(&RE, text, "$1\u{00A0}")
 }
 
-pub fn nbsp_see(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_i(&format!(
-        "(^|\\s|{PRIVATE}|\\()(см|им)\\.[ \u{00A0}]?([а-яё0-9a-z]+)([\\s.,?!]|$)"
-    ));
+pub fn nbsp_see<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_i(&format!(
+            "(^|\\s|{PRIVATE}|\\()(см|им)\\.[ \u{00A0}]?([а-яё0-9a-z]+)([\\s.,?!]|$)"
+        ))
+    });
 
-    re::replace_all_fn(&re, text, |caps| {
+    re::replace_all_fn(&RE, text, |caps| {
         let lead = if &caps[1] == "\u{00A0}" { " " } else { &caps[1] };
 
         format!("{lead}{}.\u{00A0}{}{}", &caps[2], &caps[3], &caps[4])
     })
 }
 
-pub fn nbsp_year(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn nbsp_year<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("(^|\\D)(\\d{4}) ?г([ ,;.\\n]|$)")
     });
 
     re::replace_all(&RE, text, "$1$2\u{00A0}г$3")
 }
 
-pub fn nbsp_years(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile_m(&format!(
-        "(^|\\D)(\\d{{4}})({})(\\d{{4}})[ \u{00A0}]?г\\.?([ \u{00A0}]?г\\.)?(?=[,;:?!\"‘“»\\s]|$)",
-        data::COMMON_DASH
-    ));
+pub fn nbsp_years<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile_m(&format!(
+            "(^|\\D)(\\d{{4}})({})(\\d{{4}})[ \u{00A0}]?г\\.?([ \u{00A0}]?г\\.)?(?=[,;:?!\"‘“»\\s]|$)",
+            data::COMMON_DASH
+        ))
+    });
 
-    re::replace_all(&re, text, "$1$2$3$4\u{00A0}гг.")
+    re::replace_all(&RE, text, "$1$2$3$4\u{00A0}гг.")
 }
 
-pub fn number_comma(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn number_comma<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile_im("(^|\\s)(\\d+)\\.(\\d+[\u{00A0}\u{2009}\u{202F} ]*?[%‰°×x])")
     });
 
     re::replace_all(&RE, text, "$1$2,$3")
 }
 
-pub fn number_ordinals(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
+pub fn number_ordinals<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     let char = ctx.chars();
-    let re = re::compile(&format!(
+    let re = re::cached(&format!(
         "(\\d[%‰]?)-(ый|ой|ая|ое|ые|ым|ом|ых|ого|ому|ыми)(?![{char}])"
     ));
 
@@ -484,59 +577,65 @@ pub fn number_ordinals(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String 
     })
 }
 
-pub fn punct_ano(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let re = re::compile(&format!(
-        "([^«„\\[(!?,:;\\-‒–—\\s{PRIVATE}])(\\s+)(а|но)(?= |\u{00A0}|\\n)"
-    ));
+pub fn punct_ano<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
+        re::compile(&format!(
+            "([^«„\\[(!?,:;\\-‒–—\\s{PRIVATE}])(\\s+)(а|но)(?= |\u{00A0}|\\n)"
+        ))
+    });
 
-    re::replace_all(&re, text, "$1,$2$3")
+    re::replace_all(&RE, text, "$1,$2$3")
 }
 
-pub fn punct_exclamation(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE2: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile_m("(^|[^!])!{2}($|[^!])"));
-    static RE4: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile_m("(^|[^!])!{4}($|[^!])"));
+pub fn punct_exclamation<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE2: LazyLock<Regex> = LazyLock::new(|| re::compile_m("(^|[^!])!{2}($|[^!])"));
+    static RE4: LazyLock<Regex> = LazyLock::new(|| re::compile_m("(^|[^!])!{4}($|[^!])"));
     let step = re::replace_all(&RE2, text, "$1!$2");
 
-    re::replace_all(&RE4, &step, "$1!!!$2")
+    re::chain(&RE4, step, "$1!!!$2")
 }
 
-pub fn punct_exclamation_question(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^!])!\\?([^?]|$)"));
+pub fn punct_exclamation_question<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| re::compile("(^|[^!])!\\?([^?]|$)"));
 
     re::replace_all(&RE, text, "$1?!$2")
 }
 
-pub fn punct_hellip_question(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE1: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^.])(\\.\\.\\.|…),"));
-    static RE2: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(!|\\?)(\\.\\.\\.|…)(?=[^.]|$)"));
+pub fn punct_hellip_question<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE1: LazyLock<Regex> = LazyLock::new(|| re::compile("(^|[^.])(\\.\\.\\.|…),"));
+    static RE2: LazyLock<Regex> = LazyLock::new(|| re::compile("(!|\\?)(\\.\\.\\.|…)(?=[^.]|$)"));
     let step = re::replace_all(&RE1, text, "$1…");
 
-    re::replace_all(&RE2, &step, "$1..")
+    re::chain(&RE2, step, "$1..")
 }
 
-pub fn space_after_hellip(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE1: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("([а-яё])(\\.\\.\\.|…)([А-ЯЁ])"));
-    static RE2: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile_i("([?!]\\.\\.)([а-яёa-z])"));
+pub fn space_after_hellip<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE1: LazyLock<Regex> = LazyLock::new(|| re::compile("([а-яё])(\\.\\.\\.|…)([А-ЯЁ])"));
+    static RE2: LazyLock<Regex> = LazyLock::new(|| re::compile_i("([?!]\\.\\.)([а-яёa-z])"));
     let step = re::replace_all(&RE1, text, "$1$2 $3");
 
-    re::replace_all(&RE2, &step, "$1 $2")
+    re::chain(&RE2, step, "$1 $2")
 }
 
-pub fn space_year(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
+pub fn space_year<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     let char = ctx.chars();
-    let re = re::compile(&format!(
+    let re = re::cached(&format!(
         "(^| |\u{00A0})(\\d{{3,4}})(год([ауе]|ом)?)([^{char}]|$)"
     ));
 
     re::replace_all(&re, text, "$1$2 $3$5")
 }
 
-pub fn symbols_nn(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    text.replace("№№", "№")
+pub fn symbols_nn<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    if !text.contains("№№") {
+        return Cow::Borrowed(text);
+    }
+
+    Cow::Owned(text.replace("№№", "№"))
 }
 
-pub fn other_accent(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn other_accent<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("([а-яё])([АЕЁИОУЫЭЮЯ])([^А-ЯЁA-Za-z0-9_]|$)")
     });
 
@@ -545,8 +644,8 @@ pub fn other_accent(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
     })
 }
 
-pub fn switching_keyboard(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+pub fn switching_keyboard<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<Regex> = LazyLock::new(|| {
         re::compile("([AaBEeKMHOoPpCcTyXx]{1,3})(?=[А-ЯЁа-яё]+?)")
     });
 

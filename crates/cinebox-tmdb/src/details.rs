@@ -7,6 +7,8 @@ use crate::details_dto::{CollectionBody, MediaBody, PersonBody};
 use crate::details_map::{MAX_ROW, media_from_body, person_from_body};
 use crate::{API_BASE, Error, http_client, prepare_api_key, send_json};
 
+const DETAILS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
+
 pub async fn fetch_media(
     api_key: &str,
     kind: MediaKind,
@@ -21,9 +23,9 @@ pub async fn fetch_media(
         MediaKind::Person => return Err(Error::UnsupportedKind),
     };
 
-    let client = http_client(std::time::Duration::from_secs(25), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
     let url = format!("{API_BASE}/{method}/{}", id.get());
-    let mut request = client.get(&url).query(&[
+    let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[
         ("api_key", api_key),
         (
             "append_to_response",
@@ -37,11 +39,16 @@ pub async fn fetch_media(
 
     let body: MediaBody = send_json(request).await?;
     let (mut details, collection_id) = media_from_body(body, kind, language)?;
-    if let Some(col_id) = collection_id
-        && let Ok(items) = fetch_collection(&client, api_key, col_id, language).await
-    {
-        details.collection = items;
+
+    if let Some(col_id) = collection_id {
+        match fetch_collection(&client, api_key, col_id, language).await {
+            Ok(items) => details.collection = items,
+            Err(error) => {
+                tracing::warn!(%error, collection = col_id, "tmdb collection fetch failed");
+            }
+        }
     }
+
     Ok(details)
 }
 
@@ -52,10 +59,10 @@ pub async fn fetch_person(
     use_system_proxy: bool,
 ) -> Result<PersonDetails, Error> {
     let api_key = prepare_api_key(api_key)?;
-    let client = http_client(std::time::Duration::from_secs(25), use_system_proxy)?;
+    let client = http_client(use_system_proxy)?;
 
     let url = format!("{API_BASE}/person/{}", id.get());
-    let mut request = client.get(&url).query(&[
+    let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[
         ("api_key", api_key),
         ("append_to_response", "combined_credits"),
     ]);
@@ -75,7 +82,7 @@ async fn fetch_collection(
     language: Option<&str>,
 ) -> Result<Vec<CatalogItem>, Error> {
     let url = format!("{API_BASE}/collection/{id}");
-    let mut request = client.get(&url).query(&[("api_key", api_key)]);
+    let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[("api_key", api_key)]);
 
     if let Some(language) = language.filter(|s| !s.is_empty()) {
         request = request.query(&[("language", language)]);

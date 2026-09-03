@@ -1,3 +1,4 @@
+use std::borrow::Cow;
 use std::sync::LazyLock;
 
 use crate::engine::{Context, Typograf};
@@ -10,9 +11,9 @@ const BLOCK: &[&str] = &[
     "table", "tfoot", "ul", "video",
 ];
 
-pub fn e_mail(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
+pub fn e_mail<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     if ctx.is_html {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
 
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
@@ -22,7 +23,13 @@ pub fn e_mail(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
     re::replace_all(&RE, text, "$1<a href=\"mailto:$2@$3.$4\">$2@$3.$4</a>$5")
 }
 
-pub fn escape(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
+pub fn escape<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    let needs_escape = text.contains(['&', '<', '>', '"', '\'', '/']);
+
+    if !needs_escape {
+        return Cow::Borrowed(text);
+    }
+
     let mut out = String::with_capacity(text.len());
 
     for ch in text.chars() {
@@ -37,17 +44,22 @@ pub fn escape(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
         }
     }
 
-    out
+    Cow::Owned(out)
 }
 
-pub fn nbr(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
+pub fn nbr<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("([^\\n>])\\n(?=[^\\n])"));
 
     re::replace_all(&RE, text, "$1<br/>\n")
 }
 
-pub fn p(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    let block_re = re::compile_i(&format!("<({})[>\\s]", BLOCK.join("|")));
+pub fn p<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static BLOCK_RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        re::compile_i(&format!("<({})[>\\s]", BLOCK.join("|")))
+    });
+    static OPENED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^(\\s*)"));
+    static CLOSED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\s*)$"));
+
     let mut buffer: Vec<String> = text.split("\n\n").map(str::to_string).collect();
 
     for chunk in &mut buffer {
@@ -55,27 +67,29 @@ pub fn p(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
             continue;
         }
 
-        if re::is_match(&block_re, chunk) {
+        if re::is_match(&BLOCK_RE, chunk) {
             continue;
         }
 
-        let opened = re::compile("^(\\s*)");
-        let closed = re::compile("(\\s*)$");
-        *chunk = re::replace_all(&opened, chunk, "$1<p>");
-        *chunk = re::replace_all(&closed, chunk, "</p>$1");
+        *chunk = re::replace_all(&OPENED, chunk, "$1<p>").into_owned();
+        *chunk = re::replace_all(&CLOSED, chunk, "</p>$1").into_owned();
     }
 
-    buffer.join("\n\n")
+    Cow::Owned(buffer.join("\n\n"))
 }
 
-pub fn processing_attrs(tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
-    let re_tag = re::compile("(<[-\\w]+\\s)([^>]+?)(?=>)");
-    let re_attrs = re::compile_i("(^|\\s)(title|placeholder)=(\"[^\"]*?\"|'[^']*?')");
+pub fn processing_attrs<'a>(tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE_TAG: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        re::compile("(<[-\\w]+\\s)([^>]+?)(?=>)")
+    });
+    static RE_ATTRS: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        re::compile_i("(^|\\s)(title|placeholder)=(\"[^\"]*?\"|'[^']*?')")
+    });
 
-    re::replace_all_fn(&re_tag, text, |caps| {
+    re::replace_all_fn(&RE_TAG, text, |caps| {
         let tag_name = &caps[1];
         let attrs = &caps[2];
-        let result_attrs = re::replace_all_fn(&re_attrs, attrs, |ac| {
+        let result_attrs = re::replace_all_fn(&RE_ATTRS, attrs, |ac| {
             let space = &ac[1];
             let attr_name = &ac[2];
             let attr_value = &ac[3];
@@ -100,44 +114,52 @@ pub fn processing_attrs(tp: &Typograf, text: &str, ctx: &Context<'_>) -> String 
     })
 }
 
-pub fn quot(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("&quot;"));
+pub fn quot<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    if !text.contains("&quot;") {
+        return Cow::Borrowed(text);
+    }
 
-    re::replace_all(&RE, text, "\"")
+    Cow::Owned(text.replace("&quot;", "\""))
 }
 
-pub fn strip_tags(_tp: &Typograf, text: &str, _ctx: &Context<'_>) -> String {
+pub fn strip_tags<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("<[^>]+>"));
 
     re::replace_all(&RE, text, "")
 }
 
-pub fn url(_tp: &Typograf, text: &str, ctx: &Context<'_>) -> String {
+pub fn url<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     if ctx.is_html {
-        return text.to_string();
+        return Cow::Borrowed(text);
     }
 
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
         re::compile("(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)")
     });
+    
+    static TRAIL: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("([^/]+/?)(\\?|#)$"));
+    static ROOT: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)/$"));
+    static PORT80: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)(:80)([^\\d]|/|$)"));
+    static PORT443: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)(:443)([^\\d]|/|$)"));
+    static WWW: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^www\\."));
 
     re::replace_all_fn(&RE, text, |caps| {
         let protocol = &caps[1];
         let mut path = caps[2].to_string();
-        path = re::replace_all(&re::compile("([^/]+/?)(\\?|#)$"), &path, "$1");
-        path = re::replace_all(&re::compile("^([^/]+)/$"), &path, "$1");
+        path = re::replace_all(&TRAIL, &path, "$1").into_owned();
+        path = re::replace_all(&ROOT, &path, "$1").into_owned();
 
         if protocol == "http" {
-            path = re::replace_all(&re::compile("^([^/]+)(:80)([^\\d]|/|$)"), &path, "$1$3");
+            path = re::replace_all(&PORT80, &path, "$1$3").into_owned();
         } else if protocol == "https" {
-            path = re::replace_all(&re::compile("^([^/]+)(:443)([^\\d]|/|$)"), &path, "$1$3");
+            path = re::replace_all(&PORT443, &path, "$1$3").into_owned();
         }
 
         let full_url = format!("{protocol}://{path}");
         let first = format!("<a href=\"{full_url}\">");
 
         if protocol == "http" || protocol == "https" {
-            let mut url = re::replace_all(&re::compile("^www\\."), &path, "");
+            let mut url = re::replace_all(&WWW, &path, "").into_owned();
 
             if protocol != "http" {
                 url = format!("{protocol}://{url}");

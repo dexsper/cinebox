@@ -1,7 +1,10 @@
 //! Named and numeric HTML entities to UTF-8.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
 use std::sync::LazyLock;
+
+use fancy_regex::Regex;
 
 use crate::re;
 
@@ -17,16 +20,27 @@ static BY_NAME: LazyLock<HashMap<&'static str, char>> = LazyLock::new(|| {
     map
 });
 
-pub fn to_utf(text: &str) -> String {
-    let mut out = text.to_string();
+static NAMED_PROBE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&[a-z]"));
+static NAMED: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&[a-z\\d]{2,31};"));
+static JS_PROBE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("\\\\u[\\da-f]"));
+static JS: LazyLock<Regex> = LazyLock::new(|| re::compile_i("\\\\u[\\da-f]{4};"));
+static DEC: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&#(\\d{1,6});"));
+static HEX: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&#x([\\da-f]{1,6});"));
 
-    if out.contains("&#") {
-        out = dec_hex_to_utf(&out);
+pub fn to_utf(text: &str) -> Cow<'_, str> {
+    if !text.contains('&') && !text.contains("\\u") {
+        return Cow::Borrowed(text);
     }
 
-    if re::is_match(&re::compile_i("&[a-z]"), &out) {
-        let named = re::compile_i("&[a-z\\d]{2,31};");
-        out = re::replace_all_fn(&named, &out, |caps| {
+    let mut out = Cow::Borrowed(text);
+
+    if out.contains("&#") {
+        out = re::chain_fn(&DEC, out, |caps| from_char_code(&caps[1], 10));
+        out = re::chain_fn(&HEX, out, |caps| from_char_code(&caps[1], 16));
+    }
+
+    if re::is_match(&NAMED_PROBE, &out) {
+        out = re::chain_fn(&NAMED, out, |caps| {
             let key = &caps[0];
 
             match BY_NAME.get(&key[1..key.len() - 1]) {
@@ -36,9 +50,8 @@ pub fn to_utf(text: &str) -> String {
         });
     }
 
-    if re::is_match(&re::compile_i("\\\\u[\\da-f]"), &out) {
-        let js = re::compile_i("\\\\u[\\da-f]{4};");
-        out = re::replace_all_fn(&js, &out, |caps| {
+    if re::is_match(&JS_PROBE, &out) {
+        out = re::chain_fn(&JS, out, |caps| {
             let digits = &caps[0][2..6];
 
             match u32::from_str_radix(digits, 16).ok().and_then(char::from_u32) {
@@ -49,15 +62,6 @@ pub fn to_utf(text: &str) -> String {
     }
 
     out
-}
-
-fn dec_hex_to_utf(text: &str) -> String {
-    let dec = re::compile_i("&#(\\d{1,6});");
-    let hex = re::compile_i("&#x([\\da-f]{1,6});");
-
-    let step = re::replace_all_fn(&dec, text, |caps| from_char_code(&caps[1], 10));
-
-    re::replace_all_fn(&hex, &step, |caps| from_char_code(&caps[1], 16))
 }
 
 fn from_char_code(digits: &str, radix: u32) -> String {

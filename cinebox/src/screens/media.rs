@@ -1,64 +1,42 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
-    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, UiLanguage,
+    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId,
     format_money, format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url,
 };
 use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
-use egui_async::Bind;
 use egui_material_icons::icons::ICON_PLAY_CIRCLE;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::{Services, db_block_on};
+use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{self, intro, poster, scroll, skeleton};
 
 const WATCH_BTN_SIZE: Vec2 = vec2(176.0, 46.0);
 
+#[derive(Default)]
 pub struct MediaScreen {
     kind: Option<MediaKind>,
     id: Option<TmdbId>,
     preview: Option<CatalogItem>,
-    bind: Bind<Box<MediaDetails>, String>,
-    disk: Option<CacheHit<Box<MediaDetails>>>,
+    cache: super::swr::Cached<Box<MediaDetails>, CacheHit<Box<MediaDetails>>>,
     intro_at: Option<f64>,
     pending_intro: bool,
-    force_refresh: bool,
-    lang: Option<UiLanguage>,
     reset_scroll: bool,
-}
-
-impl Default for MediaScreen {
-    fn default() -> Self {
-        Self {
-            kind: None,
-            id: None,
-            preview: None,
-            bind: Bind::new(true),
-            disk: None,
-            intro_at: None,
-            pending_intro: false,
-            force_refresh: false,
-            lang: None,
-            reset_scroll: false,
-        }
-    }
 }
 
 impl MediaScreen {
     pub fn ready(&mut self) -> Option<&MediaDetails> {
-        if let Some(Ok(details)) = self.bind.read() {
+        if let Some(Ok(details)) = self.cache.bind.read() {
             return Some(details);
         }
 
-        self.disk.as_ref().map(|hit| hit.value.as_ref())
+        self.cache.disk.as_ref().map(|hit| hit.value.as_ref())
     }
 
     pub fn seed(&mut self, item: CatalogItem) {
         if self.kind != Some(item.kind) || self.id != Some(item.id) {
-            self.bind = Bind::new(true);
-            self.disk = None;
-            self.force_refresh = false;
+            self.cache.reset();
         }
         self.kind = Some(item.kind);
         self.id = Some(item.id);
@@ -70,10 +48,7 @@ impl MediaScreen {
     /// Drop the in-memory card so the next paint reloads for the new language.
     /// Does not touch the SQLite cache.
     pub fn forget_live(&mut self) {
-        self.lang = None;
-        self.bind = Bind::new(true);
-        self.disk = None;
-        self.force_refresh = true;
+        self.cache.forget_live();
     }
 
     pub fn ui(
@@ -88,9 +63,7 @@ impl MediaScreen {
         if self.kind != Some(kind) || self.id != Some(id) {
             self.kind = Some(kind);
             self.id = Some(id);
-            self.bind = Bind::new(true);
-            self.disk = None;
-            self.force_refresh = false;
+            self.cache.reset();
             self.reset_scroll = true;
 
             let is_different = self
@@ -103,34 +76,27 @@ impl MediaScreen {
             }
         }
 
-        let lang = svc.settings.general.language;
-        if self.lang != Some(lang) {
-            let switched = self.lang.is_some();
-            self.lang = Some(lang);
-            if switched {
-                self.bind = Bind::new(true);
-                self.disk = None;
-                self.force_refresh = true;
-            }
-        }
+        self.cache.sync_lang(svc.settings.general.language);
 
-        if self.disk.is_none() {
-            let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
+        let lang = language_key(Some(svc.settings.general.language.tmdb_code())).to_owned();
+        let db = svc.db.clone();
+        let hydrated = self.cache.hydrate(async move {
+            let db = db?;
             let cache_id = media_cache_id(kind, id);
-            self.disk = svc.db.as_ref().and_then(|db| {
-                db_block_on(db.get_json::<MediaDetails>(lang, KIND_MEDIA, &cache_id))
-                    .ok()
-                    .flatten()
-                    .map(|hit| {
-                        let mut value = hit.value;
-                        value.apply_typography();
-                        CacheHit {
-                            value: Box::new(value),
-                            fetched_at: hit.fetched_at,
-                        }
-                    })
-            });
-        }
+            let hit = db
+                .get_json::<MediaDetails>(&lang, KIND_MEDIA, &cache_id)
+                .await
+                .ok()
+                .flatten()?;
+
+            let mut value = hit.value;
+            value.apply_typography();
+
+            Some(CacheHit {
+                value: Box::new(value),
+                fetched_at: hit.fetched_at,
+            })
+        });
         self.start_intro_if_pending(now);
 
         let t = intro::t(self.intro_at, now);
@@ -138,36 +104,40 @@ impl MediaScreen {
             ui.ctx().request_repaint();
         }
 
+        let to_top = self.reset_scroll;
+        if !hydrated {
+            if let Some(item) = self.preview.as_ref() {
+                self.reset_scroll = false;
+                loading(ui, svc, theme, t, item, to_top);
+            } else {
+                widgets::page_spinner(ui, theme);
+            }
+            ui.ctx().request_repaint();
+            return None;
+        }
+
         let settings = svc.settings.clone();
         let db = svc.db.clone();
-        let cache = self.disk.as_ref();
+        let cache = self.cache.disk.as_ref();
         let fresh = cache.is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
-        let skip_network = !self.force_refresh && fresh;
-
-        let has_disk = self.disk.is_some();
-        let outcome = super::swr::resolve(&mut self.bind, has_disk, skip_network, move || {
+        let outcome = self.cache.resolve(fresh, move || {
             jobs::load_media(settings, kind, id, db)
         });
-
-        if outcome.from_network {
-            self.force_refresh = false;
-        }
 
         if outcome.in_flight {
             ui.ctx().request_repaint();
         }
 
         let mut retry = false;
-        let to_top = self.reset_scroll;
         let action = match outcome.view {
-            super::swr::Swr::Live => match self.bind.read() {
+            super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(details)) => {
                     self.reset_scroll = false;
                     ready(ui, details, svc, theme, t, to_top)
                 }
                 _ => None,
             },
-            super::swr::Swr::Disk => match self.disk.as_ref() {
+            super::swr::Swr::Disk => match self.cache.disk.as_ref() {
                 Some(hit) => {
                     self.reset_scroll = false;
                     ready(ui, &hit.value, svc, theme, t, to_top)
@@ -175,7 +145,7 @@ impl MediaScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                let error = match self.bind.read() {
+                let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.clone(),
                     _ => Msg::Failed.t().to_owned(),
                 };
@@ -194,8 +164,7 @@ impl MediaScreen {
         };
 
         if retry {
-            self.bind.clear();
-            self.force_refresh = true;
+            self.cache.retry();
         }
 
         action

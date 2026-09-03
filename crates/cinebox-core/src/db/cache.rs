@@ -72,7 +72,10 @@ impl Store {
         }))
     }
 
-    /// Insert or replace a cache row and its image path refs, then run image GC.
+    /// Insert or replace a cache row and its image path refs.
+    ///
+    /// Image GC stays off this hot path; it runs from `maintenance` and on
+    /// poster-size changes, while `put_image` enforces the byte budget.
     ///
     /// # Errors
     ///
@@ -84,21 +87,11 @@ impl Store {
         id: &str,
         value: &T,
         image_paths: &[String],
-        allowed_sizes: &[String],
     ) -> Result<(), StoreError> {
-        self.put_json_at(
-            language,
-            kind,
-            id,
-            value,
-            image_paths,
-            unix_now(),
-            allowed_sizes,
-        )
-        .await
+        self.put_json_at(language, kind, id, value, image_paths, unix_now())
+            .await
     }
 
-    #[allow(clippy::too_many_arguments)]
     pub(crate) async fn put_json_at<T: Serialize>(
         &self,
         language: &str,
@@ -107,7 +100,6 @@ impl Store {
         value: &T,
         image_paths: &[String],
         fetched_at: i64,
-        allowed_sizes: &[String],
     ) -> Result<(), StoreError> {
         let payload = serde_json::to_string(value).map_err(StoreError::Serialize)?;
         let mut tx = self.pool.begin().await?;
@@ -158,7 +150,8 @@ impl Store {
         }
 
         tx.commit().await?;
-        self.gc_images(allowed_sizes).await
+
+        Ok(())
     }
 
     /// Read image bytes and bump `accessed_at`.
@@ -306,31 +299,37 @@ impl Store {
     }
 
     async fn evict_over_budget(&self) -> Result<(), StoreError> {
-        loop {
-            let row =
-                sqlx::query!("SELECT COALESCE(SUM(LENGTH(bytes)), 0) AS total FROM tmdb_image")
-                    .fetch_one(&self.pool)
-                    .await?;
-
-            if row.total <= IMAGE_BUDGET_BYTES {
-                break;
-            }
-
-            let deleted = sqlx::query!(
-                r#"
-                DELETE FROM tmdb_image
-                WHERE rowid = (
-                    SELECT rowid FROM tmdb_image ORDER BY accessed_at ASC LIMIT 1
-                )
-                "#
-            )
-            .execute(&self.pool)
+        let row = sqlx::query!("SELECT COALESCE(SUM(LENGTH(bytes)), 0) AS total FROM tmdb_image")
+            .fetch_one(&self.pool)
             .await?;
 
-            if deleted.rows_affected() == 0 {
-                break;
-            }
+        let excess = row.total - IMAGE_BUDGET_BYTES;
+
+        if excess <= 0 {
+            return Ok(());
         }
+
+        // A row is deleted when the rows before it (colder ones) do not yet
+        // cover the excess, so the crossing row is included.
+        sqlx::query!(
+            r#"
+            DELETE FROM tmdb_image
+            WHERE rowid IN (
+                SELECT rowid FROM (
+                    SELECT rowid,
+                           LENGTH(bytes) AS len,
+                           SUM(LENGTH(bytes)) OVER (
+                               ORDER BY accessed_at ASC, rowid ASC
+                           ) AS running
+                    FROM tmdb_image
+                )
+                WHERE running - len < ?
+            )
+            "#,
+            excess
+        )
+        .execute(&self.pool)
+        .await?;
 
         Ok(())
     }

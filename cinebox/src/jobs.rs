@@ -7,7 +7,7 @@ use std::sync::Arc;
 use cinebox_core::{
     CONFIG_TTL, HomeCatalog, HomeRow, HomeRowId, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
     KIND_SEASON, MediaDetails, MediaKind, PersonDetails, SEASON_TTL, Settings, Store, TmdbId,
-    allowed_image_sizes, format_release_date, language_key, media_cache_id, normalize_tmdb_path,
+    format_release_date, language_key, media_cache_id, normalize_tmdb_path,
     person_cache_id, season_cache_id, tmdb_image_url,
 };
 use cinebox_parse::{
@@ -56,7 +56,6 @@ pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<Hom
         return Ok(fetched);
     };
     let lang = language_key(Some(language));
-    let sizes = allowed_image_sizes(settings.tmdb.poster_size);
     let mut rows = Vec::with_capacity(fetched.rows.len());
     for row in fetched.rows {
         if row.id == HomeRowId::RecentlyWatched {
@@ -78,7 +77,7 @@ pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<Hom
         }
         let paths = row.image_paths();
         if let Err(error) = db
-            .put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths, &sizes)
+            .put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths)
             .await
         {
             warn!(%error, "failed to persist home row");
@@ -104,11 +103,10 @@ pub async fn load_media(
 
     if let Some(db) = db {
         let lang = language_key(Some(language));
-        let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = media_cache_id(kind, id);
         let paths = details.image_paths();
         if let Err(error) = db
-            .put_json(lang, KIND_MEDIA, &cache_id, &details, &paths, &sizes)
+            .put_json(lang, KIND_MEDIA, &cache_id, &details, &paths)
             .await
         {
             warn!(%error, "failed to persist media details");
@@ -134,11 +132,10 @@ pub async fn load_person(
 
     if let Some(db) = db {
         let lang = language_key(Some(language));
-        let sizes = allowed_image_sizes(settings.tmdb.poster_size);
         let cache_id = person_cache_id(id);
         let paths = details.image_paths();
         if let Err(error) = db
-            .put_json(lang, KIND_PERSON, &cache_id, &details, &paths, &sizes)
+            .put_json(lang, KIND_PERSON, &cache_id, &details, &paths)
             .await
         {
             warn!(%error, "failed to persist person details");
@@ -285,7 +282,6 @@ async fn season_catalog(
 
     let language = Some(settings.general.language.tmdb_code());
     let lang = language_key(language);
-    let sizes = allowed_image_sizes(settings.tmdb.poster_size);
     let mut out = Vec::new();
     let mut need = Vec::new();
     for season in seasons {
@@ -337,7 +333,7 @@ async fn season_catalog(
             let paths = episode_paths(&eps);
             let cache_id = season_cache_id(id, season);
             if let Err(error) = db
-                .put_json(lang, KIND_SEASON, &cache_id, &eps, &paths, &sizes)
+                .put_json(lang, KIND_SEASON, &cache_id, &eps, &paths)
                 .await
             {
                 warn!(%error, "failed to persist season episodes");
@@ -514,17 +510,8 @@ pub async fn ping_tmdb(settings: Settings, db: Option<Arc<Store>>) -> Result<Str
 
     if let Ok(msg) = &result
         && let Some(db) = db
-        && let Err(error) = db
-            .put_json(
-                "",
-                KIND_CONFIG,
-                &cache_id,
-                msg,
-                &[],
-                &allowed_image_sizes(settings.tmdb.poster_size),
-            )
-            .await
-        {
+        && let Err(error) = db.put_json("", KIND_CONFIG, &cache_id, msg, &[]).await
+    {
         warn!(%error, "failed to persist tmdb ping");
     }
     result

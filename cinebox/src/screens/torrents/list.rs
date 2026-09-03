@@ -3,7 +3,7 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaKind, QualityBand};
 use cinebox_parse::{
-    AudioLang, SortMode, TriChoice, VoiceFilter, filtered_hits, hit_bitrate_mbps, season_options,
+    AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options,
     voice_filter_options, year_options,
 };
 use egui::{
@@ -46,8 +46,7 @@ pub(super) fn list_pane(
             }
         }
         TorrentHits::Ready(hits) => {
-            let visible: Vec<(usize, &cinebox_parse::TorrentHit)> =
-                filtered_hits(hits, &state.filter).collect();
+            let visible = &state.visible;
 
             ui.label(
                 RichText::new(format!("{} / {}", visible.len(), hits.len()))
@@ -70,7 +69,11 @@ pub(super) fn list_pane(
 
                 Frame::new().inner_margin(ring_room).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-                    for (index, hit) in visible {
+                    for &index in visible {
+                        let Some(hit) = hits.get(index) else {
+                            continue;
+                        };
+
                         hit_row(
                             ui,
                             hit,
@@ -382,7 +385,7 @@ fn hit_row(
                                 .color(theme.muted),
                         );
 
-                        if hit.local || hit.started {
+                        if hit.local_rank.is_some() || hit.started {
                             ui.label(RichText::new(Msg::TagStarted.t()).color(theme.ok));
                         }
                     });

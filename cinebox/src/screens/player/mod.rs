@@ -2,8 +2,10 @@
 //! true OS fullscreen, and a TorrServer buffering phase.
 
 mod buffering;
+mod input;
 mod overlay;
 mod playlist_popup;
+mod progress;
 mod settings_popup;
 mod volume;
 
@@ -11,9 +13,9 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cinebox_core::i18n::Msg;
-use cinebox_core::{TorrentPlaybackPrefs, WatchHistoryEntry};
+use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
-use egui::{Align2, Rect, RichText, Sense, Ui, Vec2, ViewportCommand};
+use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
 use tracing::warn;
 
@@ -90,6 +92,13 @@ struct LoadSpec {
     backdrop_path: Option<String>,
 }
 
+/// The video `PaintCallback` closure, reused across frames while the engine
+/// identity stays the same.
+struct VideoCallback {
+    engine: Arc<Mutex<Engine>>,
+    callback: Arc<egui_glow::CallbackFn>,
+}
+
 pub struct PlayerScreen {
     phase: Option<PlayerPhase>,
     fullscreen: bool,
@@ -102,6 +111,7 @@ pub struct PlayerScreen {
     volume_dirty: bool,
     progress_saved_at: Option<Instant>,
     viewed_job: Bind<(), String>,
+    video_cb: Option<VideoCallback>,
 }
 
 impl Default for PlayerScreen {
@@ -118,6 +128,7 @@ impl Default for PlayerScreen {
             volume_dirty: false,
             progress_saved_at: None,
             viewed_job: Bind::new(true),
+            video_cb: None,
         }
     }
 }
@@ -166,22 +177,6 @@ impl PlayerScreen {
     #[must_use]
     pub fn is_fullscreen(&self) -> bool {
         self.fullscreen
-    }
-
-    /// Escape while the player is on screen: close a popup first, then exit
-    /// fullscreen. `true` when consumed (navigation must not pop).
-    pub fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
-        if self.popup != Popup::None {
-            self.popup = Popup::None;
-            return true;
-        }
-
-        if self.fullscreen {
-            self.set_fullscreen(ctx, false);
-            return true;
-        }
-
-        false
     }
 
     pub fn tick(&mut self, svc: &mut Services, ctx: &egui::Context) {
@@ -308,7 +303,7 @@ impl PlayerScreen {
                 theme.err,
             );
         } else {
-            paint_video(ui, rect, svc.engine.clone(), theme);
+            paint_video(ui, rect, svc.engine.clone(), theme, &mut self.video_cb);
         }
 
         let mut seek_rel = None;
@@ -450,7 +445,7 @@ impl PlayerScreen {
         if let Some(scale) = out.scale {
             self.prefs.scale = scale;
             with_engine(svc, |engine| {
-                let _ = engine.set_scale(scale);
+                log_mpv("set_scale", engine.set_scale(scale));
             });
             dirty = true;
         }
@@ -458,7 +453,7 @@ impl PlayerScreen {
         if let Some(speed) = out.speed {
             self.prefs.speed = speed;
             with_engine(svc, |engine| {
-                let _ = engine.set_speed(speed);
+                log_mpv("set_speed", engine.set_speed(speed));
             });
             dirty = true;
         }
@@ -466,7 +461,7 @@ impl PlayerScreen {
         if let Some(id) = out.audio {
             self.prefs.aid = id;
             with_engine(svc, |engine| {
-                let _ = engine.select_audio(id);
+                log_mpv("select_audio", engine.select_audio(id));
             });
             dirty = true;
         }
@@ -474,7 +469,7 @@ impl PlayerScreen {
         if let Some(sub) = out.sub {
             self.prefs.sid = sub.unwrap_or(0);
             with_engine(svc, |engine| {
-                let _ = engine.select_sub(sub);
+                log_mpv("select_sub", engine.select_sub(sub));
             });
             dirty = true;
         }
@@ -482,14 +477,14 @@ impl PlayerScreen {
         if let Some(scale) = out.sub_scale {
             self.sub_scale = scale;
             with_engine(svc, |engine| {
-                let _ = engine.set_sub_scale(scale);
+                log_mpv("set_sub_scale", engine.set_sub_scale(scale));
             });
         }
 
         if let Some(delay) = out.sub_delay {
             self.sub_delay = delay;
             with_engine(svc, |engine| {
-                let _ = engine.set_sub_delay(delay);
+                log_mpv("set_sub_delay", engine.set_sub_delay(delay));
             });
         }
 
@@ -579,7 +574,7 @@ impl PlayerScreen {
             let level = level.clamp(0.0, 100.0);
             svc.settings.player.volume = level;
             with_engine(svc, |engine| {
-                let _ = engine.set_volume(level);
+                log_mpv("set_volume", engine.set_volume(level));
             });
             self.volume_dirty = true;
         }
@@ -611,36 +606,6 @@ impl PlayerScreen {
         self.popup = popup;
     }
 
-    fn update_activity(&mut self, ui: &Ui, now: f64) {
-        let interacted = ui.input(|i| {
-            i.pointer.delta() != Vec2::ZERO
-                || i.pointer.any_down()
-                || i.smooth_scroll_delta != Vec2::ZERO
-                || i.events
-                    .iter()
-                    .any(|event| matches!(event, egui::Event::Key { .. }))
-        });
-
-        if interacted {
-            self.activity.poke(now);
-        }
-    }
-
-    fn handle_keys(&mut self, ui: &Ui, svc: &Services) {
-        if !matches!(self.phase, Some(PlayerPhase::Playing(_))) {
-            return;
-        }
-
-        if ui.input(|i| i.key_pressed(egui::Key::Space)) {
-            self.toggle(svc);
-        }
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
-            self.seek(svc, -SEEK_SECS);
-        }
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
-            self.seek(svc, SEEK_SECS);
-        }
-    }
 }
 
 impl PlayerScreen {
@@ -786,20 +751,20 @@ impl PlayerScreen {
 
         state.error = None;
 
-        let _ = engine.set_scale(prefs.scale);
-        let _ = engine.set_speed(prefs.speed);
-        let _ = engine.set_volume(volume);
-        let _ = engine.set_sub_scale(sub_scale);
-        let _ = engine.set_sub_delay(sub_delay);
+        log_mpv("set_scale", engine.set_scale(prefs.scale));
+        log_mpv("set_speed", engine.set_speed(prefs.speed));
+        log_mpv("set_volume", engine.set_volume(volume));
+        log_mpv("set_sub_scale", engine.set_sub_scale(sub_scale));
+        log_mpv("set_sub_delay", engine.set_sub_delay(sub_delay));
 
         if prefs.aid > 0 {
-            let _ = engine.select_audio(prefs.aid);
+            log_mpv("select_audio", engine.select_audio(prefs.aid));
         }
 
         if prefs.sid > 0 {
-            let _ = engine.select_sub(Some(prefs.sid));
+            log_mpv("select_sub", engine.select_sub(Some(prefs.sid)));
         } else if prefs.sid == 0 {
-            let _ = engine.select_sub(None);
+            log_mpv("select_sub", engine.select_sub(None));
         }
     }
 
@@ -880,160 +845,16 @@ impl PlayerScreen {
         self.begin_load(svc, ctx, spec);
     }
 
-    fn save_prefs(&self, svc: &Services) {
-        let Some(db) = &svc.db else {
-            return;
-        };
-
-        let hash = match &self.phase {
-            Some(PlayerPhase::Playing(state)) => &state.hash,
-            Some(PlayerPhase::Buffering(state)) => &state.hash,
-            None => return,
-        };
-
-        if let Err(error) = db_block_on(db.put_torrent_prefs(hash, &self.prefs)) {
-            warn!(%error, "failed to save torrent playback prefs");
-        }
-    }
-
-    fn save_progress(&mut self, svc: &mut Services, force: bool) {
-        if !force {
-            let recent = self
-                .progress_saved_at
-                .is_some_and(|at| at.elapsed() < Duration::from_secs(10));
-
-            if recent {
-                return;
-            }
-        }
-
-        let (entry, hash, time, duration, kind, id, file_id) = {
-            let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
-                return;
-            };
-
-            if state.error.is_some() {
-                return;
-            }
-
-            let Some(file) = state.files.get(state.file_index) else {
-                return;
-            };
-
-            let season = file.season;
-            let episode = file.episode;
-            let episode_title = file.title.clone();
-            let file_id = file.id;
-            let entry = WatchHistoryEntry {
-                kind: state.card.kind,
-                id: state.card.id,
-                title: state.card.title.clone(),
-                poster_path: state.card.poster_path.clone(),
-                year: state.card.year,
-                vote: state.card.vote,
-                season,
-                episode,
-                episode_title: Some(episode_title),
-                time: state.time,
-                duration: state.duration,
-            };
-            let hash = state.hash.clone();
-            let time = state.time;
-            let duration = state.duration;
-            let kind = state.card.kind;
-            let id = state.card.id;
-
-            if let Some(file) = state.files.get_mut(state.file_index) {
-                file.timecode = time;
-            }
-
-            (entry, hash, time, duration, kind, id, file_id)
-        };
-
-        let track = svc.settings.torrserver.track_timecode;
-
-        if let Some(db) = &svc.db {
-            if let Err(error) = db_block_on(db.upsert_watch_timeline(
-                kind,
-                id,
-                entry.season,
-                entry.episode,
-                time,
-                duration,
-            )) {
-                warn!(%error, "failed to save watch timeline");
-            }
-
-            if let Err(error) = db_block_on(db.upsert_watch_history(&entry, Some(&hash))) {
-                warn!(%error, "failed to save watch history");
-            }
-        }
-
-        svc.mark_watched(kind, id);
-        self.progress_saved_at = Some(Instant::now());
-
-        if !track {
-            return;
-        }
-
-        let settings = svc.settings.clone();
-        self.viewed_job.request(async move {
-            cinebox_torrserver::viewed_set(
-                &settings.torrserver.url,
-                &settings.torrserver.username,
-                settings.torrserver.password.expose(),
-                &hash,
-                file_id,
-                time,
-            )
-            .await
-            .map_err(|error| error.to_string())
-        });
-    }
-
-    fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
-        if self.fullscreen == on {
-            return;
-        }
-
-        self.fullscreen = on;
-        if on {
-            // A maximized undecorated window overhangs the screen edges on
-            // Windows; going borderless-fullscreen from it keeps that stale
-            // geometry (footer lands below the screen). Un-maximize first.
-            self.was_maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
-            if self.was_maximized {
-                ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
-            }
-            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
-            return;
-        }
-        ctx.send_viewport_cmd(ViewportCommand::Fullscreen(false));
-        if self.was_maximized {
-            self.was_maximized = false;
-            ctx.send_viewport_cmd(ViewportCommand::Maximized(true));
-        }
-    }
-
-    fn sync_fullscreen(&mut self, ctx: &egui::Context) {
-        if !self.fullscreen {
-            return;
-        }
-
-        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
-        if maximized {
-            self.was_maximized = true;
-            ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
-        }
-
-        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
-        if !fullscreen {
-            ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
-        }
-    }
-
     fn toggle(&mut self, svc: &Services) {
-        let paused = with_engine(svc, |engine| engine.toggle_pause().ok()).flatten();
+        let paused = with_engine(svc, |engine| match engine.toggle_pause() {
+            Ok(paused) => Some(paused),
+            Err(error) => {
+                warn!(%error, "mpv toggle pause failed");
+                None
+            }
+        })
+        .flatten();
+
         let Some(paused) = paused else {
             return;
         };
@@ -1049,7 +870,15 @@ impl PlayerScreen {
         };
 
         let next = !state.muted;
-        let ok = with_engine(svc, |engine| engine.set_mute(next).is_ok()).unwrap_or(false);
+        let ok = with_engine(svc, |engine| match engine.set_mute(next) {
+            Ok(()) => true,
+            Err(error) => {
+                warn!(%error, "mpv mute failed");
+                false
+            }
+        })
+        .unwrap_or(false);
+
         if ok {
             state.muted = next;
         }
@@ -1057,18 +886,25 @@ impl PlayerScreen {
 
     fn seek(&self, svc: &Services, delta: f64) {
         with_engine(svc, |engine| {
-            let _ = engine.seek(delta);
+            log_mpv("seek", engine.seek(delta));
         });
     }
 
     fn seek_abs(&mut self, svc: &Services, to: f64) {
         with_engine(svc, |engine| {
-            let _ = engine.seek_abs(to);
+            log_mpv("seek_abs", engine.seek_abs(to));
         });
 
         if let Some(PlayerPhase::Playing(state)) = &mut self.phase {
             state.time = to;
         }
+    }
+}
+
+/// Log an mpv control failure instead of dropping it silently.
+fn log_mpv(op: &'static str, result: Result<(), cinebox_player::Error>) {
+    if let Err(error) = result {
+        warn!(%error, op, "mpv control failed");
     }
 }
 
@@ -1087,22 +923,53 @@ fn engine_tracks(svc: &Services) -> Vec<Track> {
     with_engine(svc, Engine::track_list).unwrap_or_default()
 }
 
-fn paint_video(ui: &mut Ui, rect: Rect, engine: Option<Arc<Mutex<Engine>>>, theme: &Theme) {
+/// Returns the cached render callback, rebuilding it only when the engine
+/// identity changes; allocating a new `Arc<CallbackFn>` per frame is waste.
+fn video_callback(
+    cache: &mut Option<VideoCallback>,
+    engine: Arc<Mutex<Engine>>,
+) -> Arc<egui_glow::CallbackFn> {
+    let cached = cache
+        .as_ref()
+        .filter(|cb| Arc::ptr_eq(&cb.engine, &engine));
+
+    if let Some(cb) = cached {
+        return cb.callback.clone();
+    }
+
+    let render_engine = engine.clone();
+    let callback = Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
+        let vp = info.viewport_in_pixels();
+        let fbo = painter.intermediate_fbo().map(|fb| fb.0.get()).unwrap_or(0);
+        if let Ok(engine) = render_engine.lock() {
+            let _ = engine.render(fbo, vp.width_px, vp.height_px);
+        }
+    }));
+
+    *cache = Some(VideoCallback {
+        engine,
+        callback: callback.clone(),
+    });
+
+    callback
+}
+
+fn paint_video(
+    ui: &Ui,
+    rect: Rect,
+    engine: Option<Arc<Mutex<Engine>>>,
+    theme: &Theme,
+    cache: &mut Option<VideoCallback>,
+) {
     ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+
     let Some(engine) = engine else {
         return;
     };
 
-    ui.painter().add(egui::PaintCallback {
-        rect,
-        callback: std::sync::Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
-            let vp = info.viewport_in_pixels();
-            let fbo = painter.intermediate_fbo().map(|fb| fb.0.get()).unwrap_or(0);
-            if let Ok(engine) = engine.lock() {
-                let _ = engine.render(fbo, vp.width_px, vp.height_px);
-            }
-        })),
-    });
+    let callback = video_callback(cache, engine);
+
+    ui.painter().add(egui::PaintCallback { rect, callback });
 }
 
 #[cfg(test)]
@@ -1125,7 +992,7 @@ mod tests {
         }
     }
 
-    fn spec(file_index: usize, count: i32) -> LoadSpec {
+    pub(super) fn spec(file_index: usize, count: i32) -> LoadSpec {
         LoadSpec {
             card: WatchCard {
                 kind: cinebox_core::MediaKind::Tv,
@@ -1174,53 +1041,4 @@ mod tests {
         assert!(screen.popup == Popup::Playlist);
     }
 
-    #[test]
-    fn escape_closes_popup_before_leaving_fullscreen() {
-        let ctx = egui::Context::default();
-        let mut screen = PlayerScreen {
-            fullscreen: true,
-            popup: Popup::Playlist,
-            ..PlayerScreen::default()
-        };
-
-        assert!(screen.consume_escape(&ctx));
-        assert!(screen.popup == Popup::None);
-        assert!(screen.is_fullscreen());
-
-        assert!(screen.consume_escape(&ctx));
-        assert!(!screen.is_fullscreen());
-
-        assert!(!screen.consume_escape(&ctx));
-    }
-
-    #[test]
-    fn save_progress_upserts_by_media_id() -> Result<(), cinebox_core::StoreError> {
-        let db = std::sync::Arc::new(db_block_on(cinebox_core::Store::memory())?);
-        let mut svc = Services::test_with_db(db.clone());
-        let mut screen = PlayerScreen {
-            phase: Some(PlayerPhase::Playing(PlayerState::from_spec(&spec(1, 3)))),
-            ..PlayerScreen::default()
-        };
-
-        if let Some(PlayerPhase::Playing(state)) = &mut screen.phase {
-            state.time = 42.0;
-            state.duration = 2400.0;
-        }
-
-        screen.save_progress(&mut svc, true);
-
-        let kind = cinebox_core::MediaKind::Tv;
-        let id = cinebox_core::TmdbId::new(1);
-        let got = db_block_on(db.get_watch_timeline(kind, id, Some(1), Some(2)))?;
-
-        assert_eq!(got, Some((42.0, 2400.0)));
-
-        let recent = db_block_on(db.recently_watched(10))?;
-        assert_eq!(recent.len(), 1);
-        assert_eq!(recent[0].id, id);
-        assert_eq!(recent[0].title, "Show");
-        assert!(svc.is_watched(kind, id));
-
-        Ok(())
-    }
 }

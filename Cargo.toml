@@ -52,6 +52,7 @@ tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream", "charset", "http2", "system-proxy"] }
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 regex = "1"
+aho-corasick = "1"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

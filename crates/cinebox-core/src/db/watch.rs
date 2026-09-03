@@ -107,6 +107,8 @@ impl Store {
         let episode_title = entry.episode_title.as_deref();
         let now = unix_now();
 
+        let mut tx = self.pool.begin().await?;
+
         sqlx::query!(
             r#"
             INSERT OR REPLACE INTO watch_history
@@ -127,65 +129,12 @@ impl Store {
             entry.duration,
             now
         )
-        .execute(&self.pool)
+        .execute(&mut *tx)
         .await?;
 
-        self.touch_watch_release(entry.kind, entry.id, hash).await?;
+        touch_watch_release(&mut tx, entry.kind, entry.id, hash).await?;
 
-        Ok(())
-    }
-
-    async fn touch_watch_release(
-        &self,
-        kind: MediaKind,
-        id: TmdbId,
-        hash: Option<&str>,
-    ) -> Result<(), StoreError> {
-        let Some(hash) = hash.filter(|hash| !hash.is_empty()) else {
-            return Ok(());
-        };
-
-        let kind = media_kind_key(kind);
-        let id = i64::from(id.get());
-        let now = unix_now();
-
-        sqlx::query!(
-            r#"
-            INSERT OR REPLACE INTO watch_release (kind, id, hash, updated_at)
-            VALUES (?, ?, ?, ?)
-            "#,
-            kind,
-            id,
-            hash,
-            now
-        )
-        .execute(&self.pool)
-        .await?;
-
-        let rows = sqlx::query!(
-            r#"
-            SELECT hash
-            FROM watch_release
-            WHERE kind = ? AND id = ?
-            ORDER BY updated_at DESC, rowid DESC
-            "#,
-            kind,
-            id
-        )
-        .fetch_all(&self.pool)
-        .await?;
-
-        let extra = rows.into_iter().skip(RECENT_RELEASE_LIMIT);
-        for row in extra {
-            sqlx::query!(
-                "DELETE FROM watch_release WHERE kind = ? AND id = ? AND hash = ?",
-                kind,
-                id,
-                row.hash
-            )
-            .execute(&self.pool)
-            .await?;
-        }
+        tx.commit().await?;
 
         Ok(())
     }
@@ -305,4 +254,58 @@ impl Store {
             error: None,
         })
     }
+}
+
+/// Upsert the just-played hash and prune the per-media list to
+/// `RECENT_RELEASE_LIMIT` with a single `DELETE`, inside the caller's
+/// transaction.
+async fn touch_watch_release(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    kind: MediaKind,
+    id: TmdbId,
+    hash: Option<&str>,
+) -> Result<(), StoreError> {
+    let Some(hash) = hash.filter(|hash| !hash.is_empty()) else {
+        return Ok(());
+    };
+
+    let kind = media_kind_key(kind);
+    let id = i64::from(id.get());
+    let now = unix_now();
+
+    sqlx::query!(
+        r#"
+        INSERT OR REPLACE INTO watch_release (kind, id, hash, updated_at)
+        VALUES (?, ?, ?, ?)
+        "#,
+        kind,
+        id,
+        hash,
+        now
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    let limit = i64::try_from(RECENT_RELEASE_LIMIT).unwrap_or(3);
+
+    sqlx::query!(
+        r#"
+        DELETE FROM watch_release
+        WHERE kind = ? AND id = ? AND hash NOT IN (
+            SELECT hash FROM watch_release
+            WHERE kind = ? AND id = ?
+            ORDER BY updated_at DESC, rowid DESC
+            LIMIT ?
+        )
+        "#,
+        kind,
+        id,
+        kind,
+        id,
+        limit
+    )
+    .execute(&mut **tx)
+    .await?;
+
+    Ok(())
 }

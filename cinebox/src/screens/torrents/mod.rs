@@ -14,7 +14,7 @@ use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::{Services, db_block_on};
+use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::{self, intro, poster, scroll};
@@ -24,6 +24,7 @@ pub struct TorrentsScreen {
     details: Option<MediaDetails>,
     hits: Bind<Vec<cinebox_parse::TorrentHit>, String>,
     opened: Bind<ReadyFiles, String>,
+    local_hashes: Bind<(MediaKind, TmdbId, Vec<String>), String>,
     intro_at: Option<f64>,
     on_screen: bool,
     pending_play: Option<crate::screens::play::PlayRequest>,
@@ -37,6 +38,7 @@ impl Default for TorrentsScreen {
             details: None,
             hits: Bind::new(true),
             opened: Bind::new(true),
+            local_hashes: Bind::new(true),
             intro_at: None,
             on_screen: false,
             pending_play: None,
@@ -123,6 +125,7 @@ impl TorrentsScreen {
             self.intro_at = Some(now);
             self.retag_local_hits(svc);
         }
+        self.apply_local_hits();
 
         self.poll_hits(svc, ui.ctx());
         self.poll_opened(svc, ui.ctx());
@@ -227,7 +230,7 @@ impl TorrentsScreen {
         let poster_w = intro::lerp(theme.poster_w, theme.explorer_poster_w, t);
         let poster_h = intro::lerp(theme.poster_h, theme.explorer_poster_h, t);
 
-        let head = state.movie.head_line();
+        let head = state.movie.head_line.as_str();
         let overview_size = theme.text_small * 1.5;
 
         scroll::vertical(ui, "torrent-movie", |ui| {
@@ -276,10 +279,10 @@ impl TorrentsScreen {
                     .color(theme.title),
             );
 
-            if !state.movie.genres.is_empty() {
+            if !state.movie.genres_line.is_empty() {
                 ui.add_space(4.0);
                 ui.label(
-                    RichText::new(state.movie.genres.join(", "))
+                    RichText::new(&state.movie.genres_line)
                         .size(theme.text_small)
                         .color(theme.muted),
                 );
@@ -300,18 +303,41 @@ impl TorrentsScreen {
 }
 
 impl TorrentsScreen {
+    /// Kick off the async watch-hash lookup; `apply_local_hits` picks up the
+    /// result on a later frame.
     fn retag_local_hits(&mut self, svc: &Services) {
+        let Some(state) = &self.state else {
+            return;
+        };
+
+        let Some(db) = svc.db.clone() else {
+            return;
+        };
+
+        let kind = state.kind;
+        let id = state.id;
+        self.local_hashes.refresh(async move {
+            let hashes = db
+                .watch_release_hashes(kind, id)
+                .await
+                .map_err(|error| error.to_string())?;
+
+            Ok((kind, id, hashes))
+        });
+    }
+
+    fn apply_local_hits(&mut self) {
+        let Some(Ok((kind, id, hashes))) = self.local_hashes.take() else {
+            return;
+        };
+
         let Some(state) = &mut self.state else {
             return;
         };
 
-        let Some(db) = &svc.db else {
+        if !state.matches(kind, id) {
             return;
-        };
-
-        let Ok(hashes) = db_block_on(db.watch_release_hashes(state.kind, state.id)) else {
-            return;
-        };
+        }
 
         state.mark_local_hashes(&hashes);
     }
@@ -323,14 +349,14 @@ impl TorrentsScreen {
         };
 
         if matches!(state.hits, TorrentHits::Failed(_)) {
-            state.hits = TorrentHits::Loading;
+            state.set_hits(TorrentHits::Loading);
         }
     }
 
     fn poll_hits(&mut self, svc: &mut Services, ctx: &egui::Context) {
         if svc.settings.parser.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.hits = TorrentHits::Failed(Msg::NeedParser.t().to_owned());
+                state.set_hits(TorrentHits::Failed(Msg::NeedParser.t().to_owned()));
             }
             return;
         }
@@ -362,13 +388,13 @@ impl TorrentsScreen {
         match result {
             Ok(hits) => {
                 if let Some(state) = &mut self.state {
-                    state.hits = TorrentHits::Ready(hits.clone());
+                    state.set_hits(TorrentHits::Ready(hits.clone()));
                 }
             }
             Err(error) => {
                 svc.toasts.error(error.clone(), ctx.input(|i| i.time));
                 if let Some(state) = &mut self.state {
-                    state.hits = TorrentHits::Failed(error.clone());
+                    state.set_hits(TorrentHits::Failed(error.clone()));
                 }
             }
         }
@@ -540,9 +566,8 @@ mod tests {
         assert!(screen.intro_animating(10.05));
     }
 
-    #[test]
-    fn refresh_hits_retries_failed() {
-        let state = Some(TorrentState {
+    fn test_state(hits: TorrentHits) -> TorrentState {
+        TorrentState {
             kind: MediaKind::Movie,
             id: TmdbId::new(1),
             movie: MovieBits {
@@ -550,22 +575,29 @@ mod tests {
                 overview: None,
                 year: Some(2021),
                 vote: None,
-                genres: Vec::new(),
-                countries: Vec::new(),
                 certification: None,
                 poster_path: None,
                 backdrop_path: None,
                 number_of_seasons: None,
+                head_line: String::from("2021"),
+                genres_line: String::new(),
             },
             year: Some(2021),
             runtime_minutes: None,
-            hits: TorrentHits::Failed(String::from("down")),
+            hits,
             filter: cinebox_parse::TorrentFilter::default(),
             sort: cinebox_parse::SortMode::Popular,
             files: FilesPane::Closed,
             pick_gen: 0,
             pending_add: None,
-        });
+            view_key: None,
+            visible: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn refresh_hits_retries_failed() {
+        let state = Some(test_state(TorrentHits::Failed(String::from("down"))));
 
         let mut screen = TorrentsScreen {
             state,
@@ -597,36 +629,13 @@ mod tests {
             &[],
             &[],
         );
-        let mut state = TorrentState {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-            movie: MovieBits {
-                title: String::from("Dune"),
-                overview: None,
-                year: Some(2021),
-                vote: None,
-                genres: Vec::new(),
-                countries: Vec::new(),
-                certification: None,
-                poster_path: None,
-                backdrop_path: None,
-                number_of_seasons: None,
-            },
-            year: Some(2021),
-            runtime_minutes: None,
-            hits: TorrentHits::Ready(vec![hit]),
-            filter: cinebox_parse::TorrentFilter::default(),
-            sort: cinebox_parse::SortMode::Popular,
-            files: FilesPane::Closed,
-            pick_gen: 0,
-            pending_add: None,
-        };
+        let mut state = test_state(TorrentHits::Ready(vec![hit]));
 
         state.mark_local_hashes(&[hash]);
 
         let TorrentHits::Ready(hits) = &state.hits else {
             panic!("hits should stay ready");
         };
-        assert!(hits[0].local);
+        assert_eq!(hits[0].local_rank, Some(0));
     }
 }

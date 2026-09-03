@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM watch_release\n        WHERE kind = ? AND id = ? AND hash NOT IN (\n            SELECT hash FROM watch_release\n            WHERE kind = ? AND id = ?\n            ORDER BY updated_at DESC, rowid DESC\n            LIMIT ?\n        )\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "35c30253d14394356007fde30fe993339ff5f1fed514acbe8b927dda1ee59c9d"
+}

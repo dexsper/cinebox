@@ -81,14 +81,22 @@ pub(crate) fn media_from_body(
         .filter_map(|c| credit_person(c, CreditSource::Crew))
         .collect();
 
-    let mut cast: Vec<CreditPerson> = credits
+    // TMDB billing order; entries without `order` go last.
+    let mut cast: Vec<(u32, CreditPerson)> = credits
         .cast
         .unwrap_or_default()
         .into_iter()
-        .filter_map(|c| credit_person(c, CreditSource::Cast))
+        .filter_map(|c| {
+            let order = c.order.unwrap_or(u32::MAX);
+
+            credit_person(c, CreditSource::Cast).map(|person| (order, person))
+        })
         .collect();
 
+    cast.sort_by_key(|(order, _)| *order);
     cast.truncate(MAX_CAST);
+
+    let cast: Vec<CreditPerson> = cast.into_iter().map(|(_, person)| person).collect();
     let collection_id = body
         .belongs_to_collection
         .and_then(|c| c.id.filter(|id| *id > 0));
@@ -258,7 +266,7 @@ fn credit_person(raw: CreditRaw, source: CreditSource) -> Option<CreditPerson> {
         CreditSource::Crew => raw.job.unwrap_or_default(),
         CreditSource::Cast => raw.character.unwrap_or_default(),
     };
-    let _ = raw.order;
+    
     Some(CreditPerson {
         id: TmdbId::new(id),
         name,

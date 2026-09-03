@@ -134,14 +134,23 @@ pub fn parse_title(title: &str) -> TitleInfo {
     if title.is_empty() {
         return TitleInfo::default();
     }
-    let lower = title.to_lowercase();
+
+    parse_title_lower(title, &title.to_lowercase())
+}
+
+/// [`parse_title`] for a title the caller has already lowercased.
+pub(crate) fn parse_title_lower(title: &str, lower: &str) -> TitleInfo {
+    if title.is_empty() {
+        return TitleInfo::default();
+    }
+
     TitleInfo {
         seasons: seasons(title),
         episodes: episodes(title),
         year: year(title),
-        quality: source_quality(&lower),
-        hdr: hdr(&lower),
-        resolution: resolution(&lower),
+        quality: source_quality(lower),
+        hdr: hdr(lower),
+        resolution: resolution(lower),
     }
 }
 

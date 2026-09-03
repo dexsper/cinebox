@@ -1,5 +1,6 @@
 //! Shared HTTP client: no proxy, optional Basic auth.
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use reqwest::StatusCode;
@@ -7,14 +8,23 @@ use serde::de::DeserializeOwned;
 
 use super::error::Error;
 
-pub(crate) fn http_client(timeout: Duration) -> Result<reqwest::Client, Error> {
+static CLIENT: OnceLock<reqwest::Client> = OnceLock::new();
+
+/// Shared long-lived client. Set request timeouts with
+/// [`reqwest::RequestBuilder::timeout`].
+pub(crate) fn http_client() -> Result<reqwest::Client, Error> {
+    if let Some(client) = CLIENT.get() {
+        return Ok(client.clone());
+    }
+
     // Local TorrServer must not inherit WinINet / env proxies.
-    reqwest::Client::builder()
+    let client = reqwest::Client::builder()
         .no_proxy()
-        .timeout(timeout)
         .connect_timeout(Duration::from_secs(5))
         .build()
-        .map_err(Error::Client)
+        .map_err(Error::Client)?;
+
+    Ok(CLIENT.get_or_init(|| client).clone())
 }
 
 pub(crate) fn apply_basic_auth(

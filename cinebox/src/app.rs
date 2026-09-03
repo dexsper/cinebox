@@ -162,7 +162,23 @@ impl App {
         self.nav.pop();
     }
 
+    /// `true` when none of the TMDB-relevant settings changed since the last
+    /// sync; checked without cloning the api key string.
+    fn tmdb_unchanged(&self) -> bool {
+        let settings = &self.services.settings;
+        let last = &self.last_tmdb;
+
+        last.api_key == settings.tmdb.api_key.expose()
+            && last.language == settings.general.language
+            && last.poster_size == settings.tmdb.poster_size
+            && last.use_system_proxy == settings.general.use_system_proxy
+    }
+
     fn sync_tmdb(&mut self) {
+        if self.tmdb_unchanged() {
+            return;
+        }
+
         let next = TmdbView::from_settings(&self.services.settings);
         if next.api_key.is_empty() {
             let had_key = !self.last_tmdb.api_key.is_empty();
@@ -241,7 +257,11 @@ impl App {
 
 impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        cinebox_core::i18n::set_ui_language(self.services.settings.general.language);
+        let language = self.services.settings.general.language;
+        if self.last_tmdb.language != language {
+            cinebox_core::i18n::set_ui_language(language);
+        }
+
         let proxy = self.services.settings.general.use_system_proxy;
         self.services.images.poll(ctx, proxy);
 

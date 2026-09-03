@@ -37,7 +37,7 @@ pub struct Listing {
 #[derive(Debug, Clone, PartialEq)]
 pub struct TorrentHit {
     pub title: String,
-    /// Typographed title for the list. `title` stays raw for parse/filter.
+    pub title_lower: String,
     pub display_title: String,
     pub tracker: String,
     pub size_bytes: u64,
@@ -49,7 +49,6 @@ pub struct TorrentHit {
     pub voices: Vec<&'static str>,
     pub bitrate_mbps: Option<f64>,
     pub started: bool,
-    pub local: bool,
     pub local_rank: Option<u8>,
 }
 
@@ -62,36 +61,37 @@ impl TorrentHit {
         started_hashes: &[String],
         local_hashes: &[String],
     ) -> Self {
-        let info = parse_title(&listing.title);
-        let found_voices = voices(&listing.title);
-        let bitrate_mbps =
-            runtime_minutes.and_then(|mins| estimate_bitrate_mbps(listing.size_bytes, mins));
+        let size_bytes = listing.size_bytes;
+        let title_lower = listing.title.to_lowercase();
+        let title_display = typograph(&listing.title);
+        let info_from_title = title::parse_title_lower(&listing.title, &title_lower);
+
+        let found_voices = voices::voices_lower(&title_lower);
+        let bitrate_mbps = runtime_minutes.and_then(|m| estimate_bitrate_mbps(size_bytes, m));
 
         let hash = infohash(&listing.magnet);
+        let local_rank = local_rank_of(&listing.magnet, local_hashes);
+
         let started = hash.as_ref().is_some_and(|hash| {
             started_hashes
                 .iter()
                 .any(|known| known.eq_ignore_ascii_case(hash))
         });
 
-        let local_rank = local_rank_of(&listing.magnet, local_hashes);
-        let local = local_rank.is_some();
-
-        let display_title = typograph(&listing.title);
         Self {
             title: listing.title,
-            display_title,
+            title_lower,
+            display_title: title_display,
             tracker: listing.tracker,
             size_bytes: listing.size_bytes,
             seeders: listing.seeders,
             peers: listing.peers,
             magnet: listing.magnet,
             published: listing.published,
-            info,
+            info: info_from_title,
             voices: found_voices,
             bitrate_mbps,
             started,
-            local,
             local_rank,
         }
     }
@@ -102,7 +102,6 @@ impl TorrentHit {
             return;
         };
 
-        self.local = true;
         self.local_rank = Some(rank);
     }
 
@@ -128,6 +127,7 @@ pub fn estimate_bitrate_mbps(size_bytes: u64, runtime_minutes: u32) -> Option<f6
     if size_bytes == 0 || runtime_minutes == 0 {
         return None;
     }
+
     let secs = f64::from(runtime_minutes) * 60.0;
     Some((size_bytes as f64 * 8.0 / 1_000_000.0) / secs)
 }
@@ -135,8 +135,11 @@ pub fn estimate_bitrate_mbps(size_bytes: u64, runtime_minutes: u32) -> Option<f6
 /// Same estimate as [`estimate_bitrate_mbps`], using the stored hit size.
 #[must_use]
 pub fn hit_bitrate_mbps(hit: &TorrentHit, runtime_minutes: Option<u32>) -> Option<f64> {
-    hit.bitrate_mbps
-        .or_else(|| runtime_minutes.and_then(|mins| estimate_bitrate_mbps(hit.size_bytes, mins)))
+    if let Some(bitrate) = hit.bitrate_mbps {
+        return Some(bitrate);
+    }
+
+    runtime_minutes.and_then(|mins| estimate_bitrate_mbps(hit.size_bytes, mins))
 }
 
 #[cfg(test)]
@@ -169,14 +172,17 @@ mod tests {
             std::slice::from_ref(&hash),
             &[],
         );
+
         assert!(hit.started);
-        assert!(!hit.local);
+        assert_eq!(hit.local_rank, None);
         assert_eq!(hit.info.resolution, Some(Resolution::Fhd));
         assert_eq!(hit.info.quality, Some(SourceQuality::WebDlRip));
+
         let mbps = match hit.bitrate_mbps {
             Some(value) => value,
             None => panic!("bitrate should be set when size and runtime are known"),
         };
+
         assert!(mbps > 0.0, "{mbps}");
     }
 
@@ -198,7 +204,6 @@ mod tests {
             std::slice::from_ref(&hash),
         );
 
-        assert!(hit.local);
         assert!(!hit.started);
         assert_eq!(hit.local_rank, Some(0));
     }
@@ -222,11 +227,10 @@ mod tests {
         );
 
         assert!(hit.started);
-        assert!(!hit.local);
+        assert_eq!(hit.local_rank, None);
 
         hit.mark_local(&[hash]);
 
-        assert!(hit.local);
         assert!(hit.started);
         assert_eq!(hit.local_rank, Some(0));
     }
@@ -251,7 +255,6 @@ mod tests {
         );
 
         assert_eq!(hit.local_rank, Some(1));
-
         hit.mark_local(&[newest, older]);
 
         assert_eq!(hit.local_rank, Some(0));
@@ -280,12 +283,19 @@ mod tests {
             "{:?}",
             hit.display_title
         );
+
         assert!(
             !hit.display_title.contains("&quot;"),
             "{:?}",
             hit.display_title
         );
-        assert!(hit.display_title.contains("DoMiNo & "), "{:?}", hit.display_title);
+
+        assert!(
+            hit.display_title.contains("DoMiNo & "),
+            "{:?}",
+            hit.display_title
+        );
+
         assert!(
             hit.display_title.contains('«') || hit.display_title.contains('\u{201C}'),
             "{:?}",

@@ -10,7 +10,11 @@ mod ru;
 mod space;
 mod symbols;
 
+use std::borrow::Cow;
+
 use crate::engine::{Context, Typograf};
+
+pub type Handler = for<'a> fn(&Typograf, &'a str, &Context<'_>) -> Cow<'a, str>;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Queue {
@@ -27,6 +31,21 @@ pub enum Queue {
     ShowSafeTagsOwn,
     End,
 }
+
+pub const QUEUES: &[Queue] = &[
+    Queue::Start,
+    Queue::HideSafeTagsOwn,
+    Queue::HideSafeTagsHtml,
+    Queue::HideSafeTagsUrl,
+    Queue::HideSafeTags,
+    Queue::Utf,
+    Queue::Default,
+    Queue::HtmlEntities,
+    Queue::ShowSafeTagsUrl,
+    Queue::ShowSafeTagsHtml,
+    Queue::ShowSafeTagsOwn,
+    Queue::End,
+];
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub enum Live {
@@ -46,7 +65,7 @@ pub struct Rule {
     pub live: Live,
     pub html_attrs: bool,
     pub inner: bool,
-    pub handler: fn(&Typograf, &str, &Context<'_>) -> String,
+    pub handler: Handler,
 }
 
 pub fn all() -> &'static [Rule] {
@@ -64,7 +83,7 @@ const fn r(
     live: Live,
     html_attrs: bool,
     inner: bool,
-    handler: fn(&Typograf, &str, &Context<'_>) -> String,
+    handler: Handler,
 ) -> Rule {
     Rule {
         name,

@@ -1,3 +1,7 @@
+use std::borrow::Cow;
+use std::collections::HashMap;
+use std::sync::{Arc, LazyLock, RwLock};
+
 use fancy_regex::{Captures, Regex};
 
 pub fn compile(pat: &str) -> Regex {
@@ -5,33 +9,92 @@ pub fn compile(pat: &str) -> Regex {
 }
 
 pub fn compile_i(pat: &str) -> Regex {
-    Regex::new(&format!("(?i){pat}")).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
+    compile(&format!("(?i){pat}"))
 }
 
 pub fn compile_m(pat: &str) -> Regex {
-    Regex::new(&format!("(?m){pat}")).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
+    compile(&format!("(?m){pat}"))
 }
 
 pub fn compile_im(pat: &str) -> Regex {
-    Regex::new(&format!("(?im){pat}")).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
-}
-
-pub fn compile_s(pat: &str) -> Regex {
-    Regex::new(&format!("(?s){pat}")).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
+    compile(&format!("(?im){pat}"))
 }
 
 pub fn compile_is(pat: &str) -> Regex {
-    Regex::new(&format!("(?is){pat}")).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
+    compile(&format!("(?is){pat}"))
 }
 
-pub fn replace_all(re: &Regex, text: &str, rep: &str) -> String {
+static CACHE: LazyLock<RwLock<HashMap<String, Arc<Regex>>>> =
+    LazyLock::new(|| RwLock::new(HashMap::new()));
+
+/// Compile-once cache for patterns built at runtime (locale-dependent, etc.).
+pub fn cached(pat: &str) -> Arc<Regex> {
+    let read = CACHE.read().unwrap_or_else(|e| e.into_inner());
+
+    if let Some(re) = read.get(pat) {
+        return Arc::clone(re);
+    }
+
+    drop(read);
+
+    let re = Arc::new(compile(pat));
+    let mut write = CACHE.write().unwrap_or_else(|e| e.into_inner());
+
+    Arc::clone(write.entry(pat.to_string()).or_insert(re))
+}
+
+pub fn cached_i(pat: &str) -> Arc<Regex> {
+    cached(&format!("(?i){pat}"))
+}
+
+pub fn cached_m(pat: &str) -> Arc<Regex> {
+    cached(&format!("(?m){pat}"))
+}
+
+pub fn cached_im(pat: &str) -> Arc<Regex> {
+    cached(&format!("(?im){pat}"))
+}
+
+pub fn cached_s(pat: &str) -> Arc<Regex> {
+    cached(&format!("(?s){pat}"))
+}
+
+pub fn replace_all<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
     replace_all_fn(re, text, |caps| expand_js(rep, caps))
 }
 
-pub fn replace_first(re: &Regex, text: &str, rep: &str) -> String {
-    match re.replace(text, |caps: &Captures<'_, str>| expand_js(rep, caps)) {
-        std::borrow::Cow::Borrowed(s) => s.to_string(),
-        std::borrow::Cow::Owned(s) => s,
+pub fn replace_first<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
+    re.replace(text, |caps: &Captures<'_, str>| expand_js(rep, caps))
+}
+
+pub fn replace_all_fn<'a>(
+    re: &Regex,
+    text: &'a str,
+    mut replacer: impl FnMut(&Captures<'_, str>) -> String,
+) -> Cow<'a, str> {
+    re.replace_all(text, |caps: &Captures<'_, str>| replacer(caps))
+}
+
+/// Continue a replace chain without re-allocating when nothing matches.
+pub fn chain<'a>(re: &Regex, input: Cow<'a, str>, rep: &str) -> Cow<'a, str> {
+    chain_fn(re, input, |caps| expand_js(rep, caps))
+}
+
+pub fn chain_fn<'a>(
+    re: &Regex,
+    input: Cow<'a, str>,
+    replacer: impl FnMut(&Captures<'_, str>) -> String,
+) -> Cow<'a, str> {
+    match input {
+        Cow::Borrowed(s) => replace_all_fn(re, s, replacer),
+        Cow::Owned(s) => {
+            let replaced = match replace_all_fn(re, &s, replacer) {
+                Cow::Borrowed(_) => None,
+                Cow::Owned(out) => Some(out),
+            };
+
+            Cow::Owned(replaced.unwrap_or(s))
+        }
     }
 }
 
@@ -79,15 +142,6 @@ fn expand_js(template: &str, caps: &Captures<'_, str>) -> String {
     out
 }
 
-pub fn replace_all_fn(
-    re: &Regex,
-    text: &str,
-    mut replacer: impl FnMut(&Captures<'_, str>) -> String,
-) -> String {
-    re.replace_all(text, |caps: &Captures<'_, str>| replacer(caps))
-        .into_owned()
-}
-
 pub fn is_digit_char(ch: &str) -> bool {
     ch.len() == 1 && ch.as_bytes()[0].is_ascii_digit()
 }
@@ -122,4 +176,3 @@ pub fn escape(text: &str) -> String {
 
     out
 }
-

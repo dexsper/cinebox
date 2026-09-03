@@ -6,6 +6,7 @@ mod map;
 mod query;
 mod search;
 
+use std::sync::OnceLock;
 use std::time::Duration;
 
 use cinebox_core::{ParserKind, join_url, normalize_base_url};
@@ -41,10 +42,7 @@ struct ProwlarrStatus {
     version: Option<String>,
 }
 
-pub(crate) fn apply_system_proxy(
-    builder: reqwest::ClientBuilder,
-    enabled: bool,
-) -> reqwest::ClientBuilder {
+fn apply_system_proxy(builder: reqwest::ClientBuilder, enabled: bool) -> reqwest::ClientBuilder {
     if enabled {
         return builder;
     }
@@ -52,16 +50,28 @@ pub(crate) fn apply_system_proxy(
     builder.no_proxy()
 }
 
-fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
-    apply_system_proxy(
-        reqwest::Client::builder()
-            .timeout(Duration::from_secs(20))
-            .connect_timeout(Duration::from_secs(5)),
+static CLIENTS: [OnceLock<reqwest::Client>; 2] = [OnceLock::new(), OnceLock::new()];
+
+/// Shared long-lived client (one per proxy mode). Set request timeouts with
+/// [`reqwest::RequestBuilder::timeout`].
+pub(crate) fn http_client(use_system_proxy: bool) -> Result<reqwest::Client, Error> {
+    let slot = &CLIENTS[usize::from(use_system_proxy)];
+
+    if let Some(client) = slot.get() {
+        return Ok(client.clone());
+    }
+
+    let client = apply_system_proxy(
+        reqwest::Client::builder().connect_timeout(Duration::from_secs(8)),
         use_system_proxy,
     )
     .build()
-    .map_err(Error::Client)
+    .map_err(Error::Client)?;
+
+    Ok(slot.get_or_init(|| client).clone())
 }
+
+const PING_TIMEOUT: Duration = Duration::from_secs(20);
 
 /// Lightweight parser ping (Jackett results endpoint / Prowlarr system status).
 ///
@@ -86,6 +96,7 @@ async fn ping_jackett(base: &str, api_key: &str, use_system_proxy: bool) -> Resu
     let client = http_client(use_system_proxy)?;
     let response = client
         .get(&url)
+        .timeout(PING_TIMEOUT)
         .query(&[("apikey", api_key), ("Query", "cinebox")])
         .send()
         .await
@@ -106,6 +117,7 @@ async fn ping_prowlarr(base: &str, api_key: &str, use_system_proxy: bool) -> Res
     let client = http_client(use_system_proxy)?;
     let response = client
         .get(&url)
+        .timeout(PING_TIMEOUT)
         .header("X-Api-Key", api_key)
         .query(&[("apikey", api_key)])
         .send()

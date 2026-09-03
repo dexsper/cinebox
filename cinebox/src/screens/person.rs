@@ -1,14 +1,13 @@
 use cinebox_core::i18n::Msg;
 use cinebox_core::{
-    CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, UiLanguage,
-    language_key, person_cache_id, tmdb_image_url,
+    CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, language_key,
+    person_cache_id, tmdb_image_url,
 };
 use egui::{RichText, Ui, Vec2};
-use egui_async::Bind;
 
 use crate::jobs;
 use crate::nav::NavAction;
-use crate::services::{Services, db_block_on};
+use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{self, intro, poster, scroll, skeleton};
 
@@ -17,40 +16,20 @@ const FROM_H: f32 = 150.0;
 const TO_W: f32 = 140.0;
 const TO_H: f32 = 210.0;
 
+#[derive(Default)]
 pub struct PersonScreen {
     id: Option<TmdbId>,
     preview: Option<CreditPerson>,
-    bind: Bind<Box<PersonDetails>, String>,
-    disk: Option<CacheHit<Box<PersonDetails>>>,
+    cache: super::swr::Cached<Box<PersonDetails>, CacheHit<Box<PersonDetails>>>,
     intro_at: Option<f64>,
     pending_intro: bool,
-    force_refresh: bool,
-    lang: Option<UiLanguage>,
     reset_scroll: bool,
-}
-
-impl Default for PersonScreen {
-    fn default() -> Self {
-        Self {
-            id: None,
-            preview: None,
-            bind: Bind::new(true),
-            disk: None,
-            intro_at: None,
-            pending_intro: false,
-            force_refresh: false,
-            lang: None,
-            reset_scroll: false,
-        }
-    }
 }
 
 impl PersonScreen {
     pub fn seed(&mut self, person: CreditPerson) {
         if self.id != Some(person.id) {
-            self.bind = Bind::new(true);
-            self.disk = None;
-            self.force_refresh = false;
+            self.cache.reset();
         }
         self.id = Some(person.id);
         self.preview = Some(person);
@@ -61,10 +40,7 @@ impl PersonScreen {
     /// Drop the in-memory card so the next paint reloads for the new language.
     /// Does not touch the SQLite cache.
     pub fn forget_live(&mut self) {
-        self.lang = None;
-        self.bind = Bind::new(true);
-        self.disk = None;
-        self.force_refresh = true;
+        self.cache.forget_live();
     }
 
     pub fn ui(
@@ -77,43 +53,34 @@ impl PersonScreen {
         let now = ui.input(|i| i.time);
         if self.id != Some(id) {
             self.id = Some(id);
-            self.bind = Bind::new(true);
-            self.disk = None;
-            self.force_refresh = false;
+            self.cache.reset();
             self.reset_scroll = true;
             if self.preview.as_ref().is_none_or(|person| person.id != id) {
                 self.preview = None;
             }
         }
 
-        let lang = svc.settings.general.language;
-        if self.lang != Some(lang) {
-            let switched = self.lang.is_some();
-            self.lang = Some(lang);
-            if switched {
-                self.bind = Bind::new(true);
-                self.disk = None;
-                self.force_refresh = true;
-            }
-        }
+        self.cache.sync_lang(svc.settings.general.language);
 
-        if self.disk.is_none() {
-            let lang = language_key(Some(svc.settings.general.language.tmdb_code()));
+        let lang = language_key(Some(svc.settings.general.language.tmdb_code())).to_owned();
+        let db = svc.db.clone();
+        let hydrated = self.cache.hydrate(async move {
+            let db = db?;
             let cache_id = person_cache_id(id);
-            self.disk = svc.db.as_ref().and_then(|db| {
-                db_block_on(db.get_json::<PersonDetails>(lang, KIND_PERSON, &cache_id))
-                    .ok()
-                    .flatten()
-                    .map(|hit| {
-                        let mut value = hit.value;
-                        value.apply_typography();
-                        CacheHit {
-                            value: Box::new(value),
-                            fetched_at: hit.fetched_at,
-                        }
-                    })
-            });
-        }
+            let hit = db
+                .get_json::<PersonDetails>(&lang, KIND_PERSON, &cache_id)
+                .await
+                .ok()
+                .flatten()?;
+
+            let mut value = hit.value;
+            value.apply_typography();
+
+            Some(CacheHit {
+                value: Box::new(value),
+                fetched_at: hit.fetched_at,
+            })
+        });
         self.start_intro_if_pending(now);
 
         if intro::running(self.intro_at, now) {
@@ -121,35 +88,42 @@ impl PersonScreen {
         }
 
         let t = intro::t(self.intro_at, now);
+        let to_top = self.reset_scroll;
+        if !hydrated {
+            if let Some(person) = self.preview.as_ref() {
+                self.reset_scroll = false;
+                loading(ui, svc, theme, t, person, to_top);
+            } else {
+                widgets::page_spinner(ui, theme);
+            }
+            ui.ctx().request_repaint();
+            return None;
+        }
+
         let settings = svc.settings.clone();
         let db = svc.db.clone();
-        let skip_network = !self.force_refresh
-            && self
-                .disk
-                .as_ref()
-                .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
-        let has_disk = self.disk.is_some();
-        let outcome = super::swr::resolve(&mut self.bind, has_disk, skip_network, move || {
+        let fresh = self
+            .cache
+            .disk
+            .as_ref()
+            .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
+        let outcome = self.cache.resolve(fresh, move || {
             jobs::load_person(settings, id, db)
         });
-        if outcome.from_network {
-            self.force_refresh = false;
-        }
         if outcome.in_flight {
             ui.ctx().request_repaint();
         }
 
         let mut retry = false;
-        let to_top = self.reset_scroll;
         let action = match outcome.view {
-            super::swr::Swr::Live => match self.bind.read() {
+            super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(details)) => {
                     self.reset_scroll = false;
                     ready(ui, details, svc, theme, t, to_top)
                 }
                 _ => None,
             },
-            super::swr::Swr::Disk => match self.disk.as_ref() {
+            super::swr::Swr::Disk => match self.cache.disk.as_ref() {
                 Some(hit) => {
                     self.reset_scroll = false;
                     ready(ui, &hit.value, svc, theme, t, to_top)
@@ -157,7 +131,7 @@ impl PersonScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                let error = match self.bind.read() {
+                let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.clone(),
                     _ => Msg::Failed.t().to_owned(),
                 };
@@ -175,8 +149,7 @@ impl PersonScreen {
             }
         };
         if retry {
-            self.bind.clear();
-            self.force_refresh = true;
+            self.cache.retry();
         }
 
         action

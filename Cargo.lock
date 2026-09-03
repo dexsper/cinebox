@@ -466,6 +466,7 @@ dependencies = [
 name = "cinebox-parse"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "cinebox-core",
  "regex",
 ]
@@ -496,6 +497,7 @@ dependencies = [
  "serde_json",
  "thiserror 2.0.20",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

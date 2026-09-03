@@ -1,6 +1,8 @@
 //! SafeTags: hide HTML/URL/own fragments behind private labels.
 
+use std::borrow::Cow;
 use std::collections::HashMap;
+use std::sync::LazyLock;
 
 use fancy_regex::Regex;
 
@@ -13,72 +15,57 @@ const INLINE: &[&str] = &[
     "span", "strong", "sub", "sup", "textarea", "time", "tt", "var",
 ];
 
+static HTML_PAIRS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
+    let pairs = [
+        ("<!--", "-->"),
+        ("<!ENTITY", ">"),
+        ("<!DOCTYPE", ">"),
+        ("<\\?xml", "\\?>"),
+        ("<!\\[CDATA\\[", "\\]\\]>"),
+        ("<code(\\s[^>]*?)?>", "</code>"),
+        ("<kbd(\\s[^>]*?)?>", "</kbd>"),
+        ("<object(\\s[^>]*?)?>", "</object>"),
+        ("<pre(\\s[^>]*?)?>", "</pre>"),
+        ("<samp(\\s[^>]*?)?>", "</samp>"),
+        ("<script(\\s[^>]*?)?>", "</script>"),
+        ("<style(\\s[^>]*?)?>", "</style>"),
+        ("<var(\\s[^>]*?)?>", "</var>"),
+    ];
+
+    pairs
+        .iter()
+        .map(|(start, end)| re::compile_is(&format!("{start}.*?{end}")))
+        .collect()
+});
+
+static URL: LazyLock<Regex> =
+    LazyLock::new(|| re::compile("(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)"));
+static TAG_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_is("</?[a-z].*?>"));
+static ESCAPED_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_is("&lt;/?[a-z].*?&gt;"));
+static LTGT_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&[gl]t;"));
+static LABEL_RE: LazyLock<Regex> =
+    LazyLock::new(|| re::compile(&format!("{PRIVATE}tf\\d+{PRIVATE}")));
+static SEARCH_RE: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("{PRIVATE}tf\\d")));
+static IS_HTML_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("(</?[a-z]|<!|&[lg]t;)"));
+static REMOVE_CR_RE: LazyLock<Regex> = LazyLock::new(|| re::compile("\\r\\n?"));
+static SEPARATE_PARTS_RE: LazyLock<Regex> =
+    LazyLock::new(|| re::compile_is("<(title|p|h[1-6]|select|legend)(\\s[^>]*?)?>.*?</\\1>"));
+
 pub struct TagInfo {
     pub group: &'static str,
     pub is_inline: bool,
     pub is_closing: bool,
 }
 
+#[derive(Default)]
 pub struct SafeTags {
     hidden: HashMap<&'static str, HashMap<String, String>>,
     counter: usize,
-    html: Vec<Regex>,
-    tag_re: Regex,
-    escaped_re: Regex,
-    ltgt_re: Regex,
-    label_re: Regex,
-    search_re: Regex,
-    url: Regex,
-}
-
-impl Default for SafeTags {
-    fn default() -> Self {
-        Self::new()
-    }
 }
 
 impl SafeTags {
     pub fn new() -> Self {
-        let pairs = [
-            ("<!--", "-->"),
-            ("<!ENTITY", ">"),
-            ("<!DOCTYPE", ">"),
-            ("<\\?xml", "\\?>"),
-            ("<!\\[CDATA\\[", "\\]\\]>"),
-            ("<code(\\s[^>]*?)?>", "</code>"),
-            ("<kbd(\\s[^>]*?)?>", "</kbd>"),
-            ("<object(\\s[^>]*?)?>", "</object>"),
-            ("<pre(\\s[^>]*?)?>", "</pre>"),
-            ("<samp(\\s[^>]*?)?>", "</samp>"),
-            ("<script(\\s[^>]*?)?>", "</script>"),
-            ("<style(\\s[^>]*?)?>", "</style>"),
-            ("<var(\\s[^>]*?)?>", "</var>"),
-        ];
-
-        let html = pairs
-            .iter()
-            .map(|(start, end)| re::compile_is(&format!("{start}.*?{end}")))
-            .collect();
-
-        let url = re::compile("(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)");
-
-        let tag_re = re::compile_is("</?[a-z].*?>");
-        let escaped_re = re::compile_is("&lt;/?[a-z].*?&gt;");
-        let ltgt_re = re::compile_i("&[gl]t;");
-        let label_re = re::compile(&format!("{PRIVATE}tf\\d+{PRIVATE}"));
-        let search_re = re::compile(&format!("{PRIVATE}tf\\d"));
-
-        Self {
-            hidden: HashMap::new(),
-            counter: 0,
-            html,
-            tag_re,
-            escaped_re,
-            ltgt_re,
-            label_re,
-            search_re,
-            url,
-        }
+        Self::default()
     }
 
     pub fn reset(&mut self) {
@@ -91,17 +78,12 @@ impl SafeTags {
 
         match group {
             "html" => {
-                let tags = std::mem::take(&mut self.html);
-
-                for tag in &tags {
+                for tag in HTML_PAIRS.iter() {
                     self.replace_with_label(text, group, tag);
                 }
-
-                self.html = tags;
             }
             "url" => {
-                let url = self.url.clone();
-                self.replace_with_label(text, group, &url);
+                self.replace_with_label(text, group, &URL);
             }
             _ => {}
         }
@@ -112,44 +94,49 @@ impl SafeTags {
             return;
         }
 
-        let tag_re = self.tag_re.clone();
-        let escaped_re = self.escaped_re.clone();
-        let ltgt_re = self.ltgt_re.clone();
-
-        self.replace_with_label(text, "html", &tag_re);
-        self.replace_with_label(text, "html", &escaped_re);
-        self.replace_with_label(text, "html", &ltgt_re);
+        self.replace_with_label(text, "html", &TAG_RE);
+        self.replace_with_label(text, "html", &ESCAPED_RE);
+        self.replace_with_label(text, "html", &LTGT_RE);
     }
 
     pub fn show(&mut self, text: &mut String, group: &'static str) {
         let hidden = self.hidden.get(group).cloned().unwrap_or_default();
         let rounds = match group {
-            "html" => self.html.len(),
+            "html" => HTML_PAIRS.len(),
             "url" => 1,
             _ => 0,
         };
 
         for _ in 0..rounds {
-            *text = re::replace_all_fn(&self.label_re, text, |caps| {
+            let shown = re::replace_all_fn(&LABEL_RE, text, |caps| {
                 hidden
                     .get(&caps[0])
                     .cloned()
                     .unwrap_or_else(|| caps[0].to_string())
             });
 
-            if !re::is_match(&self.search_re, text) {
+            if let Cow::Owned(shown) = shown {
+                *text = shown;
+            }
+
+            if !re::is_match(&SEARCH_RE, text) {
                 break;
             }
         }
     }
 
-    /// `pos` is the byte offset of the quote character.
+    /// `pos` is the byte offset of the quote character; `chars` is the
+    /// pre-built `char_indices` of `text`.
     ///
     /// Walks from two characters before `pos` so the closing private mark of a
     /// hide-label is not taken as the whole key.
-    pub fn get_prev_tag_info(&self, text: &str, pos: usize) -> Option<TagInfo> {
-        let chars: Vec<(usize, char)> = text.char_indices().collect();
-        let char_pos = chars.iter().position(|(b, _)| *b == pos)?;
+    pub fn get_prev_tag_info(
+        &self,
+        chars: &[(usize, char)],
+        text: &str,
+        pos: usize,
+    ) -> Option<TagInfo> {
+        let char_pos = chars.binary_search_by_key(&pos, |(b, _)| *b).ok()?;
 
         if char_pos == 0 {
             return None;
@@ -165,7 +152,7 @@ impl SafeTags {
 
         loop {
             if chars[i].1 == PRIVATE {
-                let label = slice_chars(&chars, text, i, position + 1)?;
+                let label = slice_chars(chars, text, i, position + 1)?;
 
                 return self.tag_info(&label);
             }
@@ -182,9 +169,13 @@ impl SafeTags {
 
     /// Slice through the closing private char (inclusive), starting one
     /// character after `pos`.
-    pub fn get_next_tag_info(&self, text: &str, pos: usize) -> Option<TagInfo> {
-        let chars: Vec<(usize, char)> = text.char_indices().collect();
-        let char_pos = chars.iter().position(|(b, _)| *b == pos)?;
+    pub fn get_next_tag_info(
+        &self,
+        chars: &[(usize, char)],
+        text: &str,
+        pos: usize,
+    ) -> Option<TagInfo> {
+        let char_pos = chars.binary_search_by_key(&pos, |(b, _)| *b).ok()?;
         let position = char_pos + 1;
 
         if position >= chars.len() {
@@ -195,7 +186,7 @@ impl SafeTags {
 
         while i < chars.len() {
             if chars[i].1 == PRIVATE {
-                let label = slice_chars(&chars, text, position, i + 1)?;
+                let label = slice_chars(chars, text, position, i + 1)?;
 
                 return self.tag_info(&label);
             }
@@ -246,12 +237,16 @@ impl SafeTags {
         let mut counter = self.counter;
         let mut hidden = self.hidden.remove(group).unwrap_or_default();
 
-        *text = re::replace_all_fn(re, text, |caps| {
+        let hidden_text = re::replace_all_fn(re, text, |caps| {
             let key = format!("{PRIVATE}tf{counter}{PRIVATE}");
             hidden.insert(key.clone(), caps[0].to_string());
             counter += 1;
             key
         });
+
+        if let Cow::Owned(hidden_text) = hidden_text {
+            *text = hidden_text;
+        }
 
         self.counter = counter;
         self.hidden.insert(group, hidden);
@@ -276,17 +271,21 @@ fn slice_chars(chars: &[(usize, char)], text: &str, start: usize, end_exclusive:
 }
 
 pub fn is_html(text: &str) -> bool {
-    re::is_match(&re::compile_i("(</?[a-z]|<!|&[lg]t;)"), text)
+    re::is_match(&IS_HTML_RE, text)
 }
 
 pub fn remove_cr(text: &str) -> String {
-    re::replace_all(&re::compile("\\r\\n?"), text, "\n")
+    re::replace_all(&REMOVE_CR_RE, text, "\n").into_owned()
 }
 
-pub fn strip_separate(text: &str) -> String {
-    text.replace(PRIVATE_SEPARATE, "")
+pub fn strip_separate(text: &str) -> Cow<'_, str> {
+    if !text.contains(PRIVATE_SEPARATE) {
+        return Cow::Borrowed(text);
+    }
+
+    Cow::Owned(text.replace(PRIVATE_SEPARATE, ""))
 }
 
-pub fn separate_parts_re() -> Regex {
-    re::compile_is("<(title|p|h[1-6]|select|legend)(\\s[^>]*?)?>.*?</\\1>")
+pub fn separate_parts_re() -> &'static Regex {
+    &SEPARATE_PARTS_RE
 }
