@@ -1,9 +1,12 @@
 //! Stale-while-revalidate over `Bind` plus an optional disk snapshot.
 
+use std::convert::Infallible;
 use std::future::Future;
 
 use cinebox_core::UiLanguage;
 use egui_async::Bind;
+
+use crate::jobs::JobError;
 
 /// Screen-side SWR state: live bind, async disk snapshot, language tracking.
 ///
@@ -11,9 +14,9 @@ use egui_async::Bind;
 /// `hydrate` returns `false` while that read is still in flight, so screens
 /// can paint a pending frame instead of blocking on SQLite.
 pub struct Cached<T, D> {
-    pub bind: Bind<T, String>,
+    pub bind: Bind<T, JobError>,
     pub disk: Option<D>,
-    disk_bind: Bind<Option<D>, String>,
+    disk_bind: Bind<Option<D>, Infallible>,
     disk_checked: bool,
     lang: Option<UiLanguage>,
     force_refresh: bool,
@@ -85,7 +88,7 @@ impl<T: Send + 'static, D: Send + 'static> Cached<T, D> {
 
         let _ = self
             .disk_bind
-            .read_or_request(|| async move { Ok::<_, String>(load.await) });
+            .read_or_request(|| async move { Ok::<_, Infallible>(load.await) });
 
         let Some(result) = self.disk_bind.take() else {
             return false;
@@ -102,7 +105,7 @@ impl<T: Send + 'static, D: Send + 'static> Cached<T, D> {
     pub fn resolve<F, Fut>(&mut self, fresh: bool, request: F) -> Outcome
     where
         F: FnOnce() -> Fut,
-        Fut: Future<Output = Result<T, String>> + Send + 'static,
+        Fut: Future<Output = Result<T, JobError>> + Send + 'static,
     {
         let skip_network = !self.force_refresh && fresh;
         let outcome = resolve(&mut self.bind, self.disk.is_some(), skip_network, request);
@@ -139,14 +142,14 @@ pub struct Outcome {
 
 /// Prefer a live bind, else a fresh disk hit, else start `request`.
 pub fn resolve<T, F, Fut>(
-    bind: &mut Bind<T, String>,
+    bind: &mut Bind<T, JobError>,
     has_disk: bool,
     skip_network: bool,
     request: F,
 ) -> Outcome
 where
     F: FnOnce() -> Fut,
-    Fut: Future<Output = Result<T, String>> + Send + 'static,
+    Fut: Future<Output = Result<T, JobError>> + Send + 'static,
     T: Send + 'static,
 {
     if matches!(bind.read(), Some(Ok(_))) {

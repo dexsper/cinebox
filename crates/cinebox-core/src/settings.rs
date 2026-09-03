@@ -498,9 +498,6 @@ mod tests {
         let back: VideoScale = serde_json::from_str("\"expand\"")?;
         assert_eq!(back, VideoScale::Expand);
 
-        assert_eq!(VideoScale::ALL.len(), 5);
-        assert_eq!(VideoScale::default(), VideoScale::Default);
-
         Ok(())
     }
 

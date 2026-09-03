@@ -1,12 +1,14 @@
 //! Full-shelf grid: items already on Home, then extra TMDB pages on scroll.
 
+use std::collections::HashSet;
+
 use cinebox_core::i18n::Msg;
 use cinebox_core::{CatalogItem, HomeRowId, UiLanguage};
 use cinebox_tmdb::CatalogPage;
 use egui::{RichText, Sense, Ui, vec2};
 use egui_async::Bind;
 
-use crate::jobs;
+use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
@@ -18,7 +20,7 @@ pub struct CategoryScreen {
     next_page: u32,
     has_more: bool,
     loading: bool,
-    page: Bind<CatalogPage, String>,
+    page: Bind<CatalogPage, JobError>,
     lang: Option<UiLanguage>,
     reset_scroll: bool,
 }
@@ -115,8 +117,9 @@ impl CategoryScreen {
         let to_top = self.reset_scroll;
         self.reset_scroll = false;
 
-        let mut action = None;
         let mut near_end = false;
+        let mut action = None;
+
         scroll_page(ui, id, to_top, |ui| {
             ui.add_space(8.0);
             ui.label(
@@ -124,8 +127,8 @@ impl CategoryScreen {
                     .font(theme.title_font(theme.text_heading))
                     .color(theme.title),
             );
-            ui.add_space(12.0);
 
+            ui.add_space(12.0);
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
                 for item in &self.items {
@@ -157,15 +160,13 @@ impl CategoryScreen {
             if failed {
                 ui.add_space(12.0);
                 let error = match self.page.read() {
-                    Some(Err(error)) => error.clone(),
+                    Some(Err(error)) => error.to_string(),
                     _ => Msg::Failed.t().to_owned(),
                 };
-                ui.label(
-                    RichText::new(error)
-                        .size(theme.text_small)
-                        .color(theme.err),
-                );
+
+                ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
                 ui.add_space(8.0);
+
                 if widgets::button::label(
                     ui,
                     theme,
@@ -192,7 +193,7 @@ impl CategoryScreen {
     fn empty_view(&mut self, ui: &mut Ui, theme: &Theme, failed: bool) -> Option<NavAction> {
         if failed {
             let error = match self.page.read() {
-                Some(Err(error)) => error.clone(),
+                Some(Err(error)) => error.to_string(),
                 _ => Msg::Failed.t().to_owned(),
             };
             if widgets::page_error(ui, theme, &error) {
@@ -248,12 +249,12 @@ impl CategoryScreen {
             return;
         }
 
-        let settings = svc.settings.clone();
+        let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let page = self.next_page;
         self.loading = true;
         let _ = self
             .page
-            .read_or_request(move || jobs::load_catalog_page(settings, id, page));
+            .read_or_request(move || jobs::load_catalog_page(tmdb, id, page));
     }
 }
 
@@ -271,12 +272,11 @@ fn apply_page(
 }
 
 fn extend_unique(items: &mut Vec<CatalogItem>, incoming: Vec<CatalogItem>) {
-    for item in incoming {
-        let duplicate = items
-            .iter()
-            .any(|existing| existing.id == item.id && existing.kind == item.kind);
+    let mut seen: HashSet<_> = items.iter().map(|item| (item.id, item.kind)).collect();
 
-        if duplicate {
+    for item in incoming {
+        let inserted = seen.insert((item.id, item.kind));
+        if !inserted {
             continue;
         }
 

@@ -42,7 +42,7 @@ pub async fn viewed_list(
         "action": "list",
         "hash": hash,
     }));
-    
+
     send_json(request).await
 }
 
@@ -77,4 +77,26 @@ pub async fn viewed_set(
 
     let response = request.send().await.map_err(Error::Request)?;
     super::client::check_status(response.status())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_viewed_list_fixture() {
+        // Trimmed real `POST /viewed action=list` body.
+        let fixture = r#"[
+            { "hash": "abc", "file_index": 1, "timecode": 512.25 },
+            { "hash": "abc", "file_index": 3 }
+        ]"#;
+
+        let rows: Vec<Viewed> = serde_json::from_str(fixture)
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+
+        assert_eq!(rows.len(), 2);
+        assert_eq!(rows[0].file_index, 1);
+        assert!((rows[0].timecode - 512.25).abs() < f64::EPSILON);
+        assert!((rows[1].timecode - 0.0).abs() < f64::EPSILON);
+    }
 }

@@ -56,4 +56,12 @@ mod tests {
         assert_eq!(format_clock(65.4), "1:05");
         assert_eq!(format_clock(3661.0), "1:01:01");
     }
+
+    #[test]
+    fn clock_survives_nan_infinity_and_negative() {
+        assert_eq!(format_clock(f64::NAN), "0:00");
+        assert_eq!(format_clock(f64::INFINITY), "0:00");
+        assert_eq!(format_clock(f64::NEG_INFINITY), "0:00");
+        assert_eq!(format_clock(-5.0), "0:00");
+    }
 }

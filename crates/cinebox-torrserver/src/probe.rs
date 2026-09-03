@@ -170,21 +170,4 @@ mod tests {
         let mbps = report.megabits_per_sec();
         assert!((mbps - 10.0).abs() < 0.01, "{mbps}");
     }
-
-    #[tokio::test]
-    #[ignore = "needs a local TorrServer on 127.0.0.1:8090"]
-    async fn live_echo_localhost() -> Result<(), Error> {
-        let version = echo("http://127.0.0.1:8090", "", "").await?;
-        assert!(!version.is_empty(), "{version}");
-        Ok(())
-    }
-
-    #[tokio::test]
-    #[ignore = "needs a local TorrServer on 127.0.0.1:8090"]
-    async fn live_speed_test_10mb() -> Result<(), Error> {
-        let report = speed_test("http://127.0.0.1:8090", "", "", |_| {}).await?;
-        assert!(report.bytes > 0);
-        assert!(report.megabits_per_sec() > 0.0);
-        Ok(())
-    }
 }

@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 use cinebox_core::{
     CONFIG_TTL, HomeCatalog, HomeRow, HomeRowId, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
-    KIND_SEASON, MediaDetails, MediaKind, PersonDetails, SEASON_TTL, Settings, Store, TmdbId,
-    format_release_date, language_key, media_cache_id, normalize_tmdb_path,
+    KIND_SEASON, MediaDetails, MediaKind, ParserKind, PersonDetails, SEASON_TTL, Settings, Store,
+    TmdbId, format_release_date, language_key, media_cache_id, normalize_tmdb_path,
     person_cache_id, season_cache_id, tmdb_image_url,
 };
 use cinebox_parse::{
@@ -16,6 +16,85 @@ use cinebox_parse::{
 use tracing::warn;
 
 use crate::screens::torrents::{MovieBits, ReadyFiles, TorrentFileRow};
+
+/// Job failures, one variant per backing service.
+///
+/// Rendered as a string only at the UI boundary (toasts, error views).
+#[derive(Debug, thiserror::Error)]
+pub enum JobError {
+    #[error(transparent)]
+    Tmdb(#[from] cinebox_tmdb::Error),
+    #[error(transparent)]
+    Indexer(#[from] cinebox_indexer::Error),
+    #[error(transparent)]
+    TorrServer(#[from] cinebox_torrserver::Error),
+}
+
+/// Narrow snapshot of the TMDB settings a job needs.
+#[derive(Clone)]
+pub struct TmdbCtx {
+    pub api_key: String,
+    pub language: &'static str,
+    pub use_system_proxy: bool,
+}
+
+impl From<&Settings> for TmdbCtx {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            api_key: settings.tmdb.api_key.expose().to_owned(),
+            language: settings.general.language.tmdb_code(),
+            use_system_proxy: settings.general.use_system_proxy,
+        }
+    }
+}
+
+/// Narrow snapshot of the parser (Jackett / Prowlarr) settings a job needs.
+#[derive(Clone)]
+pub struct ParserCtx {
+    pub kind: ParserKind,
+    pub url: String,
+    pub api_key: String,
+    pub use_system_proxy: bool,
+}
+
+impl From<&Settings> for ParserCtx {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            kind: settings.parser.kind,
+            url: settings.parser.url.clone(),
+            api_key: settings.parser.api_key.expose().to_owned(),
+            use_system_proxy: settings.general.use_system_proxy,
+        }
+    }
+}
+
+/// Narrow snapshot of the TorrServer settings a job needs.
+#[derive(Clone)]
+pub struct TorrCtx {
+    pub url: String,
+    pub username: String,
+    pub password: String,
+    pub track_timecode: bool,
+}
+
+impl From<&Settings> for TorrCtx {
+    fn from(settings: &Settings) -> Self {
+        Self {
+            url: settings.torrserver.url.clone(),
+            username: settings.torrserver.username.clone(),
+            password: settings.torrserver.password.expose().to_owned(),
+            track_timecode: settings.torrserver.track_timecode,
+        }
+    }
+}
+
+/// The media an opened torrent belongs to.
+#[derive(Clone, Copy)]
+pub struct OpenTarget {
+    pub kind: MediaKind,
+    pub id: TmdbId,
+    pub runtime_minutes: Option<u32>,
+}
 
 fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
     Listing {
@@ -30,32 +109,32 @@ fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
 }
 
 pub async fn load_catalog_page(
-    settings: Settings,
+    tmdb: TmdbCtx,
     id: HomeRowId,
     page: u32,
-) -> Result<cinebox_tmdb::CatalogPage, String> {
-    let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.general.language.tmdb_code();
-    let use_system_proxy = settings.general.use_system_proxy;
+) -> Result<cinebox_tmdb::CatalogPage, JobError> {
+    let page = cinebox_tmdb::fetch_catalog_page(
+        &tmdb.api_key,
+        id,
+        page,
+        Some(tmdb.language),
+        tmdb.use_system_proxy,
+    )
+    .await?;
 
-    cinebox_tmdb::fetch_catalog_page(&key, id, page, Some(language), use_system_proxy)
-        .await
-        .map_err(|error| error.to_string())
+    Ok(page)
 }
 
-pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<HomeCatalog, String> {
-    let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.general.language.tmdb_code();
-    let use_system_proxy = settings.general.use_system_proxy;
-
-    let fetched = cinebox_tmdb::fetch_home(&key, Some(language), use_system_proxy)
-        .await
-        .map_err(|error| error.to_string())?;
+pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
+    let proxy = tmdb.use_system_proxy;
+    let language = Some(tmdb.language);
+    let fetched = cinebox_tmdb::fetch_home(&tmdb.api_key, language, proxy).await?;
 
     let Some(db) = db else {
         return Ok(fetched);
     };
-    let lang = language_key(Some(language));
+
+    let lang = language_key(Some(tmdb.language));
     let mut rows = Vec::with_capacity(fetched.rows.len());
     for row in fetched.rows {
         if row.id == HomeRowId::RecentlyWatched {
@@ -68,47 +147,58 @@ pub async fn load_home(settings: Settings, db: Option<Arc<Store>>) -> Result<Hom
             }
             continue;
         }
+
         let stale_empty = row.error.is_some() && row.items.is_empty();
         if stale_empty {
-            if let Ok(Some(hit)) = db.get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key()).await {
+            let cached = db
+                .get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key())
+                .await;
+
+            if let Ok(Some(hit)) = cached {
                 rows.push(hit.value);
                 continue;
             }
         }
+
         let paths = row.image_paths();
-        if let Err(error) = db
+        let saved = db
             .put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths)
-            .await
-        {
+            .await;
+
+        if let Err(error) = saved {
             warn!(%error, "failed to persist home row");
         }
+
         rows.push(row);
     }
+
     Ok(HomeCatalog { rows })
 }
 
 pub async fn load_media(
-    settings: Settings,
+    tmdb: TmdbCtx,
     kind: MediaKind,
     id: TmdbId,
     db: Option<Arc<Store>>,
-) -> Result<Box<MediaDetails>, String> {
-    let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.general.language.tmdb_code();
-    let use_system_proxy = settings.general.use_system_proxy;
-
-    let mut details = cinebox_tmdb::fetch_media(&key, kind, id, Some(language), use_system_proxy)
-        .await
-        .map_err(|error| error.to_string())?;
+) -> Result<Box<MediaDetails>, JobError> {
+    let mut details = cinebox_tmdb::fetch_media(
+        &tmdb.api_key,
+        kind,
+        id,
+        Some(tmdb.language),
+        tmdb.use_system_proxy,
+    )
+    .await?;
 
     if let Some(db) = db {
-        let lang = language_key(Some(language));
+        let lang = language_key(Some(tmdb.language));
         let cache_id = media_cache_id(kind, id);
         let paths = details.image_paths();
-        if let Err(error) = db
+        let saved = db
             .put_json(lang, KIND_MEDIA, &cache_id, &details, &paths)
-            .await
-        {
+            .await;
+
+        if let Err(error) = saved {
             warn!(%error, "failed to persist media details");
         }
     }
@@ -118,26 +208,27 @@ pub async fn load_media(
 }
 
 pub async fn load_person(
-    settings: Settings,
+    tmdb: TmdbCtx,
     id: TmdbId,
     db: Option<Arc<Store>>,
-) -> Result<Box<PersonDetails>, String> {
-    let key = settings.tmdb.api_key.expose().to_owned();
-    let language = settings.general.language.tmdb_code();
-    let use_system_proxy = settings.general.use_system_proxy;
-
-    let mut details = cinebox_tmdb::fetch_person(&key, id, Some(language), use_system_proxy)
-        .await
-        .map_err(|error| error.to_string())?;
+) -> Result<Box<PersonDetails>, JobError> {
+    let mut details = cinebox_tmdb::fetch_person(
+        &tmdb.api_key,
+        id,
+        Some(tmdb.language),
+        tmdb.use_system_proxy,
+    )
+    .await?;
 
     if let Some(db) = db {
-        let lang = language_key(Some(language));
+        let lang = language_key(Some(tmdb.language));
         let cache_id = person_cache_id(id);
         let paths = details.image_paths();
-        if let Err(error) = db
+        let saved = db
             .put_json(lang, KIND_PERSON, &cache_id, &details, &paths)
-            .await
-        {
+            .await;
+
+        if let Err(error) = saved {
             warn!(%error, "failed to persist person details");
         }
     }
@@ -147,10 +238,11 @@ pub async fn load_person(
 }
 
 pub async fn load_torrents(
-    settings: Settings,
+    parser: ParserCtx,
+    torr: TorrCtx,
     details: MediaDetails,
     db: Option<Arc<Store>>,
-) -> Result<Vec<TorrentHit>, String> {
+) -> Result<Vec<TorrentHit>, JobError> {
     let kind = details.kind;
     let query = cinebox_indexer::SearchQuery {
         query: details.torrent_query(),
@@ -163,25 +255,16 @@ pub async fn load_torrents(
     };
 
     let runtime = details.runtime_minutes;
-    let parser_kind = settings.parser.kind;
-    let parser_url = settings.parser.url.clone();
-    let parser_key = settings.parser.api_key.expose().to_owned();
-    let use_system_proxy = settings.general.use_system_proxy;
-    let ts_url = settings.torrserver.url.clone();
-    let ts_user = settings.torrserver.username.clone();
-    let ts_pass = settings.torrserver.password.expose().to_owned();
-
     let raw = cinebox_indexer::search(
-        parser_kind,
-        &parser_url,
-        &parser_key,
+        parser.kind,
+        &parser.url,
+        &parser.api_key,
         &query,
-        use_system_proxy,
+        parser.use_system_proxy,
     )
-    .await
-    .map_err(|error| error.to_string())?;
+    .await?;
 
-    let started = match cinebox_torrserver::list(&ts_url, &ts_user, &ts_pass).await {
+    let started = match cinebox_torrserver::list(&torr.url, &torr.username, &torr.password).await {
         Ok(rows) => rows,
         Err(error) => {
             warn!(%error, "torrserver list failed; started tags unavailable");
@@ -200,7 +283,7 @@ pub async fn load_torrents(
         },
         None => Vec::new(),
     };
-    
+
     let mut hits: Vec<TorrentHit> = raw
         .into_iter()
         .map(|hit| {
@@ -214,42 +297,32 @@ pub async fn load_torrents(
 }
 
 pub async fn open_magnet(
-    settings: Settings,
+    torr: TorrCtx,
+    tmdb: TmdbCtx,
     spec: cinebox_torrserver::AddSpec,
     movie: MovieBits,
-    kind: MediaKind,
-    id: TmdbId,
-    runtime_minutes: Option<u32>,
+    target: OpenTarget,
     db: Option<Arc<Store>>,
-) -> Result<ReadyFiles, String> {
-    let url = settings.torrserver.url.clone();
-    let user = settings.torrserver.username.clone();
-    let pass = settings.torrserver.password.expose().to_owned();
-    let track = settings.torrserver.track_timecode;
-    let api_key = settings.tmdb.api_key.expose().to_owned();
-
-    let opened = cinebox_torrserver::open_magnet(&url, &user, &pass, &spec, track)
-        .await
-        .map_err(|error| error.to_string())?;
-
-    let serial = kind == MediaKind::Tv || movie.number_of_seasons.is_some();
-    let catalog = season_catalog(
-        &opened.files,
-        serial,
-        id,
-        &api_key,
-        &settings,
-        db.clone(),
+) -> Result<ReadyFiles, JobError> {
+    let opened = cinebox_torrserver::open_magnet(
+        &torr.url,
+        &torr.username,
+        &torr.password,
+        &spec,
+        torr.track_timecode,
     )
-    .await;
+    .await?;
+
+    let serial = target.kind == MediaKind::Tv || movie.number_of_seasons.is_some();
+    let catalog = season_catalog(&opened.files, serial, target.id, &tmdb, db.clone()).await;
 
     let files = decorate_files(
         opened,
         &movie,
         serial,
-        runtime_minutes,
+        target.runtime_minutes,
         &catalog,
-        db.as_deref().map(|db| (db, kind, id)),
+        db.as_deref().map(|db| (db, target.kind, target.id)),
     )
     .await;
 
@@ -260,11 +333,10 @@ async fn season_catalog(
     files: &[cinebox_torrserver::OpenedFile],
     serial: bool,
     id: TmdbId,
-    api_key: &str,
-    settings: &Settings,
+    tmdb: &TmdbCtx,
     db: Option<Arc<Store>>,
 ) -> Vec<cinebox_tmdb::SeasonEpisode> {
-    if !serial || api_key.is_empty() {
+    if !serial || tmdb.api_key.is_empty() {
         return Vec::new();
     }
 
@@ -280,7 +352,7 @@ async fn season_catalog(
         return Vec::new();
     }
 
-    let language = Some(settings.general.language.tmdb_code());
+    let language = Some(tmdb.language);
     let lang = language_key(language);
     let mut out = Vec::new();
     let mut need = Vec::new();
@@ -294,12 +366,14 @@ async fn season_catalog(
                 .flatten(),
             None => None,
         };
+
         if let Some(hit) = cached {
             if hit.is_fresh(SEASON_TTL) {
                 out.extend(hit.value);
                 continue;
             }
         }
+
         need.push(season);
     }
 
@@ -308,11 +382,11 @@ async fn season_catalog(
     }
 
     let fetched = match cinebox_tmdb::fetch_season_episodes(
-        api_key,
+        &tmdb.api_key,
         id,
         &need,
         language,
-        settings.general.use_system_proxy,
+        tmdb.use_system_proxy,
     )
     .await
     {
@@ -330,16 +404,19 @@ async fn season_catalog(
                 .filter(|ep| ep.season == season)
                 .cloned()
                 .collect();
+
             let paths = episode_paths(&eps);
             let cache_id = season_cache_id(id, season);
-            if let Err(error) = db
+            let saved = db
                 .put_json(lang, KIND_SEASON, &cache_id, &eps, &paths)
-                .await
-            {
+                .await;
+
+            if let Err(error) = saved {
                 warn!(%error, "failed to persist season episodes");
             }
         }
     }
+
     out.extend(fetched);
     out
 }
@@ -350,6 +427,7 @@ fn episode_paths(episodes: &[cinebox_tmdb::SeasonEpisode]) -> Vec<String> {
         let Some(path) = normalize_tmdb_path(episode.still_path.as_deref()) else {
             continue;
         };
+
         if paths.contains(&path) {
             continue;
         }
@@ -455,66 +533,70 @@ async fn decorate_files(
 }
 
 pub async fn wait_stream(
-    settings: Settings,
+    torr: TorrCtx,
     file_path: String,
     hash: String,
     file_id: i32,
     on_event: impl FnMut(cinebox_torrserver::PreloadEvent) + Send,
-) -> Result<(), String> {
-    let url = settings.torrserver.url.clone();
-    let user = settings.torrserver.username.clone();
-    let pass = settings.torrserver.password.expose().to_owned();
-
-    cinebox_torrserver::wait_preload(&url, &user, &pass, &file_path, &hash, file_id, on_event)
-        .await
-        .map_err(|error| error.to_string())
-}
-
-pub async fn ping_torrserver(settings: Settings) -> Result<String, String> {
-    cinebox_torrserver::echo(
-        &settings.torrserver.url,
-        &settings.torrserver.username,
-        settings.torrserver.password.expose(),
+) -> Result<(), JobError> {
+    cinebox_torrserver::wait_preload(
+        &torr.url,
+        &torr.username,
+        &torr.password,
+        &file_path,
+        &hash,
+        file_id,
+        on_event,
     )
-    .await
-    .map_err(|error| error.to_string())
+    .await?;
+
+    Ok(())
 }
 
-pub async fn ping_parser(settings: Settings) -> Result<String, String> {
-    cinebox_indexer::ping(
-        settings.parser.kind,
-        &settings.parser.url,
-        settings.parser.api_key.expose(),
-        settings.general.use_system_proxy,
+pub async fn ping_torrserver(torr: TorrCtx) -> Result<String, JobError> {
+    let echo = cinebox_torrserver::echo(&torr.url, &torr.username, &torr.password).await?;
+
+    Ok(echo)
+}
+
+pub async fn ping_parser(parser: ParserCtx) -> Result<String, JobError> {
+    let version = cinebox_indexer::ping(
+        parser.kind,
+        &parser.url,
+        &parser.api_key,
+        parser.use_system_proxy,
     )
-    .await
-    .map_err(|error| error.to_string())
+    .await?;
+
+    Ok(version)
 }
 
-pub async fn ping_tmdb(settings: Settings, db: Option<Arc<Store>>) -> Result<String, String> {
-    let fp = key_fingerprint(settings.tmdb.api_key.expose());
+pub async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, JobError> {
+    let fp = key_fingerprint(&tmdb.api_key);
     let cache_id = format!("ping:{fp:x}");
-    if let Some(db) = &db
-        && let Ok(Some(hit)) = db.get_json::<String>("", KIND_CONFIG, &cache_id).await
-        && hit.is_fresh(CONFIG_TTL)
-    {
-        return Ok(hit.value);
+    if let Some(db) = &db {
+        let cached = db.get_json::<String>("", KIND_CONFIG, &cache_id).await;
+
+        if let Ok(Some(hit)) = cached
+            && hit.is_fresh(CONFIG_TTL)
+        {
+            return Ok(hit.value);
+        }
     }
 
-    let result = cinebox_tmdb::check_api_key(
-        settings.tmdb.api_key.expose(),
-        settings.general.use_system_proxy,
-    )
-    .await
-    .map_err(|error| error.to_string());
+    let result = cinebox_tmdb::check_api_key(&tmdb.api_key, tmdb.use_system_proxy).await;
 
     if let Ok(msg) = &result
         && let Some(db) = db
-        && let Err(error) = db.put_json("", KIND_CONFIG, &cache_id, msg, &[]).await
     {
-        warn!(%error, "failed to persist tmdb ping");
+        let saved = db.put_json("", KIND_CONFIG, &cache_id, msg, &[]).await;
+
+        if let Err(error) = saved {
+            warn!(%error, "failed to persist tmdb ping");
+        }
     }
-    result
+
+    Ok(result?)
 }
 
 fn key_fingerprint(key: &str) -> u64 {
@@ -524,16 +606,16 @@ fn key_fingerprint(key: &str) -> u64 {
 }
 
 pub async fn speed_test(
-    settings: Settings,
+    torr: TorrCtx,
     on_event: impl FnMut(cinebox_torrserver::SpeedEvent) + Send,
-) -> Result<f64, String> {
-    cinebox_torrserver::speed_test(
-        &settings.torrserver.url,
-        &settings.torrserver.username,
-        settings.torrserver.password.expose(),
-        on_event,
-    )
-    .await
-    .map(|report| report.megabits_per_sec())
-    .map_err(|error| error.to_string())
+) -> Result<f64, JobError> {
+    let TorrCtx {
+        url,
+        username,
+        password,
+        ..
+    } = torr;
+
+    let report = cinebox_torrserver::speed_test(&url, &username, &password, on_event).await?;
+    Ok(report.megabits_per_sec())
 }

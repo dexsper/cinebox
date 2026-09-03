@@ -280,25 +280,3 @@ fn paint_visuals(
     widgets.open.bg_stroke = stroke;
     widgets.open.corner_radius = radius;
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn fill_for_hover_idles_without_response() {
-        let idle = Color32::from_rgb(1, 2, 3);
-        let hover = Color32::from_rgb(4, 5, 6);
-
-        assert_eq!(idle_or_hover(false, idle, hover), idle);
-        assert_eq!(idle_or_hover(true, idle, hover), hover);
-    }
-
-    fn idle_or_hover(hovered: bool, idle: Color32, hover: Color32) -> Color32 {
-        if hovered {
-            return hover;
-        }
-
-        idle
-    }
-}

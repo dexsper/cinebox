@@ -106,7 +106,8 @@ fn original_rule_fixtures() {
 }
 
 fn run(name: &str, locales: &[String], inner: bool, extra: &[String], text: &str) -> String {
-    let mut tp = Typograf::new(locales.iter().map(String::as_str));
+    let engine = Typograf::new(locales.iter().map(String::as_str));
+    let mut tp = engine.unwrap_or_else(|error| panic!("{error}"));
 
     if inner {
         return tp.execute_inner(name, text);

@@ -20,6 +20,7 @@ thiserror.workspace = true
 tokio = { version = "1", features = ["time"] }
 
 [dev-dependencies]
+httpmock.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
 
 [lints]

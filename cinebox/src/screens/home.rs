@@ -51,11 +51,11 @@ impl HomeScreen {
         }
 
         let disk_fresh = self.cache.disk.as_ref().is_some_and(|(_, fresh)| *fresh);
-        let settings = svc.settings.clone();
+        let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let db = svc.db.clone();
         let outcome = self
             .cache
-            .resolve(disk_fresh, move || jobs::load_home(settings, db));
+            .resolve(disk_fresh, move || jobs::load_home(tmdb, db));
 
         let mut retry = false;
         let action = match outcome.view {
@@ -69,7 +69,7 @@ impl HomeScreen {
             },
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
-                    Some(Err(error)) => error.clone(),
+                    Some(Err(error)) => error.to_string(),
                     _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);

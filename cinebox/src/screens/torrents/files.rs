@@ -4,7 +4,7 @@ use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaKind, TmdbId};
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
 
-use super::state::{FilesPane, ReadyFiles, TorrentState};
+use super::state::{FilesPane, ReadyFiles, TorrentState, season_episode_line};
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{self, button, poster, scroll};
@@ -137,6 +137,7 @@ fn file_list(
                                 })
                             },
                         );
+
                         ui.vertical(|ui| {
                             ui.set_min_width(ui.available_width());
                             ui.horizontal(|ui| {
@@ -154,18 +155,25 @@ fn file_list(
                             });
 
                             if serial {
-                                let mut line =
-                                    format!("{} {}", Msg::Season.t(), file.season.unwrap_or(1));
-                                if let Some(episode) = file.episode {
-                                    line = format!("{line}  ·  {} {episode}", Msg::Episode.t());
-                                } else {
+                                let season = file.season.unwrap_or(1);
+                                let mut line = season_episode_line(season, file.episode);
+                                if file.episode.is_none() {
                                     line = format!("{line}  ·  {}", file.number);
                                 }
-                                ui.label(RichText::new(line).size(theme.text_small).color(theme.muted));
+
+                                ui.label(
+                                    RichText::new(line)
+                                        .size(theme.text_small)
+                                        .color(theme.muted),
+                                );
                             }
 
                             if let Some(air) = file.air_date.as_deref() {
-                                ui.label(RichText::new(air).size(theme.text_caption).color(theme.muted));
+                                ui.label(
+                                    RichText::new(air)
+                                        .size(theme.text_caption)
+                                        .color(theme.muted),
+                                );
                             }
 
                             ui.add_space(6.0);
@@ -173,10 +181,12 @@ fn file_list(
                         });
                     });
                 });
+
             if files.scroll_to_resume && selected {
                 shown.response.scroll_to_me(Some(Align::Center));
                 scrolled = true;
             }
+
             let response = button::click_rect(ui, row_id, shown.response.rect);
             if response.clicked() {
                 *pick_file = Some(file.id);
@@ -193,6 +203,7 @@ fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 3.0), Sense::hover());
     ui.painter()
         .rect_filled(rect, CornerRadius::same(3), theme.progress_track);
+
     if value > 0.0 {
         let mut fill = rect;
         fill.max.x = rect.left() + rect.width() * value.clamp(0.0, 1.0);

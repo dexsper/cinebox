@@ -1,9 +1,8 @@
 //! Playlist flyout: compact file rows (still, title, episode line, progress).
 
-use cinebox_core::i18n::Msg;
 use egui::{CornerRadius, Frame, RichText, Sense, Ui, Vec2, vec2};
 
-use crate::screens::torrents::TorrentFileRow;
+use crate::screens::torrents::{TorrentFileRow, season_episode_line};
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{button, poster, scroll};
@@ -95,13 +94,8 @@ fn file_row(
 
 fn episode_line(file: &TorrentFileRow) -> Option<String> {
     let season = file.season?;
-    let mut line = format!("{} {season}", Msg::Season.t());
 
-    if let Some(episode) = file.episode {
-        line = format!("{line}  ·  {} {episode}", Msg::Episode.t());
-    }
-
-    Some(line)
+    Some(season_episode_line(season, file.episode))
 }
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {

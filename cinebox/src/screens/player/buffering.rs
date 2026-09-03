@@ -9,6 +9,7 @@ use egui::{Align2, CornerRadius, Rect, Ui, UiBuilder, pos2, vec2};
 use egui_async::Bind;
 
 use crate::images::ImageSlot;
+use crate::jobs::JobError;
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::Services;
 use crate::theme::Theme;
@@ -66,7 +67,7 @@ pub struct Buffering {
     pub file_index: usize,
     pub resume_at: f64,
     pub meter: PreloadMeter,
-    pub job: Bind<(), String>,
+    pub job: Bind<(), JobError>,
 }
 
 /// Backdrop + dimming scrim + centered title / percent bar, in place of the video.
@@ -104,6 +105,7 @@ pub fn paint(ui: &mut Ui, rect: Rect, svc: &Services, theme: &Theme, buffering: 
     let bar_w = (rect.width() * 0.4)
         .clamp(240.0, 480.0)
         .min(rect.width() - 32.0);
+    
     let bar = Rect::from_center_size(pos2(center.x, center.y + 8.0), vec2(bar_w, BAR_H));
     ui.painter()
         .rect_filled(bar, CornerRadius::same(3), theme.progress_track);

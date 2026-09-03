@@ -6,7 +6,7 @@ mod re;
 mod rules;
 mod safe_tags;
 
-pub use engine::Typograf;
+pub use engine::{LocaleError, Typograf};
 
 pub(crate) const PRIVATE: char = '\u{F000}';
 pub(crate) const PRIVATE_SEPARATE: char = '\u{F001}';
@@ -15,7 +15,10 @@ pub(crate) const PRIVATE_SEPARATE: char = '\u{F001}';
 #[must_use]
 pub fn typograph(input: &str) -> String {
     thread_local! {
-        static ENGINE: Typograf = Typograf::new(["ru", "en-US"]);
+        static ENGINE: Typograf = match Typograf::new(["ru", "en-US"]) {
+            Ok(engine) => engine,
+            Err(error) => unreachable!("bundled locales are valid: {error}"),
+        };
     }
 
     ENGINE.with(|tp| tp.execute(input))

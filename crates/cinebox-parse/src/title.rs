@@ -395,6 +395,56 @@ mod tests {
     }
 
     #[test]
+    fn empty_title_falls_back_to_defaults() {
+        let info = parse_title("");
+
+        assert_eq!(info, TitleInfo::default());
+        assert_eq!(info.seasons, vec![1]);
+        assert_eq!(info.season_label(), "1");
+    }
+
+    #[test]
+    fn year_range_is_not_an_episode_span() {
+        let info = parse_title("Сериал (2020-2023) 1080p");
+
+        assert_eq!(info.year, Some(2020));
+        assert_eq!(info.episodes, None);
+    }
+
+    #[test]
+    fn cyrillic_resolution_letter_is_recognized() {
+        // "р" here is Cyrillic, common in RuTracker titles.
+        let info = parse_title("Фильм 1080р HDR");
+
+        assert_eq!(info.resolution, Some(Resolution::Fhd));
+        assert_eq!(info.hdr, Some(Hdr::Hdr));
+    }
+
+    #[test]
+    fn cyrillic_season_and_episode_words() {
+        let info = parse_title("Тьма / Dark [Сезон: 2, Серии: 1-8 из 8] WEBRip");
+
+        assert_eq!(info.seasons, vec![2]);
+        assert_eq!(info.episodes, Some(EpisodeSpan { from: 1, to: 8 }));
+        assert_eq!(info.quality, Some(SourceQuality::WebRip));
+    }
+
+    #[test]
+    fn season_range_reversed_bounds_are_normalized() {
+        let info = parse_title("Show [S05-03]");
+
+        assert_eq!(info.seasons, vec![3, 4, 5]);
+        assert_eq!(info.season_label(), "3-5");
+    }
+
+    #[test]
+    fn dolby_vision_beats_plain_hdr() {
+        let info = parse_title("Movie 2160p Dolby Vision HDR");
+
+        assert_eq!(info.hdr, Some(Hdr::DolbyVision));
+    }
+
+    #[test]
     fn size_and_hash() {
         assert_eq!(format_bytes(1024), "1 KB");
         assert_eq!(

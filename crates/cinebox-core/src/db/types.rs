@@ -218,3 +218,80 @@ pub fn image_size_key(size: &str, soften: bool) -> String {
 
     size.to_owned()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn details(kind: MediaKind, released: Option<&str>) -> MediaDetails {
+        MediaDetails {
+            id: TmdbId::new(1),
+            kind,
+            title: String::from("T"),
+            original_title: None,
+            original_language: None,
+            tagline: None,
+            overview: None,
+            year: None,
+            released: released.map(str::to_owned),
+            runtime_minutes: None,
+            number_of_seasons: None,
+            number_of_episodes: None,
+            certification: None,
+            vote: None,
+            budget: None,
+            genre_ids: Vec::new(),
+            genres: Vec::new(),
+            countries: Vec::new(),
+            poster_path: None,
+            backdrop_path: None,
+            directors: Vec::new(),
+            cast: Vec::new(),
+            collection: Vec::new(),
+            recommendations: Vec::new(),
+            similar: Vec::new(),
+            trailers: Vec::new(),
+        }
+    }
+
+    #[test]
+    fn released_movie_gets_stable_ttl() {
+        let released = details(MediaKind::Movie, Some("2024-01-01"));
+        assert_eq!(media_ttl(&released), DETAILS_STABLE_TTL);
+    }
+
+    #[test]
+    fn unreleased_movie_and_tv_get_short_ttl() {
+        assert_eq!(media_ttl(&details(MediaKind::Movie, None)), DETAILS_TTL);
+        assert_eq!(media_ttl(&details(MediaKind::Movie, Some(""))), DETAILS_TTL);
+        assert_eq!(
+            media_ttl(&details(MediaKind::Tv, Some("2024-01-01"))),
+            DETAILS_TTL
+        );
+    }
+
+    #[test]
+    fn fast_shelves_get_fast_ttl() {
+        assert_eq!(home_ttl(HomeRowId::NowPlaying), HOME_FAST_TTL);
+        assert_eq!(home_ttl(HomeRowId::TrendingDay), HOME_FAST_TTL);
+        assert_eq!(home_ttl(HomeRowId::PopularMovies), HOME_SLOW_TTL);
+        assert_eq!(home_ttl(HomeRowId::TopRatedTv), HOME_SLOW_TTL);
+    }
+
+    #[test]
+    fn cache_hit_freshness_uses_ttl() {
+        let now = unix_now();
+        let fresh = CacheHit {
+            value: (),
+            fetched_at: now,
+        };
+
+        assert!(fresh.is_fresh(Duration::from_secs(60)));
+        let stale = CacheHit {
+            value: (),
+            fetched_at: now - 120,
+        };
+
+        assert!(!stale.is_fresh(Duration::from_secs(60)));
+    }
+}

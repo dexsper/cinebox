@@ -11,6 +11,7 @@ description = "Rust port of typograf (https://github.com/typograf/typograf) for 
 
 [dependencies]
 fancy-regex = "0.19"
+thiserror.workspace = true
 
 [dev-dependencies]
 serde = { workspace = true, features = ["derive"] }

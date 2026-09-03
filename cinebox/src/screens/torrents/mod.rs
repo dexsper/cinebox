@@ -4,7 +4,10 @@ mod files;
 mod list;
 mod state;
 
-pub use state::{FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState};
+pub use state::{
+    FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState,
+    season_episode_line,
+};
 
 use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url};
@@ -12,7 +15,7 @@ use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 
-use crate::jobs;
+use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
@@ -22,8 +25,8 @@ use crate::widgets::{self, intro, poster, scroll};
 pub struct TorrentsScreen {
     state: Option<TorrentState>,
     details: Option<MediaDetails>,
-    hits: Bind<Vec<cinebox_parse::TorrentHit>, String>,
-    opened: Bind<ReadyFiles, String>,
+    hits: Bind<Vec<cinebox_parse::TorrentHit>, JobError>,
+    opened: Bind<ReadyFiles, JobError>,
     local_hashes: Bind<(MediaKind, TmdbId, Vec<String>), String>,
     intro_at: Option<f64>,
     on_screen: bool,
@@ -375,11 +378,12 @@ impl TorrentsScreen {
             return;
         };
 
-        let settings = svc.settings.clone();
+        let parser = jobs::ParserCtx::from(&svc.settings);
+        let torr = jobs::TorrCtx::from(&svc.settings);
         let db = svc.db.clone();
         let Some(result) = self
             .hits
-            .read_or_request(move || jobs::load_torrents(settings, details, db))
+            .read_or_request(move || jobs::load_torrents(parser, torr, details, db))
         else {
             ctx.request_repaint();
             return;
@@ -392,9 +396,11 @@ impl TorrentsScreen {
                 }
             }
             Err(error) => {
+                let error = error.to_string();
                 svc.toasts.error(error.clone(), ctx.input(|i| i.time));
+
                 if let Some(state) = &mut self.state {
-                    state.set_hits(TorrentHits::Failed(error.clone()));
+                    state.set_hits(TorrentHits::Failed(error));
                 }
             }
         }
@@ -420,9 +426,10 @@ impl TorrentsScreen {
                 }
             }
             Err(error) => {
+                let error = error.to_string();
                 svc.toasts.error(error.clone(), ctx.input(|i| i.time));
                 if let Some(state) = &mut self.state {
-                    state.files = FilesPane::Failed(error.clone());
+                    state.files = FilesPane::Failed(error);
                 }
             }
         }
@@ -490,19 +497,21 @@ impl TorrentsScreen {
         state.pending_add = Some(spec.clone());
         state.pick_gen += 1;
         state.files = FilesPane::Loading;
-        let settings = svc.settings.clone();
+        let torr = jobs::TorrCtx::from(&svc.settings);
+        let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let movie = state.movie.clone();
-        let kind = state.kind;
-        let id = state.id;
-        let runtime = state.runtime_minutes;
+        let target = jobs::OpenTarget {
+            kind: state.kind,
+            id: state.id,
+            runtime_minutes: state.runtime_minutes,
+        };
         self.opened.clear();
         self.opened.request(jobs::open_magnet(
-            settings,
+            torr,
+            tmdb,
             spec,
             movie,
-            kind,
-            id,
-            runtime,
+            target,
             svc.db.clone(),
         ));
     }

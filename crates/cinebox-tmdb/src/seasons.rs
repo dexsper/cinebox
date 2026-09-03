@@ -94,8 +94,13 @@ async fn fetch_one_season(
 
     let body: SeasonBody = send_json(request).await?;
 
+    Ok(map_season(body, season))
+}
+
+/// Pure payload → episodes mapping; `requested` backs a missing `season_number`.
+fn map_season(body: SeasonBody, requested: u32) -> Vec<SeasonEpisode> {
+    let season = body.season_number.unwrap_or(requested);
     let mut out = Vec::new();
-    let season_no = body.season_number.unwrap_or(season);
 
     for ep in body.episodes.unwrap_or_default() {
         let Some(episode) = ep.episode_number.filter(|n| *n > 0) else {
@@ -103,7 +108,7 @@ async fn fetch_one_season(
         };
 
         out.push(SeasonEpisode {
-            season: season_no,
+            season,
             episode,
             name: ep.name.unwrap_or_default(),
             still_path: ep.still_path.filter(|p| !p.is_empty()),
@@ -112,5 +117,108 @@ async fn fetch_one_season(
         });
     }
 
-    Ok(out)
+    out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn body(json: &str) -> SeasonBody {
+        serde_json::from_str(json).unwrap_or_else(|error| panic!("fixture: {error}"))
+    }
+
+    #[test]
+    fn maps_full_tmdb_payload() {
+        let fixture = r#"{
+            "season_number": 2,
+            "episodes": [
+                {
+                    "episode_number": 1,
+                    "name": "Pilot",
+                    "still_path": "/abc.jpg",
+                    "runtime": 52,
+                    "air_date": "2024-01-15"
+                },
+                {
+                    "episode_number": 2,
+                    "name": "Fallout"
+                }
+            ]
+        }"#;
+
+        let episodes = map_season(body(fixture), 9);
+
+        assert_eq!(
+            episodes,
+            vec![
+                SeasonEpisode {
+                    season: 2,
+                    episode: 1,
+                    name: String::from("Pilot"),
+                    still_path: Some(String::from("/abc.jpg")),
+                    runtime_minutes: Some(52),
+                    air_date: Some(String::from("2024-01-15")),
+                },
+                SeasonEpisode {
+                    season: 2,
+                    episode: 2,
+                    name: String::from("Fallout"),
+                    still_path: None,
+                    runtime_minutes: None,
+                    air_date: None,
+                },
+            ]
+        );
+    }
+
+    #[test]
+    fn falls_back_to_requested_season() {
+        let fixture = r#"{ "episodes": [{ "episode_number": 3 }] }"#;
+        let episodes = map_season(body(fixture), 7);
+
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0].season, 7);
+        assert_eq!(episodes[0].episode, 3);
+    }
+
+    #[test]
+    fn skips_missing_or_zero_episode_numbers() {
+        let fixture = r#"{
+            "season_number": 1,
+            "episodes": [
+                { "name": "no number" },
+                { "episode_number": 0, "name": "special" },
+                { "episode_number": 4, "name": "kept" }
+            ]
+        }"#;
+
+        let episodes = map_season(body(fixture), 1);
+
+        assert_eq!(episodes.len(), 1);
+        assert_eq!(episodes[0].episode, 4);
+    }
+
+    #[test]
+    fn empty_strings_and_zero_runtime_become_none() {
+        let fixture = r#"{
+            "season_number": 1,
+            "episodes": [
+                { "episode_number": 1, "still_path": "", "runtime": 0, "air_date": "" }
+            ]
+        }"#;
+
+        let episodes = map_season(body(fixture), 1);
+
+        assert_eq!(episodes[0].still_path, None);
+        assert_eq!(episodes[0].runtime_minutes, None);
+        assert_eq!(episodes[0].air_date, None);
+    }
+
+    #[test]
+    fn empty_payload_maps_to_no_episodes() {
+        let episodes = map_season(body("{}"), 5);
+
+        assert!(episodes.is_empty());
+    }
 }

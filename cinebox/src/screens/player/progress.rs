@@ -119,18 +119,18 @@ impl PlayerScreen {
             return db_job;
         }
 
-        let settings = svc.settings.clone();
+        let torr = crate::jobs::TorrCtx::from(&svc.settings);
         self.viewed_job.request(async move {
             cinebox_torrserver::viewed_set(
-                &settings.torrserver.url,
-                &settings.torrserver.username,
-                settings.torrserver.password.expose(),
+                &torr.url,
+                &torr.username,
+                &torr.password,
                 &hash,
                 file_id,
                 time,
             )
             .await
-            .map_err(|error| error.to_string())
+            .map_err(crate::jobs::JobError::from)
         });
 
         db_job

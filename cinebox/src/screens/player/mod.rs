@@ -19,6 +19,7 @@ use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
 use tracing::warn;
 
+use crate::jobs::JobError;
 use crate::nav::NavAction;
 use crate::screens::play::{PlayRequest, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
@@ -110,7 +111,7 @@ pub struct PlayerScreen {
     sub_delay: f64,
     volume_dirty: bool,
     progress_saved_at: Option<Instant>,
-    viewed_job: Bind<(), String>,
+    viewed_job: Bind<(), JobError>,
     video_cb: Option<VideoCallback>,
 }
 
@@ -627,10 +628,10 @@ impl PlayerScreen {
         };
 
         let meter = PreloadMeter::new();
-        let mut job: Bind<(), String> = Bind::new(true);
+        let mut job: Bind<(), JobError> = Bind::new(true);
         job.set_abort(true);
 
-        let settings = svc.settings.clone();
+        let torr = crate::jobs::TorrCtx::from(&svc.settings);
         let live = meter.clone();
         let repaint = ctx.clone();
         let path = file.path.clone();
@@ -638,7 +639,7 @@ impl PlayerScreen {
         let file_id = file.id;
 
         job.request(async move {
-            crate::jobs::wait_stream(settings, path, hash, file_id, move |event| {
+            crate::jobs::wait_stream(torr, path, hash, file_id, move |event| {
                 live.on_event(event);
                 repaint.request_repaint();
             })
@@ -667,7 +668,7 @@ impl PlayerScreen {
             match state.job.read() {
                 None => return,
                 Some(Ok(())) => Ok(()),
-                Some(Err(error)) => Err(error.clone()),
+                Some(Err(error)) => Err(error.to_string()),
             }
         };
 

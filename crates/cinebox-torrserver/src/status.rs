@@ -169,4 +169,48 @@ mod tests {
         assert!((over.preload_percent() - 100.0).abs() < f64::EPSILON);
         assert!(over.preload_ready());
     }
+
+    #[test]
+    fn parses_add_response_fixture() {
+        // Trimmed real `POST /torrents action=add` body; unknown keys ignored.
+        let fixture = r#"{
+            "title": "Show S01 1080p",
+            "poster": "http://img/poster.jpg",
+            "hash": "abcdef0123456789abcdef0123456789abcdef01",
+            "stat": 3,
+            "stat_string": "Torrent working",
+            "torrent_size": 4200000000,
+            "preloaded_bytes": 5000000,
+            "preload_size": 20000000,
+            "download_speed": 1250000.5,
+            "active_peers": 12,
+            "total_peers": 60,
+            "file_stats": [
+                { "id": 1, "path": "Show/S01E01.mkv", "length": 2100000000 },
+                { "id": 2, "path": "Show/S01E02.mkv", "length": 2100000000 }
+            ]
+        }"#;
+
+        let status: TorrentStatus = serde_json::from_str(fixture)
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+
+        assert_eq!(status.hash, "abcdef0123456789abcdef0123456789abcdef01");
+        assert_eq!(status.stat_kind(), TorrentStat::Working);
+        assert_eq!(status.file_stats.len(), 2);
+        assert_eq!(status.file_stats[0].path, "Show/S01E01.mkv");
+        assert!((status.preload_percent() - 25.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn missing_fields_default_and_unknown_stat_maps() {
+        let status: TorrentStatus = serde_json::from_str("{}")
+            .unwrap_or_else(|error| panic!("fixture: {error}"));
+
+        assert_eq!(status.hash, "");
+        assert!(status.file_stats.is_empty());
+        assert_eq!(status.stat_kind(), TorrentStat::Added);
+
+        assert_eq!(TorrentStat::from(42), TorrentStat::Unknown(42));
+        assert_eq!(TorrentStat::from(5), TorrentStat::InDb);
+    }
 }

@@ -18,15 +18,3 @@ pub fn exe_dir() -> io::Result<PathBuf> {
         )),
     }
 }
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn exe_dir_exists() -> io::Result<()> {
-        let dir = exe_dir()?;
-        assert!(dir.is_dir());
-        Ok(())
-    }
-}

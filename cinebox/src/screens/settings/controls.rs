@@ -14,6 +14,7 @@ use egui_material_icons::icons::{
 
 use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
+use crate::jobs::JobError;
 use crate::theme::Theme;
 
 const CATEGORY_H: f32 = 72.0;
@@ -284,11 +285,11 @@ pub fn probe_row<F, Fut>(
     theme: &Theme,
     icon: MaterialIcon,
     label: &str,
-    bind: &mut Bind<String, String>,
+    bind: &mut Bind<String, JobError>,
     start: F,
 ) where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<String, String>> + Send + 'static,
+    Fut: std::future::Future<Output = Result<String, JobError>> + Send + 'static,
 {
     ui.add_space(4.0);
     if action_button(ui, theme, icon, label, true) {
@@ -302,11 +303,11 @@ pub fn speed_test_row<F, Fut>(
     ui: &mut Ui,
     theme: &Theme,
     meter: &SpeedMeter,
-    bind: &mut Bind<(), String>,
+    bind: &mut Bind<(), JobError>,
     start: F,
 ) where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<(), String>> + Send + 'static,
+    Fut: std::future::Future<Output = Result<(), JobError>> + Send + 'static,
 {
     speed::paint(ui, theme, meter);
     ui.add_space(10.0);
@@ -434,13 +435,14 @@ fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {
         .on_hover_cursor(CursorIcon::PointingHand)
 }
 
-fn show_probe(ui: &mut Ui, bind: &mut Bind<String, String>, theme: &Theme) {
+fn show_probe(ui: &mut Ui, bind: &mut Bind<String, JobError>, theme: &Theme) {
     match bind.read() {
         None => {}
         Some(Ok(msg)) => {
             ui.label(RichText::new(msg).size(theme.text_small).color(theme.ok));
         }
-        Some(Err(msg)) => {
+        Some(Err(error)) => {
+            let msg = error.to_string();
             ui.label(RichText::new(msg).size(theme.text_small).color(theme.err));
         }
     }

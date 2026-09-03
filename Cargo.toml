@@ -53,6 +53,7 @@ reqwest = { version = "0.13", default-features = false, features = ["json", "que
 futures-util = { version = "0.3", default-features = false, features = ["std"] }
 regex = "1"
 aho-corasick = "1"
+httpmock = "0.7"
 
 [workspace.lints.rust]
 unsafe_op_in_unsafe_fn = "warn"

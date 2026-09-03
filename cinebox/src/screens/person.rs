@@ -100,7 +100,7 @@ impl PersonScreen {
             return None;
         }
 
-        let settings = svc.settings.clone();
+        let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let db = svc.db.clone();
         let fresh = self
             .cache
@@ -108,7 +108,7 @@ impl PersonScreen {
             .as_ref()
             .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
         let outcome = self.cache.resolve(fresh, move || {
-            jobs::load_person(settings, id, db)
+            jobs::load_person(tmdb, id, db)
         });
         if outcome.in_flight {
             ui.ctx().request_repaint();
@@ -132,7 +132,7 @@ impl PersonScreen {
             },
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
-                    Some(Err(error)) => error.clone(),
+                    Some(Err(error)) => error.to_string(),
                     _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);

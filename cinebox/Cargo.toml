@@ -23,6 +23,7 @@ egui_glow.workspace = true
 egui_material_icons.workspace = true
 egui-async.workspace = true
 tokio.workspace = true
+thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true

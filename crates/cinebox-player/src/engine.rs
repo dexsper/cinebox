@@ -397,7 +397,15 @@ fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
     Ok(())
 }
 
-fn apply_scale(mpv: &Mpv, scale: VideoScale) -> Result<(), Error> {
+/// mpv property values for one [`VideoScale`] mode.
+#[derive(Debug, Clone, Copy, PartialEq)]
+struct ScaleParams {
+    keep_aspect: bool,
+    panscan: f64,
+    zoom: f64,
+}
+
+fn scale_params(scale: VideoScale) -> ScaleParams {
     let keep_aspect = scale != VideoScale::Fill;
     let panscan = if scale == VideoScale::Expand {
         1.0
@@ -411,12 +419,27 @@ fn apply_scale(mpv: &Mpv, scale: VideoScale) -> Result<(), Error> {
         VideoScale::Default | VideoScale::Expand | VideoScale::Fill => 0.0,
     };
 
-    mpv.set_property("keepaspect", keep_aspect)
+    ScaleParams {
+        keep_aspect,
+        panscan,
+        zoom,
+    }
+}
+
+fn apply_scale(mpv: &Mpv, scale: VideoScale) -> Result<(), Error> {
+    let params = scale_params(scale);
+
+    mpv.set_property("keepaspect", params.keep_aspect)
         .map_err(Error::mpv)?;
+
     mpv.set_property("video-unscaled", false)
         .map_err(Error::mpv)?;
-    mpv.set_property("panscan", panscan).map_err(Error::mpv)?;
-    mpv.set_property("video-zoom", zoom).map_err(Error::mpv)?;
+
+    mpv.set_property("panscan", params.panscan)
+        .map_err(Error::mpv)?;
+
+    mpv.set_property("video-zoom", params.zoom)
+        .map_err(Error::mpv)?;
 
     Ok(())
 }
@@ -454,5 +477,34 @@ mod tests {
             args,
             vec![String::from("http://ts/stream"), String::from("replace")]
         );
+    }
+
+    #[test]
+    fn loadfile_half_second_threshold() {
+        assert_eq!(loadfile_args("u", 0.5).len(), 2);
+        assert_eq!(loadfile_args("u", -3.0).len(), 2);
+
+        let args = loadfile_args("u", 0.51);
+        assert_eq!(args.len(), 4);
+        assert_eq!(args[3], "start=0.51");
+    }
+
+    #[test]
+    fn scale_modes_map_to_mpv_properties() {
+        let default = scale_params(VideoScale::Default);
+        assert!(default.keep_aspect);
+        assert!((default.panscan - 0.0).abs() < f64::EPSILON);
+        assert!((default.zoom - 0.0).abs() < f64::EPSILON);
+
+        let fill = scale_params(VideoScale::Fill);
+        assert!(!fill.keep_aspect);
+
+        let expand = scale_params(VideoScale::Expand);
+        assert!(expand.keep_aspect);
+        assert!((expand.panscan - 1.0).abs() < f64::EPSILON);
+
+        let zoom = scale_params(VideoScale::Zoom115);
+        assert!((zoom.zoom - 1.15f64.log2()).abs() < f64::EPSILON);
+        assert!((scale_params(VideoScale::Zoom130).zoom - 1.30f64.log2()).abs() < f64::EPSILON);
     }
 }

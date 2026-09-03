@@ -116,12 +116,12 @@ impl MediaScreen {
             return None;
         }
 
-        let settings = svc.settings.clone();
+        let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let db = svc.db.clone();
         let cache = self.cache.disk.as_ref();
         let fresh = cache.is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
         let outcome = self.cache.resolve(fresh, move || {
-            jobs::load_media(settings, kind, id, db)
+            jobs::load_media(tmdb, kind, id, db)
         });
 
         if outcome.in_flight {
@@ -146,7 +146,7 @@ impl MediaScreen {
             },
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
-                    Some(Err(error)) => error.clone(),
+                    Some(Err(error)) => error.to_string(),
                     _ => Msg::Failed.t().to_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);

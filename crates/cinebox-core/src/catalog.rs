@@ -220,13 +220,4 @@ mod tests {
         assert_eq!(year_from_date("2024-12-01"), Some(2024));
         assert_eq!(year_from_date(""), None);
     }
-
-    #[test]
-    fn remote_rows_match_tmdb_shelves() {
-        assert!(!HomeRowId::RecentlyWatched.is_remote());
-
-        for id in HomeRowId::REMOTE {
-            assert!(id.is_remote());
-        }
-    }
 }

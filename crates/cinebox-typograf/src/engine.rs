@@ -44,6 +44,15 @@ impl Context<'_> {
     }
 }
 
+/// Bad locale set passed to [`Typograf::new`].
+#[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+pub enum LocaleError {
+    #[error("typograf: locale is required")]
+    Empty,
+    #[error("typograf: {0:?} is not a supported locale")]
+    Unsupported(String),
+}
+
 pub struct Typograf {
     prefs: Prefs,
     enabled: HashMap<String, bool>,
@@ -51,16 +60,22 @@ pub struct Typograf {
 }
 
 impl Typograf {
-    pub fn new(locale: impl IntoIterator<Item = impl AsRef<str>>) -> Self {
+    /// Build an engine for the given locale priority list.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocaleError`] when the list is empty or contains a locale
+    /// without bundled data.
+    pub fn new(locale: impl IntoIterator<Item = impl AsRef<str>>) -> Result<Self, LocaleError> {
         let locale: Vec<String> = locale.into_iter().map(|s| s.as_ref().to_string()).collect();
 
         if locale.is_empty() {
-            panic!("typograf: locale is required");
+            return Err(LocaleError::Empty);
         }
 
         for loc in &locale {
             if !data::has_locale(loc) {
-                panic!("typograf: \"{loc}\" is not a supported locale");
+                return Err(LocaleError::Unsupported(loc.clone()));
             }
         }
 
@@ -74,7 +89,7 @@ impl Typograf {
             enabled.insert(rule.name.to_string(), rule.enabled);
         }
 
-        Self {
+        Ok(Self {
             prefs: Prefs {
                 locale,
                 live: false,
@@ -83,7 +98,7 @@ impl Typograf {
             },
             enabled,
             safe_tags: RefCell::new(SafeTags::new()),
-        }
+        })
     }
 
     #[must_use]

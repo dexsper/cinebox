@@ -2,12 +2,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cinebox_core::Settings;
 use cinebox_core::i18n::Msg;
 use cinebox_torrserver::SpeedEvent;
 use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
 
-use crate::jobs;
+use crate::jobs::{self, JobError, TorrCtx};
 use crate::theme::Theme;
 
 const MIN_SCALE: f64 = 20.0;
@@ -132,14 +131,10 @@ impl SpeedMeter {
     }
 }
 
-pub async fn run(
-    settings: Settings,
-    meter: SpeedMeter,
-    ctx: egui::Context,
-) -> Result<(), String> {
+pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result<(), JobError> {
     let live = meter.clone();
     let live_ctx = ctx.clone();
-    let result = jobs::speed_test(settings, move |event| {
+    let result = jobs::speed_test(torr, move |event| {
         live.on_event(event);
         live_ctx.request_repaint();
     })
@@ -147,7 +142,7 @@ pub async fn run(
 
     match &result {
         Ok(mbps) => meter.finish_ok(*mbps),
-        Err(msg) => meter.finish_err(msg.clone()),
+        Err(error) => meter.finish_err(error.to_string()),
     }
 
     ctx.request_repaint();
