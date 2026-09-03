@@ -1,6 +1,6 @@
 //! Playlist flyout: compact file rows (still, title, episode line, progress).
 
-use egui::{CornerRadius, Frame, RichText, Sense, Ui, Vec2, vec2};
+use egui::{Align, CornerRadius, Frame, RichText, Sense, Ui, Vec2, vec2};
 
 use crate::screens::torrents::{TorrentFileRow, season_episode_line};
 use crate::services::Services;
@@ -13,12 +13,15 @@ const ROW_MARGIN: f32 = 8.0;
 const VISIBLE_ROWS: f32 = 3.0;
 
 /// Rows for every file; clicking one returns its index.
+///
+/// `scroll_to_current` centers the current row once, then resets to `false`.
 pub fn paint(
     ui: &mut Ui,
     theme: &Theme,
     svc: &Services,
     files: &[TorrentFileRow],
     current: usize,
+    scroll_to_current: &mut bool,
 ) -> Option<usize> {
     let mut jump = None;
     let row_h = theme.still_h * STILL_SCALE + 2.0 * ROW_MARGIN;
@@ -31,11 +34,15 @@ pub fn paint(
     scroll::vertical_capped(ui, "player-playlist-scroll", max_h, |ui| {
         ui.spacing_mut().item_spacing.y = ROW_GAP;
         for (index, file) in files.iter().enumerate() {
-            if file_row(ui, theme, svc, file, still, index == current) {
+            let is_current = index == current;
+            let scroll = is_current && *scroll_to_current;
+            if file_row(ui, theme, svc, file, still, is_current, scroll) {
                 jump = Some(index);
             }
         }
     });
+
+    *scroll_to_current = false;
 
     jump
 }
@@ -47,6 +54,7 @@ fn file_row(
     file: &TorrentFileRow,
     still: Vec2,
     current: bool,
+    scroll_to_me: bool,
 ) -> bool {
     let id = ui.id().with(("player-playlist-file", file.id));
     let idle = if current {
@@ -88,6 +96,10 @@ fn file_row(
                 });
             });
         });
+
+    if scroll_to_me {
+        shown.response.scroll_to_me(Some(Align::Center));
+    }
 
     button::click_rect(ui, id, shown.response.rect).clicked()
 }

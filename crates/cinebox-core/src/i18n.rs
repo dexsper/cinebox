@@ -285,7 +285,7 @@ impl Msg {
             Self::UseSystemProxyHint => {
                 "Applies to TMDB and the indexer. TorrServer always connects directly."
             }
-            Self::Loudnorm => "Loudnorm",
+            Self::Loudnorm => "Audio normalization",
             Self::LoudnormHint => "Normalize volume across files.",
             Self::PlayNextAutomatically => "Play next file automatically",
             Self::DefaultQuality => "Default quality",
@@ -454,7 +454,7 @@ impl Msg {
             Self::UseSystemProxyHint => {
                 "Для TMDB и индексатора. TorrServer всегда подключается напрямую."
             }
-            Self::Loudnorm => "Loudnorm",
+            Self::Loudnorm => "Нормализация звука",
             Self::LoudnormHint => "Выравнивает громкость между файлами.",
             Self::PlayNextAutomatically => "Играть следующий файл автоматически",
             Self::DefaultQuality => "Качество по умолчанию",

@@ -5,6 +5,7 @@ use std::time::Duration;
 
 use cinebox_core::{join_url, normalize_base_url};
 
+use super::cache::{cache_state, resume_window_progress};
 use super::client::{apply_basic_auth, check_status, http_client, send_json};
 use super::error::Error;
 use super::status::TorrentStatus;
@@ -12,6 +13,13 @@ use super::status::TorrentStatus;
 const PRELOAD_GET_SECS: u64 = 60;
 const STAT_POLL_SECS: u64 = 1;
 const STAT_POLL_MAX: u32 = 90;
+
+/// How much to buffer ahead of a mid-file resume position, regardless of the
+/// TorrServer cache size (whose readahead window can be much larger).
+const RESUME_PRELOAD_BYTES: u64 = 64 << 20;
+
+/// Pieces are coarse, so "ready" mirrors the stock preload gate.
+const RESUME_READY_PERCENT: f64 = 95.0;
 
 /// Query flag on `/stream/{fname}`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -101,6 +109,20 @@ pub enum PreloadEvent {
     },
 }
 
+/// File a preload wait targets: `/stream/{file_path}?link={hash}&index={index}`.
+#[derive(Clone, Copy, Debug)]
+pub struct PreloadTarget<'a> {
+    pub file_path: &'a str,
+    pub hash: &'a str,
+    pub index: i32,
+}
+
+impl PreloadTarget<'_> {
+    fn url(&self, base_url: &str, flag: StreamFlag) -> Result<String, Error> {
+        stream_url(base_url, self.file_path, self.hash, self.index, flag)
+    }
+}
+
 /// `GET` the preload URL (starts buffer), then poll `?stat` until ~95%.
 ///
 /// `on_event` receives a [`PreloadEvent::Progress`] for every poll iteration.
@@ -112,15 +134,75 @@ pub async fn wait_preload(
     base_url: &str,
     username: &str,
     password: &str,
-    file_path: &str,
-    hash: &str,
-    index: i32,
+    target: PreloadTarget<'_>,
     on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
-    let preload = stream_url(base_url, file_path, hash, index, StreamFlag::Preload)?;
-    let stat = stream_url(base_url, file_path, hash, index, StreamFlag::Stat)?;
+    let preload = target.url(base_url, StreamFlag::Preload)?;
+    let stat = target.url(base_url, StreamFlag::Stat)?;
     start_preload(&preload, username, password).await?;
     poll_stat_until_ready(&stat, username, password, on_event).await
+}
+
+/// Buffer around a mid-file resume position (TorrServer's `?preload` always
+/// starts at byte 0, useless before a seek — YouROK/TorrServer#851).
+///
+/// Opens `?play` with `Range: bytes={offset}-`, which makes TorrServer create
+/// a reader there and start filling pieces ahead of it. The connection is held
+/// open (body unread) while `POST /cache` is polled; progress covers a fixed
+/// [`RESUME_PRELOAD_BYTES`] window ahead of the reader.
+///
+/// A poll-budget timeout is soft: playback starts anyway with whatever has
+/// buffered, so `Ok(())` is returned.
+///
+/// # Errors
+///
+/// Empty URL, HTTP failures, or no response headers within the GET budget.
+pub async fn wait_preload_at_bytes(
+    base_url: &str,
+    username: &str,
+    password: &str,
+    target: PreloadTarget<'_>,
+    offset_bytes: u64,
+    mut on_event: impl FnMut(PreloadEvent) + Send,
+) -> Result<(), Error> {
+    let play = target.url(base_url, StreamFlag::Play)?;
+    let client = http_client()?;
+
+    // No request timeout: the body is never read and the connection must
+    // stay open for the whole wait. Only the header wait is bounded.
+    let range = format!("bytes={offset_bytes}-");
+    let get = client.get(&play).header(reqwest::header::RANGE, range);
+    let send = apply_basic_auth(get, username, password).send();
+    let headers_budget = Duration::from_secs(PRELOAD_GET_SECS);
+    let response = tokio::time::timeout(headers_budget, send)
+        .await
+        .map_err(|_| Error::PreloadTimeout)?
+        .map_err(Error::Request)?;
+
+    check_status(response.status())?;
+
+    for _attempt in 0..STAT_POLL_MAX {
+        let state = cache_state(base_url, username, password, target.hash).await?;
+        let progress = resume_window_progress(&state, RESUME_PRELOAD_BYTES);
+
+        on_event(PreloadEvent::Progress {
+            preloaded_bytes: progress.completed_bytes,
+            preload_size: progress.window_bytes,
+            percent: progress.percent,
+        });
+
+        let window_known = progress.window_bytes > 0;
+        if window_known && progress.percent >= RESUME_READY_PERCENT {
+            break;
+        }
+
+        tokio::time::sleep(Duration::from_secs(STAT_POLL_SECS)).await;
+    }
+
+    // Dropping the response closes the connection and the TorrServer reader.
+    drop(response);
+
+    Ok(())
 }
 
 async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), Error> {

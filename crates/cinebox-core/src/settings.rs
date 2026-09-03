@@ -277,7 +277,7 @@ impl Default for PlayerSettings {
     fn default() -> Self {
         Self {
             loudnorm: false,
-            auto_next: false,
+            auto_next: true,
             volume: 90.0,
         }
     }

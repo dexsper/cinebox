@@ -532,23 +532,38 @@ async fn decorate_files(
     ReadyFiles::from_rows(opened.hash, resume_id, rows)
 }
 
+/// Wait for the stream buffer. With `resume_bytes` the wait targets a window
+/// at that offset (mid-file resume); otherwise the stock head preload runs.
 pub async fn wait_stream(
     torr: TorrCtx,
     file_path: String,
     hash: String,
     file_id: i32,
+    resume_bytes: Option<u64>,
     on_event: impl FnMut(cinebox_torrserver::PreloadEvent) + Send,
 ) -> Result<(), JobError> {
-    cinebox_torrserver::wait_preload(
-        &torr.url,
-        &torr.username,
-        &torr.password,
-        &file_path,
-        &hash,
-        file_id,
-        on_event,
-    )
-    .await?;
+    let target = cinebox_torrserver::PreloadTarget {
+        file_path: &file_path,
+        hash: &hash,
+        index: file_id,
+    };
+
+    if let Some(offset) = resume_bytes {
+        cinebox_torrserver::wait_preload_at_bytes(
+            &torr.url,
+            &torr.username,
+            &torr.password,
+            target,
+            offset,
+            on_event,
+        )
+        .await?;
+
+        return Ok(());
+    }
+
+    cinebox_torrserver::wait_preload(&torr.url, &torr.username, &torr.password, target, on_event)
+        .await?;
 
     Ok(())
 }

@@ -106,6 +106,7 @@ pub struct PlayerScreen {
     was_maximized: bool,
     activity: Activity,
     popup: Popup,
+    playlist_scroll: bool,
     prefs: TorrentPlaybackPrefs,
     sub_scale: f64,
     sub_delay: f64,
@@ -123,6 +124,7 @@ impl Default for PlayerScreen {
             was_maximized: false,
             activity: Activity::new(),
             popup: Popup::None,
+            playlist_scroll: false,
             prefs: TorrentPlaybackPrefs::default(),
             sub_scale: 1.0,
             sub_delay: 0.0,
@@ -506,6 +508,7 @@ impl PlayerScreen {
         anchor: Rect,
     ) {
         let mut jump = None;
+        let mut scroll_to_current = self.playlist_scroll;
 
         let dismissed = {
             let Some(PlayerPhase::Playing(state)) = &self.phase else {
@@ -530,12 +533,15 @@ impl PlayerScreen {
                 380.0,
                 pad,
                 |ui, theme| {
-                    jump = playlist_popup::paint(ui, theme, svc, files, current);
+                    jump =
+                        playlist_popup::paint(ui, theme, svc, files, current, &mut scroll_to_current);
                 },
             );
 
             fly.dismissed
         };
+
+        self.playlist_scroll = scroll_to_current;
 
         if let Some(index) = jump {
             self.popup = Popup::None;
@@ -604,9 +610,37 @@ impl PlayerScreen {
             return;
         }
 
+        if matches!(popup, Popup::Playlist) {
+            self.playlist_scroll = true;
+        }
+
         self.popup = popup;
     }
 
+}
+
+/// Resumes this close to the start keep the stock head preload: its window
+/// usually reaches the seek target, and a dedicated mid-file wait isn't worth it.
+const RESUME_PRELOAD_MIN_SECS: f64 = 60.0;
+
+/// Approximate byte offset of `resume_at`, assuming constant bitrate.
+///
+/// `None` for fresh starts or when TMDB gave no runtime — the caller then
+/// falls back to the stock head preload.
+fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
+    if resume_at <= RESUME_PRELOAD_MIN_SECS {
+        return None;
+    }
+
+    if file.length == 0 {
+        return None;
+    }
+
+    let mins = file.runtime_minutes.filter(|mins| *mins > 0)?;
+    let duration = f64::from(mins) * 60.0;
+    let frac = (resume_at / duration).clamp(0.0, 0.99);
+
+    Some((frac * file.length as f64) as u64)
 }
 
 impl PlayerScreen {
@@ -637,9 +671,10 @@ impl PlayerScreen {
         let path = file.path.clone();
         let hash = spec.hash.clone();
         let file_id = file.id;
+        let resume_bytes = resume_bytes_for_file(file, spec.resume_at);
 
         job.request(async move {
-            crate::jobs::wait_stream(torr, path, hash, file_id, move |event| {
+            crate::jobs::wait_stream(torr, path, hash, file_id, resume_bytes, move |event| {
                 live.on_event(event);
                 repaint.request_repaint();
             })
