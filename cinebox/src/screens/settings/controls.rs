@@ -3,7 +3,7 @@
 use cinebox_core::SecretString;
 use cinebox_core::i18n::Msg;
 use egui::{
-    Align, Atom, CornerRadius, CursorIcon, Frame, Layout, Margin, RichText, Sense, Stroke,
+    Align, Atom, CornerRadius, CursorIcon, Frame, Layout, Margin, Rect, RichText, Sense, Stroke,
     TextEdit, Ui, UiBuilder, Vec2, pos2, vec2,
 };
 use egui_async::Bind;
@@ -21,6 +21,9 @@ const CATEGORY_H: f32 = 72.0;
 const ICON_WELL: f32 = 40.0;
 const TOGGLE_W: f32 = 44.0;
 const TOGGLE_H: f32 = 26.0;
+const TOGGLE_GAP: f32 = 12.0;
+const HINT_GAP: f32 = 3.0;
+const ROW_PAD_Y: f32 = 4.0;
 const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
 const ACTION_H: f32 = 36.0;
 
@@ -136,38 +139,45 @@ pub fn toggle_row(
     hint: Option<&str>,
     value: &mut bool,
 ) -> bool {
-    let mut height = 48.0;
-    if hint.is_some() {
-        height = 64.0;
+    let row_w = ui.available_width();
+    let text_w = (row_w - TOGGLE_W - TOGGLE_GAP).max(1.0);
+
+    let label_font = theme.ui_font(theme.text_label);
+    let label_galley = ui
+        .painter()
+        .layout(label.to_owned(), label_font, theme.label, text_w);
+
+    let label_h = label_galley.size().y;
+    let hint_galley = hint.map(|hint| {
+        let font = theme.ui_font(theme.text_caption);
+        ui.painter()
+            .layout(hint.to_owned(), font, theme.muted, text_w)
+    });
+
+    let hint_h = hint_galley.as_ref().map(|galley| galley.size().y);
+    let text_h = toggle_text_height(label_h, hint_h);
+    let inner_h = toggle_inner_height(text_h);
+    let height = toggle_row_height(text_h);
+    let (rect, _) = ui.allocate_exact_size(vec2(row_w, height), Sense::hover());
+    let text_top = rect.top() + ROW_PAD_Y + (inner_h - text_h) * 0.5;
+
+    ui.painter()
+        .galley(pos2(rect.left(), text_top), label_galley, theme.label);
+
+    if let Some(hint_galley) = hint_galley {
+        let hint_y = text_top + label_h + HINT_GAP;
+        ui.painter()
+            .galley(pos2(rect.left(), hint_y), hint_galley, theme.muted);
     }
 
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    let toggle_top = rect.top() + ROW_PAD_Y + (inner_h - TOGGLE_H) * 0.5;
+    let toggle_rect = Rect::from_min_size(
+        pos2(rect.right() - TOGGLE_W, toggle_top),
+        vec2(TOGGLE_W, TOGGLE_H),
+    );
 
-    let mut row = ui.new_child(UiBuilder::new().max_rect(rect.shrink2(vec2(0.0, 8.0))));
-    row.style_mut().interaction.selectable_labels = false;
-    row.horizontal_centered(|ui| {
-        ui.vertical(|ui| {
-            ui.label(
-                RichText::new(label)
-                    .size(theme.text_label)
-                    .color(theme.label),
-            );
-
-            let Some(hint) = hint else {
-                return;
-            };
-
-            ui.label(
-                RichText::new(hint)
-                    .size(theme.text_caption)
-                    .color(theme.muted),
-            );
-        });
-
-        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-            paint_switch(ui, theme, *value);
-        });
-    });
+    let mut knob = ui.new_child(UiBuilder::new().max_rect(toggle_rect));
+    paint_switch(&mut knob, theme, *value);
 
     if !hit_on_top(ui, rect, label).clicked() {
         return false;
@@ -175,6 +185,22 @@ pub fn toggle_row(
 
     *value = !*value;
     true
+}
+
+fn toggle_text_height(label_h: f32, hint_h: Option<f32>) -> f32 {
+    let Some(hint_h) = hint_h else {
+        return label_h;
+    };
+
+    label_h + HINT_GAP + hint_h
+}
+
+fn toggle_inner_height(text_h: f32) -> f32 {
+    text_h.max(TOGGLE_H)
+}
+
+fn toggle_row_height(text_h: f32) -> f32 {
+    toggle_inner_height(text_h) + ROW_PAD_Y * 2.0
 }
 
 fn paint_switch(ui: &mut Ui, theme: &Theme, on: bool) {
@@ -331,22 +357,24 @@ pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
 }
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
-    ui.add_space(4.0);
-    ui.label(
-        RichText::new(label)
-            .size(theme.text_small)
-            .color(theme.muted_bright),
-    );
+    ui.vertical(|ui| {
+        ui.spacing_mut().item_spacing.y = HINT_GAP;
+        ui.label(
+            RichText::new(label)
+                .size(theme.text_small)
+                .color(theme.muted_bright),
+        );
 
-    let Some(hint) = hint else {
-        return;
-    };
+        let Some(hint) = hint else {
+            return;
+        };
 
-    ui.label(
-        RichText::new(hint)
-            .size(theme.text_caption)
-            .color(theme.muted),
-    );
+        ui.label(
+            RichText::new(hint)
+                .size(theme.text_caption)
+                .color(theme.muted),
+        );
+    });
 }
 
 fn styled_edit(

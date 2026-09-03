@@ -291,13 +291,10 @@ impl Msg {
             }
             Self::DnsBypass => "DNS blocking bypass",
             Self::DnsBypassHint => {
-                "Resolves TMDB and the indexer via DNS-over-HTTPS (Quad9, DNS.SB, AliDNS) \
-                 when the usual path — including the system proxy — cannot reach them."
+                "DNS-over-HTTPS for TMDB and the indexer when the usual path is blocked."
             }
             Self::CustomDohUrl => "Custom DoH server",
-            Self::CustomDohUrlHint => {
-                "Optional DNS-over-HTTPS URL tried before the built-in providers."
-            }
+            Self::CustomDohUrlHint => "Optional DoH URL, tried before the built-in providers.",
             Self::Loudnorm => "Audio normalization",
             Self::LoudnormHint => "Normalize volume across files.",
             Self::PlayNextAutomatically => "Play next file automatically",
@@ -469,13 +466,10 @@ impl Msg {
             }
             Self::DnsBypass => "Обход DNS-блокировки",
             Self::DnsBypassHint => {
-                "Резолвит TMDB и индексатор через DNS-over-HTTPS (Quad9, DNS.SB, AliDNS), \
-                 когда обычный путь — включая системный прокси — не может достучаться."
+                "DNS-over-HTTPS для TMDB и индексатора, если обычный путь недоступен."
             }
             Self::CustomDohUrl => "Свой DoH-сервер",
-            Self::CustomDohUrlHint => {
-                "Необязательный DNS-over-HTTPS URL, пробуется раньше встроенных провайдеров."
-            }
+            Self::CustomDohUrlHint => "Необязательный DoH URL, пробуется раньше встроенных.",
             Self::Loudnorm => "Нормализация звука",
             Self::LoudnormHint => "Выравнивает громкость между файлами.",
             Self::PlayNextAutomatically => "Играть следующий файл автоматически",
