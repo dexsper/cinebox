@@ -4,15 +4,20 @@ use std::fmt::Write;
 use std::time::Duration;
 
 use cinebox_core::{join_url, normalize_base_url};
+use futures_util::future::Either;
 
 use super::cache::{cache_state, resume_window_progress};
 use super::client::{apply_basic_auth, check_status, http_client, send_json};
 use super::error::Error;
-use super::status::TorrentStatus;
+use super::status::{TorrentStat, TorrentStatus};
 
 const PRELOAD_GET_SECS: u64 = 60;
 const STAT_POLL_SECS: u64 = 1;
 const STAT_POLL_MAX: u32 = 90;
+
+/// Polls to wait for `?preload` to take effect (`preload_size` appears in
+/// `?stat`) before an empty size is read as "nothing to preload".
+const STAT_START_GRACE: u32 = 5;
 
 /// How much to buffer ahead of a mid-file resume position, regardless of the
 /// TorrServer cache size (whose readahead window can be much larger).
@@ -125,6 +130,11 @@ impl PreloadTarget<'_> {
 
 /// `GET` the preload URL (starts buffer), then poll `?stat` until ~95%.
 ///
+/// TorrServer holds the `?preload` response until the whole preload finishes,
+/// so the GET only *triggers* the work; it is driven concurrently with the
+/// `?stat` polling that reports progress. Trigger failures are ignored — the
+/// poll surfaces any real connectivity problem.
+///
 /// `on_event` receives a [`PreloadEvent::Progress`] for every poll iteration.
 ///
 /// # Errors
@@ -139,8 +149,14 @@ pub async fn wait_preload(
 ) -> Result<(), Error> {
     let preload = target.url(base_url, StreamFlag::Preload)?;
     let stat = target.url(base_url, StreamFlag::Stat)?;
-    start_preload(&preload, username, password).await?;
-    poll_stat_until_ready(&stat, username, password, on_event).await
+
+    let trigger = std::pin::pin!(start_preload(&preload, username, password));
+    let poll = std::pin::pin!(poll_stat_until_ready(&stat, username, password, on_event));
+
+    match futures_util::future::select(poll, trigger).await {
+        Either::Left((result, _)) => result,
+        Either::Right((_, poll)) => poll.await,
+    }
 }
 
 /// Buffer around a mid-file resume position (TorrServer's `?preload` always
@@ -207,13 +223,27 @@ pub async fn wait_preload_at_bytes(
 
 async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), Error> {
     let client = http_client()?;
-    let get = client.get(url).timeout(Duration::from_secs(PRELOAD_GET_SECS));
+    let get = client
+        .get(url)
+        .timeout(Duration::from_secs(PRELOAD_GET_SECS));
+
     let response = apply_basic_auth(get, username, password)
         .send()
         .await
         .map_err(Error::Request)?;
-    
+
     check_status(response.status())?;
+    Ok(())
+}
+
+/// Sleeps one poll interval, or fails once `attempt` is the last one allowed.
+async fn advance_or_timeout(attempt: u32) -> Result<(), Error> {
+    let last = attempt + 1 == STAT_POLL_MAX;
+    if last {
+        return Err(Error::PreloadTimeout);
+    }
+
+    tokio::time::sleep(Duration::from_secs(STAT_POLL_SECS)).await;
     Ok(())
 }
 
@@ -228,7 +258,25 @@ async fn poll_stat_until_ready(
     for attempt in 0..STAT_POLL_MAX {
         let get = client.get(url).timeout(Duration::from_secs(10));
         let request = apply_basic_auth(get, username, password);
+
         let status: TorrentStatus = send_json(request).await?;
+        let started = status.preload_size > 0 || status.stat_kind() == TorrentStat::Preload;
+
+        if !started {
+            on_event(PreloadEvent::Progress {
+                preloaded_bytes: 0,
+                preload_size: 0,
+                percent: 0.0,
+            });
+
+            let past_grace = attempt >= STAT_START_GRACE;
+            if past_grace {
+                return Ok(());
+            }
+
+            advance_or_timeout(attempt).await?;
+            continue;
+        }
 
         on_event(PreloadEvent::Progress {
             preloaded_bytes: status.preloaded_bytes,
@@ -240,12 +288,7 @@ async fn poll_stat_until_ready(
             return Ok(());
         }
 
-        let last = attempt + 1 == STAT_POLL_MAX;
-        if last {
-            return Err(Error::PreloadTimeout);
-        }
-
-        tokio::time::sleep(Duration::from_secs(STAT_POLL_SECS)).await;
+        advance_or_timeout(attempt).await?;
     }
     Err(Error::PreloadTimeout)
 }
@@ -263,10 +306,12 @@ mod tests {
             2,
             StreamFlag::Play,
         );
+
         let url = match url {
             Ok(url) => url,
             Err(error) => panic!("{error}"),
         };
+
         assert_eq!(
             url,
             "http://127.0.0.1:8090/stream/S01E01%20Title.mkv?link=abc&index=2&play"
@@ -280,6 +325,7 @@ mod tests {
             Ok(url) => url,
             Err(error) => panic!("{error}"),
         };
+
         assert_eq!(url, "http://127.0.0.1:8090/play/deadbeef/3");
     }
 }
