@@ -12,8 +12,8 @@ mod volume;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::TorrentPlaybackPrefs;
+use cinebox_core::i18n::Msg;
 use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
 use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
@@ -143,6 +143,7 @@ impl PlayerScreen {
             .as_ref()
             .and_then(|db| db_block_on(db.get_torrent_prefs(&req.hash)).ok().flatten())
             .unwrap_or_default();
+
         self.sub_scale = 1.0;
         self.sub_delay = 0.0;
         self.activity.poke(ctx.input(|i| i.time));
@@ -166,6 +167,7 @@ impl PlayerScreen {
         self.save_progress(svc, true);
         stop_engine(svc);
 
+        self.abort_buffering();
         self.phase = None;
         self.popup = Popup::None;
 
@@ -533,8 +535,14 @@ impl PlayerScreen {
                 380.0,
                 pad,
                 |ui, theme| {
-                    jump =
-                        playlist_popup::paint(ui, theme, svc, files, current, &mut scroll_to_current);
+                    jump = playlist_popup::paint(
+                        ui,
+                        theme,
+                        svc,
+                        files,
+                        current,
+                        &mut scroll_to_current,
+                    );
                 },
             );
 
@@ -616,7 +624,6 @@ impl PlayerScreen {
 
         self.popup = popup;
     }
-
 }
 
 /// Resumes this close to the start keep the stock head preload: its window
@@ -625,7 +632,7 @@ const RESUME_PRELOAD_MIN_SECS: f64 = 60.0;
 
 /// Approximate byte offset of `resume_at`, assuming constant bitrate.
 ///
-/// `None` for fresh starts or when TMDB gave no runtime — the caller then
+/// `None` for fresh starts or when TMDB gave no runtime. The caller then
 /// falls back to the stock head preload.
 fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
     if resume_at <= RESUME_PRELOAD_MIN_SECS {
@@ -644,10 +651,22 @@ fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
 }
 
 impl PlayerScreen {
+    /// Cancels an in-flight buffer wait, if any.
+    ///
+    /// Dropping or overwriting `self.phase` alone does not stop the
+    /// background task, only an explicit `abort()` does. Call this before
+    /// leaving `Buffering` so a stale wait doesn't keep polling TorrServer.
+    fn abort_buffering(&mut self) {
+        if let Some(PlayerPhase::Buffering(buffering)) = &mut self.phase {
+            buffering.job.abort();
+        }
+    }
+
     /// The one load path: resolves the file, optionally waits for preload.
     fn begin_load(&mut self, svc: &mut Services, ctx: &egui::Context, spec: LoadSpec) {
         self.popup = Popup::None;
         self.activity.poke(ctx.input(|i| i.time));
+        self.abort_buffering();
 
         if !svc.settings.torrserver.wait_preload {
             self.phase = Some(PlayerPhase::Playing(PlayerState::from_spec(&spec)));
@@ -965,9 +984,7 @@ fn video_callback(
     cache: &mut Option<VideoCallback>,
     engine: Arc<Mutex<Engine>>,
 ) -> Arc<egui_glow::CallbackFn> {
-    let cached = cache
-        .as_ref()
-        .filter(|cb| Arc::ptr_eq(&cb.engine, &engine));
+    let cached = cache.as_ref().filter(|cb| Arc::ptr_eq(&cb.engine, &engine));
 
     if let Some(cb) = cached {
         return cb.callback.clone();
@@ -1010,7 +1027,63 @@ fn paint_video(
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+    use std::sync::atomic::{AtomicBool, Ordering};
+    use std::time::Duration;
+
     use super::*;
+
+    /// `Bind::request` spawns onto `egui_async`'s own runtime, independent of
+    /// the UI ever polling it again, so dropping the `Bind` alone does not
+    /// stop the task. This is the mechanism behind the "leaves the player
+    /// while buffering" question: `PlayerScreen::stop` used to just drop
+    /// `self.phase`.
+    #[test]
+    fn dropping_bind_leaves_the_spawned_task_running() {
+        let completed = Arc::new(AtomicBool::new(false));
+        let flag = completed.clone();
+
+        let mut job: Bind<(), String> = Bind::new(true);
+        job.set_abort(true);
+        job.request(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            flag.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+
+        drop(job);
+        std::thread::sleep(Duration::from_millis(400));
+
+        assert!(
+            completed.load(Ordering::SeqCst),
+            "task should have run to completion: dropping Bind does not cancel it"
+        );
+    }
+
+    /// The fix: calling `abort()` before the `Bind` is dropped/replaced does
+    /// physically cancel the task (requires `set_abort(true)`, set in `begin_load`).
+    #[test]
+    fn explicit_abort_before_drop_cancels_the_task() {
+        let completed = Arc::new(AtomicBool::new(false));
+        let flag = completed.clone();
+
+        let mut job: Bind<(), String> = Bind::new(true);
+        job.set_abort(true);
+        job.request(async move {
+            tokio::time::sleep(Duration::from_millis(150)).await;
+            flag.store(true, Ordering::SeqCst);
+            Ok(())
+        });
+
+        job.abort();
+        drop(job);
+        std::thread::sleep(Duration::from_millis(400));
+
+        assert!(
+            !completed.load(Ordering::SeqCst),
+            "task should have been cancelled by abort()"
+        );
+    }
 
     fn file(id: i32) -> TorrentFileRow {
         TorrentFileRow {
@@ -1076,5 +1149,4 @@ mod tests {
         screen.toggle_popup(Popup::Playlist);
         assert!(screen.popup == Popup::Playlist);
     }
-
 }

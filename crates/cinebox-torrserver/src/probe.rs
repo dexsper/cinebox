@@ -55,7 +55,7 @@ pub enum SpeedEvent {
     },
 }
 
-/// `GET /echo` — unauthenticated version string (ping).
+/// `GET /echo` unauthenticated version string (ping).
 ///
 /// # Errors
 ///

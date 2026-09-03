@@ -1,4 +1,4 @@
-//! TMDB facade. Async reqwest — `tmdb_client` 1.8.0 is blocking and not `Send`.
+//! TMDB facade. Async reqwest `tmdb_client` 1.8.0 is blocking and not `Send`.
 
 #![forbid(unsafe_code)]
 

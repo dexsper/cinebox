@@ -1,4 +1,4 @@
-//! IBM Plex Sans. OFL — see `assets/fonts/license.txt`.
+//! IBM Plex Sans. OFL see `assets/fonts/license.txt`.
 
 use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
 use egui::{Context, FontData, FontFamily, FontId};

@@ -90,7 +90,7 @@ pub async fn cache_state(
 
 /// Completion of `needed_bytes` worth of pieces ahead of the first reader.
 ///
-/// The window is `[reader, min(reader + needed, end))` — capped by the
+/// The window is `[reader, min(reader + needed, end))`, capped by the
 /// reader's own readahead window so pieces TorrServer will never prioritize
 /// are not waited on. Zero progress until a reader appears.
 #[must_use]

@@ -132,7 +132,7 @@ impl PreloadTarget<'_> {
 ///
 /// TorrServer holds the `?preload` response until the whole preload finishes,
 /// so the GET only *triggers* the work; it is driven concurrently with the
-/// `?stat` polling that reports progress. Trigger failures are ignored — the
+/// `?stat` polling that reports progress. Trigger failures are ignored: the
 /// poll surfaces any real connectivity problem.
 ///
 /// `on_event` receives a [`PreloadEvent::Progress`] for every poll iteration.
@@ -160,7 +160,7 @@ pub async fn wait_preload(
 }
 
 /// Buffer around a mid-file resume position (TorrServer's `?preload` always
-/// starts at byte 0, useless before a seek — YouROK/TorrServer#851).
+/// starts at byte 0, useless before a seek (YouROK/TorrServer#851).
 ///
 /// Opens `?play` with `Range: bytes={offset}-`, which makes TorrServer create
 /// a reader there and start filling pieces ahead of it. The connection is held

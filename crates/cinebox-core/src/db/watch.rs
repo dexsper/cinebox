@@ -11,7 +11,7 @@ use super::{Store, StoreError};
 
 impl Store {
     /// Record playback position for one episode (or a movie), keyed by
-    /// content identity — never by torrent hash.
+    /// content identity never by torrent hash.
     ///
     /// # Errors
     ///
