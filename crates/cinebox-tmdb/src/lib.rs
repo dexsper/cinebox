@@ -7,6 +7,7 @@ mod details;
 mod details_dto;
 mod details_map;
 mod home;
+mod search;
 mod seasons;
 
 use std::time::Duration;
@@ -16,6 +17,7 @@ use cinebox_net::NetConfig;
 use serde::de::DeserializeOwned;
 
 pub use home::{CatalogPage, MAX_ROW_ITEMS};
+pub use search::SearchKind;
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -158,6 +160,24 @@ pub async fn fetch_catalog_page(
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
     home::fetch_catalog_page(api_key, id, page, language, net).await
+}
+
+/// One TMDB name-search page (`page` starts at 1).
+///
+/// Empty queries return an empty page without calling TMDB.
+///
+/// # Errors
+///
+/// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
+pub async fn fetch_search_page(
+    api_key: &str,
+    query: &str,
+    kind: SearchKind,
+    page: u32,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<CatalogPage, Error> {
+    search::fetch_search_page(api_key, query, kind, page, language, net).await
 }
 
 /// Movie/TV card: details, credits, videos, recs, similar, collection.

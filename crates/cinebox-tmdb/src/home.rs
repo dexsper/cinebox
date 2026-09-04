@@ -49,7 +49,7 @@ fn default_kind(id: HomeRowId) -> Option<MediaKind> {
     }
 }
 
-fn page_bounds(
+pub(crate) fn page_bounds(
     requested: u32,
     page: Option<u32>,
     total_pages: Option<u32>,

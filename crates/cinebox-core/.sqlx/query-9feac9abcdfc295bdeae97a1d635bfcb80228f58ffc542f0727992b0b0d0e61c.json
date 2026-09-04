@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO search_history (query, searched_at)\n            VALUES (?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "9feac9abcdfc295bdeae97a1d635bfcb80228f58ffc542f0727992b0b0d0e61c"
+}

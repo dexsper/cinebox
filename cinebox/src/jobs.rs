@@ -130,6 +130,25 @@ pub async fn load_catalog_page(
     Ok(page)
 }
 
+pub async fn load_search_page(
+    tmdb: TmdbCtx,
+    query: String,
+    kind: cinebox_tmdb::SearchKind,
+    page: u32,
+) -> Result<cinebox_tmdb::CatalogPage, JobError> {
+    let page = cinebox_tmdb::fetch_search_page(
+        &tmdb.api_key,
+        &query,
+        kind,
+        page,
+        Some(tmdb.language),
+        &tmdb.net,
+    )
+    .await?;
+
+    Ok(page)
+}
+
 pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
     let language = Some(tmdb.language);
     let fetched = cinebox_tmdb::fetch_home(&tmdb.api_key, language, &tmdb.net).await?;

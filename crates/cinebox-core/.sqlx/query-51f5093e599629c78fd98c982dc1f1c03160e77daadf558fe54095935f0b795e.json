@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            DELETE FROM search_history\n            WHERE query NOT IN (\n                SELECT query FROM search_history\n                ORDER BY searched_at DESC, rowid DESC\n                LIMIT ?\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "51f5093e599629c78fd98c982dc1f1c03160e77daadf558fe54095935f0b795e"
+}

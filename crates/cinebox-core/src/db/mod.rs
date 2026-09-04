@@ -2,6 +2,7 @@
 
 mod cache;
 mod prefs;
+mod search;
 mod types;
 mod watch;
 
@@ -18,7 +19,7 @@ use crate::paths;
 pub use types::{
     CONFIG_TTL, CacheHit, DETAILS_TTL, HOME_FAST_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME,
     KIND_MEDIA, KIND_PERSON, KIND_SEASON, MAX_AGE, RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT,
-    SEASON_TTL,
+    SEARCH_HISTORY_LIMIT, SEASON_TTL,
     TorrentPlaybackPrefs, WatchHistoryEntry, allowed_image_sizes, home_ttl, image_size_key,
     language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id,
     season_cache_id,
@@ -543,6 +544,45 @@ mod tests {
         let recent = store.recently_watched(10).await?;
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].id, TmdbId::new(9));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn search_history_is_mru_capped_and_case_insensitive() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+
+        store.record_search("   ").await?;
+        assert!(store.recent_searches(10).await?.is_empty());
+
+        store.record_search("Dune").await?;
+        store.record_search("Alien").await?;
+        store.record_search("dune").await?;
+
+        let recent = store.recent_searches(10).await?;
+        assert_eq!(recent, vec![String::from("dune"), String::from("Alien")]);
+
+        for index in 0..SEARCH_HISTORY_LIMIT + 2 {
+            let query = format!("q{index}");
+            store.record_search(&query).await?;
+        }
+
+        let kept = store.recent_searches(20).await?;
+        assert_eq!(kept.len(), SEARCH_HISTORY_LIMIT);
+        assert_eq!(kept[0], format!("q{}", SEARCH_HISTORY_LIMIT + 1));
+        assert!(!kept.iter().any(|query| query == "dune"));
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn clear_tmdb_keeps_search_history() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.record_search("Dune").await?;
+        store.clear_tmdb().await?;
+
+        let recent = store.recent_searches(10).await?;
+        assert_eq!(recent, vec![String::from("Dune")]);
 
         Ok(())
     }

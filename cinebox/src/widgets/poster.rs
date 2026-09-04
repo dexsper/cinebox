@@ -1,6 +1,6 @@
 //! Catalog poster tiles.
 
-use cinebox_core::{CatalogItem, PosterSize};
+use cinebox_core::{CatalogItem, CreditPerson, MediaKind, PosterSize};
 use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
@@ -74,7 +74,7 @@ pub fn catalog_tile(
 
     if !in_load_window(ui, rect) {
         if response.clicked() {
-            return Some(NavAction::OpenMedia { item: item.clone() });
+            return Some(nav_for_item(item));
         }
 
         return None;
@@ -115,10 +115,25 @@ pub fn catalog_tile(
     );
 
     if response.clicked() {
-        return Some(NavAction::OpenMedia { item: item.clone() });
+        return Some(nav_for_item(item));
     }
 
     None
+}
+
+fn nav_for_item(item: &CatalogItem) -> NavAction {
+    if item.kind != MediaKind::Person {
+        return NavAction::OpenMedia { item: item.clone() };
+    }
+
+    NavAction::OpenPerson {
+        person: CreditPerson {
+            id: item.id,
+            name: item.title.clone(),
+            role: String::new(),
+            profile_path: item.poster_path.clone(),
+        },
+    }
 }
 
 pub fn hover_ring(ui: &Ui, poster: Rect, theme: &Theme) {
@@ -255,4 +270,40 @@ pub fn rounded_image<'a>(
 
     paint_poster(ui, rect, texture(), theme);
     rect
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use cinebox_core::TmdbId;
+
+    fn item(kind: MediaKind, title: &str) -> CatalogItem {
+        CatalogItem {
+            id: TmdbId::new(7),
+            kind,
+            title: title.to_owned(),
+            year: None,
+            vote: None,
+            poster_path: Some(String::from("/p.jpg")),
+        }
+    }
+
+    #[test]
+    fn person_opens_person_screen() {
+        let NavAction::OpenPerson { person } = nav_for_item(&item(MediaKind::Person, "Tim")) else {
+            panic!("expected OpenPerson");
+        };
+
+        assert_eq!(person.id, TmdbId::new(7));
+        assert_eq!(person.name, "Tim");
+        assert_eq!(person.profile_path.as_deref(), Some("/p.jpg"));
+    }
+
+    #[test]
+    fn movie_opens_media() {
+        assert!(matches!(
+            nav_for_item(&item(MediaKind::Movie, "Dune")),
+            NavAction::OpenMedia { .. }
+        ));
+    }
 }

@@ -3,18 +3,21 @@
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
-use cinebox_core::{PosterSize, Settings, UiLanguage, allowed_image_sizes, tmdb_image_url};
+use cinebox_core::{
+    PosterSize, SEARCH_HISTORY_LIMIT, Settings, UiLanguage, allowed_image_sizes, tmdb_image_url,
+};
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
 use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, Screen};
 use crate::screens::{
-    CategoryScreen, HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SettingsScreen,
-    TorrentsScreen,
+    CategoryScreen, HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SearchScreen,
+    SettingsScreen, TorrentsScreen,
 };
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
+use crate::widgets::search::SearchBar;
 use crate::widgets::{backdrop, chrome};
 
 struct TmdbView {
@@ -69,6 +72,8 @@ pub struct App {
     last_tmdb: TmdbView,
     home: HomeScreen,
     category: CategoryScreen,
+    search: SearchScreen,
+    search_bar: SearchBar,
     settings_screen: SettingsScreen,
     media: MediaScreen,
     person: PersonScreen,
@@ -89,6 +94,7 @@ impl App {
         let services = Services::boot(engine);
         let last_tmdb = TmdbView::from_settings(&services.settings);
         cinebox_core::i18n::set_ui_language(services.settings.general.language);
+        let search_bar = SearchBar::with_history(load_search_history(&services));
 
         Self {
             nav: Nav::new(),
@@ -97,6 +103,8 @@ impl App {
             last_tmdb,
             home: HomeScreen::default(),
             category: CategoryScreen::default(),
+            search: SearchScreen::default(),
+            search_bar,
             settings_screen: SettingsScreen::default(),
             media: MediaScreen::default(),
             person: PersonScreen::default(),
@@ -112,6 +120,19 @@ impl App {
             NavAction::OpenCategory { id, items } => {
                 self.nav.push(Screen::Category { id });
                 self.category.seed(id, items);
+            }
+            NavAction::OpenSearch { query } => {
+                self.search_bar.remember(&query);
+                if let Some(db) = &self.services.db {
+                    if let Err(error) = db_block_on(db.record_search(&query)) {
+                        error!(%error, "failed to record search");
+                    }
+                }
+
+                self.search.seed(query);
+                if !matches!(self.nav.current(), Screen::Search) {
+                    self.nav.push(Screen::Search);
+                }
             }
             NavAction::OpenMedia { item } => {
                 self.nav.push(Screen::Media {
@@ -188,6 +209,7 @@ impl App {
             if had_key {
                 self.home.refresh();
                 self.category.forget_live();
+                self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
                 if let Some(db) = &self.services.db {
@@ -206,6 +228,7 @@ impl App {
             TmdbChange::Catalog => {
                 self.home.refresh();
                 self.category.forget_live();
+                self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
                 self.services.images.clear();
@@ -213,6 +236,7 @@ impl App {
             TmdbChange::Language => {
                 self.home.refresh();
                 self.category.forget_live();
+                self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
             }
@@ -287,14 +311,15 @@ impl eframe::App for App {
         let on_player = matches!(screen, Screen::Player { .. });
 
         if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
-            let consumed = on_player && self.player.consume_escape(ui.ctx());
-            if !consumed {
+            let search_consumed = self.search_bar.consume_escape(ui.ctx());
+            let player_consumed = on_player && self.player.consume_escape(ui.ctx());
+
+            if !search_consumed && !player_consumed {
                 action = Some(NavAction::GoBack);
             }
         }
 
         let player_fullscreen = on_player && self.player.is_fullscreen();
-
         let fill = if matches!(screen, Screen::Player { .. }) {
             theme.video_bg
         } else {
@@ -306,8 +331,13 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
                 if !player_fullscreen
-                    && let Some(nav) =
-                        chrome::header(ui, screen, &theme, self.settings_screen.is_open())
+                    && let Some(nav) = chrome::header(
+                        ui,
+                        screen,
+                        &theme,
+                        self.settings_screen.is_open(),
+                        &mut self.search_bar,
+                    )
                 {
                     action = Some(nav);
                 }
@@ -318,14 +348,13 @@ impl eframe::App for App {
                     Screen::Media { .. }
                     | Screen::Person { .. }
                     | Screen::Category { .. }
-                    | Screen::Torrents { .. } => {
-                        egui::Margin {
-                            left: pad,
-                            right: pad,
-                            top: 0,
-                            bottom: 0,
-                        }
-                    }
+                    | Screen::Search
+                    | Screen::Torrents { .. } => egui::Margin {
+                        left: pad,
+                        right: pad,
+                        top: 0,
+                        bottom: 0,
+                    },
                     _ => egui::Margin {
                         left: pad,
                         right: pad,
@@ -370,6 +399,7 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
         Screen::Category { id } => app.category.ui(ui, &mut app.services, theme, id),
+        Screen::Search => app.search.ui(ui, &mut app.services, theme),
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {
@@ -396,4 +426,12 @@ fn attach_engine(cc: &eframe::CreationContext<'_>) -> Option<Arc<Mutex<cinebox_p
             None
         }
     }
+}
+
+fn load_search_history(svc: &Services) -> Vec<String> {
+    let Some(db) = &svc.db else {
+        return Vec::new();
+    };
+
+    db_block_on(db.recent_searches(SEARCH_HISTORY_LIMIT)).unwrap_or_default()
 }

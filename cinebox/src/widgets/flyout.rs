@@ -2,7 +2,7 @@
 //! and `egui::Modal` (centered). Used by the player's Settings, Playlist, and
 //! Volume controls: video stays visible around it.
 
-use egui::{Align2, Area, Frame, Id, Margin, Order, Rect, Stroke, Ui, pos2};
+use egui::{Align2, Area, Frame, Id, Margin, Order, Pos2, Rect, Stroke, Ui, pos2};
 
 use crate::theme::Theme;
 
@@ -31,12 +31,44 @@ pub fn show(
     margin: Margin,
     content: impl FnOnce(&mut Ui, &Theme),
 ) -> FlyoutOut {
-    let pivot = pos2(anchor.right(), anchor.top() - ANCHOR_GAP);
+    let spec = Spec {
+        id,
+        anchor,
+        theme,
+        width,
+        margin,
+        align: Align2::RIGHT_BOTTOM,
+        pos: pos2(anchor.right(), anchor.top() - ANCHOR_GAP),
+    };
+
+    show_at(ctx, spec, content)
+}
+
+struct Spec<'a> {
+    id: &'static str,
+    anchor: Rect,
+    theme: &'a Theme,
+    width: f32,
+    margin: Margin,
+    align: Align2,
+    pos: Pos2,
+}
+
+fn show_at(ctx: &egui::Context, spec: Spec<'_>, content: impl FnOnce(&mut Ui, &Theme)) -> FlyoutOut {
+    let Spec {
+        id,
+        anchor,
+        theme,
+        width,
+        margin,
+        align,
+        pos,
+    } = spec;
 
     let response = Area::new(Id::new(id))
         .order(Order::Foreground)
-        .pivot(Align2::RIGHT_BOTTOM)
-        .fixed_pos(pivot)
+        .pivot(align)
+        .fixed_pos(pos)
         .constrain_to(ctx.content_rect().shrink(8.0))
         .show(ctx, |ui| {
             Frame::new()
@@ -57,7 +89,7 @@ pub fn show(
     FlyoutOut { rect, dismissed }
 }
 
-fn pressed_outside(ctx: &egui::Context, rect: Rect, anchor: Rect) -> bool {
+pub(crate) fn pressed_outside(ctx: &egui::Context, rect: Rect, anchor: Rect) -> bool {
     let pressed = ctx.input(|i| i.pointer.any_pressed());
     if !pressed {
         return false;

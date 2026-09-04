@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT query\n            FROM search_history\n            ORDER BY searched_at DESC, rowid DESC\n            LIMIT ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "query",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "search_history",
+            "name": "query"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "b5968b4f56c410159692c3b8817ca899eed987fdcfb6aa657594073368439181"
+}

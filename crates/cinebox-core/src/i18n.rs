@@ -170,6 +170,10 @@ pub enum Msg {
     HomePopularTv,
     HomeTopRatedMovies,
     HomeTopRatedTv,
+    SearchPlaceholder,
+    SearchMovies,
+    SearchTv,
+    SearchActors,
     MonthJan,
     MonthFeb,
     MonthMar,
@@ -352,6 +356,10 @@ impl Msg {
             Self::HomePopularTv => "Popular TV",
             Self::HomeTopRatedMovies => "Top rated movies",
             Self::HomeTopRatedTv => "Top rated TV",
+            Self::SearchPlaceholder => "Search",
+            Self::SearchMovies => "Movies",
+            Self::SearchTv => "Series",
+            Self::SearchActors => "Actors",
             Self::MonthJan => "Jan",
             Self::MonthFeb => "Feb",
             Self::MonthMar => "Mar",
@@ -527,6 +535,10 @@ impl Msg {
             Self::HomePopularTv => "Популярные сериалы",
             Self::HomeTopRatedMovies => "Лучшие фильмы",
             Self::HomeTopRatedTv => "Лучшие сериалы",
+            Self::SearchPlaceholder => "Поиск",
+            Self::SearchMovies => "Фильмы",
+            Self::SearchTv => "Сериалы",
+            Self::SearchActors => "Актёры",
             Self::MonthJan => "янв",
             Self::MonthFeb => "фев",
             Self::MonthMar => "мар",
@@ -596,6 +608,8 @@ mod tests {
         set_ui_language(UiLanguage::Russian);
         assert_eq!(Msg::NavSettings.t(), "Настройки");
         assert_eq!(Msg::WatchTorrents.t(), "Смотреть");
+        assert_eq!(Msg::SearchPlaceholder.t(), "Поиск");
+        assert_eq!(Msg::SearchActors.t(), "Актёры");
         assert_eq!(month_abbr(10), Some("окт"));
 
         set_ui_language(UiLanguage::English);

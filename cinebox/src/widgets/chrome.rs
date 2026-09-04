@@ -1,4 +1,4 @@
-//! Custom title bar: drag, window controls, back, and settings.
+//! Custom title bar: drag, window controls, back, settings, and search.
 
 use cinebox_core::i18n::Msg;
 use egui::{
@@ -11,14 +11,17 @@ use egui_material_icons::icons::{
 
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
+use crate::widgets::search::{self, SearchBar};
 
 const RESIZE_GRIP: f32 = 6.0;
+const SEARCH_INSET: f32 = 8.0;
 
 pub fn header(
     ui: &mut Ui,
     screen: Screen,
     theme: &Theme,
     settings_open: bool,
+    search: &mut SearchBar,
 ) -> Option<NavAction> {
     let mut action = None;
     let height = theme.title_bar_h;
@@ -58,13 +61,9 @@ pub fn header(
                 }
 
                 let remaining = ui.available_size();
-                let (_, drag) = ui.allocate_exact_size(remaining, Sense::click_and_drag());
-                if drag.drag_started() {
-                    ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
-                }
-
-                if drag.double_clicked() {
-                    toggle_maximized(ui);
+                let (middle, _) = ui.allocate_exact_size(remaining, Sense::hover());
+                if let Some(nav) = search_and_drag(ui, theme, search, bar, middle) {
+                    action = Some(nav);
                 }
             });
         });
@@ -188,6 +187,69 @@ fn toggle_maximized(ui: &Ui) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
     ui.ctx()
         .send_viewport_cmd(ViewportCommand::Maximized(!maximized));
+}
+
+fn search_and_drag(
+    ui: &mut Ui,
+    theme: &Theme,
+    search: &mut SearchBar,
+    bar: Rect,
+    middle: Rect,
+) -> Option<NavAction> {
+    let search_rect = centered_search_rect(bar, middle);
+
+    let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
+    let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
+
+    title_drag(ui, left_drag, "left");
+    title_drag(ui, right_drag, "right");
+
+    search.show(ui, theme, search_rect)
+}
+
+fn centered_search_rect(bar: Rect, middle: Rect) -> Rect {
+    let max_w = (middle.width() - SEARCH_INSET * 2.0).max(0.0);
+    let search_w = search::SEARCH_W.min(max_w);
+    let search_h = search::SEARCH_H.min(middle.height() - SEARCH_INSET).max(0.0);
+    let desired = Rect::from_center_size(
+        pos2(bar.center().x, middle.center().y),
+        vec2(search_w, search_h),
+    );
+
+    let min_left = middle.left() + SEARCH_INSET;
+    let max_right = middle.right() - SEARCH_INSET;
+    let mut rect = desired;
+
+    let overflows_left = rect.left() < min_left;
+    if overflows_left {
+        rect = rect.translate(vec2(min_left - rect.left(), 0.0));
+    }
+
+    let overflows_right = rect.right() > max_right;
+    if overflows_right {
+        rect = rect.translate(vec2(max_right - rect.right(), 0.0));
+    }
+
+    rect
+}
+
+fn title_drag(ui: &Ui, rect: Rect, id: &'static str) {
+    if rect.width() < 1.0 {
+        return;
+    }
+
+    let drag = ui.interact(
+        rect,
+        Id::new(("cinebox-title-drag", id)),
+        Sense::click_and_drag(),
+    );
+    if drag.drag_started() {
+        ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+    }
+
+    if drag.double_clicked() {
+        toggle_maximized(ui);
+    }
 }
 
 fn chrome_btn(

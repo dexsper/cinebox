@@ -1,9 +1,11 @@
 pub mod category;
 pub mod home;
 pub mod media;
+mod paged;
 pub mod person;
 pub mod play;
 pub mod player;
+pub mod search;
 pub mod settings;
 mod swr;
 pub mod torrents;
@@ -13,5 +15,6 @@ pub use home::HomeScreen;
 pub use media::MediaScreen;
 pub use person::PersonScreen;
 pub use player::PlayerScreen;
+pub use search::SearchScreen;
 pub use settings::SettingsScreen;
 pub use torrents::TorrentsScreen;

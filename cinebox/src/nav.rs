@@ -4,6 +4,7 @@ use cinebox_core::{CatalogItem, CreditPerson, HomeRowId, MediaKind, TmdbId};
 pub enum Screen {
     Home,
     Category { id: HomeRowId },
+    Search,
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
     Torrents { kind: MediaKind, id: TmdbId },
@@ -15,6 +16,7 @@ pub enum NavAction {
     OpenSettings,
     GoBack,
     OpenCategory { id: HomeRowId, items: Vec<CatalogItem> },
+    OpenSearch { query: String },
     OpenMedia { item: CatalogItem },
     OpenPerson { person: CreditPerson },
     WatchTorrents,
@@ -164,6 +166,21 @@ mod tests {
 
         nav.push(category);
         assert_eq!(nav.current(), category);
+
+        nav.pop();
+        assert_eq!(nav.current(), Screen::Home);
+    }
+
+    #[test]
+    fn search_stacks_on_home_and_does_not_duplicate() {
+        let mut nav = Nav::new();
+
+        nav.push(Screen::Search);
+        assert_eq!(nav.current(), Screen::Search);
+        assert_eq!(nav.stack.len(), 2);
+
+        nav.push(Screen::Search);
+        assert_eq!(nav.stack.len(), 2);
 
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);

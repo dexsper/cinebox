@@ -37,6 +37,8 @@ pub const KIND_CONFIG: &str = "config";
 pub const RECENT_ROW_LIMIT: usize = 20;
 /// Recent torrent hashes kept per movie/show (shared TV, multiple seasons).
 pub const RECENT_RELEASE_LIMIT: usize = 3;
+/// Last catalog searches kept in the header history.
+pub const SEARCH_HISTORY_LIMIT: usize = 10;
 
 /// Per-torrent playback preferences, stored as one JSON payload by hash.
 ///

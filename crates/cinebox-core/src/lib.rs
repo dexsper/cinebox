@@ -17,7 +17,7 @@ pub use catalog::{
 };
 pub use db::{
     CONFIG_TTL, CacheHit, DETAILS_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
-    KIND_SEASON, RECENT_ROW_LIMIT, SEASON_TTL, Store, StoreError, TorrentPlaybackPrefs,
+    KIND_SEASON, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT, SEASON_TTL, Store, StoreError, TorrentPlaybackPrefs,
     WatchHistoryEntry, allowed_image_sizes, home_ttl, image_size_key, language_key,
     media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id,
     season_cache_id,

@@ -10,6 +10,7 @@ pub mod multiselect;
 pub mod poster;
 pub mod rating;
 pub mod scroll;
+pub mod search;
 pub mod skeleton;
 
 use cinebox_core::i18n::Msg;
