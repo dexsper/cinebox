@@ -1,8 +1,8 @@
-use cinebox_core::i18n::Msg;
 use egui::accesskit::Role;
 use egui::vec2;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use rust_i18n::t;
 
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
@@ -68,7 +68,7 @@ fn header_harness_with(
 fn home_header_settings_click_opens_settings() {
     let mut harness = header_harness(Screen::Home);
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavSettings.t())
+        .get_by_role_and_label(Role::Button, t!("nav.settings").as_ref())
         .click();
 
     harness.run();
@@ -83,7 +83,7 @@ fn media_header_back_click_goes_back() {
     });
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
+        .get_by_role_and_label(Role::Button, t!("nav.back").as_ref())
         .click();
 
     harness.run();
@@ -94,7 +94,7 @@ fn media_header_back_click_goes_back() {
 fn home_header_back_when_settings_open() {
     let mut harness = header_harness_with(Screen::Home, true, SearchBar::default());
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
+        .get_by_role_and_label(Role::Button, t!("nav.back").as_ref())
         .click();
 
     harness.run();
@@ -108,7 +108,7 @@ fn category_header_back_click_goes_back() {
     });
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
+        .get_by_role_and_label(Role::Button, t!("nav.back").as_ref())
         .click();
 
     harness.run();
@@ -119,7 +119,7 @@ fn category_header_back_click_goes_back() {
 fn search_header_back_click_goes_back() {
     let mut harness = header_harness(Screen::Search);
     harness
-        .get_by_role_and_label(Role::Button, Msg::NavBack.t())
+        .get_by_role_and_label(Role::Button, t!("nav.back").as_ref())
         .click();
 
     harness.run();
@@ -130,11 +130,12 @@ fn search_header_back_click_goes_back() {
 fn header_search_enter_opens_search() {
     let mut harness = header_harness(Screen::Home);
     harness
-        .get_by_role_and_label(Role::TextInput, Msg::SearchPlaceholder.t())
+        .get_by_role_and_label(Role::TextInput, t!("search.placeholder").as_ref())
         .click();
 
     harness.run();
-    let field = harness.get_by_role_and_label(Role::TextInput, Msg::SearchPlaceholder.t());
+    let placeholder = t!("search.placeholder");
+    let field = harness.get_by_role_and_label(Role::TextInput, placeholder.as_ref());
 
     field.focus();
     field.type_text("dune");
@@ -160,7 +161,7 @@ fn header_history_click_opens_search() {
     );
 
     harness
-        .get_by_role_and_label(Role::TextInput, Msg::SearchPlaceholder.t())
+        .get_by_role_and_label(Role::TextInput, t!("search.placeholder").as_ref())
         .click();
 
     harness.run();
@@ -184,7 +185,7 @@ fn header_search_click_outside_closes_history() {
     );
 
     harness
-        .get_by_role_and_label(Role::TextInput, Msg::SearchPlaceholder.t())
+        .get_by_role_and_label(Role::TextInput, t!("search.placeholder").as_ref())
         .click();
 
     harness.run();
@@ -207,7 +208,7 @@ fn header_search_click_outside_closes_history() {
 fn header_search_is_window_centered() {
     let harness = header_harness(Screen::Home);
     let edit = harness
-        .get_by_role_and_label(Role::TextInput, Msg::SearchPlaceholder.t())
+        .get_by_role_and_label(Role::TextInput, t!("search.placeholder").as_ref())
         .rect();
 
     let field_center = edit.right() - search::SEARCH_W / 2.0;

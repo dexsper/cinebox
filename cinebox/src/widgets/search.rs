@@ -1,13 +1,13 @@
 //! Header search field: query, submit, and recent-search dropdown.
 
 use cinebox_core::SEARCH_HISTORY_LIMIT;
-use cinebox_core::i18n::Msg;
 use egui::emath::GuiRounding;
 use egui::{
     Align, Align2, Area, Color32, FontId, Frame, Id, Key, Layout, Margin, Order, Rect, Sense,
     Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_SCHEDULE, ICON_SEARCH};
+use rust_i18n::t;
 
 use crate::nav::NavAction;
 use crate::theme::Theme;
@@ -207,19 +207,19 @@ impl SearchBar {
                 .layout(Layout::left_to_right(Align::Center)),
             |ui| {
                 ui.spacing_mut().interact_size.y = rect.height();
-                let hint = Msg::SearchPlaceholder.t();
+                let hint = t!("search.placeholder");
                 let edit = ui.add(
                     TextEdit::singleline(&mut self.query)
                         .id(Id::new(EDIT_ID))
                         .desired_width(f32::INFINITY)
                         .vertical_align(Align::Center)
                         .margin(Margin::ZERO)
-                        .hint_text(hint)
+                        .hint_text(hint.as_ref())
                         .frame(Frame::NONE)
                         .text_color(theme.title),
                 );
 
-                edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint));
+                edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint.as_ref()));
                 if edit.gained_focus() || edit.clicked() {
                     self.history_open = true;
                 }

@@ -13,10 +13,10 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cinebox_core::TorrentPlaybackPrefs;
-use cinebox_core::i18n::Msg;
 use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
 use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
+use rust_i18n::t;
 use tracing::warn;
 
 use crate::jobs::JobError;
@@ -228,7 +228,7 @@ impl PlayerScreen {
 
         match &self.phase {
             None => {
-                ui.label(RichText::new(Msg::LoadingCard.t()).color(theme.muted));
+                ui.label(RichText::new(t!("common.loading").as_ref()).color(theme.muted));
                 None
             }
             Some(PlayerPhase::Buffering(_)) => {
@@ -763,7 +763,7 @@ impl PlayerScreen {
         };
 
         let Some(engine) = &svc.engine else {
-            state.error = Some(Msg::MpvRenderFailed.t().to_owned());
+            state.error = Some(t!("player.mpv_render_failed").into_owned());
             return;
         };
 

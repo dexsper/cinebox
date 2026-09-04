@@ -1,9 +1,9 @@
-use cinebox_core::i18n::Msg;
 use cinebox_parse::SortMode;
 use egui::accesskit::Role;
 use egui::{Frame, RichText, TextEdit, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use rust_i18n::t;
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_PLAY_CIRCLE};
 
 use crate::theme::Theme;
@@ -49,13 +49,13 @@ fn interact_harness() -> Harness<'static, InteractState> {
                                 .rich_text()
                                 .size(theme.text_cta_icon)
                                 .color(theme.btn_primary_fg),
-                            RichText::new(Msg::WatchTorrents.t())
+                            RichText::new(t!("media.watch").as_ref())
                                 .font(theme.emphasis_font(theme.text_subtitle))
                                 .color(theme.btn_primary_fg),
                             egui::Atom::grow(),
                         ),
                         Opts::primary(vec2(176.0, 46.0)),
-                        Some(Msg::WatchTorrents.t()),
+                        Some(t!("media.watch").as_ref()),
                     );
                     
                     state.watch_hover = watch.hovered();
@@ -71,12 +71,12 @@ fn interact_harness() -> Harness<'static, InteractState> {
                         theme,
                         (
                             icon.rich_text().size(theme.text_icon).color(theme.title),
-                            RichText::new(Msg::Filters.t())
+                            RichText::new(t!("filter.filters").as_ref())
                                 .size(theme.text_body)
                                 .color(theme.title),
                         ),
                         Opts::secondary(vec2(118.0, combo::HEIGHT)).pad_y(filters_pad),
-                        Some(Msg::Filters.t()),
+                        Some(t!("filter.filters").as_ref()),
                     );
 
                     state.filters_hover = filters.hovered();
@@ -90,7 +90,7 @@ fn interact_harness() -> Harness<'static, InteractState> {
                         "test-sort",
                         &mut state.sort,
                         SortMode::ALL,
-                        |mode| sort_label(mode).to_owned(),
+                        |mode| sort_label(mode).into_owned(),
                     );
 
                     ui.add(TextEdit::singleline(&mut state.query).hint_text("search"));
@@ -109,13 +109,13 @@ fn interact_harness() -> Harness<'static, InteractState> {
                     }
 
                     ui.horizontal(|ui| {
-                        button::label(ui, theme, Msg::No.t(), Opts::chip(false));
-                        button::label(ui, theme, Msg::Yes.t(), Opts::chip(false));
-                        button::label(ui, theme, Msg::FilterAny.t(), Opts::chip(true));
+                        button::label(ui, theme, t!("common.no").as_ref(), Opts::chip(false));
+                        button::label(ui, theme, t!("common.yes").as_ref(), Opts::chip(false));
+                        button::label(ui, theme, t!("filter.any").as_ref(), Opts::chip(true));
                     });
                 });
 
-                if widgets::page_error(ui, theme, Msg::NeedParser.t()) {
+                if widgets::page_error(ui, theme, t!("torrents.need_parser").as_ref()) {
                     state.retry = true;
                 }
             },
@@ -137,11 +137,11 @@ fn interact_harness() -> Harness<'static, InteractState> {
     harness
 }
 
-fn sort_label(mode: SortMode) -> &'static str {
+fn sort_label(mode: SortMode) -> std::borrow::Cow<'static, str> {
     match mode {
-        SortMode::Popular => Msg::SortPopular.t(),
-        SortMode::Seeders => Msg::SortSeeders.t(),
-        SortMode::Size => Msg::SortSize.t(),
+        SortMode::Popular => t!("filter.sort_popular"),
+        SortMode::Seeders => t!("filter.sort_seeders"),
+        SortMode::Size => t!("filter.sort_size"),
     }
 }
 
@@ -149,13 +149,13 @@ fn sort_label(mode: SortMode) -> &'static str {
 fn watch_button_hover_and_click() {
     let mut harness = interact_harness();
     harness
-        .get_by_role_and_label(Role::Button, Msg::WatchTorrents.t())
+        .get_by_role_and_label(Role::Button, t!("media.watch").as_ref())
         .hover();
     harness.run();
     assert!(harness.state().watch_hover);
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::WatchTorrents.t())
+        .get_by_role_and_label(Role::Button, t!("media.watch").as_ref())
         .click();
     harness.run();
     assert!(harness.state().watch);
@@ -165,13 +165,13 @@ fn watch_button_hover_and_click() {
 fn filters_hover_and_retry_click() {
     let mut harness = interact_harness();
     harness
-        .get_by_role_and_label(Role::Button, Msg::Filters.t())
+        .get_by_role_and_label(Role::Button, t!("filter.filters").as_ref())
         .hover();
     harness.run();
     assert!(harness.state().filters_hover);
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::Retry.t())
+        .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
         .click();
     harness.run();
     assert!(harness.state().retry);
@@ -182,7 +182,7 @@ fn combo_selects_another_option() {
     let mut harness = interact_harness();
     harness.get_by_role(Role::ComboBox).click();
     harness.run();
-    harness.get_by_label(Msg::SortSeeders.t()).click();
+    harness.get_by_label(t!("filter.sort_seeders").as_ref()).click();
     harness.run();
     assert_eq!(harness.state().sort, SortMode::Seeders);
 }
@@ -203,7 +203,7 @@ fn torrent_row_hover_and_click() {
 fn filters_button_matches_combo_height() {
     let harness = interact_harness();
     let button_h = harness
-        .get_by_role_and_label(Role::Button, Msg::Filters.t())
+        .get_by_role_and_label(Role::Button, t!("filter.filters").as_ref())
         .rect()
         .height();
     let combo_h = harness.get_by_role(Role::ComboBox).rect().height();
@@ -223,15 +223,15 @@ fn filters_button_matches_combo_height() {
 fn chips_share_min_width() {
     let harness = interact_harness();
     let no_w = harness
-        .get_by_role_and_label(Role::Button, Msg::No.t())
+        .get_by_role_and_label(Role::Button, t!("common.no").as_ref())
         .rect()
         .width();
     let yes_w = harness
-        .get_by_role_and_label(Role::Button, Msg::Yes.t())
+        .get_by_role_and_label(Role::Button, t!("common.yes").as_ref())
         .rect()
         .width();
     let any_w = harness
-        .get_by_role_and_label(Role::Button, Msg::FilterAny.t())
+        .get_by_role_and_label(Role::Button, t!("filter.any").as_ref())
         .rect()
         .width();
 

@@ -2,11 +2,11 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::tmdb_image_url;
 use cinebox_torrserver::PreloadEvent;
 use egui::{Align2, CornerRadius, Rect, Ui, UiBuilder, pos2, vec2};
 use egui_async::Bind;
+use rust_i18n::t;
 
 use crate::images::ImageSlot;
 use crate::jobs::JobError;
@@ -97,7 +97,7 @@ pub fn paint(ui: &mut Ui, rect: Rect, svc: &Services, theme: &Theme, buffering: 
     ui.painter().text(
         pos2(center.x, center.y - 24.0),
         Align2::CENTER_CENTER,
-        Msg::Preloading.t(),
+        t!("player.preloading").as_ref(),
         theme.ui_font(theme.text_body),
         theme.muted_bright,
     );

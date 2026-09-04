@@ -1,6 +1,5 @@
 //! Settings categories and the field list the drawer renders.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{SecretString, Settings};
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
@@ -16,10 +15,23 @@ pub enum CategoryId {
     Tmdb,
 }
 
+impl CategoryId {
+    #[must_use]
+    pub fn as_key(self) -> &'static str {
+        match self {
+            Self::General => "general",
+            Self::Player => "player",
+            Self::Parser => "parser",
+            Self::TorrServer => "torrserver",
+            Self::Tmdb => "tmdb",
+        }
+    }
+}
+
 pub struct Category {
     pub id: CategoryId,
-    pub title: Msg,
-    pub subtitle: Msg,
+    pub title: &'static str,
+    pub subtitle: &'static str,
     pub icon: MaterialIcon,
     pub fields: &'static [Field],
 }
@@ -36,34 +48,34 @@ pub enum MultiSelectId {
 
 pub enum Field {
     Toggle {
-        label: Msg,
-        hint: Option<Msg>,
+        label: &'static str,
+        hint: Option<&'static str>,
         get: fn(&Settings) -> bool,
         set: fn(&mut Settings, bool),
     },
     Text {
-        label: Msg,
-        hint: Option<Msg>,
+        label: &'static str,
+        hint: Option<&'static str>,
         placeholder: &'static str,
         get: fn(&Settings) -> String,
         set: fn(&mut Settings, String),
     },
     Secret {
-        label: Msg,
-        hint: Option<Msg>,
+        label: &'static str,
+        hint: Option<&'static str>,
         get: fn(&Settings) -> SecretString,
         set: fn(&mut Settings, SecretString),
     },
     Select {
         id: &'static str,
-        label: Msg,
-        hint: Option<Msg>,
+        label: &'static str,
+        hint: Option<&'static str>,
         which: SelectId,
     },
     MultiSelect {
         id: &'static str,
-        label: Msg,
-        hint: Option<Msg>,
+        label: &'static str,
+        hint: Option<&'static str>,
         which: MultiSelectId,
     },
     ProbeParser,
@@ -90,36 +102,36 @@ pub fn category(id: CategoryId) -> &'static Category {
 const CATALOG: &[Category] = &[
     Category {
         id: CategoryId::General,
-        title: Msg::SettingsGeneral,
-        subtitle: Msg::SettingsGeneralHint,
+        title: "settings.general",
+        subtitle: "settings.general_hint",
         icon: ICON_TUNE,
         fields: GENERAL,
     },
     Category {
         id: CategoryId::Player,
-        title: Msg::SettingsPlayer,
-        subtitle: Msg::SettingsPlayerHint,
+        title: "settings.player",
+        subtitle: "settings.player_hint",
         icon: ICON_PLAY_CIRCLE,
         fields: PLAYER,
     },
     Category {
         id: CategoryId::Parser,
-        title: Msg::SettingsParser,
-        subtitle: Msg::SettingsParserHint,
+        title: "settings.parser",
+        subtitle: "settings.parser_hint",
         icon: ICON_SEARCH,
         fields: PARSER,
     },
     Category {
         id: CategoryId::TorrServer,
-        title: Msg::SettingsTorrServer,
-        subtitle: Msg::SettingsTorrServerHint,
+        title: "settings.torrserver",
+        subtitle: "settings.torrserver_hint",
         icon: ICON_CLOUD,
         fields: TORRSERVER,
     },
     Category {
         id: CategoryId::Tmdb,
-        title: Msg::SettingsTmdb,
-        subtitle: Msg::SettingsTmdbHint,
+        title: "settings.tmdb",
+        subtitle: "settings.tmdb_hint",
         icon: ICON_MOVIE,
         fields: TMDB,
     },
@@ -128,25 +140,25 @@ const CATALOG: &[Category] = &[
 const GENERAL: &[Field] = &[
     Field::Select {
         id: "language",
-        label: Msg::FilterLanguage,
+        label: "filter.language",
         hint: None,
         which: SelectId::Language,
     },
     Field::Toggle {
-        label: Msg::UseSystemProxy,
-        hint: Some(Msg::UseSystemProxyHint),
+        label: "settings.use_system_proxy",
+        hint: Some("settings.use_system_proxy_hint"),
         get: |s| s.general.use_system_proxy,
         set: |s, v| s.general.use_system_proxy = v,
     },
     Field::Toggle {
-        label: Msg::DnsBypass,
-        hint: Some(Msg::DnsBypassHint),
+        label: "settings.dns_bypass",
+        hint: Some("settings.dns_bypass_hint"),
         get: |s| s.general.dns_bypass,
         set: |s, v| s.general.dns_bypass = v,
     },
     Field::Text {
-        label: Msg::CustomDohUrl,
-        hint: Some(Msg::CustomDohUrlHint),
+        label: "settings.custom_doh_url",
+        hint: Some("settings.custom_doh_url_hint"),
         placeholder: "https://dns.example.com/dns-query",
         get: |s| s.general.custom_doh_url.clone(),
         set: |s, v| s.general.custom_doh_url = v,
@@ -155,13 +167,13 @@ const GENERAL: &[Field] = &[
 
 const PLAYER: &[Field] = &[
     Field::Toggle {
-        label: Msg::Loudnorm,
-        hint: Some(Msg::LoudnormHint),
+        label: "settings.loudnorm",
+        hint: Some("settings.loudnorm_hint"),
         get: |s| s.player.loudnorm,
         set: |s, v| s.player.loudnorm = v,
     },
     Field::Toggle {
-        label: Msg::PlayNextAutomatically,
+        label: "settings.play_next",
         hint: None,
         get: |s| s.player.auto_next,
         set: |s, v| s.player.auto_next = v,
@@ -171,26 +183,26 @@ const PLAYER: &[Field] = &[
 const PARSER: &[Field] = &[
     Field::Select {
         id: "parser-kind",
-        label: Msg::ParserType,
+        label: "settings.parser_type",
         hint: None,
         which: SelectId::ParserKind,
     },
     Field::Text {
-        label: Msg::Url,
+        label: "settings.url",
         hint: None,
         placeholder: "http://127.0.0.1:9117",
         get: |s| s.parser.url.clone(),
         set: |s, v| s.parser.url = v,
     },
     Field::Secret {
-        label: Msg::ApiKey,
+        label: "settings.api_key",
         hint: None,
         get: |s| s.parser.api_key.clone(),
         set: |s, v| s.parser.api_key = v,
     },
     Field::MultiSelect {
         id: "parser-quality",
-        label: Msg::DefaultQuality,
+        label: "settings.default_quality",
         hint: None,
         which: MultiSelectId::Quality,
     },
@@ -199,39 +211,39 @@ const PARSER: &[Field] = &[
 
 const TORRSERVER: &[Field] = &[
     Field::Text {
-        label: Msg::Url,
+        label: "settings.url",
         hint: None,
         placeholder: "http://127.0.0.1:8090",
         get: |s| s.torrserver.url.clone(),
         set: |s, v| s.torrserver.url = v,
     },
     Field::Toggle {
-        label: Msg::SaveTorrentsToDb,
+        label: "settings.save_torrents",
         hint: None,
         get: |s| s.torrserver.save_to_db,
         set: |s, v| s.torrserver.save_to_db = v,
     },
     Field::Toggle {
-        label: Msg::WaitForPreload,
+        label: "settings.wait_preload",
         hint: None,
         get: |s| s.torrserver.wait_preload,
         set: |s, v| s.torrserver.wait_preload = v,
     },
     Field::Toggle {
-        label: Msg::TrackTimecodeOnServer,
+        label: "settings.track_timecode",
         hint: None,
         get: |s| s.torrserver.track_timecode,
         set: |s, v| s.torrserver.track_timecode = v,
     },
     Field::Text {
-        label: Msg::Username,
+        label: "settings.username",
         hint: None,
         placeholder: "",
         get: |s| s.torrserver.username.clone(),
         set: |s, v| s.torrserver.username = v,
     },
     Field::Secret {
-        label: Msg::Password,
+        label: "settings.password",
         hint: None,
         get: |s| s.torrserver.password.clone(),
         set: |s, v| s.torrserver.password = v,
@@ -242,14 +254,14 @@ const TORRSERVER: &[Field] = &[
 
 const TMDB: &[Field] = &[
     Field::Secret {
-        label: Msg::ApiKey,
-        hint: Some(Msg::TmdbApiKeyHint),
+        label: "settings.api_key",
+        hint: Some("settings.tmdb_api_key_hint"),
         get: |s| s.tmdb.api_key.clone(),
         set: |s, v| s.tmdb.api_key = v,
     },
     Field::Select {
         id: "poster-size",
-        label: Msg::PosterSize,
+        label: "settings.poster_size",
         hint: None,
         which: SelectId::PosterSize,
     },

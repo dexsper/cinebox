@@ -2,8 +2,6 @@
 
 use crate::catalog::{CatalogItem, normalize_tmdb_path};
 use crate::ids::{MediaKind, TmdbId};
-use crate::i18n;
-use crate::settings::UiLanguage;
 use crate::typograph;
 use serde::{Deserialize, Serialize};
 
@@ -83,29 +81,6 @@ impl MediaDetails {
         }
 
         parts.join(", ")
-    }
-
-    /// Runtime (movies) or season/episode counts (TV), then genres.
-    #[must_use]
-    pub fn detail_bits(&self) -> Vec<String> {
-        let mut bits = Vec::new();
-        match self.kind {
-            MediaKind::Tv => {
-                if let Some(seasons) = self.number_of_seasons.filter(|n| *n > 0) {
-                    bits.push(format_seasons(seasons));
-                }
-                if let Some(episodes) = self.number_of_episodes.filter(|n| *n > 0) {
-                    bits.push(format_episodes(episodes));
-                }
-            }
-            MediaKind::Movie | MediaKind::Person => {
-                if let Some(mins) = self.runtime_minutes.filter(|m| *m > 0) {
-                    bits.push(format_runtime(mins));
-                }
-            }
-        }
-        bits.extend(self.genres.iter().take(5).cloned());
-        bits
     }
 
     /// Jackett/Prowlarr anime category (TMDB animation + ja/zh).
@@ -213,84 +188,6 @@ fn push_path(paths: &mut Vec<String>, raw: Option<&str>) {
     paths.push(path);
 }
 
-/// Format `125` → `2h 5m` / `2 ч 5 мин`.
-#[must_use]
-pub fn format_runtime(minutes: u32) -> String {
-    let hours = minutes / 60;
-    let mins = minutes % 60;
-
-    if i18n::ui_language() == UiLanguage::Russian {
-        return format_runtime_ru(hours, mins);
-    }
-
-    if hours == 0 {
-        return format!("{mins}m");
-    }
-
-    if mins == 0 {
-        return format!("{hours}h");
-    }
-
-    format!("{hours}h {mins}m")
-}
-
-fn format_runtime_ru(hours: u32, mins: u32) -> String {
-    if hours == 0 {
-        return format!("{mins} мин");
-    }
-
-    if mins == 0 {
-        return format!("{hours} ч");
-    }
-
-    format!("{hours} ч {mins} мин")
-}
-
-#[must_use]
-fn format_seasons(count: u32) -> String {
-    if i18n::ui_language() == UiLanguage::Russian {
-        let word = ru_plural(count, "сезон", "сезона", "сезонов");
-        return format!("{count} {word}");
-    }
-
-    if count == 1 {
-        return String::from("1 season");
-    }
-
-    format!("{count} seasons")
-}
-
-#[must_use]
-fn format_episodes(count: u32) -> String {
-    if i18n::ui_language() == UiLanguage::Russian {
-        let word = ru_plural(count, "серия", "серии", "серий");
-        return format!("{count} {word}");
-    }
-
-    if count == 1 {
-        return String::from("1 episode");
-    }
-
-    format!("{count} episodes")
-}
-
-fn ru_plural(n: u32, one: &'static str, few: &'static str, many: &'static str) -> &'static str {
-    let n10 = n % 10;
-    let n100 = n % 100;
-
-    if n10 == 1 && n100 != 11 {
-        return one;
-    }
-
-    let few_range = (2..=4).contains(&n10);
-    let teen = (12..=14).contains(&n100);
-    if few_range && !teen {
-        return few;
-    }
-
-    many
-}
-
 /// Map MPAA / TV parental codes to an age mark (`13+`). Other labels pass through.
 #[must_use]
 pub fn decode_certification(raw: &str) -> Option<String> {
@@ -339,45 +236,14 @@ pub fn format_money(amount: u64) -> String {
     out
 }
 
-/// Format `YYYY-MM-DD` as `22 Oct 2021` / `22 окт 2021`. Other strings pass through.
-#[must_use]
-pub fn format_release_date(iso: &str) -> String {
-    let mut parts = iso.split('-');
-    let Some(year) = parts.next() else {
-        return iso.to_owned();
-    };
-
-    let Some(month) = parts.next().and_then(|m| m.parse::<usize>().ok()) else {
-        return iso.to_owned();
-    };
-
-    let Some(day) = parts.next() else {
-        return iso.to_owned();
-    };
-
-    let Some(month_name) = i18n::month_abbr(month) else {
-        return iso.to_owned();
-    };
-
-    let day = day.trim_start_matches('0');
-    format!("{day} {month_name} {year}")
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[test]
-    fn runtime_and_money() {
-        crate::i18n::set_ui_language(UiLanguage::English);
-
-        assert_eq!(format_runtime(125), "2h 5m");
-        assert_eq!(format_runtime(60), "1h");
-        assert_eq!(format_runtime(9), "9m");
+    fn money_and_certification() {
         assert_eq!(format_money(12_000_000), "$12,000,000");
         assert_eq!(format_money(100), "$100");
-        assert_eq!(format_release_date("2021-10-22"), "22 Oct 2021");
-        assert_eq!(format_release_date("2021"), "2021");
         assert_eq!(decode_certification("PG-13").as_deref(), Some("13+"));
         assert_eq!(decode_certification("TV-MA").as_deref(), Some("17+"));
         assert_eq!(decode_certification("16+").as_deref(), Some("16+"));
@@ -385,25 +251,7 @@ mod tests {
     }
 
     #[test]
-    fn russian_runtime_and_dates() {
-        crate::i18n::set_ui_language(UiLanguage::Russian);
-
-        assert_eq!(format_runtime(125), "2 ч 5 мин");
-        assert_eq!(format_runtime(60), "1 ч");
-        assert_eq!(format_runtime(9), "9 мин");
-        assert_eq!(format_release_date("2021-10-22"), "22 окт 2021");
-        assert_eq!(format_seasons(1), "1 сезон");
-        assert_eq!(format_seasons(2), "2 сезона");
-        assert_eq!(format_seasons(5), "5 сезонов");
-        assert_eq!(format_episodes(21), "21 серия");
-        assert_eq!(format_episodes(22), "22 серии");
-        assert_eq!(format_episodes(11), "11 серий");
-
-        crate::i18n::set_ui_language(UiLanguage::English);
-    }
-
-    #[test]
-    fn head_and_detail_bits() {
+    fn head_line_and_query() {
         let details = MediaDetails {
             id: TmdbId::new(1),
             kind: MediaKind::Movie,
@@ -437,22 +285,8 @@ mod tests {
         };
 
         assert_eq!(details.head_line(), "2021, United States");
-        assert_eq!(details.detail_bits(), vec!["2h 35m", "Sci-Fi", "Adventure"]);
         assert_eq!(details.torrent_query(), "Dune");
         assert!(!details.is_anime());
-
-        let tv = MediaDetails {
-            kind: MediaKind::Tv,
-            runtime_minutes: Some(47),
-            number_of_seasons: Some(5),
-            number_of_episodes: Some(62),
-            ..details.clone()
-        };
-
-        assert_eq!(
-            tv.detail_bits(),
-            vec!["5 seasons", "62 episodes", "Sci-Fi", "Adventure"]
-        );
 
         assert_eq!(
             details.trailers[0].watch_url(),

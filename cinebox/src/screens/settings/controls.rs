@@ -1,7 +1,6 @@
 //! Shared styled controls for the settings drawer.
 
 use cinebox_core::SecretString;
-use cinebox_core::i18n::Msg;
 use egui::{
     Align, Atom, CornerRadius, CursorIcon, Frame, Layout, Margin, Rect, RichText, Sense, Stroke,
     TextEdit, Ui, UiBuilder, Vec2, pos2, vec2,
@@ -11,6 +10,7 @@ use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
     ICON_ARROW_BACK, ICON_CHEVRON_RIGHT, ICON_DELETE_SWEEP, ICON_SPEED,
 };
+use rust_i18n::t;
 
 use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
@@ -44,18 +44,18 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     row.style_mut().interaction.selectable_labels = false;
     icon_well(&mut row, theme, cat);
 
-    let title = cat.title.t();
-    let subtitle = cat.subtitle.t();
+    let title = crate::i18n::tr(cat.title);
+    let subtitle = crate::i18n::tr(cat.subtitle);
 
     row.add_space(12.0);
     row.vertical(|ui| {
         ui.label(
-            RichText::new(title)
+            RichText::new(title.as_ref())
                 .font(theme.title_font(theme.text_section))
                 .color(theme.title),
         );
         ui.label(
-            RichText::new(subtitle)
+            RichText::new(subtitle.as_ref())
                 .size(theme.text_small)
                 .color(theme.muted),
         );
@@ -71,7 +71,7 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, cat.title.en()).clicked()
+    hit_on_top(ui, rect, cat.id.as_key()).clicked()
 }
 
 fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
@@ -107,7 +107,7 @@ pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
             .color(theme.title),
         crate::widgets::button::Opts::secondary(vec2(32.0, 32.0)),
     )
-    .on_hover_text(Msg::NavBack.t())
+    .on_hover_text(t!("nav.back").as_ref())
     .clicked();
 
     row.add_space(8.0);
@@ -339,7 +339,7 @@ pub fn speed_test_row<F, Fut>(
     ui.add_space(10.0);
 
     let busy = meter.is_busy();
-    let clicked = action_button(ui, theme, ICON_SPEED, Msg::SpeedTest.t(), true);
+    let clicked = action_button(ui, theme, ICON_SPEED, t!("settings.speed_test").as_ref(), true);
     if clicked && !busy {
         meter.begin();
         bind.clear();
@@ -353,7 +353,7 @@ pub fn speed_test_row<F, Fut>(
 
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
-    action_button(ui, theme, ICON_DELETE_SWEEP, Msg::ClearCache.t(), false)
+    action_button(ui, theme, ICON_DELETE_SWEEP, t!("settings.clear_cache").as_ref(), false)
 }
 
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {

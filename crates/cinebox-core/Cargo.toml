@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Shared models, settings, and i18n keys for Cinebox"
+description = "Shared models and settings for Cinebox"
 
 [dependencies]
 cinebox-typograf.workspace = true

@@ -1,7 +1,7 @@
 //! Multi-toggle chip rows shared by settings and torrent filters.
 
-use cinebox_core::i18n::Msg;
 use egui::Ui;
+use rust_i18n::t;
 
 use super::button::{self, Opts};
 use crate::theme::Theme;
@@ -27,7 +27,7 @@ pub fn multi_row<T: Copy + PartialEq>(
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         let any_on = selected.is_empty();
-        let any_clicked = chip(ui, theme, Msg::FilterAny.t(), any_on);
+        let any_clicked = chip(ui, theme, t!("filter.any").as_ref(), any_on);
         
         if any_clicked && !any_on {
             selected.clear();

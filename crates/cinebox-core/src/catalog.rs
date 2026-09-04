@@ -94,26 +94,6 @@ impl HomeRowId {
         }
     }
 
-    #[must_use]
-    pub const fn title_msg(self) -> crate::i18n::Msg {
-        use crate::i18n::Msg;
-        match self {
-            Self::RecentlyWatched => Msg::HomeRecentlyWatched,
-            Self::NowPlaying => Msg::HomeNowPlaying,
-            Self::TrendingDay => Msg::HomeTrendingDay,
-            Self::TrendingWeek => Msg::HomeTrendingWeek,
-            Self::PopularMovies => Msg::HomePopularMovies,
-            Self::PopularTv => Msg::HomePopularTv,
-            Self::TopRatedMovies => Msg::HomeTopRatedMovies,
-            Self::TopRatedTv => Msg::HomeTopRatedTv,
-        }
-    }
-
-    #[must_use]
-    pub const fn title(self) -> &'static str {
-        self.title_msg().en()
-    }
-
     /// TMDB list rows that can load extra pages. Local history cannot.
     #[must_use]
     pub const fn is_remote(self) -> bool {

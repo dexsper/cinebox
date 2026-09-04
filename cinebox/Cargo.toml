@@ -17,6 +17,7 @@ cinebox-parse.workspace = true
 cinebox-tmdb.workspace = true
 cinebox-torrserver.workspace = true
 cinebox-player.workspace = true
+rust-i18n = "4"
 egui.workspace = true
 eframe.workspace = true
 egui_extras.workspace = true

@@ -4,11 +4,11 @@ mod catalog;
 mod controls;
 mod speed;
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{ParserKind, PosterSize, QualityBand, UiLanguage};
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
+use rust_i18n::t;
 
 use crate::jobs::JobError;
 use crate::services::Services;
@@ -98,7 +98,7 @@ impl SettingsScreen {
     }
 
     fn paint_list(&mut self, ui: &mut Ui, svc: &Services, theme: &Theme) {
-        drawer_title(ui, theme, Msg::SettingsTitle.t());
+        drawer_title(ui, theme, t!("settings.title").as_ref());
         ui.add_space(4.0);
         paint_errors(ui, svc, theme);
         ui.add_space(12.0);
@@ -121,7 +121,7 @@ impl SettingsScreen {
         id: CategoryId,
     ) {
         let cat = category(id);
-        if nav_header(ui, theme, cat.title.t()) {
+        if nav_header(ui, theme, crate::i18n::tr(cat.title).as_ref()) {
             self.category = None;
             return;
         }
@@ -131,7 +131,7 @@ impl SettingsScreen {
         ui.add_space(8.0);
 
         let mut persist = false;
-        scroll::vertical(ui, ("settings-fields", cat.title.en()), |ui| {
+        scroll::vertical(ui, ("settings-fields", cat.id.as_key()), |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
             for field in cat.fields {
                 persist |= self.paint_field(ui, svc, theme, field);
@@ -158,7 +158,15 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !toggle_row(ui, theme, label.t(), hint.map(Msg::t), &mut value) {
+                let label_text = crate::i18n::tr(label);
+                let hint_text = hint.map(|key| crate::i18n::tr(key));
+                if !toggle_row(
+                    ui,
+                    theme,
+                    label_text.as_ref(),
+                    hint_text.as_deref(),
+                    &mut value,
+                ) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -172,7 +180,16 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !text_row(ui, theme, label.t(), hint.map(Msg::t), placeholder, &mut value) {
+                let label_text = crate::i18n::tr(label);
+                let hint_text = hint.map(|key| crate::i18n::tr(key));
+                if !text_row(
+                    ui,
+                    theme,
+                    label_text.as_ref(),
+                    hint_text.as_deref(),
+                    placeholder,
+                    &mut value,
+                ) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -185,7 +202,15 @@ impl SettingsScreen {
                 set,
             } => {
                 let mut value = get(&svc.settings);
-                if !secret_row(ui, theme, label.t(), hint.map(Msg::t), &mut value) {
+                let label_text = crate::i18n::tr(label);
+                let hint_text = hint.map(|key| crate::i18n::tr(key));
+                if !secret_row(
+                    ui,
+                    theme,
+                    label_text.as_ref(),
+                    hint_text.as_deref(),
+                    &mut value,
+                ) {
                     return false;
                 }
                 set(&mut svc.settings, value);
@@ -196,25 +221,49 @@ impl SettingsScreen {
                 label,
                 hint,
                 which,
-            } => paint_select(ui, svc, theme, id, label.t(), hint.map(Msg::t), which),
+            } => {
+                let label_text = crate::i18n::tr(label);
+                let hint_text = hint.map(|key| crate::i18n::tr(key));
+                paint_select(
+                    ui,
+                    svc,
+                    theme,
+                    id,
+                    label_text.as_ref(),
+                    hint_text.as_deref(),
+                    which,
+                )
+            }
             Field::MultiSelect {
                 id,
                 label,
                 hint,
                 which,
-            } => paint_multiselect(ui, svc, theme, id, label.t(), hint.map(Msg::t), which),
+            } => {
+                let label_text = crate::i18n::tr(label);
+                let hint_text = hint.map(|key| crate::i18n::tr(key));
+                paint_multiselect(
+                    ui,
+                    svc,
+                    theme,
+                    id,
+                    label_text.as_ref(),
+                    hint_text.as_deref(),
+                    which,
+                )
+            }
             Field::ProbeParser => {
                 let parser = crate::jobs::ParserCtx::from(&svc.settings);
-                let label = Msg::TestParser.t();
-                probe_row(ui, theme, ICON_SEARCH, label, &mut self.parser, || {
+                let label = t!("settings.test_parser");
+                probe_row(ui, theme, ICON_SEARCH, label.as_ref(), &mut self.parser, || {
                     crate::jobs::ping_parser(parser)
                 });
                 false
             }
             Field::ProbeTorr => {
                 let torr = crate::jobs::TorrCtx::from(&svc.settings);
-                let label = Msg::Ping.t();
-                probe_row(ui, theme, ICON_NETWORK_PING, label, &mut self.torr, || {
+                let label = t!("settings.ping");
+                probe_row(ui, theme, ICON_NETWORK_PING, label.as_ref(), &mut self.torr, || {
                     crate::jobs::ping_torrserver(torr)
                 });
                 false
@@ -222,8 +271,8 @@ impl SettingsScreen {
             Field::ProbeTmdb => {
                 let tmdb = crate::jobs::TmdbCtx::from(&svc.settings);
                 let db = svc.db.clone();
-                let label = Msg::CheckApiKey.t();
-                probe_row(ui, theme, ICON_KEY, label, &mut self.tmdb, || {
+                let label = t!("settings.check_api_key");
+                probe_row(ui, theme, ICON_KEY, label.as_ref(), &mut self.tmdb, || {
                     crate::jobs::ping_tmdb(tmdb, db)
                 });
                 false
@@ -263,7 +312,7 @@ fn paint_select(
             Labeled { id, label, hint },
             &mut svc.settings.general.language,
             UiLanguage::ALL,
-            |lang| ui_lang_label(lang).to_owned(),
+            |lang| ui_lang_label(lang).into_owned(),
         ),
         SelectId::ParserKind => select_row(
             ui,
@@ -307,20 +356,21 @@ fn paint_multiselect(
     }
 }
 
-fn ui_lang_label(lang: UiLanguage) -> &'static str {
+fn ui_lang_label(lang: UiLanguage) -> std::borrow::Cow<'static, str> {
     match lang {
-        UiLanguage::English => Msg::LangEnglish.t(),
-        UiLanguage::Russian => Msg::LangRussian.t(),
+        UiLanguage::English => t!("lang.en"),
+        UiLanguage::Russian => t!("lang.ru"),
+        UiLanguage::Ukrainian => t!("lang.uk"),
     }
 }
 
 fn paint_errors(ui: &mut Ui, svc: &Services, theme: &Theme) {
     if let Some(error) = &svc.load_error {
-        error_line(ui, theme, Msg::SettingsLoadError.t());
+        error_line(ui, theme, t!("settings.load_error").as_ref());
         error_line(ui, theme, error);
     }
     if let Some(error) = &svc.save_error {
-        error_line(ui, theme, &format!("{} {error}", Msg::CouldNotSave.t()));
+        error_line(ui, theme, &format!("{} {error}", t!("settings.could_not_save")));
     }
 }
 

@@ -2,10 +2,10 @@
 
 use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::VideoScale;
-use cinebox_core::i18n::Msg;
 use cinebox_player::{Track, TrackKind};
 use egui::{Align, CursorIcon, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
+use rust_i18n::t;
 
 use crate::theme::Theme;
 use crate::widgets::poster;
@@ -71,15 +71,15 @@ pub fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
 }
 
 fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if submenu_row(ui, theme, Msg::VideoSize.t(), scale_label(view.prefs.scale)) {
+    if submenu_row(ui, theme, t!("player.video_size").as_ref(), scale_label(view.prefs.scale).as_ref()) {
         out.page = Some(Page::VideoSize);
     }
 
-    if submenu_row(ui, theme, Msg::PlaybackSpeed.t(), &speed_label(view.prefs.speed)) {
+    if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed_label(view.prefs.speed)) {
         out.page = Some(Page::Speed);
     }
 
-    if submenu_row(ui, theme, Msg::SubtitleTrack.t(), &selected_sub_label(view.tracks)) {
+    if submenu_row(ui, theme, t!("player.subtitle_track").as_ref(), &selected_sub_label(view.tracks)) {
         out.page = Some(Page::Subtitles);
     }
 
@@ -88,20 +88,20 @@ fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         return;
     }
 
-    if submenu_row(ui, theme, Msg::AudioTrack.t(), &selected_audio_label(view.tracks)) {
+    if submenu_row(ui, theme, t!("player.audio_track").as_ref(), &selected_audio_label(view.tracks)) {
         out.page = Some(Page::Audio);
     }
 }
 
 fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, Msg::VideoSize.t()) {
+    if back_row(ui, theme, t!("player.video_size").as_ref()) {
         out.page = Some(Page::Root);
         return;
     }
 
     for scale in VideoScale::ALL {
         let selected = *scale == view.prefs.scale;
-        if radio_row(ui, theme, scale_label(*scale), selected) {
+        if radio_row(ui, theme, scale_label(*scale).as_ref(), selected) {
             out.scale = Some(*scale);
             out.page = Some(Page::Root);
         }
@@ -109,7 +109,7 @@ fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
 }
 
 fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, Msg::PlaybackSpeed.t()) {
+    if back_row(ui, theme, t!("player.playback_speed").as_ref()) {
         out.page = Some(Page::Root);
         return;
     }
@@ -124,7 +124,7 @@ fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
 }
 
 fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, Msg::SubtitleTrack.t()) {
+    if back_row(ui, theme, t!("player.subtitle_track").as_ref()) {
         out.page = Some(Page::Root);
         return;
     }
@@ -136,7 +136,7 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         .collect();
     let none_selected = !subs.iter().any(|track| track.selected);
 
-    if radio_row(ui, theme, Msg::SubtitlesOff.t(), none_selected) {
+    if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), none_selected) {
         out.sub = Some(None);
     }
 
@@ -150,14 +150,14 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     ui.separator();
 
     let scale_text = format!("{:.0}%", view.sub_scale * 100.0);
-    let scale_step = stepper_row(ui, theme, Msg::SubtitleSize.t(), &scale_text);
+    let scale_step = stepper_row(ui, theme, t!("player.subtitle_size").as_ref(), &scale_text);
     if scale_step != 0.0 {
         let next = view.sub_scale + f64::from(scale_step) * SUB_SCALE_STEP;
         out.sub_scale = Some(next.clamp(SUB_SCALE_MIN, SUB_SCALE_MAX));
     }
 
     let delay_text = format!("{:+.1}s", view.sub_delay);
-    let delay_step = stepper_row(ui, theme, Msg::SubtitleDelay.t(), &delay_text);
+    let delay_step = stepper_row(ui, theme, t!("player.subtitle_delay").as_ref(), &delay_text);
     if delay_step != 0.0 {
         let next = view.sub_delay + f64::from(delay_step) * SUB_DELAY_STEP;
         out.sub_delay = Some(next.clamp(SUB_DELAY_MIN, SUB_DELAY_MAX));
@@ -165,7 +165,7 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
 }
 
 fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, Msg::AudioTrack.t()) {
+    if back_row(ui, theme, t!("player.audio_track").as_ref()) {
         out.page = Some(Page::Root);
         return;
     }
@@ -192,23 +192,23 @@ pub fn track_label(track: &Track) -> String {
         (Some(title), Some(lang)) => format!("{title} ({lang})"),
         (Some(title), None) => title.to_owned(),
         (None, Some(lang)) => lang.to_owned(),
-        (None, None) => format!("{} {}", Msg::TrackLabel.t(), track.id),
+        (None, None) => format!("{} {}", t!("player.track"), track.id),
     }
 }
 
-pub fn scale_label(scale: VideoScale) -> &'static str {
+pub fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
     match scale {
-        VideoScale::Default => Msg::ScaleDefault.t(),
-        VideoScale::Expand => Msg::ScaleExpand.t(),
-        VideoScale::Fill => Msg::ScaleFill.t(),
-        VideoScale::Zoom115 => Msg::ScaleZoom115.t(),
-        VideoScale::Zoom130 => Msg::ScaleZoom130.t(),
+        VideoScale::Default => t!("player.scale.default"),
+        VideoScale::Expand => t!("player.scale.expand"),
+        VideoScale::Fill => t!("player.scale.fill"),
+        VideoScale::Zoom115 => t!("player.scale.zoom115"),
+        VideoScale::Zoom130 => t!("player.scale.zoom130"),
     }
 }
 
 pub fn speed_label(speed: f64) -> String {
     if (speed - 1.0).abs() < 0.01 {
-        return Msg::SpeedNormal.t().to_owned();
+        return t!("player.speed_normal").into_owned();
     }
 
     format!("{speed}×")
@@ -233,7 +233,7 @@ fn selected_sub_label(tracks: &[Track]) -> String {
 
     selected
         .map(track_label)
-        .unwrap_or_else(|| Msg::SubtitlesOff.t().to_owned())
+        .unwrap_or_else(|| t!("player.subtitles_off").into_owned())
 }
 
 fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {

@@ -1,6 +1,5 @@
 //! Custom title bar: drag, window controls, back, settings, and search.
 
-use cinebox_core::i18n::Msg;
 use egui::{
     CursorIcon, Id, Rect, Sense, Ui, Vec2, ViewportCommand, pos2, vec2, viewport::ResizeDirection,
 };
@@ -12,6 +11,7 @@ use egui_material_icons::icons::{
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
 use crate::widgets::search::{self, SearchBar};
+use rust_i18n::t;
 
 const RESIZE_GRIP: f32 = 6.0;
 const SEARCH_INSET: f32 = 8.0;
@@ -40,7 +40,7 @@ pub fn header(
             ui.add_space(6.0);
             let show_back = settings_open || !matches!(screen, Screen::Home);
             if show_back {
-                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, Msg::NavBack.t(), false, false);
+                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, t!("nav.back").as_ref(), false, false);
                 if back {
                     action = Some(NavAction::GoBack);
                 }
@@ -53,7 +53,7 @@ pub fn header(
                     ui,
                     theme,
                     ICON_SETTINGS,
-                    Msg::NavSettings.t(),
+                    t!("nav.settings").as_ref(),
                     false,
                     settings_open,
                 ) {
@@ -157,17 +157,17 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(ui, theme, ICON_CLOSE, Msg::WindowClose.t(), true, false) {
+    if chrome_btn(ui, theme, ICON_CLOSE, t!("window.close").as_ref(), true, false) {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
     let (max_icon, max_hint) = if maximized {
-        (ICON_FULLSCREEN_EXIT, Msg::WindowRestore.t())
+        (ICON_FULLSCREEN_EXIT, t!("window.restore"))
     } else {
-        (ICON_FULLSCREEN, Msg::WindowMaximize.t())
+        (ICON_FULLSCREEN, t!("window.maximize"))
     };
 
-    if chrome_btn(ui, theme, max_icon, max_hint, false, false) {
+    if chrome_btn(ui, theme, max_icon, max_hint.as_ref(), false, false) {
         toggle_maximized(ui);
     }
 
@@ -175,7 +175,7 @@ fn window_buttons(ui: &mut Ui, theme: &Theme) {
         ui,
         theme,
         ICON_REMOVE,
-        Msg::WindowMinimize.t(),
+        t!("window.minimize").as_ref(),
         false,
         false,
     ) {

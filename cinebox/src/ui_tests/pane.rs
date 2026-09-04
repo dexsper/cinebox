@@ -1,8 +1,8 @@
-use cinebox_core::i18n::Msg;
 use egui::accesskit::Role;
 use egui::{Sense, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use rust_i18n::t;
 
 use crate::theme::Theme;
 use crate::widgets;
@@ -38,7 +38,7 @@ fn pane_harness(show_error: bool) -> Harness<'static, PaneState> {
                 state.toolbar_bottom = bar.bottom();
 
                 if state.show_error {
-                    if widgets::page_error(ui, theme, Msg::NeedParser.t()) {
+                    if widgets::page_error(ui, theme, t!("torrents.need_parser").as_ref()) {
                         state.retry = true;
                     }
                     return;
@@ -81,9 +81,9 @@ fn spinner_centers_below_toolbar() {
 fn parser_error_centers_below_toolbar() {
     let mut harness = pane_harness(true);
     let retry = harness
-        .get_by_role_and_label(Role::Button, Msg::Retry.t())
+        .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
         .rect();
-    let copy = harness.get_by_label(Msg::NeedParser.t()).rect();
+    let copy = harness.get_by_label(t!("torrents.need_parser").as_ref()).rect();
     let group_mid = (copy.center().y + retry.center().y) * 0.5;
     let mid = remaining_mid_y(&harness);
 
@@ -93,7 +93,7 @@ fn parser_error_centers_below_toolbar() {
     );
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::Retry.t())
+        .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
         .click();
     harness.run();
     assert!(harness.state().retry);

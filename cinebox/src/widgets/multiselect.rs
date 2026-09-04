@@ -1,7 +1,7 @@
 //! ComboBox that keeps several values checked.
 
-use cinebox_core::i18n::Msg;
 use egui::{ComboBox, CursorIcon, RichText, Ui};
+use rust_i18n::t;
 
 use super::chips;
 use super::combo;
@@ -46,12 +46,12 @@ pub fn show_with<T: Copy + PartialEq>(
 
 fn closed_label<T: Copy>(selected: &[T], label: &impl Fn(T) -> String) -> String {
     if selected.is_empty() {
-        return Msg::FilterAny.t().to_owned();
+        return t!("filter.any").into_owned();
     }
 
     if let [only] = selected {
         return label(*only);
     }
 
-    format!("{} {}", selected.len(), Msg::Selected.t())
+    format!("{} {}", selected.len(), t!("filter.selected"))
 }

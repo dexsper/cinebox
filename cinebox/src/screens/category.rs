@@ -1,10 +1,10 @@
 //! Full-shelf grid: items already on Home, then extra TMDB pages on scroll.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{CatalogItem, HomeRowId, UiLanguage};
 use cinebox_tmdb::CatalogPage;
 use egui::{RichText, Sense, Ui, vec2};
 use egui_async::Bind;
+use rust_i18n::t;
 
 use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
@@ -122,7 +122,7 @@ impl CategoryScreen {
         scroll_page(ui, id, to_top, |ui| {
             ui.add_space(8.0);
             ui.label(
-                RichText::new(id.title_msg().t())
+                RichText::new(crate::i18n::home_row_title(id).as_ref())
                     .font(theme.title_font(theme.text_heading))
                     .color(theme.title),
             );
@@ -160,7 +160,7 @@ impl CategoryScreen {
                 ui.add_space(12.0);
                 let error = match self.page.read() {
                     Some(Err(error)) => error.to_string(),
-                    _ => Msg::Failed.t().to_owned(),
+                    _ => t!("common.failed").into_owned(),
                 };
 
                 ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
@@ -169,7 +169,7 @@ impl CategoryScreen {
                 if widgets::button::label(
                     ui,
                     theme,
-                    Msg::Retry.t(),
+                    t!("common.retry").as_ref(),
                     widgets::button::Opts::secondary(vec2(128.0, crate::widgets::combo::HEIGHT)),
                 ) {
                     self.page.clear();
@@ -193,7 +193,7 @@ impl CategoryScreen {
         if failed {
             let error = match self.page.read() {
                 Some(Err(error)) => error.to_string(),
-                _ => Msg::Failed.t().to_owned(),
+                _ => t!("common.failed").into_owned(),
             };
             if widgets::page_error(ui, theme, &error) {
                 self.page.clear();
@@ -210,7 +210,7 @@ impl CategoryScreen {
             return None;
         }
 
-        widgets::page_message(ui, theme, Msg::EmptyRow.t(), theme.muted);
+        widgets::page_message(ui, theme, t!("catalog.empty").as_ref(), theme.muted);
         None
     }
 

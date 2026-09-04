@@ -1,9 +1,9 @@
-use cinebox_core::i18n::Msg;
 use cinebox_core::{
     CacheHit, CreditPerson, DETAILS_TTL, KIND_PERSON, PersonDetails, TmdbId, language_key,
     person_cache_id, tmdb_image_url,
 };
 use egui::{RichText, Ui, Vec2};
+use rust_i18n::t;
 
 use crate::jobs;
 use crate::nav::NavAction;
@@ -133,7 +133,7 @@ impl PersonScreen {
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.to_string(),
-                    _ => Msg::Failed.t().to_owned(),
+                    _ => t!("common.failed").into_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -212,7 +212,7 @@ fn ready(
         if !details.credits.is_empty() {
             ui.add_space(12.0);
             ui.label(
-                RichText::new(Msg::Credits.t())
+                RichText::new(t!("person.credits").as_ref())
                     .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );

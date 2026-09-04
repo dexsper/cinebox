@@ -1,7 +1,7 @@
-use cinebox_core::i18n::Msg;
 use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, language_key};
 use egui::{FontId, RichText, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
 use egui_material_icons::icons::ICON_CHEVRON_RIGHT;
+use rust_i18n::t;
 
 use crate::jobs;
 use crate::nav::NavAction;
@@ -22,12 +22,12 @@ impl HomeScreen {
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         if svc.settings.tmdb.api_key.is_empty() {
-            ui.label(RichText::new(Msg::NeedTmdbKey.t()).color(theme.muted));
+            ui.label(RichText::new(t!("catalog.need_tmdb_key").as_ref()).color(theme.muted));
             let settings_size = egui::vec2(160.0, crate::widgets::combo::HEIGHT);
             if crate::widgets::button::label(
                 ui,
                 theme,
-                Msg::NavSettings.t(),
+                t!("nav.settings").as_ref(),
                 crate::widgets::button::Opts::secondary(settings_size),
             ) {
                 return Some(NavAction::OpenSettings);
@@ -70,7 +70,7 @@ impl HomeScreen {
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.to_string(),
-                    _ => Msg::Failed.t().to_owned(),
+                    _ => t!("common.failed").into_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -128,7 +128,7 @@ fn shelf(
     if row.items.is_empty() {
         if row.error.is_none() {
             ui.label(
-                RichText::new(Msg::EmptyRow.t())
+                RichText::new(t!("catalog.empty").as_ref())
                     .size(theme.text_small)
                     .color(theme.muted),
             );
@@ -157,13 +157,13 @@ fn shelf(
 }
 
 pub(crate) fn shelf_heading(ui: &mut Ui, id: HomeRowId, theme: &Theme) -> bool {
-    let title = id.title_msg().t();
+    let title = crate::i18n::home_row_title(id);
     let icon = ICON_CHEVRON_RIGHT;
     let title_font = theme.title_font(theme.text_section);
     let icon_font = FontId::new(theme.text_icon_md, icon.font_family());
     let title_galley = ui
         .painter()
-        .layout_no_wrap(title.to_owned(), title_font, theme.title);
+        .layout_no_wrap(title.as_ref().to_owned(), title_font, theme.title);
     
     let icon_galley = ui.painter().layout_no_wrap(
         icon.codepoint.to_owned(),
@@ -176,7 +176,7 @@ pub(crate) fn shelf_heading(ui: &mut Ui, id: HomeRowId, theme: &Theme) -> bool {
     let height = title_galley.size().y.max(icon_galley.size().y);
     let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
     let response = pointing(response);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, title));
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, title.as_ref()));
 
     let title_pos = pos2(rect.left(), rect.center().y - title_galley.size().y * 0.5);
     ui.painter().galley(title_pos, title_galley, theme.title);

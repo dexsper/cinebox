@@ -1,11 +1,10 @@
-//! Shared models, settings persistence, and i18n keys.
+//! Shared models and settings persistence.
 
 #![forbid(unsafe_code)]
 
 pub mod catalog;
 pub mod db;
 pub mod http;
-pub mod i18n;
 pub mod ids;
 pub mod media;
 pub mod paths;
@@ -26,7 +25,6 @@ pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};
 pub use media::{
     CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money,
-    format_release_date, format_runtime,
 };
 pub use settings::{
     GeneralSettings, ParserKind, ParserSettings, PlayerSettings, PosterSize, QualityBand,

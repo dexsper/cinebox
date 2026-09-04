@@ -1,9 +1,9 @@
 //! Torrent explorer state.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId};
 use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_hits};
 use cinebox_torrserver::AddSpec;
+use rust_i18n::t;
 
 #[derive(Debug, Clone)]
 pub struct MovieBits {
@@ -85,13 +85,13 @@ pub struct TorrentFileRow {
 /// "Season N · Episode M" line shared by the files modal and player playlist.
 #[must_use]
 pub fn season_episode_line(season: u32, episode: Option<u32>) -> String {
-    let mut line = format!("{} {season}", Msg::Season.t());
+    let mut line = format!("{} {season}", t!("media.season"));
 
     let Some(episode) = episode else {
         return line;
     };
 
-    line.push_str(&format!("  ·  {} {episode}", Msg::Episode.t()));
+    line.push_str(&format!("  ·  {} {episode}", t!("media.episode")));
     line
 }
 

@@ -1,8 +1,8 @@
 //! Files modal and per-file rows.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaKind, TmdbId};
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
+use rust_i18n::t;
 
 use super::state::{FilesPane, ReadyFiles, TorrentState, season_episode_line};
 use crate::services::Services;
@@ -32,7 +32,7 @@ pub(super) fn files_modal(
             ui.set_min_size(size);
             ui.set_max_size(size);
             ui.label(
-                RichText::new(Msg::TorrentFiles.t())
+                RichText::new(t!("torrents.files").as_ref())
                     .font(theme.title_font(theme.text_subtitle))
                     .color(theme.title),
             );
@@ -77,13 +77,13 @@ fn file_list(
     pick_file: &mut Option<i32>,
 ) {
     if files.files.is_empty() {
-        ui.label(RichText::new(Msg::NoPlayableFiles.t()).color(theme.muted));
+        ui.label(RichText::new(t!("torrents.no_playable").as_ref()).color(theme.muted));
         return;
     }
 
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
         ui.label(
-            RichText::new(Msg::TagStarted.t())
+            RichText::new(t!("torrents.started").as_ref())
                 .size(theme.text_caption)
                 .color(theme.ok),
         );
@@ -98,7 +98,7 @@ fn file_list(
         for file in &files.files {
             if show_headers && last_season != Some(file.season) {
                 ui.label(
-                    RichText::new(format!("{} {}", Msg::Season.t(), file.season.unwrap_or(1)))
+                    RichText::new(format!("{} {}", t!("media.season"), file.season.unwrap_or(1)))
                         .size(theme.text_small)
                         .color(theme.muted),
                 );

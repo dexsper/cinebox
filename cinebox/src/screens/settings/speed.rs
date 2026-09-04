@@ -2,9 +2,9 @@
 
 use std::sync::{Arc, Mutex, MutexGuard};
 
-use cinebox_core::i18n::Msg;
 use cinebox_torrserver::SpeedEvent;
 use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
+use rust_i18n::t;
 
 use crate::jobs::{self, JobError, TorrCtx};
 use crate::theme::Theme;
@@ -233,7 +233,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
-        Msg::Mbps.t(),
+        t!("settings.mbps").as_ref(),
         theme.ui_font(theme.text_small),
         theme.muted,
     );
@@ -252,13 +252,13 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     );
 }
 
-fn status_line(live: &Live, theme: &Theme) -> (&'static str, egui::Color32) {
+fn status_line(live: &Live, theme: &Theme) -> (std::borrow::Cow<'static, str>, egui::Color32) {
     match live.phase {
-        Phase::Idle => ("", theme.muted),
-        Phase::Connecting => (Msg::Connecting.t(), theme.muted_bright),
-        Phase::Testing => (Msg::Testing.t(), theme.muted_bright),
-        Phase::Ready => (Msg::Ready.t(), theme.ok),
-        Phase::Failed => (Msg::Failed.t(), theme.err),
+        Phase::Idle => (std::borrow::Cow::Borrowed(""), theme.muted),
+        Phase::Connecting => (t!("settings.connecting"), theme.muted_bright),
+        Phase::Testing => (t!("settings.testing"), theme.muted_bright),
+        Phase::Ready => (t!("settings.ready"), theme.ok),
+        Phase::Failed => (t!("common.failed"), theme.err),
     }
 }
 

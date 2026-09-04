@@ -1,6 +1,5 @@
 //! Hit list, sort, and filters.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaKind, QualityBand};
 use cinebox_parse::{
     AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options,
@@ -11,6 +10,7 @@ use egui::{
     Vec2, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_RESTART_ALT};
+use rust_i18n::t;
 
 use super::state::{TorrentHits, TorrentState};
 use crate::theme::Theme;
@@ -55,7 +55,7 @@ pub(super) fn list_pane(
             );
 
             if visible.is_empty() {
-                widgets::page_message(ui, theme, Msg::NoTorrents.t(), theme.muted);
+                widgets::page_message(ui, theme, t!("torrents.none").as_ref(), theme.muted);
                 return;
             }
 
@@ -107,7 +107,7 @@ fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut O
                     "torrent-sort",
                     &mut state.sort,
                     SortMode::ALL,
-                    |mode| sort_label(mode).to_owned(),
+                    |mode| sort_label(mode).into_owned(),
                 );
             },
         );
@@ -154,15 +154,15 @@ fn paint_count_badge(ui: &Ui, button: Rect, count: usize, theme: &Theme) {
 
 fn filters_label(active: bool) -> String {
     if active {
-        return format!("{} · {}", Msg::Filters.t(), Msg::FilterOn.t());
+        return format!("{} · {}", t!("filter.filters"), t!("filter.on"));
     }
 
-    Msg::Filters.t().to_owned()
+    t!("filter.filters").into_owned()
 }
 
 pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Theme) {
     ui.label(
-        RichText::new(Msg::Filters.t())
+        RichText::new(t!("filter.filters").as_ref())
             .font(theme.title_font(theme.text_display))
             .color(theme.title),
     );
@@ -170,7 +170,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
     ui.add_space(12.0);
     scroll::vertical(ui, "torrent-filters", |ui| {
         ui.spacing_mut().item_spacing.y = 10.0;
-        section_label(ui, theme, Msg::FilterQuality.t());
+        section_label(ui, theme, t!("filter.quality").as_ref());
         chips::multi_row(
             ui,
             theme,
@@ -179,11 +179,11 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
             |band| band.label().to_owned(),
         );
 
-        section_label(ui, theme, Msg::FilterHdr.t());
+        section_label(ui, theme, t!("filter.hdr").as_ref());
         tri_row(ui, theme, &mut state.filter.hdr);
-        section_label(ui, theme, Msg::FilterDolby.t());
+        section_label(ui, theme, t!("filter.dolby").as_ref());
         tri_row(ui, theme, &mut state.filter.dolby);
-        section_label(ui, theme, Msg::FilterSubs.t());
+        section_label(ui, theme, t!("filter.subs").as_ref());
         tri_row(ui, theme, &mut state.filter.subs);
 
         let hits = match &state.hits {
@@ -192,29 +192,29 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
         };
 
         let voices = voice_filter_options(hits, &state.filter.voice);
-        section_label(ui, theme, Msg::FilterTranslation.t());
+        section_label(ui, theme, t!("filter.translation").as_ref());
         multiselect::show_with(
             ui,
             theme,
             "torrent-voice",
             &mut state.filter.voice,
             &voices,
-            |voice| voice_label(voice).to_owned(),
+            |voice| voice_label(voice).into_owned(),
         );
 
-        section_label(ui, theme, Msg::FilterLanguage.t());
+        section_label(ui, theme, t!("filter.language").as_ref());
         multiselect::show_with(
             ui,
             theme,
             "torrent-lang",
             &mut state.filter.lang,
             AudioLang::ALL,
-            |lang| audio_lang_label(lang).to_owned(),
+            |lang| audio_lang_label(lang).into_owned(),
         );
 
         let years = year_options(hits, state.year, &state.filter.year);
         if years.len() > 1 {
-            section_label(ui, theme, Msg::FilterYear.t());
+            section_label(ui, theme, t!("filter.year").as_ref());
             multiselect::show_with(
                 ui,
                 theme,
@@ -228,7 +228,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
         if state.kind == MediaKind::Tv {
             let seasons = season_options(hits);
             if !seasons.is_empty() {
-                section_label(ui, theme, Msg::Season.t());
+                section_label(ui, theme, t!("media.season").as_ref());
                 multiselect::show_with(
                     ui,
                     theme,
@@ -262,49 +262,49 @@ fn tri_row(ui: &mut Ui, theme: &Theme, value: &mut TriChoice) {
     ui.horizontal_wrapped(|ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
         for choice in TriChoice::ALL {
-            if chip(ui, theme, tri_label(*choice), *value == *choice) {
+            if chip(ui, theme, tri_label(*choice).as_ref(), *value == *choice) {
                 *value = *choice;
             }
         }
     });
 }
 
-fn tri_label(choice: TriChoice) -> &'static str {
+fn tri_label(choice: TriChoice) -> std::borrow::Cow<'static, str> {
     match choice {
-        TriChoice::Any => Msg::FilterAny.t(),
-        TriChoice::Yes => Msg::Yes.t(),
-        TriChoice::No => Msg::No.t(),
+        TriChoice::Any => t!("filter.any"),
+        TriChoice::Yes => t!("common.yes"),
+        TriChoice::No => t!("common.no"),
     }
 }
 
-fn sort_label(mode: SortMode) -> &'static str {
+fn sort_label(mode: SortMode) -> std::borrow::Cow<'static, str> {
     match mode {
-        SortMode::Popular => Msg::SortPopular.t(),
-        SortMode::Seeders => Msg::SortSeeders.t(),
-        SortMode::Size => Msg::SortSize.t(),
+        SortMode::Popular => t!("filter.sort_popular"),
+        SortMode::Seeders => t!("filter.sort_seeders"),
+        SortMode::Size => t!("filter.sort_size"),
     }
 }
 
-fn voice_label(filter: VoiceFilter) -> &'static str {
+fn voice_label(filter: VoiceFilter) -> std::borrow::Cow<'static, str> {
     match filter {
-        VoiceFilter::Dubbing => Msg::VoiceDubbing.t(),
-        VoiceFilter::Polyphonic => Msg::VoicePolyphonic.t(),
-        VoiceFilter::TwoVoice => Msg::VoiceTwoVoice.t(),
-        VoiceFilter::Amateur => Msg::VoiceAmateur.t(),
-        VoiceFilter::Studio(name) => name,
+        VoiceFilter::Dubbing => t!("filter.voice.dubbing"),
+        VoiceFilter::Polyphonic => t!("filter.voice.polyphonic"),
+        VoiceFilter::TwoVoice => t!("filter.voice.two_voice"),
+        VoiceFilter::Amateur => t!("filter.voice.amateur"),
+        VoiceFilter::Studio(name) => std::borrow::Cow::Borrowed(name),
     }
 }
 
-fn audio_lang_label(lang: AudioLang) -> &'static str {
+fn audio_lang_label(lang: AudioLang) -> std::borrow::Cow<'static, str> {
     match lang {
-        AudioLang::Ru => Msg::LangRussian.t(),
-        AudioLang::En => Msg::LangEnglish.t(),
-        AudioLang::Uk => Msg::LangUkrainian.t(),
-        AudioLang::Ja => Msg::LangJapanese.t(),
-        AudioLang::Ko => Msg::LangKorean.t(),
-        AudioLang::Zh => Msg::LangChinese.t(),
-        AudioLang::De => Msg::LangGerman.t(),
-        AudioLang::Fr => Msg::LangFrench.t(),
+        AudioLang::Ru => t!("lang.ru"),
+        AudioLang::En => t!("lang.en"),
+        AudioLang::Uk => t!("lang.uk"),
+        AudioLang::Ja => t!("lang.ja"),
+        AudioLang::Ko => t!("lang.ko"),
+        AudioLang::Zh => t!("lang.zh"),
+        AudioLang::De => t!("lang.de"),
+        AudioLang::Fr => t!("lang.fr"),
     }
 }
 
@@ -318,7 +318,7 @@ fn reset_button(ui: &mut Ui, theme: &Theme) -> bool {
         ui,
         theme,
         ICON_RESTART_ALT,
-        Msg::FilterReset.t(),
+        t!("filter.reset").as_ref(),
         Opts::secondary(vec2(width, 36.0)),
     )
 }
@@ -386,7 +386,7 @@ fn hit_row(
                         );
 
                         if hit.local_rank.is_some() || hit.started {
-                            ui.label(RichText::new(Msg::TagStarted.t()).color(theme.ok));
+                            ui.label(RichText::new(t!("torrents.started").as_ref()).color(theme.ok));
                         }
                     });
                 });
@@ -440,14 +440,14 @@ pub(super) fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<Strin
 /// Pairs go straight into the right-to-left row (a nested `horizontal` breaks
 /// vertical centering), so on screen this reads Bitrate, Seeds, Leechers.
 fn metrics_bar(ui: &mut Ui, theme: &Theme, bitrate: Option<&str>, seeds: &str, leechers: &str) {
-    metric_pair(ui, Msg::Leechers.t(), leechers, theme);
-    metric_pair(ui, Msg::Seeds.t(), seeds, theme);
+    metric_pair(ui, t!("torrents.leechers").as_ref(), leechers, theme);
+    metric_pair(ui, t!("torrents.seeds").as_ref(), seeds, theme);
 
     let Some(bitrate) = bitrate else {
         return;
     };
 
-    metric_pair(ui, Msg::Bitrate.t(), bitrate, theme);
+    metric_pair(ui, t!("torrents.bitrate").as_ref(), bitrate, theme);
 }
 
 /// `item_spacing` applies after a widget, so each widget sets the gap that follows it.

@@ -1,10 +1,10 @@
 //! Name-search results: tabbed poster grid with TMDB page loads on scroll.
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{CatalogItem, UiLanguage};
 use cinebox_tmdb::{CatalogPage, SearchKind};
 use egui::{RichText, Sense, Ui, vec2};
 use egui_async::Bind;
+use rust_i18n::t;
 
 use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
@@ -36,11 +36,11 @@ impl SearchTab {
         }
     }
 
-    fn label(self) -> Msg {
+    fn label(self) -> std::borrow::Cow<'static, str> {
         match self {
-            Self::Movies => Msg::SearchMovies,
-            Self::Tv => Msg::SearchTv,
-            Self::Actors => Msg::SearchActors,
+            Self::Movies => t!("search.movies"),
+            Self::Tv => t!("search.tv"),
+            Self::Actors => t!("search.actors"),
         }
     }
 }
@@ -123,7 +123,7 @@ impl SearchScreen {
         }
 
         if self.query.is_empty() {
-            widgets::page_message(ui, theme, Msg::EmptyRow.t(), theme.muted);
+            widgets::page_message(ui, theme, t!("catalog.empty").as_ref(), theme.muted);
             return None;
         }
 
@@ -166,7 +166,7 @@ impl SearchScreen {
             ui.spacing_mut().item_spacing.x = 6.0;
             for tab in SearchTab::ALL {
                 let active = self.tab == tab;
-                if !button::label(ui, theme, tab.label().t(), Opts::chip(active)) {
+                if !button::label(ui, theme, tab.label().as_ref(), Opts::chip(active)) {
                     continue;
                 }
 
@@ -228,7 +228,7 @@ impl SearchScreen {
                 ui.add_space(12.0);
                 let error = match self.current_mut().page.read() {
                     Some(Err(error)) => error.to_string(),
-                    _ => Msg::Failed.t().to_owned(),
+                    _ => t!("common.failed").into_owned(),
                 };
 
                 ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
@@ -237,7 +237,7 @@ impl SearchScreen {
                 if widgets::button::label(
                     ui,
                     theme,
-                    Msg::Retry.t(),
+                    t!("common.retry").as_ref(),
                     widgets::button::Opts::secondary(vec2(128.0, crate::widgets::combo::HEIGHT)),
                 ) {
                     self.current_mut().page.clear();
@@ -263,7 +263,7 @@ impl SearchScreen {
         if failed {
             let error = match self.current_mut().page.read() {
                 Some(Err(error)) => error.to_string(),
-                _ => Msg::Failed.t().to_owned(),
+                _ => t!("common.failed").into_owned(),
             };
 
             if widgets::page_error(ui, theme, &error) {
@@ -282,7 +282,7 @@ impl SearchScreen {
             return None;
         }
 
-        widgets::page_message(ui, theme, Msg::EmptyRow.t(), theme.muted);
+        widgets::page_message(ui, theme, t!("catalog.empty").as_ref(), theme.muted);
         None
     }
 
@@ -329,13 +329,13 @@ impl SearchScreen {
 }
 
 fn need_key(ui: &mut Ui, theme: &Theme) -> Option<NavAction> {
-    ui.label(RichText::new(Msg::NeedTmdbKey.t()).color(theme.muted));
+    ui.label(RichText::new(t!("catalog.need_tmdb_key").as_ref()).color(theme.muted));
     let settings_size = vec2(160.0, crate::widgets::combo::HEIGHT);
 
     if crate::widgets::button::label(
         ui,
         theme,
-        Msg::NavSettings.t(),
+        t!("nav.settings").as_ref(),
         crate::widgets::button::Opts::secondary(settings_size),
     ) {
         return Some(NavAction::OpenSettings);

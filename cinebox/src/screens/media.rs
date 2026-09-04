@@ -1,10 +1,10 @@
-use cinebox_core::i18n::Msg;
 use cinebox_core::{
     CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId,
-    format_money, format_release_date, language_key, media_cache_id, media_ttl, tmdb_image_url,
+    format_money, language_key, media_cache_id, media_ttl, tmdb_image_url,
 };
 use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_material_icons::icons::ICON_PLAY_CIRCLE;
+use rust_i18n::t;
 
 use crate::jobs;
 use crate::nav::NavAction;
@@ -147,7 +147,7 @@ impl MediaScreen {
             super::swr::Swr::Failed => {
                 let error = match self.cache.bind.read() {
                     Some(Err(error)) => error.to_string(),
-                    _ => Msg::Failed.t().to_owned(),
+                    _ => t!("common.failed").into_owned(),
                 };
                 retry = widgets::page_error(ui, theme, &error);
                 None
@@ -232,7 +232,7 @@ fn ready(
                 }
 
                 widgets::rating::row(ui, theme, details.vote, details.certification.as_deref());
-                let bits = details.detail_bits();
+                let bits = crate::i18n::detail_bits(details);
                 if !bits.is_empty() {
                     ui.add_space(8.0);
                     ui.label(
@@ -257,7 +257,7 @@ fn ready(
             ui.vertical(|ui| {
                 ui.set_max_width(theme.overview_max_w);
                 ui.label(
-                    RichText::new(Msg::InDetail.t())
+                    RichText::new(t!("media.in_detail").as_ref())
                         .font(theme.title_font(theme.text_section))
                         .color(theme.title),
                 );
@@ -272,10 +272,10 @@ fn ready(
         ui.add_space(28.0);
         facts(ui, details, theme);
         if !details.directors.is_empty() {
-            let title = Msg::Directors.t();
+            let title = t!("media.directors");
             people(
                 ui,
-                title,
+                title.as_ref(),
                 "media-directors",
                 &details.directors,
                 svc,
@@ -285,10 +285,10 @@ fn ready(
         }
 
         if !details.cast.is_empty() {
-            let title = Msg::Cast.t();
+            let title = t!("media.cast");
             people(
                 ui,
-                title,
+                title.as_ref(),
                 "media-cast",
                 &details.cast,
                 svc,
@@ -299,7 +299,7 @@ fn ready(
 
         shelf(
             ui,
-            Msg::Collection.t(),
+            t!("media.collection").as_ref(),
             "media-collection",
             &details.collection,
             svc,
@@ -308,7 +308,7 @@ fn ready(
         );
         shelf(
             ui,
-            Msg::Recommendations.t(),
+            t!("media.recommendations").as_ref(),
             "media-recommendations",
             &details.recommendations,
             svc,
@@ -317,7 +317,7 @@ fn ready(
         );
         shelf(
             ui,
-            Msg::Similar.t(),
+            t!("media.similar").as_ref(),
             "media-similar",
             &details.similar,
             svc,
@@ -328,7 +328,7 @@ fn ready(
         if !details.trailers.is_empty() {
             ui.add_space(8.0);
             ui.label(
-                RichText::new(Msg::Trailers.t())
+                RichText::new(t!("media.trailers").as_ref())
                     .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );
@@ -519,13 +519,13 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
                 .rich_text()
                 .size(theme.text_cta_icon)
                 .color(theme.btn_primary_fg),
-            RichText::new(Msg::WatchTorrents.t())
+            RichText::new(t!("media.watch").as_ref())
                 .font(theme.emphasis_font(theme.text_subtitle))
                 .color(theme.btn_primary_fg),
             Atom::grow(),
         ),
         crate::widgets::button::Opts::primary(WATCH_BTN_SIZE),
-        Some(Msg::WatchTorrents.t()),
+        Some(t!("media.watch").as_ref()),
     )
     .clicked()
 }
@@ -535,19 +535,19 @@ fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
         let release = details
             .released
             .as_deref()
-            .map(format_release_date)
+            .map(crate::i18n::format_release_date)
             .or_else(|| details.year.map(|year| year.to_string()));
 
         if let Some(release) = release {
-            fact(ui, Msg::Release.t(), release, theme);
+            fact(ui, t!("media.release").as_ref(), release, theme);
         }
 
         if let Some(budget) = details.budget {
-            fact(ui, Msg::Budget.t(), format_money(budget), theme);
+            fact(ui, t!("media.budget").as_ref(), format_money(budget), theme);
         }
 
         if !details.countries.is_empty() {
-            fact(ui, Msg::Countries.t(), details.countries.join(", "), theme);
+            fact(ui, t!("media.countries").as_ref(), details.countries.join(", "), theme);
         }
     });
 }

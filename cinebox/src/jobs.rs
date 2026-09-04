@@ -7,7 +7,7 @@ use std::sync::Arc;
 use cinebox_core::{
     CONFIG_TTL, HomeCatalog, HomeRow, HomeRowId, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
     KIND_SEASON, MediaDetails, MediaKind, ParserKind, PersonDetails, SEASON_TTL, Settings, Store,
-    TmdbId, format_release_date, language_key, media_cache_id, normalize_tmdb_path,
+    TmdbId, language_key, media_cache_id, normalize_tmdb_path,
     person_cache_id, season_cache_id, tmdb_image_url,
 };
 use cinebox_net::NetConfig;
@@ -493,7 +493,7 @@ async fn decorate_files(
         let air_date = tmdb
             .and_then(|ep| ep.air_date.as_deref())
             .filter(|d| !d.is_empty())
-            .map(format_release_date);
+            .map(crate::i18n::format_release_date);
 
         let local = match timeline {
             Some((db, kind, id)) => db

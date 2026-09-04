@@ -9,10 +9,10 @@ pub use state::{
     season_episode_line,
 };
 
-use cinebox_core::i18n::Msg;
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url};
 use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
+use rust_i18n::t;
 use egui_async::Bind;
 
 use crate::jobs::{self, JobError};
@@ -359,7 +359,7 @@ impl TorrentsScreen {
     fn poll_hits(&mut self, svc: &mut Services, ctx: &egui::Context) {
         if svc.settings.parser.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.set_hits(TorrentHits::Failed(Msg::NeedParser.t().to_owned()));
+                state.set_hits(TorrentHits::Failed(t!("torrents.need_parser").into_owned()));
             }
             return;
         }
@@ -449,7 +449,7 @@ impl TorrentsScreen {
             return;
         }
         if svc.settings.torrserver.url.trim().is_empty() {
-            state.files = FilesPane::Failed(Msg::NeedTorrServer.t().to_owned());
+            state.files = FilesPane::Failed(t!("torrents.need_torrserver").into_owned());
             return;
         }
 
@@ -481,7 +481,7 @@ impl TorrentsScreen {
         };
         if svc.settings.torrserver.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.files = FilesPane::Failed(Msg::NeedTorrServer.t().to_owned());
+                state.files = FilesPane::Failed(t!("torrents.need_torrserver").into_owned());
             }
             return;
         }

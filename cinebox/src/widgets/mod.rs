@@ -13,9 +13,9 @@ pub mod scroll;
 pub mod search;
 pub mod skeleton;
 
-use cinebox_core::i18n::Msg;
 use egui::{Align, Color32, Direction, Layout, RichText, Sense, Ui, UiBuilder, Vec2, vec2};
 use egui_material_icons::icons::ICON_REFRESH;
+use rust_i18n::t;
 
 use crate::theme::Theme;
 
@@ -129,7 +129,7 @@ fn error_body(ui: &mut Ui, theme: &Theme, text: &str) -> bool {
         ui,
         theme,
         ICON_REFRESH,
-        Msg::Retry.t(),
+        t!("common.retry").as_ref(),
         Opts::secondary(retry_size),
     )
 }

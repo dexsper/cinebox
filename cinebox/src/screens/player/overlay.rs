@@ -1,6 +1,5 @@
 //! Floating auto-hiding player chrome: header (title) and footer (transport).
 
-use cinebox_core::i18n::Msg;
 use cinebox_player::{SEEK_SECS, format_clock};
 use egui::{
     Align, Area, Color32, CornerRadius, Frame, Id, Label, Layout, Margin, Mesh, Order, Pos2, Rect,
@@ -12,6 +11,7 @@ use egui_material_icons::icons::{
     ICON_PLAYLIST_PLAY, ICON_REPLAY_10, ICON_SETTINGS, ICON_SKIP_NEXT, ICON_SKIP_PREVIOUS,
     ICON_VOLUME_MUTE, ICON_VOLUME_OFF, ICON_VOLUME_UP,
 };
+use rust_i18n::t;
 
 use crate::theme::Theme;
 
@@ -264,7 +264,7 @@ fn center_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out:
             &mut center,
             theme,
             ICON_SKIP_PREVIOUS,
-            Msg::NavBack.t(),
+            t!("nav.back").as_ref(),
             view.file_index > 0,
         );
         out.prev = prev.clicked();
@@ -276,11 +276,11 @@ fn center_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out:
     }
 
     let (icon, hint) = if view.paused {
-        (ICON_PLAY_ARROW, Msg::Play.t())
+        (ICON_PLAY_ARROW, t!("player.play"))
     } else {
-        (ICON_PAUSE, Msg::Pause.t())
+        (ICON_PAUSE, t!("player.pause"))
     };
-    out.toggle_pause = icon_btn(&mut center, theme, icon, hint, true).clicked();
+    out.toggle_pause = icon_btn(&mut center, theme, icon, hint.as_ref(), true).clicked();
 
     let forward = icon_btn(&mut center, theme, ICON_FORWARD_10, "+10s", true);
     if forward.clicked() {
@@ -292,7 +292,7 @@ fn center_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out:
             &mut center,
             theme,
             ICON_SKIP_NEXT,
-            Msg::NextFile.t(),
+            t!("player.next").as_ref(),
             view.has_next,
         );
         out.next = next.clicked();
@@ -308,23 +308,23 @@ fn right_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out: 
     right.spacing_mut().item_spacing.x = BTN_GAP;
 
     let (fs_icon, fs_hint) = if view.fullscreen {
-        (ICON_FULLSCREEN_EXIT, Msg::ExitFullscreen.t())
+        (ICON_FULLSCREEN_EXIT, t!("player.exit_fullscreen"))
     } else {
-        (ICON_FULLSCREEN, Msg::Fullscreen.t())
+        (ICON_FULLSCREEN, t!("player.fullscreen"))
     };
-    out.fullscreen_clicked = icon_btn(&mut right, theme, fs_icon, fs_hint, true).clicked();
+    out.fullscreen_clicked = icon_btn(&mut right, theme, fs_icon, fs_hint.as_ref(), true).clicked();
 
-    let volume = icon_btn(&mut right, theme, volume_icon(view), Msg::Volume.t(), true);
+    let volume = icon_btn(&mut right, theme, volume_icon(view), t!("player.volume").as_ref(), true);
     out.volume_clicked = volume.clicked();
     out.volume_hovered = volume.hovered();
     out.volume_rect = volume.rect;
 
-    let settings = icon_btn(&mut right, theme, ICON_SETTINGS, Msg::NavSettings.t(), true);
+    let settings = icon_btn(&mut right, theme, ICON_SETTINGS, t!("nav.settings").as_ref(), true);
     out.settings_clicked = settings.clicked();
     out.settings_rect = settings.rect;
 
     let playlist = if view.file_count > 1 {
-        Some(icon_btn(&mut right, theme, ICON_PLAYLIST_PLAY, Msg::Playlist.t(), true))
+        Some(icon_btn(&mut right, theme, ICON_PLAYLIST_PLAY, t!("player.playlist").as_ref(), true))
     } else {
         None
     };

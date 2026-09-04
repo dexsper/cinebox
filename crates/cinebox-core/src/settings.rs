@@ -91,10 +91,11 @@ pub enum UiLanguage {
     #[default]
     English,
     Russian,
+    Ukrainian,
 }
 
 impl UiLanguage {
-    pub const ALL: &[Self] = &[Self::English, Self::Russian];
+    pub const ALL: &[Self] = &[Self::English, Self::Russian, Self::Ukrainian];
 
     /// TMDB `language` query token.
     #[must_use]
@@ -102,6 +103,7 @@ impl UiLanguage {
         match self {
             Self::English => "en-US",
             Self::Russian => "ru-RU",
+            Self::Ukrainian => "uk-UA",
         }
     }
 }
@@ -111,6 +113,7 @@ impl fmt::Display for UiLanguage {
         f.write_str(match self {
             Self::English => "English",
             Self::Russian => "Russian",
+            Self::Ukrainian => "Ukrainian",
         })
     }
 }
@@ -490,6 +493,10 @@ mod tests {
         assert!(parsed.general.use_system_proxy);
         assert_eq!(parsed.torrserver.url, "http://127.0.0.1:8090");
         assert!((parsed.player.volume - 90.0).abs() < f64::EPSILON);
+
+        let uk: Settings = serde_json::from_str(r#"{"general":{"language":"ukrainian"}}"#)?;
+        assert_eq!(uk.general.language, UiLanguage::Ukrainian);
+        assert_eq!(UiLanguage::Ukrainian.tmdb_code(), "uk-UA");
 
         Ok(())
     }

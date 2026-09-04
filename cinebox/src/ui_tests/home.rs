@@ -1,9 +1,9 @@
 use cinebox_core::HomeRowId;
-use cinebox_core::i18n::Msg;
 use egui::accesskit::Role;
 use egui::vec2;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
+use rust_i18n::t;
 
 use crate::theme::Theme;
 
@@ -42,7 +42,7 @@ fn shelf_heading_click_is_a_button() {
     harness.run();
 
     harness
-        .get_by_role_and_label(Role::Button, Msg::HomeNowPlaying.t())
+        .get_by_role_and_label(Role::Button, t!("home.now_playing").as_ref())
         .click();
 
     harness.run();

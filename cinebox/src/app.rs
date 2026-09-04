@@ -93,7 +93,7 @@ impl App {
         let engine = attach_engine(cc);
         let services = Services::boot(engine);
         let last_tmdb = TmdbView::from_settings(&services.settings);
-        cinebox_core::i18n::set_ui_language(services.settings.general.language);
+        crate::i18n::apply(services.settings.general.language);
         let search_bar = SearchBar::with_history(load_search_history(&services));
 
         Self {
@@ -285,7 +285,7 @@ impl eframe::App for App {
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         let language = self.services.settings.general.language;
         if self.last_tmdb.language != language {
-            cinebox_core::i18n::set_ui_language(language);
+            crate::i18n::apply(language);
         }
 
         let net = crate::jobs::net_config(&self.services.settings);
