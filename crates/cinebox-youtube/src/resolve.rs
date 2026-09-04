@@ -31,6 +31,8 @@ pub struct Playback {
 ///
 /// HTTP, playability, missing player JS, cipher, or format failures.
 pub async fn resolve(origin: &str, id: &VideoId, net: &NetConfig) -> Result<Playback, Error> {
+    tracing::debug!(id = id.as_str(), "youtube resolve");
+
     let html = fetch_watch(origin, id, net).await?;
     let player_path = cipher::player_js_url(&html).ok_or(Error::NoPlayer)?;
     let player_url = join_origin(origin, player_path)?;
@@ -132,12 +134,16 @@ fn decode_url(mut decipher: Option<&mut Decipher>, parts: CipherParts) -> Result
 }
 
 async fn fetch_watch(origin: &str, id: &VideoId, net: &NetConfig) -> Result<String, Error> {
+    tracing::debug!(id = id.as_str(), "youtube watch page");
+
     let url = watch_url(origin, id.as_str());
 
     send_text(net, |client| client.get(&url).timeout(REQUEST_TIMEOUT)).await
 }
 
 async fn fetch_js(net: &NetConfig, url: &str) -> Result<String, Error> {
+    tracing::debug!("youtube player js");
+
     send_text(net, |client| client.get(url).timeout(REQUEST_TIMEOUT)).await
 }
 
@@ -147,6 +153,8 @@ async fn fetch_player(
     sts: Option<u32>,
     net: &NetConfig,
 ) -> Result<PlayerResponse, Error> {
+    tracing::debug!(id = id.as_str(), ?sts, "youtube innertube");
+
     let api_url = player_api_url(origin);
     let body = player_body(id.as_str(), sts);
 

@@ -157,11 +157,6 @@ impl App {
                     .ensure_open(details, &self.services.settings.parser.default_quality);
                 self.nav.push(Screen::Torrents { kind, id });
             }
-            NavAction::OpenUrl(url) => {
-                if let Err(error) = open::that(&url) {
-                    error!(%error, "failed to open url");
-                }
-            }
         }
     }
 
@@ -173,6 +168,11 @@ impl App {
         if matches!(self.nav.current(), Screen::Player { .. }) {
             self.player.stop(&mut self.services, ctx);
             self.nav.pop();
+            return;
+        }
+
+        let on_media = matches!(self.nav.current(), Screen::Media { .. });
+        if on_media && self.media.on_back() {
             return;
         }
 
@@ -254,7 +254,8 @@ impl App {
     }
 
     fn take_pending_play(&mut self, ctx: &egui::Context) {
-        let Some(req) = self.torrents.take_play() else {
+        let req = self.torrents.take_play().or_else(|| self.media.take_play());
+        let Some(req) = req else {
             return;
         };
 

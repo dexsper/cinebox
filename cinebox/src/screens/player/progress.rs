@@ -16,7 +16,13 @@ impl PlayerScreen {
         };
 
         let hash = match &self.phase {
-            Some(PlayerPhase::Playing(state)) => state.hash.clone(),
+            Some(PlayerPhase::Playing(state)) => {
+                let Some(hash) = state.torrent_hash() else {
+                    return;
+                };
+
+                hash.to_owned()
+            }
             Some(PlayerPhase::Buffering(state)) => state.hash.clone(),
             None => return,
         };
@@ -55,15 +61,24 @@ impl PlayerScreen {
                 return None;
             }
 
-            let file = state.files.get(state.file_index)?;
+            if state.is_youtube() {
+                return None;
+            }
 
+            let file_index = state.file_index();
+            let file = state.files().get(file_index)?;
             let season = file.season;
             let episode = file.episode;
             let episode_title = file.title.clone();
             let file_id = file.id;
+            let hash = state.torrent_hash()?.to_owned();
+            let time = state.time;
+            let duration = state.duration;
+            let kind = state.card.kind;
+            let id = state.card.id;
             let entry = WatchHistoryEntry {
-                kind: state.card.kind,
-                id: state.card.id,
+                kind,
+                id,
                 title: state.card.title.clone(),
                 poster_path: state.card.poster_path.clone(),
                 year: state.card.year,
@@ -71,18 +86,11 @@ impl PlayerScreen {
                 season,
                 episode,
                 episode_title: Some(episode_title),
-                time: state.time,
-                duration: state.duration,
+                time,
+                duration,
             };
-            let hash = state.hash.clone();
-            let time = state.time;
-            let duration = state.duration;
-            let kind = state.card.kind;
-            let id = state.card.id;
 
-            if let Some(file) = state.files.get_mut(state.file_index) {
-                file.timecode = time;
-            }
+            state.source.set_current_timecode(time);
 
             (entry, hash, time, duration, kind, id, file_id)
         };
@@ -139,7 +147,7 @@ impl PlayerScreen {
 
 #[cfg(test)]
 mod tests {
-    use super::super::tests::spec;
+    use super::super::tests::{spec, youtube_spec};
     use super::super::{PlayerPhase, PlayerScreen, PlayerState};
     use crate::services::{Services, db_block_on};
 
@@ -173,6 +181,25 @@ mod tests {
         assert_eq!(recent[0].id, id);
         assert_eq!(recent[0].title, "Show");
         assert!(svc.is_watched(kind, id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_progress_skips_youtube() -> Result<(), cinebox_core::StoreError> {
+        let db = std::sync::Arc::new(db_block_on(cinebox_core::Store::memory())?);
+        let mut svc = Services::test_with_db(db);
+        let mut screen = PlayerScreen {
+            phase: Some(PlayerPhase::Playing(PlayerState::from_spec(&youtube_spec()))),
+            ..PlayerScreen::default()
+        };
+
+        if let Some(PlayerPhase::Playing(state)) = &mut screen.phase {
+            state.time = 12.0;
+            state.duration = 90.0;
+        }
+
+        assert!(screen.save_progress(&mut svc, true).is_none());
 
         Ok(())
     }

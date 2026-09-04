@@ -8,7 +8,7 @@ use std::sync::Arc;
 use cinebox_core::VideoScale;
 use libmpv2::Mpv;
 use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamApiType};
-use tracing::info;
+use tracing::{info, warn};
 
 use crate::error::Error;
 
@@ -16,9 +16,15 @@ use crate::error::Error;
 pub type GlLoader = Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>;
 
 /// Options applied before `loadfile`.
+///
+/// `http_header_fields`, `audio_file`, `http_proxy`, and `af` are always
+/// written (empty string clears the previous value) so one load cannot inherit
+/// another load's headers, external audio, proxy, or filter graph.
 #[derive(Clone, Copy)]
 pub struct PlayOpts<'a> {
     pub http_header_fields: Option<&'a str>,
+    pub audio_file: Option<&'a str>,
+    pub http_proxy: Option<&'a str>,
     pub loudnorm: bool,
     pub start_seconds: f64,
 }
@@ -386,14 +392,30 @@ fn loadfile_args(url: &str, start_seconds: f64) -> Vec<String> {
 }
 
 fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
-    if let Some(header) = opts.http_header_fields.filter(|h| !h.is_empty()) {
-        mpv.set_property("http-header-fields", header.to_owned())
-            .map_err(Error::mpv)?;
-    }
+    let header = opts.http_header_fields.unwrap_or("");
+    set_prop(mpv, "http-header-fields", header.to_owned())?;
+
+    let audio = opts.audio_file.unwrap_or("");
+    set_prop(mpv, "audio-files", audio.to_owned())?;
+
+    let proxy = opts.http_proxy.unwrap_or("");
+    set_prop(mpv, "http-proxy", proxy.to_owned())?;
+
     if opts.loudnorm {
-        mpv.set_property("af", "loudnorm".to_owned())
-            .map_err(Error::mpv)?;
+        set_prop(mpv, "af", "loudnorm".to_owned())?;
+        return Ok(());
     }
+
+    set_prop(mpv, "af", String::new())?;
+    Ok(())
+}
+
+fn set_prop(mpv: &Mpv, name: &'static str, value: String) -> Result<(), Error> {
+    if let Err(error) = mpv.set_property(name, value) {
+        warn!(%error, prop = name, "mpv set_property failed");
+        return Err(Error::mpv_prop(name, error));
+    }
+
     Ok(())
 }
 

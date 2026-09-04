@@ -6,6 +6,7 @@ pub mod person;
 pub mod play;
 pub mod player;
 pub mod search;
+mod trailers;
 pub mod settings;
 mod swr;
 pub mod torrents;

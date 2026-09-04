@@ -491,6 +491,34 @@ fn test_while_loop() {
 }
 
 #[test]
+fn while_true_hits_iteration_limit() {
+    let mut jsi = JSInterpreter::new("function f() { while (true) {} }");
+    let err = match jsi.call_function("f", &[]) {
+        Ok(_) => panic!("infinite loop returned"),
+        Err(err) => err,
+    };
+
+    assert_eq!(err.to_string(), "loop iteration limit reached");
+}
+
+#[test]
+fn invoke_clears_scratch() {
+    let mut jsi = JSInterpreter::new("function x() { return [1, function(){return 1}][1] }");
+    let func = match jsi.extract_function("x") {
+        Ok(func) => func,
+        Err(err) => panic!("{err}"),
+    };
+
+    let got = match jsi.invoke(&func, &[], None) {
+        Ok(val) => val,
+        Err(err) => panic!("{err}"),
+    };
+
+    assert!(matches!(got, JsValue::Function(_)));
+    assert!(jsi.scratch.is_empty());
+}
+
+#[test]
 fn test_switch() {
     let code = r"
             function f(x) { switch(x){

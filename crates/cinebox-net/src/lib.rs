@@ -9,8 +9,10 @@
 
 mod client;
 mod doh;
+mod proxy;
 
 pub use client::{plain_client, send_resilient};
+pub use proxy::http_proxy_url;
 
 /// Snapshot of the network settings shared by every outgoing HTTP client.
 ///

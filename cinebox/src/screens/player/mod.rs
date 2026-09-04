@@ -21,7 +21,7 @@ use tracing::warn;
 
 use crate::jobs::JobError;
 use crate::nav::NavAction;
-use crate::screens::play::{PlayRequest, WatchCard};
+use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
@@ -33,9 +33,7 @@ use overlay::{Activity, FooterView};
 struct PlayerState {
     card: WatchCard,
     title: String,
-    hash: String,
-    files: Vec<TorrentFileRow>,
-    file_index: usize,
+    source: PlaySource,
     backdrop_path: Option<String>,
     paused: bool,
     time: f64,
@@ -43,6 +41,7 @@ struct PlayerState {
     error: Option<String>,
     muted: bool,
     volume: f64,
+    loaded_at: Instant,
 }
 
 impl PlayerState {
@@ -50,22 +49,41 @@ impl PlayerState {
         Self {
             card: spec.card.clone(),
             title: spec.title.clone(),
-            hash: spec.hash.clone(),
-            files: spec.files.clone(),
-            file_index: spec.file_index,
+            source: spec.source.clone(),
             backdrop_path: spec.backdrop_path.clone(),
             paused: false,
-            time: spec.resume_at,
+            time: spec.source.start_seconds(),
             duration: 0.0,
             error: None,
             muted: false,
             volume: 100.0,
+            loaded_at: Instant::now(),
         }
     }
 
     #[must_use]
     fn has_next(&self) -> bool {
-        self.file_index + 1 < self.files.len()
+        self.source.has_next()
+    }
+
+    #[must_use]
+    fn files(&self) -> &[TorrentFileRow] {
+        self.source.files()
+    }
+
+    #[must_use]
+    fn file_index(&self) -> usize {
+        self.source.file_index()
+    }
+
+    #[must_use]
+    fn torrent_hash(&self) -> Option<&str> {
+        self.source.torrent_hash()
+    }
+
+    #[must_use]
+    fn is_youtube(&self) -> bool {
+        self.source.is_youtube()
     }
 }
 
@@ -86,10 +104,7 @@ enum Popup {
 struct LoadSpec {
     card: WatchCard,
     title: String,
-    hash: String,
-    files: Vec<TorrentFileRow>,
-    file_index: usize,
-    resume_at: f64,
+    source: PlaySource,
     backdrop_path: Option<String>,
 }
 
@@ -138,11 +153,15 @@ impl Default for PlayerScreen {
 
 impl PlayerScreen {
     pub fn start(&mut self, req: PlayRequest, svc: &mut Services, ctx: &egui::Context) {
-        self.prefs = svc
-            .db
-            .as_ref()
-            .and_then(|db| db_block_on(db.get_torrent_prefs(&req.hash)).ok().flatten())
-            .unwrap_or_default();
+        self.prefs = Default::default();
+
+        if let Some(hash) = req.source.torrent_hash() {
+            self.prefs = svc
+                .db
+                .as_ref()
+                .and_then(|db| db_block_on(db.get_torrent_prefs(hash)).ok().flatten())
+                .unwrap_or_default();
+        }
 
         self.sub_scale = 1.0;
         self.sub_delay = 0.0;
@@ -154,10 +173,7 @@ impl PlayerScreen {
             LoadSpec {
                 card: req.card,
                 title: req.title,
-                hash: req.hash,
-                files: req.files,
-                file_index: req.file_index,
-                resume_at: req.start,
+                source: req.source,
                 backdrop_path: req.backdrop_path,
             },
         );
@@ -188,7 +204,7 @@ impl PlayerScreen {
         self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
-        let go_next = {
+        let (go_next, stall) = {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return;
             };
@@ -208,8 +224,24 @@ impl PlayerScreen {
             state.muted = snap.muted;
             state.volume = snap.volume;
 
-            snap.eof && snap.duration > 1.0 && svc.settings.player.auto_next && state.has_next()
+            let started = http_stream_started(snap.time, snap.duration);
+            let waiting = state.is_youtube() && state.error.is_none() && !started;
+            let stall = waiting && state.loaded_at.elapsed() > STREAM_STALL;
+
+            if stall {
+                warn!("http stream did not start");
+                state.error = Some(t!("player.stream_stalled").into_owned());
+            }
+
+            let eof_ready = snap.eof && snap.duration > 1.0;
+            let go_next = eof_ready && svc.settings.player.auto_next && state.has_next();
+
+            (go_next, stall)
         };
+
+        if stall {
+            stop_engine(svc);
+        }
 
         let _ = self.viewed_job.read();
         self.save_progress(svc, false);
@@ -291,8 +323,8 @@ impl PlayerScreen {
                 paused: state.paused,
                 muted: state.muted,
                 volume: state.volume,
-                file_count: state.files.len(),
-                file_index: state.file_index,
+                file_count: state.files().len(),
+                file_index: state.file_index(),
                 has_next: state.has_next(),
             }
         };
@@ -516,8 +548,8 @@ impl PlayerScreen {
             let Some(PlayerPhase::Playing(state)) = &self.phase else {
                 return;
             };
-            let files = &state.files;
-            let current = state.file_index;
+            let files = state.files();
+            let current = state.file_index();
 
             // Bottom margin 0: the list runs flush to the frame edge, covered
             // by the flyout's own bottom-up shadow.
@@ -629,6 +661,16 @@ impl PlayerScreen {
 /// Resumes this close to the start keep the stock head preload: its window
 /// usually reaches the seek target, and a dedicated mid-file wait isn't worth it.
 const RESUME_PRELOAD_MIN_SECS: f64 = 60.0;
+const STREAM_STALL: Duration = Duration::from_secs(20);
+
+/// mpv can report `duration == 0` while `time-pos` already advances.
+fn http_stream_started(time: f64, duration: f64) -> bool {
+    if time > 0.0 {
+        return true;
+    }
+
+    duration > 0.0
+}
 
 /// Approximate byte offset of `resume_at`, assuming constant bitrate.
 ///
@@ -650,6 +692,78 @@ fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
     Some((frac * file.length as f64) as u64)
 }
 
+struct LoadMedia {
+    url: String,
+    header: Option<String>,
+    audio: Option<String>,
+    proxy: Option<String>,
+    start: f64,
+}
+
+fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
+    match &state.source {
+        PlaySource::Youtube {
+            video_url,
+            audio_url,
+            http_header_fields,
+        } => {
+            let header = if http_header_fields.is_empty() {
+                None
+            } else {
+                Some(http_header_fields.join(","))
+            };
+
+            let net = crate::jobs::net_config(&svc.settings);
+            let proxy = cinebox_net::http_proxy_url(&net);
+            if net.use_system_proxy && proxy.is_none() {
+                warn!("system proxy is on but no http proxy url was found for mpv");
+            }
+
+            tracing::debug!(has_proxy = proxy.is_some(), "youtube mpv load");
+
+            Ok(LoadMedia {
+                url: video_url.clone(),
+                header,
+                audio: audio_url.clone(),
+                proxy,
+                start: 0.0,
+            })
+        }
+        PlaySource::Torrent {
+            hash,
+            files,
+            file_index,
+            ..
+        } => {
+            let Some(file) = files.get(*file_index) else {
+                return Err(t!("common.failed").into_owned());
+            };
+
+            let base = svc.settings.torrserver.url.as_str();
+            let path = file.path.as_str();
+            let file_id = file.id;
+            let flag = cinebox_torrserver::StreamFlag::Play;
+
+            let url = match cinebox_torrserver::stream_url(base, path, hash, file_id, flag) {
+                Ok(url) => url,
+                Err(error) => return Err(error.to_string()),
+            };
+
+            let user = svc.settings.torrserver.username.as_str();
+            let pass = svc.settings.torrserver.password.expose();
+            let header = cinebox_torrserver::mpv_http_header_fields(user, pass);
+
+            Ok(LoadMedia {
+                url,
+                header,
+                audio: None,
+                proxy: None,
+                start: state.time,
+            })
+        }
+    }
+}
+
 impl PlayerScreen {
     /// Cancels an in-flight buffer wait, if any.
     ///
@@ -668,7 +782,9 @@ impl PlayerScreen {
         self.activity.poke(ctx.input(|i| i.time));
         self.abort_buffering();
 
-        if !svc.settings.torrserver.wait_preload {
+        let skip_preload = spec.source.is_youtube() || !svc.settings.torrserver.wait_preload;
+
+        if skip_preload {
             self.phase = Some(PlayerPhase::Playing(PlayerState::from_spec(&spec)));
             self.load_current(svc);
             return;
@@ -676,8 +792,19 @@ impl PlayerScreen {
 
         stop_engine(svc);
 
-        let Some(file) = spec.files.get(spec.file_index) else {
-            return;
+        let (path, file_id, resume_bytes, hash_owned) = {
+            let files = spec.source.files();
+            let Some(file) = files.get(spec.source.file_index()) else {
+                return;
+            };
+
+            let Some(hash) = spec.source.torrent_hash() else {
+                return;
+            };
+
+            let resume_bytes = resume_bytes_for_file(file, spec.source.start_seconds());
+
+            (file.path.clone(), file.id, resume_bytes, hash.to_owned())
         };
 
         let meter = PreloadMeter::new();
@@ -687,27 +814,33 @@ impl PlayerScreen {
         let torr = crate::jobs::TorrCtx::from(&svc.settings);
         let live = meter.clone();
         let repaint = ctx.clone();
-        let path = file.path.clone();
-        let hash = spec.hash.clone();
-        let file_id = file.id;
-        let resume_bytes = resume_bytes_for_file(file, spec.resume_at);
 
         job.request(async move {
-            crate::jobs::wait_stream(torr, path, hash, file_id, resume_bytes, move |event| {
+            crate::jobs::wait_stream(torr, path, hash_owned, file_id, resume_bytes, move |event| {
                 live.on_event(event);
                 repaint.request_repaint();
             })
             .await
         });
 
+        let PlaySource::Torrent {
+            hash,
+            files,
+            file_index,
+            start,
+        } = spec.source
+        else {
+            return;
+        };
+
         self.phase = Some(PlayerPhase::Buffering(Buffering {
             card: spec.card,
             title: spec.title,
             backdrop_path: spec.backdrop_path,
-            hash: spec.hash,
-            files: spec.files,
-            file_index: spec.file_index,
-            resume_at: spec.resume_at,
+            hash,
+            files,
+            file_index,
+            resume_at: start,
             meter,
             job,
         }));
@@ -733,10 +866,12 @@ impl PlayerScreen {
         let mut state = PlayerState::from_spec(&LoadSpec {
             card: buffered.card,
             title: buffered.title,
-            hash: buffered.hash,
-            files: buffered.files,
-            file_index: buffered.file_index,
-            resume_at: buffered.resume_at,
+            source: PlaySource::Torrent {
+                hash: buffered.hash,
+                files: buffered.files,
+                file_index: buffered.file_index,
+                start: buffered.resume_at,
+            },
             backdrop_path: buffered.backdrop_path,
         });
 
@@ -767,39 +902,28 @@ impl PlayerScreen {
             return;
         };
 
-        let Some(file) = state.files.get(state.file_index) else {
-            return;
-        };
-
-        let url = match cinebox_torrserver::stream_url(
-            &svc.settings.torrserver.url,
-            &file.path,
-            &state.hash,
-            file.id,
-            cinebox_torrserver::StreamFlag::Play,
-        ) {
-            Ok(url) => url,
+        let is_youtube = state.is_youtube();
+        let load = match load_args(state, svc) {
+            Ok(load) => load,
             Err(error) => {
-                state.error = Some(error.to_string());
+                state.error = Some(error);
                 return;
             }
         };
 
-        let header = cinebox_torrserver::mpv_http_header_fields(
-            &svc.settings.torrserver.username,
-            svc.settings.torrserver.password.expose(),
-        );
         let opts = cinebox_player::PlayOpts {
-            http_header_fields: header.as_deref(),
+            http_header_fields: load.header.as_deref(),
+            audio_file: load.audio.as_deref(),
+            http_proxy: load.proxy.as_deref(),
             loudnorm: svc.settings.player.loudnorm,
-            start_seconds: state.time,
+            start_seconds: load.start,
         };
 
         let Ok(engine) = engine.lock() else {
             return;
         };
 
-        if let Err(error) = engine.load(&url, opts) {
+        if let Err(error) = engine.load(&load.url, opts) {
             state.error = Some(error.to_string());
             return;
         }
@@ -811,6 +935,10 @@ impl PlayerScreen {
         log_mpv("set_volume", engine.set_volume(volume));
         log_mpv("set_sub_scale", engine.set_sub_scale(sub_scale));
         log_mpv("set_sub_delay", engine.set_sub_delay(sub_delay));
+
+        if is_youtube {
+            return;
+        }
 
         if prefs.aid > 0 {
             log_mpv("select_audio", engine.select_audio(prefs.aid));
@@ -832,7 +960,7 @@ impl PlayerScreen {
                 return;
             }
 
-            state.file_index + 1
+            state.file_index() + 1
         };
 
         self.jump_to_file(svc, ctx, index);
@@ -843,7 +971,7 @@ impl PlayerScreen {
             let Some(PlayerPhase::Playing(state)) = &self.phase else {
                 return;
             };
-            let Some(index) = state.file_index.checked_sub(1) else {
+            let Some(index) = state.file_index().checked_sub(1) else {
                 return;
             };
 
@@ -861,19 +989,28 @@ impl PlayerScreen {
                 return;
             };
 
-            let (card, hash, files, backdrop_path, current) = match phase {
-                PlayerPhase::Playing(state) => (
-                    &state.card,
-                    &state.hash,
-                    &state.files,
-                    &state.backdrop_path,
-                    Some(state.file_index),
-                ),
+            let (card, source, backdrop_path, current) = match phase {
+                PlayerPhase::Playing(state) => {
+                    if state.is_youtube() {
+                        return;
+                    }
+
+                    (
+                        state.card.clone(),
+                        state.source.clone(),
+                        state.backdrop_path.clone(),
+                        Some(state.file_index()),
+                    )
+                }
                 PlayerPhase::Buffering(state) => (
-                    &state.card,
-                    &state.hash,
-                    &state.files,
-                    &state.backdrop_path,
+                    state.card.clone(),
+                    PlaySource::Torrent {
+                        hash: state.hash.clone(),
+                        files: state.files.clone(),
+                        file_index: state.file_index,
+                        start: state.resume_at,
+                    },
+                    state.backdrop_path.clone(),
                     None,
                 ),
             };
@@ -882,18 +1019,28 @@ impl PlayerScreen {
                 return;
             }
 
-            let Some(file) = files.get(index) else {
+            let (title, start) = {
+                let Some(file) = source.files().get(index) else {
+                    return;
+                };
+
+                (file.title.clone(), file.timecode)
+            };
+
+            let PlaySource::Torrent { hash, files, .. } = source else {
                 return;
             };
 
             LoadSpec {
-                card: card.clone(),
-                title: file.title.clone(),
-                hash: hash.clone(),
-                files: files.clone(),
-                file_index: index,
-                resume_at: file.timecode,
-                backdrop_path: backdrop_path.clone(),
+                card,
+                title,
+                source: PlaySource::Torrent {
+                    hash,
+                    files,
+                    file_index: index,
+                    start,
+                },
+                backdrop_path,
             }
         };
 
@@ -1112,10 +1259,32 @@ mod tests {
                 vote: Some(8.0),
             },
             title: String::from("Episode"),
-            hash: String::from("deadbeef"),
-            files: (1..=count).map(file).collect(),
-            file_index,
-            resume_at: 12.0,
+            source: PlaySource::Torrent {
+                hash: String::from("deadbeef"),
+                files: (1..=count).map(file).collect(),
+                file_index,
+                start: 12.0,
+            },
+            backdrop_path: None,
+        }
+    }
+
+    pub(super) fn youtube_spec() -> LoadSpec {
+        LoadSpec {
+            card: WatchCard {
+                kind: cinebox_core::MediaKind::Movie,
+                id: cinebox_core::TmdbId::new(1),
+                title: String::from("Movie"),
+                poster_path: None,
+                year: Some(2024),
+                vote: Some(8.0),
+            },
+            title: String::from("Trailer"),
+            source: PlaySource::Youtube {
+                video_url: String::from("https://example.test/v"),
+                audio_url: None,
+                http_header_fields: Vec::new(),
+            },
             backdrop_path: None,
         }
     }
@@ -1129,6 +1298,23 @@ mod tests {
 
         let last = PlayerState::from_spec(&spec(2, 3));
         assert!(!last.has_next());
+    }
+
+    #[test]
+    fn youtube_spec_skips_playlist_and_resume() {
+        let state = PlayerState::from_spec(&youtube_spec());
+
+        assert!(state.is_youtube());
+        assert!(!state.has_next());
+        assert!(state.files().is_empty());
+        assert!(state.time.abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn http_stream_started_ignores_zero_duration_if_clock_moved() {
+        assert!(!http_stream_started(0.0, 0.0));
+        assert!(http_stream_started(0.4, 0.0));
+        assert!(http_stream_started(0.0, 90.0));
     }
 
     #[test]

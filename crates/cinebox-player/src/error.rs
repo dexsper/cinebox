@@ -11,4 +11,8 @@ impl Error {
     pub(crate) fn mpv(error: impl std::fmt::Display) -> Self {
         Self::Mpv(error.to_string())
     }
+
+    pub(crate) fn mpv_prop(name: &str, error: impl std::fmt::Display) -> Self {
+        Self::Mpv(format!("{name}: {error}"))
+    }
 }

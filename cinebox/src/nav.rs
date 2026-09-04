@@ -20,7 +20,6 @@ pub enum NavAction {
     OpenMedia { item: CatalogItem },
     OpenPerson { person: CreditPerson },
     WatchTorrents,
-    OpenUrl(String),
 }
 
 #[derive(Debug, Clone)]

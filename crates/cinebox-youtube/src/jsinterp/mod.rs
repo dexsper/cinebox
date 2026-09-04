@@ -26,6 +26,7 @@ use value::{
 
 const NAME: &str = r"[A-Za-z_$][0-9A-Za-z_$]*";
 const OBJ_PREFIX: &str = "__youtube_dl_jsinterp_obj";
+const MAX_LOOP_ITERS: u32 = 100_000;
 
 static COMPOUND: LazyLock<Regex> = LazyLock::new(|| {
     Regex::new(r"(?P<try>try)\s*\{|(?P<if>if)\s*\(|(?P<switch>switch)\s*\(|(?P<for>for)\s*\(|(?P<while>while)\s*\(")
@@ -141,9 +142,7 @@ impl JSInterpreter {
     pub fn call_function(&mut self, name: &str, args: &[JsValue]) -> Result<JsValue, JsError> {
         let func = self.extract_function(name)?;
 
-        let result = self.run_function(&func, args, None, 100);
-        self.scratch.clear();
-        result
+        self.invoke(&func, args, None)
     }
 
     pub(crate) fn call_extracted(
@@ -312,7 +311,9 @@ impl JSInterpreter {
         args: &[JsValue],
         kwargs: Option<&HashMap<String, JsValue>>,
     ) -> Result<JsValue, JsError> {
-        self.run_function(func, args, kwargs, 100)
+        let result = self.run_function(func, args, kwargs, 100);
+        self.scratch.clear();
+        result
     }
 
     fn push_nested(&mut self, func: &JsFunction) {
@@ -966,12 +967,20 @@ impl JSInterpreter {
             let _ = self.interpret_expression(&start, local, rec)?;
         }
 
+        let mut iters = 0_u32;
+
         loop {
             let cond = self.interpret_expression(&cndn, local, rec)?;
 
             if !cond.as_bool_js() {
                 break;
             }
+
+            if iters >= MAX_LOOP_ITERS {
+                return Err(JsError::msg("loop iteration limit reached"));
+            }
+
+            iters += 1;
 
             match self.interpret_statement(&body, local, rec) {
                 Ok((ret, abort)) => {

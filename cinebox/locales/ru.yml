@@ -75,6 +75,7 @@ player:
   subtitles: "Субтитры"
   next: "Далее"
   mpv_render_failed: "Не удалось создать контекст отрисовки libmpv"
+  stream_stalled: "Поток не начался"
   video_size: "Размер видео"
   playback_speed: "Скорость"
   speed_normal: "Обычная"

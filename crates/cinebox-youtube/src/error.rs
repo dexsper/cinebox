@@ -7,7 +7,7 @@ use std::fmt;
 pub enum Error {
     #[error("invalid youtube url")]
     InvalidUrl,
-    #[error("youtube request failed")]
+    #[error("youtube request failed: {0}")]
     Request(#[source] reqwest::Error),
     #[error("youtube returned HTTP {0}")]
     Http(u16),
@@ -34,7 +34,16 @@ pub(crate) fn hide_url(err: reqwest::Error) -> reqwest::Error {
 }
 
 pub(crate) fn into_request(err: reqwest::Error) -> Error {
-    Error::Request(hide_url(err))
+    let err = hide_url(err);
+    tracing::warn!(
+        error = %err,
+        connect = err.is_connect(),
+        timeout = err.is_timeout(),
+        status = ?err.status(),
+        "youtube request failed"
+    );
+
+    Error::Request(err)
 }
 
 /// JS interpreter failure or control-flow signal.

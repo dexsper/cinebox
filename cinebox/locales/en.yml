@@ -75,6 +75,7 @@ player:
   subtitles: "Subtitles"
   next: "Next"
   mpv_render_failed: "Could not create the libmpv render context"
+  stream_stalled: "The stream did not start"
   video_size: "Video size"
   playback_speed: "Speed"
   speed_normal: "Normal"

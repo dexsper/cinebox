@@ -8,9 +8,12 @@ use rust_i18n::t;
 
 use crate::jobs;
 use crate::nav::NavAction;
+use crate::screens::play::WatchCard;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::{self, intro, poster, scroll, skeleton};
+
+use super::trailers::TrailersModal;
 
 const WATCH_BTN_SIZE: Vec2 = vec2(176.0, 46.0);
 
@@ -23,6 +26,7 @@ pub struct MediaScreen {
     intro_at: Option<f64>,
     pending_intro: bool,
     reset_scroll: bool,
+    trailers: TrailersModal,
 }
 
 impl MediaScreen {
@@ -43,12 +47,21 @@ impl MediaScreen {
         self.preview = Some(item);
         self.pending_intro = true;
         self.reset_scroll = true;
+        let _ = self.trailers.close();
     }
 
     /// Drop the in-memory card so the next paint reloads for the new language.
     /// Does not touch the SQLite cache.
     pub fn forget_live(&mut self) {
         self.cache.forget_live();
+    }
+
+    pub fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
+        self.trailers.take_play()
+    }
+
+    pub fn on_back(&mut self) -> bool {
+        self.trailers.close()
     }
 
     pub fn ui(
@@ -65,6 +78,7 @@ impl MediaScreen {
             self.id = Some(id);
             self.cache.reset();
             self.reset_scroll = true;
+            let _ = self.trailers.close();
 
             let is_different = self
                 .preview
@@ -129,18 +143,19 @@ impl MediaScreen {
         }
 
         let mut retry = false;
+        let mut open_trailers = false;
         let action = match outcome.view {
             super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(details)) => {
                     self.reset_scroll = false;
-                    ready(ui, details, svc, theme, t, to_top)
+                    ready(ui, details, svc, theme, t, to_top, &mut open_trailers)
                 }
                 _ => None,
             },
             super::swr::Swr::Disk => match self.cache.disk.as_ref() {
                 Some(hit) => {
                     self.reset_scroll = false;
-                    ready(ui, &hit.value, svc, theme, t, to_top)
+                    ready(ui, &hit.value, svc, theme, t, to_top, &mut open_trailers)
                 }
                 None => None,
             },
@@ -167,7 +182,37 @@ impl MediaScreen {
             self.cache.retry();
         }
 
+        if open_trailers {
+            self.open_trailers_from_details();
+        }
+
+        self.trailers.poll();
+        if self.trailers.is_open() {
+            self.trailers.show(ui.ctx(), svc, theme);
+        }
+
         action
+    }
+
+    fn open_trailers_from_details(&mut self) {
+        let packed = self.ready().map(|details| {
+            let card = WatchCard {
+                kind: details.kind,
+                id: details.id,
+                title: details.title.clone(),
+                poster_path: details.poster_path.clone(),
+                year: details.year,
+                vote: details.vote,
+            };
+
+            (card, details.backdrop_path.clone(), details.trailers.clone())
+        });
+
+        let Some((card, backdrop_path, items)) = packed else {
+            return;
+        };
+
+        self.trailers.open(card, backdrop_path, items);
     }
 
     fn start_intro_if_pending(&mut self, now: f64) {
@@ -185,6 +230,7 @@ fn ready(
     theme: &Theme,
     t: f32,
     to_top: bool,
+    open_trailers: &mut bool,
 ) -> Option<NavAction> {
     let mut action = None;
     let poster_size = Vec2::new(
@@ -244,11 +290,18 @@ fn ready(
 
                 let used = ui.cursor().top() - col_top;
                 let gap = (poster_size.y - used - WATCH_BTN_SIZE.y).max(12.0);
+                let has_trailers = !details.trailers.is_empty();
 
                 ui.add_space(gap);
-                if watch_button(ui, theme) {
-                    action = Some(NavAction::WatchTorrents);
-                }
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    if watch_button(ui, theme) {
+                        action = Some(NavAction::WatchTorrents);
+                    }
+                    if has_trailers && trailers_button(ui, theme) {
+                        *open_trailers = true;
+                    }
+                });
             },
         );
 
@@ -324,29 +377,6 @@ fn ready(
             theme,
             &mut action,
         );
-
-        if !details.trailers.is_empty() {
-            ui.add_space(8.0);
-            ui.label(
-                RichText::new(t!("media.trailers").as_ref())
-                    .font(theme.title_font(theme.text_section))
-                    .color(theme.title),
-            );
-
-            for trailer in &details.trailers {
-                if crate::widgets::button::label(
-                    ui,
-                    theme,
-                    &trailer.name,
-                    crate::widgets::button::Opts::secondary(vec2(
-                        0.0,
-                        crate::widgets::combo::HEIGHT,
-                    )),
-                ) {
-                    action = Some(NavAction::OpenUrl(trailer.watch_url()));
-                }
-            }
-        }
     });
     action
 }
@@ -526,6 +556,23 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
         ),
         crate::widgets::button::Opts::primary(WATCH_BTN_SIZE),
         Some(t!("media.watch").as_ref()),
+    )
+    .clicked()
+}
+
+fn trailers_button(ui: &mut Ui, theme: &Theme) -> bool {
+    crate::widgets::button::add_named(
+        ui,
+        theme,
+        (
+            Atom::grow(),
+            RichText::new(t!("media.trailers").as_ref())
+                .font(theme.emphasis_font(theme.text_subtitle))
+                .color(theme.title),
+            Atom::grow(),
+        ),
+        crate::widgets::button::Opts::secondary(WATCH_BTN_SIZE),
+        Some(t!("media.trailers").as_ref()),
     )
     .clicked()
 }

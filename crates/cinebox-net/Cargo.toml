@@ -15,6 +15,9 @@ reqwest.workspace = true
 tokio = { version = "1", features = ["net", "time"] }
 tracing.workspace = true
 
+[target.'cfg(windows)'.dependencies]
+winreg = "0.55"
+
 [dev-dependencies]
 httpmock.workspace = true
 tokio = { version = "1", features = ["macros", "rt-multi-thread"] }

@@ -543,11 +543,13 @@ impl TorrentsScreen {
                 vote: state.movie.vote,
             },
             title: file.title.clone(),
-            hash: ready.hash.clone(),
-            files: ready.files.clone(),
-            file_index,
-            start: file.timecode,
             backdrop_path: state.movie.backdrop_path.clone(),
+            source: crate::screens::play::PlaySource::Torrent {
+                hash: ready.hash.clone(),
+                files: ready.files.clone(),
+                file_index,
+                start: file.timecode,
+            },
         });
 
         state.files.close();
