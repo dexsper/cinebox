@@ -24,7 +24,9 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - Search for movies, series, and people, plus query history
 - Title page: overview, runtime, rating, budget, countries, directors, cast, collection, recommendations, similar titles
 - Actor and director pages
-- Posters show if you already watched it; playback can resume from where you left off
+- Posters show if you already watched it
+- Local watch history: resume from the last position per title or episode
+- Optional TorrServer timecode sync (off by default): progress is also stored on the server. Local history wins when both exist
 
 **Playback**
 
@@ -60,8 +62,9 @@ flowchart LR
 1. **Catalog.** Cinebox calls TMDB with your key: home, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
 2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
 3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the HTTP stream opens in libmpv. No browser in this path.
-4. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same mpv.
-5. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
+4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. If "Track timecode on server" is on, the same time is sent to TorrServer. On open, local position is preferred; otherwise the server's timecode is used.
+5. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same mpv.
+6. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
 
 ## Install
 
