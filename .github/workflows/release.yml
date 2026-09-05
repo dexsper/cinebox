@@ -1,0 +1,335 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v*"
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: release-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  build:
+    name: Windows x64
+    runs-on: windows-latest
+    timeout-minutes: 120
+    env:
+      TARGET: x86_64-pc-windows-msvc
+    outputs:
+      archive: ${{ steps.meta.outputs.archive }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read workspace metadata
+        id: meta
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          function Get-WorkspaceField([string]$name) {
+            $escaped = [regex]::Escape($name)
+            $pattern = "^${escaped} = `"([^`"]+)`""
+            $hit = Select-String -Path Cargo.toml -Pattern $pattern | Select-Object -First 1
+            if ($null -eq $hit) {
+              throw "Cargo.toml is missing $name"
+            }
+
+            $hit.Matches[0].Groups[1].Value
+          }
+
+          $version = Get-WorkspaceField "version"
+          $msrv = Get-WorkspaceField "rust-version"
+          $archive = "cinebox-$version-windows-x64"
+
+          "version=$version" >> $env:GITHUB_OUTPUT
+          "msrv=$msrv" >> $env:GITHUB_OUTPUT
+          "archive=$archive" >> $env:GITHUB_OUTPUT
+
+          if (-not $env:GITHUB_REF.StartsWith("refs/tags/")) {
+            return
+          }
+
+          $tag = $env:GITHUB_REF_NAME
+          if (-not $tag.StartsWith("v")) {
+            throw "Release tag must look like v$version (got $tag)"
+          }
+
+          $fromTag = $tag.Substring(1)
+          if ($fromTag -ne $version) {
+            throw "Tag $tag does not match Cargo.toml version $version"
+          }
+
+      - name: Extract changelog for this version
+        env:
+          VERSION: ${{ steps.meta.outputs.version }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          if (-not (Test-Path "CHANGELOG.md")) {
+            throw "CHANGELOG.md is missing"
+          }
+
+          $version = $env:VERSION
+          $escaped = [regex]::Escape($version)
+          $headingRe = [regex]::new(('^## (\[{0}\]|{0})(\s|$)' -f $escaped))
+          $nextHeadingRe = [regex]::new("^##\s")
+          $linkDefRe = [regex]::new("^\[[^\]]+\]:\s")
+          $lines = [System.IO.File]::ReadAllLines((Join-Path $pwd "CHANGELOG.md"))
+
+          $start = -1
+          for ($index = 0; $index -lt $lines.Length; $index++) {
+            if (-not $headingRe.IsMatch($lines[$index])) {
+              continue
+            }
+
+            $start = $index + 1
+            break
+          }
+
+          if ($start -lt 0) {
+            throw "CHANGELOG.md has no section for $version (expected '## [$version]')"
+          }
+
+          $body = [System.Collections.Generic.List[string]]::new()
+          for ($index = $start; $index -lt $lines.Length; $index++) {
+            $line = $lines[$index]
+            if ($nextHeadingRe.IsMatch($line)) {
+              break
+            }
+
+            if ($linkDefRe.IsMatch($line)) {
+              break
+            }
+
+            $body.Add($line)
+          }
+
+          while ($body.Count -gt 0 -and [string]::IsNullOrWhiteSpace($body[0])) {
+            $body.RemoveAt(0)
+          }
+
+          while ($body.Count -gt 0 -and [string]::IsNullOrWhiteSpace($body[$body.Count - 1])) {
+            $body.RemoveAt($body.Count - 1)
+          }
+
+          if ($body.Count -eq 0) {
+            throw "CHANGELOG.md section for $version is empty"
+          }
+
+          $text = ($body -join "`n") + "`n"
+          $notes = Join-Path $pwd "RELEASE_NOTES.md"
+          [System.IO.File]::WriteAllText($notes, $text, [System.Text.UTF8Encoding]::new($false))
+          Write-Host "Release notes for $version ($($body.Count) lines)"
+
+      - name: Install Rust ${{ steps.meta.outputs.msrv }}
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.meta.outputs.msrv }}
+          target: ${{ env.TARGET }}
+
+      - name: Cache bundled libmpv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/cinebox-player/mpv-src
+          key: libmpv-${{ runner.os }}-${{ hashFiles('crates/cinebox-player/build.rs') }}
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-targets: false
+          cache-on-failure: true
+
+      - name: Test
+        run: cargo test --workspace --locked --target ${{ env.TARGET }}
+
+      - name: Build
+        run: cargo build --locked --release -p cinebox --target ${{ env.TARGET }}
+
+      - name: Package zip
+        env:
+          ARCHIVE: ${{ steps.meta.outputs.archive }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archive = $env:ARCHIVE
+          $releaseDir = Join-Path "target" $env:TARGET "release"
+          $exe = Join-Path $releaseDir "cinebox.exe"
+          $dll = Join-Path $releaseDir "libmpv-2.dll"
+          if (-not (Test-Path $exe)) {
+            throw "cinebox.exe was not built at $exe"
+          }
+
+          if (-not (Test-Path $dll)) {
+            throw "libmpv-2.dll is missing next to cinebox.exe (bundled libmpv did not copy)"
+          }
+
+          $dist = Join-Path $pwd "dist"
+          $stage = Join-Path $dist $archive
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item -Path $exe -Destination $stage
+          Get-ChildItem -Path $releaseDir -Filter "*.dll" -File | Copy-Item -Destination $stage
+          Copy-Item -Path "LICENSE", "README.md", "README.ru.md" -Destination $stage
+
+          $zipName = "$archive.zip"
+          $zipPath = Join-Path $dist $zipName
+          if (Test-Path $zipPath) {
+            Remove-Item -Force $zipPath
+          }
+
+          $sevenZip = "7z"
+          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          }
+
+          Push-Location $dist
+          & $sevenZip a -tzip $zipName $archive
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z exited with $LASTEXITCODE"
+          }
+
+          & $sevenZip t $zipName
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z test failed with $LASTEXITCODE"
+          }
+
+          $listing = & $sevenZip l -ba $zipName
+          $hasExe = $listing | Where-Object { $_ -match "cinebox\.exe$" }
+          $hasMpv = $listing | Where-Object { $_ -match "libmpv-2\.dll$" }
+          if ($null -eq $hasExe) {
+            throw "zip is missing cinebox.exe"
+          }
+
+          if ($null -eq $hasMpv) {
+            throw "zip is missing libmpv-2.dll"
+          }
+
+          Pop-Location
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLowerInvariant()
+          $sumLine = "$hash  $zipName`n"
+          [System.IO.File]::WriteAllText((Join-Path $dist "$zipName.sha256"), $sumLine)
+          Write-Host $sumLine.TrimEnd()
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.meta.outputs.archive }}
+          path: |
+            dist/${{ steps.meta.outputs.archive }}.zip
+            dist/${{ steps.meta.outputs.archive }}.zip.sha256
+            RELEASE_NOTES.md
+          if-no-files-found: error
+          retention-days: 14
+
+  publish:
+    name: Publish GitHub Release
+    needs: [build]
+    if: startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      id-token: write
+      attestations: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      GH_REPO: ${{ github.repository }}
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: ${{ needs.build.outputs.archive }}
+          path: dist
+
+      - name: Verify checksum, zip, and notes
+        working-directory: dist
+        run: |
+          set -euo pipefail
+          test -s RELEASE_NOTES.md
+          sha256sum --check --strict ./*.sha256
+          unzip -t ./*.zip
+          unzip -Z1 ./*.zip | grep -E 'cinebox\.exe$'
+          unzip -Z1 ./*.zip | grep -E 'libmpv-2\.dll$'
+
+      - name: Append commit range
+        working-directory: dist
+        env:
+          TAG: ${{ github.ref_name }}
+          TO_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+
+          to_short="${TO_SHA:0:7}"
+          repo_url="https://github.com/${GH_REPO}"
+          generated="$(
+            gh api --method POST "repos/${GH_REPO}/releases/generate-notes" \
+              -f tag_name="${TAG}" \
+              -f target_commitish="${TO_SHA}" \
+              --jq .body || true
+          )"
+          url="$(printf '%s\n' "$generated" | sed -n 's/^\*\*Full Changelog\*\*: //p' | tail -n1)"
+
+          if [[ -z "$url" ]]; then
+            prev="$(
+              gh release list --exclude-drafts --json tagName,createdAt --jq \
+                "[.[] | select(.tagName != \"${TAG}\")] | sort_by(.createdAt) | reverse | .[0].tagName // empty"
+            )"
+            if [[ -n "$prev" ]]; then
+              url="${repo_url}/compare/${prev}...${TAG}"
+            else
+              url="${repo_url}/commits/${TAG}"
+            fi
+          fi
+
+          footer="**Commits:** ${url} (\`${to_short}\`)"
+          if [[ "$url" =~ /compare/(.+)\.\.\.(.+)$ ]]; then
+            from_ref="${BASH_REMATCH[1]}"
+            from_sha="$(gh api "repos/${GH_REPO}/commits/${from_ref}" --jq .sha)"
+            from_short="${from_sha:0:7}"
+            footer="**Commits:** ${url} (\`${from_short}\`...\`${to_short}\`)"
+          fi
+
+          printf '\n\n%s\n' "$footer" >> RELEASE_NOTES.md
+          printf '%s\n' "$footer"
+
+      - name: Attest build provenance
+        uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
+        with:
+          subject-path: dist/*.zip
+
+      - name: Publish GitHub Release
+        working-directory: dist
+        env:
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          extras=(--title "Cinebox $TAG" --notes-file RELEASE_NOTES.md)
+          if [[ "$TAG" == *-* ]]; then
+            extras+=(--prerelease)
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release edit "$TAG" "${extras[@]}"
+            gh release upload "$TAG" ./*.zip ./*.sha256 --clobber
+            exit 0
+          fi
+
+          gh release create "$TAG" ./*.zip ./*.sha256 "${extras[@]}"
