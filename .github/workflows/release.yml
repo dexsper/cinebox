@@ -228,6 +228,9 @@ jobs:
           [System.IO.File]::WriteAllText((Join-Path $dist "$zipName.sha256"), $sumLine)
           Write-Host $sumLine.TrimEnd()
 
+          Copy-Item -Path "RELEASE_NOTES.md" -Destination (Join-Path $dist "RELEASE_NOTES.md")
+          Remove-Item -Recurse -Force $stage
+
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
@@ -235,7 +238,7 @@ jobs:
           path: |
             dist/${{ steps.meta.outputs.archive }}.zip
             dist/${{ steps.meta.outputs.archive }}.zip.sha256
-            RELEASE_NOTES.md
+            dist/RELEASE_NOTES.md
           if-no-files-found: error
           retention-days: 14
 
@@ -261,13 +264,18 @@ jobs:
 
       - name: Verify checksum, zip, and notes
         working-directory: dist
+        env:
+          ARCHIVE: ${{ needs.build.outputs.archive }}
         run: |
           set -euo pipefail
+          ls -la
           test -s RELEASE_NOTES.md
-          sha256sum --check --strict ./*.sha256
-          unzip -t ./*.zip
-          unzip -Z1 ./*.zip | grep -E 'cinebox\.exe$'
-          unzip -Z1 ./*.zip | grep -E 'libmpv-2\.dll$'
+          test -s "${ARCHIVE}.zip"
+          test -s "${ARCHIVE}.zip.sha256"
+          sha256sum --check --strict "${ARCHIVE}.zip.sha256"
+          unzip -t "${ARCHIVE}.zip"
+          unzip -Z1 "${ARCHIVE}.zip" | grep -E 'cinebox\.exe$'
+          unzip -Z1 "${ARCHIVE}.zip" | grep -E 'libmpv-2\.dll$'
 
       - name: Append commit range
         working-directory: dist
@@ -313,12 +321,13 @@ jobs:
       - name: Attest build provenance
         uses: actions/attest@1e69f48acb82d1966a394da916b4c1698aa569d6 # v4.2.2
         with:
-          subject-path: dist/*.zip
+          subject-path: dist/${{ needs.build.outputs.archive }}.zip
 
       - name: Publish GitHub Release
         working-directory: dist
         env:
           TAG: ${{ github.ref_name }}
+          ARCHIVE: ${{ needs.build.outputs.archive }}
         run: |
           set -euo pipefail
           extras=(--title "Cinebox $TAG" --notes-file RELEASE_NOTES.md)
@@ -328,8 +337,8 @@ jobs:
 
           if gh release view "$TAG" >/dev/null 2>&1; then
             gh release edit "$TAG" "${extras[@]}"
-            gh release upload "$TAG" ./*.zip ./*.sha256 --clobber
+            gh release upload "$TAG" "${ARCHIVE}.zip" "${ARCHIVE}.zip.sha256" --clobber
             exit 0
           fi
 
-          gh release create "$TAG" ./*.zip ./*.sha256 "${extras[@]}"
+          gh release create "$TAG" "${ARCHIVE}.zip" "${ARCHIVE}.zip.sha256" "${extras[@]}"
