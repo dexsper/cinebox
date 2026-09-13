@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            SELECT segment_type, armed\n            FROM skip_segment_choice\n            WHERE kind = ? AND tmdb_id = ?\n            ",
+  "describe": {
+    "columns": [
+      {
+        "name": "segment_type",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "skip_segment_choice",
+            "name": "segment_type"
+          }
+        }
+      },
+      {
+        "name": "armed",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "skip_segment_choice",
+            "name": "armed"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "d9c7cc81bc03bc2a13181e0f97c4702ec76de4fe522479c2c94ea0449b3d0454"
+}

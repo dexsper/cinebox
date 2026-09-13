@@ -178,6 +178,30 @@ const PLAYER: &[Field] = &[
         get: |s| s.player.auto_next,
         set: |s, v| s.player.auto_next = v,
     },
+    Field::Toggle {
+        label: "settings.skip_intro",
+        hint: None,
+        get: |s| s.player.skip_segments.intro,
+        set: |s, v| s.player.skip_segments.intro = v,
+    },
+    Field::Toggle {
+        label: "settings.skip_recap",
+        hint: None,
+        get: |s| s.player.skip_segments.recap,
+        set: |s, v| s.player.skip_segments.recap = v,
+    },
+    Field::Toggle {
+        label: "settings.skip_credits",
+        hint: None,
+        get: |s| s.player.skip_segments.credits,
+        set: |s, v| s.player.skip_segments.credits = v,
+    },
+    Field::Toggle {
+        label: "settings.skip_preview",
+        hint: None,
+        get: |s| s.player.skip_segments.preview,
+        set: |s, v| s.player.skip_segments.preview = v,
+    },
 ];
 
 const PARSER: &[Field] = &[

@@ -10,6 +10,7 @@ members = [
     "crates/cinebox-torrserver",
     "crates/cinebox-player",
     "crates/cinebox-youtube",
+    "crates/cinebox-skip",
 ]
 
 [workspace.package]
@@ -30,6 +31,7 @@ cinebox-indexer = { path = "crates/cinebox-indexer" }
 cinebox-torrserver = { path = "crates/cinebox-torrserver" }
 cinebox-player = { path = "crates/cinebox-player" }
 cinebox-youtube = { path = "crates/cinebox-youtube" }
+cinebox-skip = { path = "crates/cinebox-skip" }
 
 egui = "0.36.1"
 egui_kittest = "0.36.1"

@@ -80,6 +80,7 @@ pub struct FooterOut {
     pub volume_hovered: bool,
     pub fullscreen_clicked: bool,
     pub rect: Rect,
+    pub seek_rect: Rect,
     pub playlist_rect: Rect,
     pub settings_rect: Rect,
     pub volume_rect: Rect,
@@ -99,6 +100,7 @@ impl FooterOut {
             volume_hovered: false,
             fullscreen_clicked: false,
             rect: Rect::NOTHING,
+            seek_rect: Rect::NOTHING,
             playlist_rect: Rect::NOTHING,
             settings_rect: Rect::NOTHING,
             volume_rect: Rect::NOTHING,
@@ -175,7 +177,9 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
             body.add_space(14.0);
             clock_row(&mut body, theme, view);
 
-            out.seek_to = seek_bar(&mut body, theme, view);
+            let (seek_to, seek_rect) = seek_bar(&mut body, theme, view);
+            out.seek_to = seek_to;
+            out.seek_rect = seek_rect;
 
             body.add_space(6.0);
             buttons_row(&mut body, theme, view, &mut out);
@@ -201,7 +205,7 @@ fn clock_row(ui: &mut Ui, theme: &Theme, view: &FooterView) {
     });
 }
 
-fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> Option<f64> {
+fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> (Option<f64>, Rect) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, SEEK_H), Sense::click_and_drag());
     let response = crate::widgets::button::pointing(response);
@@ -229,13 +233,15 @@ fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> Option<f64> {
 
     let scrubbing = response.clicked() || response.dragged();
     if !scrubbing || view.duration <= 0.0 {
-        return None;
+        return (None, rect);
     }
 
-    let pos = response.interact_pointer_pos()?;
-    let fraction = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    let Some(pos) = response.interact_pointer_pos() else {
+        return (None, rect);
+    };
 
-    Some(f64::from(fraction) * view.duration)
+    let fraction = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
+    (Some(f64::from(fraction) * view.duration), rect)
 }
 
 fn buttons_row(ui: &mut Ui, theme: &Theme, view: &FooterView, out: &mut FooterOut) {

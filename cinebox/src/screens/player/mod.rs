@@ -7,12 +7,14 @@ mod overlay;
 mod playlist_popup;
 mod progress;
 mod settings_popup;
+mod skip;
+mod skip_overlay;
 mod volume;
 
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use cinebox_core::TorrentPlaybackPrefs;
+use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs};
 use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
 use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
@@ -128,6 +130,8 @@ pub struct PlayerScreen {
     volume_dirty: bool,
     progress_saved_at: Option<Instant>,
     viewed_job: Bind<(), JobError>,
+    skip_state: skip::SkipState,
+    skip_save_job: Bind<(), JobError>,
     video_cb: Option<VideoCallback>,
 }
 
@@ -146,6 +150,8 @@ impl Default for PlayerScreen {
             volume_dirty: false,
             progress_saved_at: None,
             viewed_job: Bind::new(true),
+            skip_state: skip::SkipState::default(),
+            skip_save_job: Bind::new(true),
             video_cb: None,
         }
     }
@@ -184,6 +190,7 @@ impl PlayerScreen {
         stop_engine(svc);
 
         self.abort_buffering();
+        self.skip_state.reset();
         self.phase = None;
         self.popup = Popup::None;
 
@@ -286,6 +293,10 @@ struct PlayingView {
     file_count: usize,
     file_index: usize,
     has_next: bool,
+    kind: MediaKind,
+    tmdb_id: TmdbId,
+    season: Option<u32>,
+    episode: Option<u32>,
 }
 
 impl PlayerScreen {
@@ -315,6 +326,10 @@ impl PlayerScreen {
                 return;
             };
 
+            let cur_file = state.files().get(state.file_index());
+            let season = cur_file.and_then(|f| f.season);
+            let episode = cur_file.and_then(|f| f.episode);
+
             PlayingView {
                 title: state.title.clone(),
                 error: state.error.clone(),
@@ -326,6 +341,10 @@ impl PlayerScreen {
                 file_count: state.files().len(),
                 file_index: state.file_index(),
                 has_next: state.has_next(),
+                kind: state.card.kind,
+                tmdb_id: state.card.id,
+                season,
+                episode,
             }
         };
 
@@ -385,6 +404,48 @@ impl PlayerScreen {
         }
 
         self.popups(&ctx, svc, theme, &footer);
+
+        // Skip-segment overlay — tick state machine, then render banner.
+        let _ = self.skip_save_job.read();
+
+        let skip_seek = self.skip_state.tick(
+            now,
+            view.time,
+            view.duration,
+            view.paused,
+            view.kind,
+            view.tmdb_id,
+            view.season,
+            view.episode,
+            &svc.settings,
+            &svc.db,
+        );
+
+        if let Some(target) = skip_seek {
+            self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
+        }
+
+        let banner = skip_overlay::show(&self.skip_state, &ctx, theme, rect, footer.seek_rect, now);
+
+        if banner.skip_clicked {
+            if let Some((target, ty)) = self.skip_state.on_skip(view.duration) {
+                self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
+
+                if let Some(db) = svc.db.clone() {
+                    let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
+                    self.skip_save_job.request(job);
+                }
+            }
+        }
+
+        if banner.cancel_clicked {
+            let disarmed_ty = self.skip_state.on_cancel();
+
+            if let (Some(ty), Some(db)) = (disarmed_ty, svc.db.clone()) {
+                let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
+                self.skip_save_job.request(job);
+            }
+        }
 
         if let Some(to) = footer.seek_to {
             self.seek_abs(svc, to);
@@ -781,6 +842,7 @@ impl PlayerScreen {
         self.popup = Popup::None;
         self.activity.poke(ctx.input(|i| i.time));
         self.abort_buffering();
+        self.skip_state.reset();
 
         let skip_preload = spec.source.is_youtube() || !svc.settings.torrserver.wait_preload;
 
@@ -816,10 +878,17 @@ impl PlayerScreen {
         let repaint = ctx.clone();
 
         job.request(async move {
-            crate::jobs::wait_stream(torr, path, hash_owned, file_id, resume_bytes, move |event| {
-                live.on_event(event);
-                repaint.request_repaint();
-            })
+            crate::jobs::wait_stream(
+                torr,
+                path,
+                hash_owned,
+                file_id,
+                resume_bytes,
+                move |event| {
+                    live.on_event(event);
+                    repaint.request_repaint();
+                },
+            )
             .await
         });
 
@@ -1045,6 +1114,24 @@ impl PlayerScreen {
         };
 
         self.begin_load(svc, ctx, spec);
+    }
+
+    fn skip_or_next(
+        &mut self,
+        svc: &mut Services,
+        ctx: &egui::Context,
+        target: f64,
+        duration: f64,
+        has_next: bool,
+    ) {
+        let at_end = duration > 1.0 && target >= duration - 1.0;
+
+        if at_end && has_next && svc.settings.player.auto_next {
+            self.next_file(svc, ctx);
+            return;
+        }
+
+        self.seek_abs(svc, target);
     }
 
     fn toggle(&mut self, svc: &Services) {

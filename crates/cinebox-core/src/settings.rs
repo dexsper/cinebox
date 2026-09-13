@@ -271,6 +271,27 @@ impl Default for GeneralSettings {
     }
 }
 
+/// Per-type skip toggles for the player.  All default to `true`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct SkipSegmentsSettings {
+    pub intro: bool,
+    pub recap: bool,
+    pub credits: bool,
+    pub preview: bool,
+}
+
+impl Default for SkipSegmentsSettings {
+    fn default() -> Self {
+        Self {
+            intro: true,
+            recap: true,
+            credits: true,
+            preview: true,
+        }
+    }
+}
+
 /// Player category.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
@@ -278,6 +299,7 @@ pub struct PlayerSettings {
     pub loudnorm: bool,
     pub auto_next: bool,
     pub volume: f64,
+    pub skip_segments: SkipSegmentsSettings,
 }
 
 impl Default for PlayerSettings {
@@ -286,6 +308,7 @@ impl Default for PlayerSettings {
             loudnorm: false,
             auto_next: true,
             volume: 90.0,
+            skip_segments: SkipSegmentsSettings::default(),
         }
     }
 }

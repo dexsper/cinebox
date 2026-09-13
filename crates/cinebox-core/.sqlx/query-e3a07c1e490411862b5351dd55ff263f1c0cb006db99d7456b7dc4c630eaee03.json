@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO skip_segment_choice\n                (kind, tmdb_id, segment_type, armed, updated_at)\n            VALUES (?, ?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 5
+    },
+    "nullable": []
+  },
+  "hash": "e3a07c1e490411862b5351dd55ff263f1c0cb006db99d7456b7dc4c630eaee03"
+}

@@ -1,0 +1,27 @@
+[package]
+name = "cinebox-skip"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Skip-segment data for Cinebox (TheIntroDB)"
+
+[dependencies]
+cinebox-core.workspace = true
+cinebox-net.workspace = true
+reqwest.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+
+[dev-dependencies]
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+httpmock.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

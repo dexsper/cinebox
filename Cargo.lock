@@ -533,6 +533,7 @@ dependencies = [
  "cinebox-indexer",
  "cinebox-net",
  "cinebox-player",
+ "cinebox-skip",
  "cinebox-tmdb",
  "cinebox-torrserver",
  "cinebox-youtube",
@@ -606,6 +607,21 @@ dependencies = [
  "thiserror 2.0.20",
  "tracing",
  "ureq",
+]
+
+[[package]]
+name = "cinebox-skip"
+version = "0.1.0"
+dependencies = [
+ "cinebox-core",
+ "cinebox-net",
+ "httpmock",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

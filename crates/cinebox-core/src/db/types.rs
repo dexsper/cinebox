@@ -33,6 +33,11 @@ pub const KIND_PERSON: &str = "person";
 pub const KIND_SEASON: &str = "season";
 pub const KIND_CONFIG: &str = "config";
 
+/// Cache kind for skip-segment API responses.
+pub const KIND_SKIP: &str = "skip";
+/// TTL for cached skip-segment responses (~30 days).
+pub const SKIP_SEGMENTS_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+
 /// Home shelf and query cap for local watch history.
 pub const RECENT_ROW_LIMIT: usize = 20;
 /// Recent torrent hashes kept per movie/show (shared TV, multiple seasons).

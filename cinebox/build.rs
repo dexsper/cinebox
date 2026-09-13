@@ -22,7 +22,12 @@ fn main() {
 fn build() -> Result<()> {
     let manifest = PathBuf::from(env::var("CARGO_MANIFEST_DIR")?);
     let svg_path = manifest.join("assets/icon.svg");
+
     println!("cargo:rerun-if-changed={}", svg_path.display());
+    println!(
+        "cargo:rerun-if-changed={}",
+        manifest.join("locales").display()
+    );
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let svg = fs::read(&svg_path).with_context(|| format!("read {}", svg_path.display()))?;
