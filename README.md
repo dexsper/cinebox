@@ -114,9 +114,8 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 | `cinebox-core` | Models, `settings.json`, SQLite (cache and history) |
 | `cinebox-tmdb` | TMDB requests |
 | `cinebox-net` | HTTP: proxy, DoH, retries |
-| `cinebox-indexer` | Jackett and Prowlarr |
-| `cinebox-parse` | Release-name parse, voices, filters |
-| `cinebox-torrserver` | TorrServer client |
+| `cinebox-indexer` | Jackett and Prowlarr, release-name parse, voices, filters |
+| `cinebox-torrserver` | TorrServer client, file/episode parse |
 | `cinebox-player` | libmpv over OpenGL |
 | `cinebox-youtube` | YouTube InnerTube and signature decipher for libmpv |
 | `cinebox-typograf` | Title typography (ru / en-US) |

@@ -13,7 +13,6 @@ description = "Native Windows-first desktop movie theater"
 cinebox-core.workspace = true
 cinebox-indexer.workspace = true
 cinebox-net.workspace = true
-cinebox-parse.workspace = true
 cinebox-tmdb.workspace = true
 cinebox-torrserver.workspace = true
 cinebox-player.workspace = true

@@ -584,7 +584,7 @@ mod tests {
 
     fn hit_sized(title: &str, seeders: u32, size_bytes: u64) -> TorrentHit {
         TorrentHit::new(
-            crate::Listing {
+            crate::Hit {
                 title: title.to_owned(),
                 tracker: String::from("tr"),
                 size_bytes,

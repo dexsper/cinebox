@@ -1,7 +1,7 @@
 //! Torrent explorer state.
 
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId};
-use cinebox_parse::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_hits};
+use cinebox_indexer::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_hits};
 use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 

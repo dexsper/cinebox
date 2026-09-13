@@ -25,7 +25,7 @@ use crate::widgets::{self, intro, poster, scroll};
 pub struct TorrentsScreen {
     state: Option<TorrentState>,
     details: Option<MediaDetails>,
-    hits: Bind<Vec<cinebox_parse::TorrentHit>, JobError>,
+    hits: Bind<Vec<cinebox_indexer::TorrentHit>, JobError>,
     opened: Bind<ReadyFiles, JobError>,
     local_hashes: Bind<(MediaKind, TmdbId, Vec<String>), String>,
     intro_at: Option<f64>,
@@ -596,8 +596,8 @@ mod tests {
             year: Some(2021),
             runtime_minutes: None,
             hits,
-            filter: cinebox_parse::TorrentFilter::default(),
-            sort: cinebox_parse::SortMode::Popular,
+            filter: cinebox_indexer::TorrentFilter::default(),
+            sort: cinebox_indexer::SortMode::Popular,
             files: FilesPane::Closed,
             pick_gen: 0,
             pending_add: None,
@@ -626,8 +626,8 @@ mod tests {
     #[test]
     fn mark_local_hashes_promotes_ready_hits() {
         let hash = String::from("dddddddddddddddddddddddddddddddddddddddd");
-        let hit = cinebox_parse::TorrentHit::new(
-            cinebox_parse::Listing {
+        let hit = cinebox_indexer::TorrentHit::new(
+            cinebox_indexer::Hit {
                 title: String::from("Dune.2021.1080p"),
                 tracker: String::from("rutracker"),
                 size_bytes: 1,

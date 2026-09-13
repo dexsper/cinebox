@@ -7,11 +7,13 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Jackett JSON and Prowlarr REST client"
+description = "Jackett JSON and Prowlarr REST client, title parsing, and hit ranking"
 
 [dependencies]
 cinebox-core.workspace = true
 cinebox-net.workspace = true
+aho-corasick.workspace = true
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

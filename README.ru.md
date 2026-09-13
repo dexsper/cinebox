@@ -125,9 +125,8 @@ cargo test --workspace
 | `cinebox-core`       | Модели, `settings.json`, SQLite (кэш и история) |
 | `cinebox-tmdb`       | Запросы к TMDB                                  |
 | `cinebox-net`        | HTTP: прокси, DoH, повторы                      |
-| `cinebox-indexer`    | Jackett и Prowlarr                              |
-| `cinebox-parse`      | Разбор названий раздач, озвучки, фильтры        |
-| `cinebox-torrserver` | Клиент TorrServer                               |
+| `cinebox-indexer`    | Jackett и Prowlarr, разбор названий раздач, озвучки, фильтры |
+| `cinebox-torrserver` | Клиент TorrServer, разбор файлов/серий          |
 | `cinebox-player`     | libmpv через OpenGL                             |
 | `cinebox-youtube`    | YouTube InnerTube и расшифровка подписи для libmpv |
 | `cinebox-typograf`   | Типографика заголовков (ru / en-US)             |

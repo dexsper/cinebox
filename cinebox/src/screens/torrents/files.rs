@@ -148,7 +148,7 @@ fn file_list(
                                 );
                                 ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                     ui.label(
-                                        RichText::new(cinebox_parse::format_bytes(file.length))
+                                        RichText::new(cinebox_indexer::format_bytes(file.length))
                                             .color(theme.muted_bright),
                                     );
                                 });

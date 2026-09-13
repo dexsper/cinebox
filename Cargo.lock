@@ -532,7 +532,6 @@ dependencies = [
  "cinebox-core",
  "cinebox-indexer",
  "cinebox-net",
- "cinebox-parse",
  "cinebox-player",
  "cinebox-tmdb",
  "cinebox-torrserver",
@@ -571,8 +570,10 @@ dependencies = [
 name = "cinebox-indexer"
 version = "0.1.0"
 dependencies = [
+ "aho-corasick",
  "cinebox-core",
  "cinebox-net",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",
@@ -590,15 +591,6 @@ dependencies = [
  "tokio",
  "tracing",
  "winreg",
-]
-
-[[package]]
-name = "cinebox-parse"
-version = "0.1.0"
-dependencies = [
- "aho-corasick",
- "cinebox-core",
- "regex",
 ]
 
 [[package]]
@@ -640,6 +632,7 @@ dependencies = [
  "cinebox-net",
  "futures-util",
  "httpmock",
+ "regex",
  "reqwest",
  "serde",
  "serde_json",

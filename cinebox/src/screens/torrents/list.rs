@@ -1,7 +1,7 @@
 //! Hit list, sort, and filters.
 
 use cinebox_core::{MediaKind, QualityBand};
-use cinebox_parse::{
+use cinebox_indexer::{
     AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options,
     voice_filter_options, year_options,
 };
@@ -242,7 +242,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
 
         ui.add_space(8.0);
         if reset_button(ui, theme) {
-            state.filter = cinebox_parse::TorrentFilter::default();
+            state.filter = cinebox_indexer::TorrentFilter::default();
         }
     });
 
@@ -325,7 +325,7 @@ fn reset_button(ui: &mut Ui, theme: &Theme) -> bool {
 
 fn hit_row(
     ui: &mut Ui,
-    hit: &cinebox_parse::TorrentHit,
+    hit: &cinebox_indexer::TorrentHit,
     kind: MediaKind,
     runtime: Option<u32>,
     theme: &Theme,

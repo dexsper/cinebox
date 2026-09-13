@@ -14,6 +14,7 @@ cinebox-core.workspace = true
 cinebox-net.workspace = true
 base64 = "0.23"
 futures-util.workspace = true
+regex.workspace = true
 reqwest.workspace = true
 serde.workspace = true
 serde_json.workspace = true

@@ -1,4 +1,4 @@
-use cinebox_parse::SortMode;
+use cinebox_indexer::SortMode;
 use egui::accesskit::Role;
 use egui::{Frame, RichText, TextEdit, vec2};
 use egui_kittest::Harness;

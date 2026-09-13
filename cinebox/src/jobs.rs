@@ -10,10 +10,9 @@ use cinebox_core::{
     TmdbId, language_key, media_cache_id, normalize_tmdb_path,
     person_cache_id, season_cache_id, tmdb_image_url,
 };
+use cinebox_indexer::{SortMode, TorrentHit, sort_hits};
 use cinebox_net::NetConfig;
-use cinebox_parse::{
-    Listing, SortMode, TorrentHit, file_display_name, parse_file_episode, sort_hits,
-};
+use cinebox_torrserver::{file_display_name, parse_file_episode};
 use tracing::warn;
 
 use crate::screens::torrents::{MovieBits, ReadyFiles, TorrentFileRow};
@@ -106,18 +105,6 @@ pub struct OpenTarget {
     pub kind: MediaKind,
     pub id: TmdbId,
     pub runtime_minutes: Option<u32>,
-}
-
-fn listing_from_hit(hit: cinebox_indexer::Hit) -> Listing {
-    Listing {
-        title: hit.title,
-        tracker: hit.tracker,
-        size_bytes: hit.size_bytes,
-        seeders: hit.seeders,
-        peers: hit.peers,
-        magnet: hit.magnet,
-        published: hit.published,
-    }
 }
 
 pub async fn load_catalog_page(
@@ -300,10 +287,7 @@ pub async fn load_torrents(
 
     let mut hits: Vec<TorrentHit> = raw
         .into_iter()
-        .map(|hit| {
-            let listing = listing_from_hit(hit);
-            TorrentHit::new(listing, runtime, &hashes, &local_hashes)
-        })
+        .map(|hit| TorrentHit::new(hit, runtime, &hashes, &local_hashes))
         .collect();
 
     sort_hits(&mut hits, kind, SortMode::Popular);

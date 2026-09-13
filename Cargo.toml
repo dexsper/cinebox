@@ -6,7 +6,6 @@ members = [
     "crates/cinebox-typograf",
     "crates/cinebox-net",
     "crates/cinebox-tmdb",
-    "crates/cinebox-parse",
     "crates/cinebox-indexer",
     "crates/cinebox-torrserver",
     "crates/cinebox-player",
@@ -27,7 +26,6 @@ cinebox-core = { path = "crates/cinebox-core" }
 cinebox-typograf = { path = "crates/cinebox-typograf" }
 cinebox-net = { path = "crates/cinebox-net" }
 cinebox-tmdb = { path = "crates/cinebox-tmdb" }
-cinebox-parse = { path = "crates/cinebox-parse" }
 cinebox-indexer = { path = "crates/cinebox-indexer" }
 cinebox-torrserver = { path = "crates/cinebox-torrserver" }
 cinebox-player = { path = "crates/cinebox-player" }
