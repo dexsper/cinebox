@@ -34,6 +34,7 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - Jackett or Prowlarr search. Filters: quality, HDR, Dolby Vision, subtitles, year, translation and voice, language. Sort by popularity, seeders, or size
 - Streaming through TorrServer, optional preload wait, file list inside the torrent, play next automatically
 - Audio and subtitle tracks, subtitle size and delay, speed 0.5x-2x, video scale, volume, loudness normalization
+- For the same torrent, the chosen audio and subtitle tracks, speed, and video scale come back next time
 - Fullscreen. Controls hide if you leave the mouse alone. Seek 10 seconds with keys or by clicking the left/right third of the screen
 - YouTube trailers in the same player
 
@@ -63,8 +64,9 @@ flowchart LR
 2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
 3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the HTTP stream opens in libmpv. No browser in this path.
 4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. If "Track timecode on server" is on, the same time is sent to TorrServer. On open, local position is preferred; otherwise the server's timecode is used.
-5. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same mpv.
-6. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
+5. **Player settings.** Open the same torrent again and the last audio track, subtitles, speed, and video scale come back. Subtitle size and delay last for the current playback only. Volume is app-wide.
+6. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same mpv.
+7. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
 
 ## Install
 
@@ -122,12 +124,11 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 ## Roadmap
 
 - [ ] Skip intro and credits
+  - [ ] Simple implementation with a third-party API
+  - [ ] Custom Chromaprint-based analyzer
 - [ ] Categories on the home screen, plus custom lists (Favorites, Watched)
-- [ ] First-run wizard:
-  - language
-  - TMDB key
-  - parser type and URL
-  - TorrServer URL
+- [ ] First-run wizard
+- [ ] Linux build
 
 ## Contributing
 
