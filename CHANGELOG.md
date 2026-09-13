@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-09-14
+
+### Added
+
+- Skip intro, recap, credits, and preview segments via [TheIntroDB](https://theintrodb.org). When playback enters a skippable zone, Cancel and Skip buttons appear in the bottom-right corner above the seek bar.
+- Auto-skip: after you press Skip once, the next time that segment type appears a fill animation counts down 8 s and skips automatically. Cancel during the countdown disarms it.
+- Per-type toggles in Player settings (intro / recap / credits / preview).
+- Seeking back into an already-skipped segment during the same session does not re-show the buttons.
+- Skipping credits at the end of a file when auto-next is on goes straight to the next episode.
+
 ## [0.1.0] - 2026-09-05
 
 First public release
@@ -31,5 +41,6 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/dexsper/cinebox/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dexsper/cinebox/releases/tag/v0.1.0

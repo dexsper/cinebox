@@ -37,6 +37,7 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - For the same torrent, the chosen audio and subtitle tracks, speed, and video scale come back next time
 - Fullscreen. Controls hide if you leave the mouse alone. Seek 10 seconds with keys or by clicking the left/right third of the screen
 - YouTube trailers in the same player
+- Skip intro, recap, credits, and preview: buttons appear when you enter a skippable zone; press Skip once and it remembers — next time it counts down 8 s and skips automatically
 
 **App**
 
@@ -118,12 +119,13 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 | `cinebox-torrserver` | TorrServer client, file/episode parse |
 | `cinebox-player` | libmpv over OpenGL |
 | `cinebox-youtube` | YouTube InnerTube and signature decipher for libmpv |
+| `cinebox-skip` | Skip-segment data (TheIntroDB; extensible for other sources) |
 | `cinebox-typograf` | Title typography (ru / en-US) |
 
 ## Roadmap
 
 - [ ] Skip intro and credits
-  - [ ] Simple implementation with a third-party API
+  - [x] Third-party API (TheIntroDB)
   - [ ] Custom Chromaprint-based analyzer
 - [ ] Categories on the home screen, plus custom lists (Favorites, Watched)
 - [ ] First-run wizard
