@@ -158,7 +158,7 @@ impl Theme {
             text_subtitle: 18.0,
             text_heading: 20.0,
             text_display: 22.0,
-            text_hero: 36.0,
+            text_hero: 42.0,
             text_person: 26.0,
             text_explorer_from: 32.0,
             text_icon: 16.0,

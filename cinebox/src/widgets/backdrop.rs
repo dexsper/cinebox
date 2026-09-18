@@ -7,8 +7,9 @@ use image::{DynamicImage, ImageFormat, Rgba, RgbaImage};
 
 use crate::theme::{self, Theme};
 
-const CENTER_VEIL: f32 = 0.09;
+const CENTER_VEIL: f32 = 0.28;
 const EDGE_VEIL: f32 = 0.74;
+const BOTTOM_BLUR_START: f32 = 0.60;
 
 /// Cover-fit wallpaper plus left/bottom page-bg fades.
 pub fn paint(ui: &mut Ui, texture: &TextureHandle, theme: &Theme) {
@@ -109,7 +110,7 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
     let inv_y = 1.0 / (height - 1) as f32;
     for y in 0..height {
         let ny = y as f32 * inv_y;
-        let bottom = smoothstep(0.52, 1.0, ny);
+        let bottom = smoothstep(BOTTOM_BLUR_START, 1.0, ny);
         for x in 0..width {
             let nx = x as f32 * inv_x;
             let left = 1.0 - smoothstep(0.0, 0.46, nx);

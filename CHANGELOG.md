@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Release/ongoing status pill next to the TMDB rating on the title page (e.g. "Released", "Ongoing").
+
+### Changed
+
+- Bigger title, tagline, year/country line, and "In Detail" heading on the title page.
+- Poster and cast/crew cards scale up on wider windows instead of staying a fixed size.
+- Backdrop artwork is darkened a bit more toward the center so text stays readable over bright images.
+
 ## [0.2.0] - 2026-09-14
 
 ### Added

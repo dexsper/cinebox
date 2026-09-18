@@ -118,6 +118,7 @@ pub(crate) fn media_from_body(
             overview: nonempty(body.overview),
             year: date.and_then(year_from_date),
             released: date.and_then(|d| nonempty(Some(d.to_owned()))),
+            status: nonempty(body.status),
             runtime_minutes: runtime,
             number_of_seasons: body.number_of_seasons.filter(|n| *n > 0),
             number_of_episodes: body.number_of_episodes.filter(|n| *n > 0),
@@ -266,7 +267,7 @@ fn credit_person(raw: CreditRaw, source: CreditSource) -> Option<CreditPerson> {
         CreditSource::Crew => raw.job.unwrap_or_default(),
         CreditSource::Cast => raw.character.unwrap_or_default(),
     };
-    
+
     Some(CreditPerson {
         id: TmdbId::new(id),
         name,
@@ -368,6 +369,7 @@ mod tests {
             "original_language": "en",
             "overview": "Sand.",
             "release_date": "2021-10-22",
+            "status": "Released",
             "runtime": 155,
             "vote_average": 8.1,
             "budget": 165000000,
@@ -386,14 +388,17 @@ mod tests {
                 {"iso_3166_1": "US", "release_dates": [{"certification": "PG-13"}]}
             ]}
         }"#;
+
         let body = match serde_json::from_str::<MediaBody>(json) {
             Ok(body) => body,
             Err(error) => panic!("{error}"),
         };
+
         let (details, collection_id) = match media_from_body(body, MediaKind::Movie, None) {
             Ok(value) => value,
             Err(error) => panic!("{error}"),
         };
+
         assert_eq!(details.id.get(), 42);
         assert_eq!(details.title, "Dune");
         assert_eq!(details.original_title.as_deref(), Some("Dune: Part One"));
@@ -403,6 +408,7 @@ mod tests {
         assert_eq!(details.runtime_minutes, Some(155));
         assert_eq!(details.certification.as_deref(), Some("13+"));
         assert_eq!(details.released.as_deref(), Some("2021-10-22"));
+        assert_eq!(details.status.as_deref(), Some("Released"));
         assert_eq!(details.directors.len(), 1);
         assert_eq!(details.cast[0].role, "Paul");
         assert_eq!(details.trailers.len(), 1);
@@ -424,14 +430,17 @@ mod tests {
             ]},
             "genres": []
         }"#;
+
         let body = match serde_json::from_str::<MediaBody>(json) {
             Ok(body) => body,
             Err(error) => panic!("{error}"),
         };
+
         let (details, _) = match media_from_body(body, MediaKind::Tv, None) {
             Ok(value) => value,
             Err(error) => panic!("{error}"),
         };
+
         assert_eq!(details.runtime_minutes, Some(47));
         assert_eq!(details.number_of_seasons, Some(5));
         assert_eq!(details.number_of_episodes, Some(62));
@@ -448,14 +457,17 @@ mod tests {
                 {"iso_3166_1": "RU", "release_dates": [{"certification": "16+"}]}
             ]}
         }"#;
+
         let parse = || match serde_json::from_str::<MediaBody>(json) {
             Ok(body) => body,
             Err(error) => panic!("{error}"),
         };
+        
         let ru = match media_from_body(parse(), MediaKind::Movie, Some("ru")) {
             Ok((details, _)) => details,
             Err(error) => panic!("{error}"),
         };
+
         assert_eq!(ru.certification.as_deref(), Some("16+"));
         let us = match media_from_body(parse(), MediaKind::Movie, Some("en-US")) {
             Ok((details, _)) => details,

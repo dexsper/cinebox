@@ -39,6 +39,16 @@ media:
   budget: "Budget"
   release: "Release"
   countries: "Countries"
+  status:
+    rumored: "Rumored"
+    planned: "Planned"
+    in_production: "In Production"
+    post_production: "Post Production"
+    released: "Released"
+    canceled: "Canceled"
+    returning_series: "Ongoing"
+    ended: "Ended"
+    pilot: "Pilot"
   runtime:
     m: "%{mins}m"
     h: "%{hours}h"

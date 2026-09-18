@@ -107,9 +107,10 @@ impl PersonScreen {
             .disk
             .as_ref()
             .is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
-        let outcome = self.cache.resolve(fresh, move || {
-            jobs::load_person(tmdb, id, db)
-        });
+
+        let outcome = self
+            .cache
+            .resolve(fresh, move || jobs::load_person(tmdb, id, db));
         if outcome.in_flight {
             ui.ctx().request_repaint();
         }
@@ -216,6 +217,8 @@ fn ready(
                     .font(theme.title_font(theme.text_section))
                     .color(theme.title),
             );
+
+            let scale = poster::card_scale(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 for item in &details.credits {
                     if let Some(nav) = poster::catalog_tile(
@@ -225,6 +228,7 @@ fn ready(
                         svc.settings.tmdb.poster_size,
                         theme,
                         svc.is_watched(item.kind, item.id),
+                        scale,
                     ) {
                         action = Some(nav);
                     }
@@ -287,13 +291,21 @@ fn loading(
             14.0,
             pulse,
         );
+
         ui.add_space(16.0);
         skeleton::bar(ui, theme, 100.0, 16.0, pulse);
         ui.add_space(8.0);
+
+        let scale = poster::card_scale(ui.available_width());
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for _ in 0..4 {
-                skeleton::poster(ui, theme, Vec2::new(theme.tile_w, theme.tile_h), pulse);
+                skeleton::poster(
+                    ui,
+                    theme,
+                    Vec2::new(theme.tile_w, theme.tile_h) * scale,
+                    pulse,
+                );
             }
         });
     });

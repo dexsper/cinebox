@@ -12,8 +12,8 @@ pub use state::{
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url};
 use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
-use rust_i18n::t;
 use egui_async::Bind;
+use rust_i18n::t;
 
 use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
@@ -249,7 +249,7 @@ impl TorrentsScreen {
                         )
                     });
                 if svc.is_watched(state.kind, state.id) {
-                    poster::watched_badge(ui, poster, theme);
+                    poster::watched_badge(ui, poster, theme, poster::UNSCALED);
                 }
 
                 ui.vertical(|ui| {
@@ -262,10 +262,12 @@ impl TorrentsScreen {
                         );
                         ui.add_space(8.0);
                     }
+
                     widgets::rating::row(
                         ui,
                         theme,
                         state.movie.vote,
+                        None, // MovieBits doesn't carry TMDB status
                         state.movie.certification.as_deref(),
                     );
                 });

@@ -1,9 +1,9 @@
 use cinebox_core::{
-    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId,
-    format_money, language_key, media_cache_id, media_ttl, tmdb_image_url,
+    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
+    language_key, media_cache_id, media_ttl, tmdb_image_url,
 };
 use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
-use egui_material_icons::icons::ICON_PLAY_CIRCLE;
+use egui_material_icons::icons::{ICON_LOCAL_MOVIES, ICON_PLAY_CIRCLE};
 use rust_i18n::t;
 
 use crate::jobs;
@@ -16,6 +16,22 @@ use crate::widgets::{self, intro, poster, scroll, skeleton};
 use super::trailers::TrailersModal;
 
 const WATCH_BTN_SIZE: Vec2 = vec2(176.0, 46.0);
+
+/// Year/country header and the "In Detail" heading share this size; both are
+/// local to the hero so `theme.text_section` stays untouched for every other
+/// screen (home shelf titles, person credits, settings, torrents, trailers).
+const HERO_LABEL_SIZE: f32 = 19.0;
+/// Tagline size; local so `theme.text_subtitle` keeps its size everywhere
+/// else (player overlay, trailers modal, rating pill, Watch/Trailer buttons).
+const HERO_TAGLINE_SIZE: f32 = 22.0;
+/// Overview body size; local so `theme.text_label` keeps its size on the
+/// torrents list and settings screens.
+const HERO_OVERVIEW_SIZE: f32 = 18.0;
+/// Minimum breathing room above and below the rating/bits group when it is
+/// centered between the tagline and the Watch/Trailers buttons.
+const MIN_META_GAP: f32 = 12.0;
+/// Gap between the rating pill row and the runtime/genres line beneath it.
+const RATING_BITS_GAP: f32 = 8.0;
 
 #[derive(Default)]
 pub struct MediaScreen {
@@ -134,9 +150,9 @@ impl MediaScreen {
         let db = svc.db.clone();
         let cache = self.cache.disk.as_ref();
         let fresh = cache.is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));
-        let outcome = self.cache.resolve(fresh, move || {
-            jobs::load_media(tmdb, kind, id, db)
-        });
+        let outcome = self
+            .cache
+            .resolve(fresh, move || jobs::load_media(tmdb, kind, id, db));
 
         if outcome.in_flight {
             ui.ctx().request_repaint();
@@ -205,7 +221,11 @@ impl MediaScreen {
                 vote: details.vote,
             };
 
-            (card, details.backdrop_path.clone(), details.trailers.clone())
+            (
+                card,
+                details.backdrop_path.clone(),
+                details.trailers.clone(),
+            )
         });
 
         let Some((card, backdrop_path, items)) = packed else {
@@ -239,7 +259,7 @@ fn ready(
     );
 
     let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
-    let year_size = intro::lerp(theme.text_caption, theme.text_section, t);
+    let year_size = intro::lerp(theme.text_caption, HERO_LABEL_SIZE, t);
     let head = details.head_line();
 
     scroll_page(ui, details.kind, details.id, to_top, |ui| {
@@ -262,37 +282,66 @@ fn ready(
                 if let Some(tagline) = details.tagline.as_deref() {
                     ui.label(
                         RichText::new(tagline)
-                            .size(theme.text_subtitle)
-                            .color(theme.muted),
-                    );
-                }
-
-                let has_rating = details.vote.filter(|v| *v > 0.0).is_some()
-                    || details
-                        .certification
-                        .as_deref()
-                        .is_some_and(|s| !s.is_empty());
-
-                if has_rating {
-                    ui.add_space(14.0);
-                }
-
-                widgets::rating::row(ui, theme, details.vote, details.certification.as_deref());
-                let bits = crate::i18n::detail_bits(details);
-                if !bits.is_empty() {
-                    ui.add_space(8.0);
-                    ui.label(
-                        RichText::new(bits.join(" · "))
-                            .size(theme.text_section)
+                            .size(HERO_TAGLINE_SIZE)
                             .color(theme.title),
                     );
                 }
 
+                let vote = details.vote.filter(|v| *v > 0.0);
+                let cert = details.certification.as_deref().filter(|s| !s.is_empty());
+                let status = crate::i18n::status_label(details);
+                let has_rating = vote.is_some() || cert.is_some() || status.is_some();
+
+                let bits = crate::i18n::detail_bits(details);
+                let has_bits = !bits.is_empty();
+
+                if has_rating || has_bits {
+                    let rating_h = if has_rating {
+                        widgets::rating::row_height(ui, theme)
+                    } else {
+                        0.0
+                    };
+
+                    let bits_h = if has_bits {
+                        ui.ctx()
+                            .fonts_mut(|f| f.row_height(&theme.ui_font(theme.text_section)))
+                    } else {
+                        0.0
+                    };
+
+                    let inner_gap = if has_rating && has_bits {
+                        RATING_BITS_GAP
+                    } else {
+                        0.0
+                    };
+
+                    let group_h = rating_h + inner_gap + bits_h;
+                    let above_group = ui.cursor().top() - col_top;
+                    let remaining = poster_size.y - above_group - WATCH_BTN_SIZE.y - group_h;
+                    ui.add_space((remaining / 2.0).max(MIN_META_GAP));
+
+                    if has_rating {
+                        widgets::rating::row(ui, theme, vote, status.as_deref(), cert);
+                    }
+
+                    if has_rating && has_bits {
+                        ui.add_space(RATING_BITS_GAP);
+                    }
+
+                    if has_bits {
+                        ui.label(
+                            RichText::new(bits.join(" | "))
+                                .size(theme.text_section)
+                                .color(theme.title),
+                        );
+                    }
+                }
+
                 let used = ui.cursor().top() - col_top;
-                let gap = (poster_size.y - used - WATCH_BTN_SIZE.y).max(12.0);
+                let gap_after = (poster_size.y - used - WATCH_BTN_SIZE.y).max(MIN_META_GAP);
                 let has_trailers = !details.trailers.is_empty();
 
-                ui.add_space(gap);
+                ui.add_space(gap_after);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     if watch_button(ui, theme) {
@@ -311,12 +360,12 @@ fn ready(
                 ui.set_max_width(theme.overview_max_w);
                 ui.label(
                     RichText::new(t!("media.in_detail").as_ref())
-                        .font(theme.title_font(theme.text_section))
+                        .font(theme.title_font(HERO_LABEL_SIZE))
                         .color(theme.title),
                 );
                 ui.label(
                     RichText::new(overview)
-                        .size(theme.text_label)
+                        .size(HERO_OVERVIEW_SIZE)
                         .color(theme.body),
                 );
             });
@@ -388,7 +437,7 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
     );
 
     let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
-    let year_size = intro::lerp(theme.text_caption, theme.text_section, t);
+    let year_size = intro::lerp(theme.text_caption, HERO_LABEL_SIZE, t);
     let year = item
         .year
         .map(|year| year.to_string())
@@ -472,12 +521,13 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
 
         ui.add_space(16.0);
         skeleton::bar(ui, theme, 80.0, 16.0, pulse);
-
         ui.add_space(8.0);
+
+        let scale = poster::card_scale(ui.available_width());
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
             for _ in 0..5 {
-                skeleton::poster(ui, theme, vec2(100.0, 150.0), pulse);
+                skeleton::poster(ui, theme, vec2(100.0, 150.0) * scale, pulse);
             }
         });
     });
@@ -511,7 +561,7 @@ fn hero(
             )
         });
         if svc.is_watched(hero.kind, hero.id) {
-            poster::watched_badge(ui, poster, theme);
+            poster::watched_badge(ui, poster, theme, poster::UNSCALED);
         }
         ui.add_space(28.0);
 
@@ -524,7 +574,7 @@ fn hero(
                 ui.label(
                     RichText::new(hero.head)
                         .size(hero.year_size)
-                        .color(theme.muted),
+                        .color(theme.title),
                 );
                 ui.add_space(6.0);
             }
@@ -566,6 +616,10 @@ fn trailers_button(ui: &mut Ui, theme: &Theme) -> bool {
         theme,
         (
             Atom::grow(),
+            ICON_LOCAL_MOVIES
+                .rich_text()
+                .size(theme.text_cta_icon)
+                .color(theme.title),
             RichText::new(t!("media.trailers").as_ref())
                 .font(theme.emphasis_font(theme.text_subtitle))
                 .color(theme.title),
@@ -594,7 +648,12 @@ fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
         }
 
         if !details.countries.is_empty() {
-            fact(ui, t!("media.countries").as_ref(), details.countries.join(", "), theme);
+            fact(
+                ui,
+                t!("media.countries").as_ref(),
+                details.countries.join(", "),
+                theme,
+            );
         }
     });
 }
@@ -637,8 +696,13 @@ fn people(
     const CAPTION_GAP: f32 = 4.0;
     const LINE_GAP: f32 = 2.0;
 
-    let name_size = theme.text_caption;
-    let role_size = theme.text_micro;
+    let scale = poster::card_scale(ui.available_width());
+    let tile_w = TILE_W * scale;
+    let photo = PHOTO * scale;
+    let caption_gap = CAPTION_GAP * scale;
+    let line_gap = LINE_GAP * scale;
+    let name_size = theme.text_caption * scale;
+    let role_size = theme.text_micro * scale;
     let pad = theme.ring_pad();
     let (name_slot, role_slot) = ui.ctx().fonts_mut(|f| {
         (
@@ -647,8 +711,8 @@ fn people(
         )
     });
 
-    let well_w = TILE_W + pad * 2.0;
-    let tile_h = pad + PHOTO.y + CAPTION_GAP + name_slot + LINE_GAP + role_slot;
+    let well_w = tile_w + pad * 2.0;
+    let tile_h = pad + photo.y + caption_gap + name_slot + line_gap + role_slot;
     scroll::horizontal(ui, salt, |ui| {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
@@ -669,38 +733,24 @@ fn people(
 
                 let url = tmdb_image_url(person.profile_path.as_deref(), "w185");
                 let tex = svc.images.slot(url.as_deref());
-                let name = poster::wrap_lines(
-                    ui,
-                    &person.name,
-                    theme.title,
-                    name_size,
-                    TILE_W,
-                    2,
-                    theme,
-                );
+                let name =
+                    poster::wrap_lines(ui, &person.name, theme.title, name_size, tile_w, 2, theme);
 
-                let role = poster::wrap_lines(
-                    ui,
-                    &person.role,
-                    theme.muted,
-                    role_size,
-                    TILE_W,
-                    2,
-                    theme,
-                );
+                let role =
+                    poster::wrap_lines(ui, &person.role, theme.muted, role_size, tile_w, 2, theme);
 
                 let name_h = name.size().y;
-                let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), PHOTO);
+                let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), photo);
 
                 poster::paint_poster(ui, photo_rect, tex, theme);
                 if response.hovered() {
                     poster::hover_ring(ui, photo_rect, theme);
                 }
 
-                let name_pos = pos2(photo_rect.left(), photo_rect.bottom() + CAPTION_GAP);
+                let name_pos = pos2(photo_rect.left(), photo_rect.bottom() + caption_gap);
                 ui.painter().galley(name_pos, name, theme.title);
                 ui.painter()
-                    .galley(name_pos + vec2(0.0, name_h + LINE_GAP), role, theme.muted);
+                    .galley(name_pos + vec2(0.0, name_h + line_gap), role, theme.muted);
 
                 if response.clicked() {
                     *action = Some(NavAction::OpenPerson {
@@ -732,6 +782,7 @@ fn shelf(
             .color(theme.title),
     );
 
+    let scale = poster::card_scale(ui.available_width());
     scroll::horizontal(ui, salt, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
@@ -743,6 +794,7 @@ fn shelf(
                     svc.settings.tmdb.poster_size,
                     theme,
                     svc.is_watched(item.kind, item.id),
+                    scale,
                 ) {
                     *action = Some(nav);
                 }
@@ -751,13 +803,7 @@ fn shelf(
     });
 }
 
-fn scroll_page(
-    ui: &mut Ui,
-    kind: MediaKind,
-    id: TmdbId,
-    to_top: bool,
-    add: impl FnOnce(&mut Ui),
-) {
+fn scroll_page(ui: &mut Ui, kind: MediaKind, id: TmdbId, to_top: bool, add: impl FnOnce(&mut Ui)) {
     let salt = ("media-page", kind, id);
     if to_top {
         scroll::vertical_to_top(ui, salt, add);

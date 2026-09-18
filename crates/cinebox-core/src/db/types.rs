@@ -241,6 +241,7 @@ mod tests {
             overview: None,
             year: None,
             released: released.map(str::to_owned),
+            status: None,
             runtime_minutes: None,
             number_of_seasons: None,
             number_of_episodes: None,

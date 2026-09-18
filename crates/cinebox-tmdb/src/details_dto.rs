@@ -72,6 +72,7 @@ pub(crate) struct MediaBody {
     pub(crate) overview: Option<String>,
     pub(crate) release_date: Option<String>,
     pub(crate) first_air_date: Option<String>,
+    pub(crate) status: Option<String>,
     pub(crate) runtime: Option<u32>,
     pub(crate) episode_run_time: Option<Vec<u32>>,
     pub(crate) number_of_seasons: Option<u32>,

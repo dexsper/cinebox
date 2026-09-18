@@ -195,6 +195,7 @@ impl SearchScreen {
         let tab = self.tab;
         let loading = self.current().loading;
 
+        let scale = poster::card_scale(ui.available_width());
         scroll_page(ui, tab, to_top, |ui| {
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
@@ -206,6 +207,7 @@ impl SearchScreen {
                         svc.settings.tmdb.poster_size,
                         theme,
                         svc.is_watched(item.kind, item.id),
+                        scale,
                     );
                     if action.is_none() {
                         action = opened;

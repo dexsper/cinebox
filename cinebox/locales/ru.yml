@@ -39,6 +39,16 @@ media:
   budget: "Бюджет"
   release: "Премьера"
   countries: "Страны"
+  status:
+    rumored: "По слухам"
+    planned: "Запланировано"
+    in_production: "В производстве"
+    post_production: "Скоро"
+    released: "Выпущенный"
+    canceled: "Отменено"
+    returning_series: "Онгоинг"
+    ended: "Завершено"
+    pilot: "Пилотный"
   runtime:
     m: "%{mins} мин"
     h: "%{hours} ч"

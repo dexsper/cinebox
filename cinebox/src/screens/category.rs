@@ -128,6 +128,7 @@ impl CategoryScreen {
             );
 
             ui.add_space(12.0);
+            let scale = poster::card_scale(ui.available_width());
             ui.horizontal_wrapped(|ui| {
                 ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
                 for item in &self.items {
@@ -138,7 +139,9 @@ impl CategoryScreen {
                         svc.settings.tmdb.poster_size,
                         theme,
                         svc.is_watched(item.kind, item.id),
+                        scale,
                     );
+
                     if action.is_none() {
                         action = opened;
                     }

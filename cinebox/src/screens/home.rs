@@ -135,6 +135,8 @@ fn shelf(
         }
         return action;
     }
+
+    let scale = poster::card_scale(ui.available_width());
     scroll::horizontal(ui, format!("home-row-{index}"), |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
@@ -146,6 +148,7 @@ fn shelf(
                     svc.settings.tmdb.poster_size,
                     theme,
                     svc.is_watched(item.kind, item.id),
+                    scale,
                 );
                 if action.is_none() {
                     action = opened;

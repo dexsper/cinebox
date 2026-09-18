@@ -114,6 +114,24 @@ fn slavic_plural(n: u32) -> SlavicPlural {
     SlavicPlural::Many
 }
 
+#[must_use]
+pub fn status_label(details: &MediaDetails) -> Option<Cow<'static, str>> {
+    let key = match details.status.as_deref()? {
+        "Rumored" => "media.status.rumored",
+        "Planned" => "media.status.planned",
+        "In Production" => "media.status.in_production",
+        "Post Production" => "media.status.post_production",
+        "Released" => "media.status.released",
+        "Canceled" => "media.status.canceled",
+        "Returning Series" => "media.status.returning_series",
+        "Ended" => "media.status.ended",
+        "Pilot" => "media.status.pilot",
+        _ => return None,
+    };
+
+    Some(t!(key))
+}
+
 /// Runtime (movies) or season/episode counts (TV), then genres.
 #[must_use]
 pub fn detail_bits(details: &MediaDetails) -> Vec<String> {
@@ -286,6 +304,7 @@ mod tests {
             overview: None,
             year: Some(2021),
             released: Some(String::from("2021-10-22")),
+            status: Some(String::from("Released")),
             runtime_minutes: Some(155),
             number_of_seasons: None,
             number_of_episodes: None,
@@ -318,6 +337,70 @@ mod tests {
         assert_eq!(
             detail_bits(&tv),
             vec!["5 seasons", "62 episodes", "Sci-Fi", "Adventure"]
+        );
+
+        restore_en();
+    }
+
+    #[test]
+    fn status_label_translations() {
+        let _guard = lock_locale();
+        let details = |status: &str| MediaDetails {
+            id: TmdbId::new(1),
+            kind: MediaKind::Movie,
+            title: String::from("Dune"),
+            original_title: None,
+            original_language: None,
+            tagline: None,
+            overview: None,
+            year: None,
+            released: None,
+            status: Some(String::from(status)),
+            runtime_minutes: None,
+            number_of_seasons: None,
+            number_of_episodes: None,
+            certification: None,
+            vote: None,
+            budget: None,
+            genre_ids: Vec::new(),
+            genres: Vec::new(),
+            countries: Vec::new(),
+            poster_path: None,
+            backdrop_path: None,
+            directors: Vec::new(),
+            cast: Vec::new(),
+            collection: Vec::new(),
+            recommendations: Vec::new(),
+            similar: Vec::new(),
+            trailers: Vec::new(),
+        };
+
+        rust_i18n::set_locale("en");
+        assert_eq!(
+            status_label(&details("Released")).as_deref(),
+            Some("Released")
+        );
+        assert_eq!(
+            status_label(&details("Returning Series")).as_deref(),
+            Some("Ongoing")
+        );
+        
+        assert_eq!(status_label(&details("Unknown")).as_deref(), None);
+        let no_status = MediaDetails {
+            status: None,
+            ..details("Released")
+        };
+
+        assert_eq!(status_label(&no_status).as_deref(), None);
+        rust_i18n::set_locale("ru");
+
+        assert_eq!(
+            status_label(&details("Released")).as_deref(),
+            Some("Выпущенный")
+        );
+        assert_eq!(
+            status_label(&details("Returning Series")).as_deref(),
+            Some("Онгоинг")
         );
 
         restore_en();
