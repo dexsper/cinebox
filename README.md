@@ -140,7 +140,7 @@ Bugs and ideas go in Issues. Code changes go through a pull request.
 3. One PR per topic is better. If the change is large, open an issue first.
 4. Do not commit keys, `settings.json`, or sqlite files.
 
-If you touched SQLx `query!` or migrations, refresh offline data with `scripts/sqlx-prepare.ps1` (or `.sh`). You do not need to edit `.cargo/config.toml` for that.
+If you touched SQLx `query!` or migrations, refresh offline data with `scripts/sqlx-prepare`
 
 ## Disclaimer
 
