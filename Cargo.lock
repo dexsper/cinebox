@@ -526,7 +526,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "anyhow",
  "cinebox-core",
@@ -557,7 +557,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-core"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cinebox-typograf",
  "serde",
@@ -569,7 +569,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-indexer"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "aho-corasick",
  "cinebox-core",
@@ -584,7 +584,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-net"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "hickory-resolver",
  "httpmock",
@@ -596,7 +596,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-player"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cc",
  "cinebox-core",
@@ -611,7 +611,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-skip"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cinebox-core",
  "cinebox-net",
@@ -626,7 +626,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-tmdb"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "cinebox-core",
  "cinebox-net",
@@ -641,7 +641,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-torrserver"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "base64 0.23.1",
  "cinebox-core",
@@ -658,7 +658,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-typograf"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "fancy-regex",
  "serde",
@@ -668,7 +668,7 @@ dependencies = [
 
 [[package]]
 name = "cinebox-youtube"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "chrono",
  "cinebox-net",

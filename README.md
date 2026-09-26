@@ -20,11 +20,14 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 
 **Catalog**
 
-- Home screen: recently watched, now playing, trending (day and week), popular and top-rated
+- Home screen: recently watched, your Watching and Plan to watch lists, now playing, trending (day and week), popular and top-rated. Rows can be hidden in settings
+- Side rail with sections: Movies, Cartoons, Series, Anime. Each has its own shelves: last year, worth a rewatch, highly rated, genres, decades, studios
+- Discover: browse any section by genre, decade, minimum rating, and sort order
+- Personal lists: Watching, Plan to watch, Completed, Dropped, plus Liked. Starting playback puts a title into Watching
 - Search for movies, series, and people, plus query history
 - Title page: overview, runtime, rating, budget, countries, directors, cast, collection, recommendations, similar titles
 - Actor and director pages
-- Posters show if you already watched it
+- Posters show if you already watched it and which list it is in
 - Local watch history: resume from the last position per title or episode
 - Optional TorrServer timecode sync (off by default): progress is also stored on the server. Local history wins when both exist
 
