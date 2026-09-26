@@ -16,12 +16,14 @@ use rust_i18n::t;
 const RESIZE_GRIP: f32 = 6.0;
 const SEARCH_INSET: f32 = 8.0;
 
+/// `back_x` centers the Back button on that x (the side rail's icon column) when set.
 pub fn header(
     ui: &mut Ui,
     screen: Screen,
     theme: &Theme,
     settings_open: bool,
     search: &mut SearchBar,
+    back_x: Option<f32>,
 ) -> Option<NavAction> {
     let mut action = None;
     let height = theme.title_bar_h;
@@ -37,13 +39,9 @@ pub fn header(
     ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.horizontal_centered(|ui| {
-            ui.add_space(6.0);
             let show_back = settings_open || !matches!(screen, Screen::Home);
-            if show_back {
-                let back = chrome_btn(ui, theme, ICON_ARROW_BACK, t!("nav.back").as_ref(), false, false);
-                if back {
-                    action = Some(NavAction::GoBack);
-                }
+            if back_slot(ui, theme, bar, show_back, back_x) {
+                action = Some(NavAction::GoBack);
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -70,6 +68,29 @@ pub fn header(
     });
 
     action
+}
+
+/// Back button at the leading edge, or centered on `center_x` when a rail sits below.
+/// The slot is reserved even when hidden so the search bar does not shift.
+fn back_slot(ui: &mut Ui, theme: &Theme, bar: Rect, show: bool, center_x: Option<f32>) -> bool {
+    let label = t!("nav.back");
+    let Some(center_x) = center_x else {
+        ui.add_space(6.0);
+        return show && chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false);
+    };
+
+    let size = Vec2::splat(theme.title_bar_h - 8.0);
+    let slot_w = center_x - bar.left() + size.x * 0.5;
+    let (slot, _) = ui.allocate_exact_size(vec2(slot_w, bar.height()), Sense::hover());
+    if !show {
+        return false;
+    }
+
+    let rect = Rect::from_center_size(pos2(center_x, slot.center().y), size);
+    ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
+        chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false)
+    })
+    .inner
 }
 
 /// 1px edge so an undecorated window still has a clear outline.

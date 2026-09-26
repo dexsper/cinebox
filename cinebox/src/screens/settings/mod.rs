@@ -4,7 +4,7 @@ mod catalog;
 mod controls;
 mod speed;
 
-use cinebox_core::{ParserKind, PosterSize, QualityBand, UiLanguage};
+use cinebox_core::{HomeRowId, ParserKind, PosterSize, QualityBand, UiLanguage};
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
@@ -20,7 +20,7 @@ use catalog::{CategoryId, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
     Labeled, category_row, clear_cache_row, drawer_title, error_line, multiselect_chip_row,
     nav_header, probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row,
-    toggle_row,
+    toggle_row, visibility_chip_row,
 };
 use speed::SpeedMeter;
 
@@ -352,6 +352,14 @@ fn paint_multiselect(
             &mut svc.settings.parser.default_quality,
             QualityBand::ALL,
             |band| band.label().to_owned(),
+        ),
+        MultiSelectId::HomeRows => visibility_chip_row(
+            ui,
+            theme,
+            Labeled { id, label, hint },
+            &mut svc.settings.general.hidden_home_rows,
+            &HomeRowId::ALL,
+            |row| crate::i18n::home_row_title(row).into_owned(),
         ),
     }
 }

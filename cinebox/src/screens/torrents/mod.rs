@@ -248,9 +248,8 @@ impl TorrentsScreen {
                             svc.settings.tmdb.poster_size,
                         )
                     });
-                if svc.is_watched(state.kind, state.id) {
-                    poster::watched_badge(ui, poster, theme, poster::UNSCALED);
-                }
+                let marks = svc.tile_marks(state.kind, state.id);
+                poster::paint_marks(ui, poster, marks, theme, poster::UNSCALED);
 
                 ui.vertical(|ui| {
                     ui.set_max_width(ui.available_width());
@@ -539,6 +538,7 @@ impl TorrentsScreen {
             card: crate::screens::play::WatchCard {
                 kind: state.kind,
                 id: state.id,
+                section: state.movie.section,
                 title: state.movie.title.clone(),
                 poster_path: state.movie.poster_path.clone(),
                 year: state.movie.year,
@@ -592,6 +592,7 @@ mod tests {
                 poster_path: None,
                 backdrop_path: None,
                 number_of_seasons: None,
+                section: cinebox_core::Section::Movies,
                 head_line: String::from("2021"),
                 genres_line: String::new(),
             },

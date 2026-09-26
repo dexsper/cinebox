@@ -6,9 +6,12 @@ mod catalog_map;
 mod details;
 mod details_dto;
 mod details_map;
+mod discover;
+mod genres;
 mod home;
 mod search;
 mod seasons;
+mod shelves;
 
 use std::time::Duration;
 
@@ -16,8 +19,11 @@ use cinebox_core::HomeCatalog;
 use cinebox_net::NetConfig;
 use serde::de::DeserializeOwned;
 
+pub use discover::{Date, DiscoverQuery, DiscoverSort};
+pub use genres::{classify, company, genre, genres_for, keyword};
 pub use home::{CatalogPage, MAX_ROW_ITEMS};
 pub use search::SearchKind;
+pub use shelves::{SectionRow, ShelfId, ShelfRow, ShelfSource, section_rows};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
@@ -145,21 +151,54 @@ pub async fn fetch_home(
     home::fetch_home(api_key, language, net).await
 }
 
-/// One TMDB list page for a home shelf (`page` starts at 1).
+/// One TMDB list page for a shelf (`page` starts at 1).
 ///
-/// Local history rows return an empty page. Remote rows follow TMDB pagination.
+/// Local rows return an empty page. Remote rows follow TMDB pagination.
 ///
 /// # Errors
 ///
 /// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
 pub async fn fetch_catalog_page(
     api_key: &str,
-    id: cinebox_core::HomeRowId,
+    id: ShelfId,
     page: u32,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
     home::fetch_catalog_page(api_key, id, page, language, net).await
+}
+
+/// One `discover` page for user-chosen filters (`page` starts at 1).
+///
+/// # Errors
+///
+/// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
+pub async fn fetch_discover_page(
+    api_key: &str,
+    query: &DiscoverQuery,
+    page: u32,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<CatalogPage, Error> {
+    home::fetch_discover_page(api_key, query, page, language, net).await
+}
+
+/// First page of every shelf on a section hub, fetched in parallel.
+///
+/// Local rows come back empty. Per-shelf HTTP errors are stored on the row.
+///
+/// # Errors
+///
+/// Empty or malformed API key.
+pub async fn fetch_section(
+    api_key: &str,
+    section: cinebox_core::Section,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<Vec<ShelfRow>, Error> {
+    let api_key = prepare_api_key(api_key)?;
+
+    Ok(shelves::fetch_section(net, api_key, language, section).await)
 }
 
 /// One TMDB name-search page (`page` starts at 1).

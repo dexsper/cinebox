@@ -10,15 +10,15 @@ use egui::{CentralPanel, Frame};
 use tracing::error;
 
 use crate::images::ImageSlot;
-use crate::nav::{Nav, NavAction, Screen};
+use crate::nav::{Nav, NavAction, RailEntry, Screen};
 use crate::screens::{
-    CategoryScreen, HomeScreen, MediaScreen, PersonScreen, PlayerScreen, SearchScreen,
-    SettingsScreen, TorrentsScreen,
+    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, PersonScreen,
+    PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
 };
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::search::SearchBar;
-use crate::widgets::{backdrop, chrome};
+use crate::widgets::{backdrop, chrome, rail};
 
 struct TmdbView {
     api_key: String,
@@ -71,7 +71,10 @@ pub struct App {
     services: Services,
     last_tmdb: TmdbView,
     home: HomeScreen,
+    section: SectionScreen,
     category: CategoryScreen,
+    discover: DiscoverScreen,
+    library: LibraryScreen,
     search: SearchScreen,
     search_bar: SearchBar,
     settings_screen: SettingsScreen,
@@ -102,7 +105,10 @@ impl App {
             services,
             last_tmdb,
             home: HomeScreen::default(),
+            section: SectionScreen::default(),
             category: CategoryScreen::default(),
+            discover: DiscoverScreen::default(),
+            library: LibraryScreen::default(),
             search: SearchScreen::default(),
             search_bar,
             settings_screen: SettingsScreen::default(),
@@ -117,9 +123,25 @@ impl App {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
             NavAction::GoBack => self.go_back(now, ctx),
+            NavAction::OpenRail(entry) => {
+                let screen = match entry {
+                    RailEntry::Home => Screen::Home,
+                    RailEntry::Section(section) => Screen::Section { section },
+                    RailEntry::Library => Screen::Library,
+                };
+                self.nav.switch_top(screen);
+            }
             NavAction::OpenCategory { id, items } => {
                 self.nav.push(Screen::Category { id });
                 self.category.seed(id, items);
+            }
+            NavAction::OpenDiscover { section, filters } => {
+                self.nav.push(Screen::Discover { section });
+                self.discover.seed(section, filters);
+            }
+            NavAction::OpenLibrary { list } => {
+                self.nav.push(Screen::Library);
+                self.library.seed(list);
             }
             NavAction::OpenSearch { query } => {
                 self.search_bar.remember(&query);
@@ -176,6 +198,11 @@ impl App {
             return;
         }
 
+        let on_discover = matches!(self.nav.current(), Screen::Discover { .. });
+        if on_discover && self.discover.on_back(now) {
+            return;
+        }
+
         if self.torrents.on_back(now) {
             return;
         }
@@ -208,7 +235,9 @@ impl App {
             self.last_tmdb = next;
             if had_key {
                 self.home.refresh();
+                self.section.forget_live();
                 self.category.forget_live();
+                self.discover.forget_live();
                 self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
@@ -227,7 +256,9 @@ impl App {
         match change {
             TmdbChange::Catalog => {
                 self.home.refresh();
+                self.section.forget_live();
                 self.category.forget_live();
+                self.discover.forget_live();
                 self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
@@ -235,7 +266,9 @@ impl App {
             }
             TmdbChange::Language => {
                 self.home.refresh();
+                self.section.forget_live();
                 self.category.forget_live();
+                self.discover.forget_live();
                 self.search.forget_live();
                 self.media.forget_live();
                 self.person.forget_live();
@@ -331,6 +364,15 @@ impl eframe::App for App {
             .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
+                let with_rail = screen.shows_rail() && !player_fullscreen;
+                // Inside the 1px window outline, starting at the title bar's bottom edge.
+                let window = ui.max_rect();
+                let rail_body = egui::Rect::from_min_max(
+                    egui::pos2(window.left() + 1.0, window.top() + theme.title_bar_h),
+                    egui::pos2(window.right(), window.bottom() - 1.0),
+                );
+                let back_x = with_rail.then(|| rail::column_center(rail_body.left()));
+
                 if !player_fullscreen
                     && let Some(nav) = chrome::header(
                         ui,
@@ -338,31 +380,39 @@ impl eframe::App for App {
                         &theme,
                         self.settings_screen.is_open(),
                         &mut self.search_bar,
+                        back_x,
                     )
                 {
                     action = Some(nav);
                 }
 
                 let pad = theme.pad.round() as i8;
+                let left = if with_rail {
+                    (rail::WIDTH + theme.pad).round() as i8
+                } else {
+                    pad
+                };
                 let content_margin = match screen {
                     Screen::Player { .. } => egui::Margin::ZERO,
-                    Screen::Media { .. }
-                    | Screen::Person { .. }
-                    | Screen::Category { .. }
-                    | Screen::Search
-                    | Screen::Torrents { .. } => egui::Margin {
-                        left: pad,
-                        right: pad,
-                        top: 0,
-                        bottom: 0,
-                    },
-                    _ => egui::Margin {
-                        left: pad,
+                    Screen::Home => egui::Margin {
+                        left,
                         right: pad,
                         top: 0,
                         bottom: pad,
                     },
+                    _ => egui::Margin {
+                        left,
+                        right: pad,
+                        top: 0,
+                        bottom: 0,
+                    },
                 };
+
+                if with_rail {
+                    if let Some(entry) = rail::show(ui, rail_body, &theme, screen.rail_entry()) {
+                        action = Some(NavAction::OpenRail(entry));
+                    }
+                }
 
                 let screen_action = Frame::new()
                     .inner_margin(content_margin)
@@ -399,7 +449,10 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
 
     match screen {
         Screen::Home => app.home.ui(ui, &mut app.services, theme),
+        Screen::Section { section } => app.section.ui(ui, &mut app.services, theme, section),
         Screen::Category { id } => app.category.ui(ui, &mut app.services, theme, id),
+        Screen::Discover { section } => app.discover.ui(ui, &mut app.services, theme, section),
+        Screen::Library => app.library.ui(ui, &app.services, theme),
         Screen::Search => app.search.ui(ui, &mut app.services, theme),
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),

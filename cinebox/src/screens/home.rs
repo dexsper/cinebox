@@ -1,14 +1,16 @@
-use cinebox_core::{HomeCatalog, HomeRow, HomeRowId, language_key};
-use egui::{FontId, RichText, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
-use egui_material_icons::icons::ICON_CHEVRON_RIGHT;
+use cinebox_core::{
+    CatalogItem, HomeCatalog, HomeRowId, LibraryList, ListStatus, RECENT_ROW_LIMIT, language_key,
+};
+use cinebox_tmdb::ShelfId;
+use egui::{RichText, Ui};
 use rust_i18n::t;
 
+use super::shelf::shelf;
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::button::pointing;
-use crate::widgets::{self, poster, scroll};
+use crate::widgets::{self, scroll};
 
 #[derive(Default)]
 pub struct HomeScreen {
@@ -94,101 +96,48 @@ fn catalog_view(
     svc: &Services,
     theme: &Theme,
 ) -> Option<NavAction> {
+    let hidden = &svc.settings.general.hidden_home_rows;
     let mut action = None;
     scroll::vertical(ui, "home-page", |ui| {
-        for (index, row) in catalog.rows.iter().enumerate() {
-            if let Some(nav) = shelf(ui, row, index, svc, theme) {
-                action = Some(nav);
+        for row in &catalog.rows {
+            if hidden.contains(&row.id) {
+                continue;
+            }
+
+            let nav = match row.id {
+                HomeRowId::Watching => library_shelf(ui, row.id, ListStatus::Watching, svc, theme),
+                HomeRowId::Planned => library_shelf(ui, row.id, ListStatus::Planned, svc, theme),
+                id if !id.is_remote() && row.items.is_empty() => continue,
+                id => shelf(ui, ShelfId::Home(id), &row.items, row.error.as_deref(), svc, theme),
+            };
+
+            if nav.is_some() {
+                action = nav;
             }
         }
     });
     action
 }
 
-fn shelf(
+/// List shelves read the live library so a status change shows without reloading Home.
+fn library_shelf(
     ui: &mut Ui,
-    row: &HomeRow,
-    index: usize,
+    id: HomeRowId,
+    status: ListStatus,
     svc: &Services,
     theme: &Theme,
 ) -> Option<NavAction> {
-    ui.add_space(12.0);
+    let items: Vec<CatalogItem> = svc
+        .library
+        .list(LibraryList::Status(status), None)
+        .into_iter()
+        .take(RECENT_ROW_LIMIT)
+        .map(|entry| entry.item.clone())
+        .collect();
 
-    let mut action = None;
-    if shelf_heading(ui, row.id, theme) {
-        action = Some(NavAction::OpenCategory {
-            id: row.id,
-            items: row.items.clone(),
-        });
+    if items.is_empty() {
+        return None;
     }
 
-    if let Some(error) = &row.error {
-        ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
-    }
-    if row.items.is_empty() {
-        if row.error.is_none() {
-            ui.label(
-                RichText::new(t!("catalog.empty").as_ref())
-                    .size(theme.text_small)
-                    .color(theme.muted),
-            );
-        }
-        return action;
-    }
-
-    let scale = poster::card_scale(ui.available_width());
-    scroll::horizontal(ui, format!("home-row-{index}"), |ui| {
-        ui.horizontal(|ui| {
-            ui.spacing_mut().item_spacing.x = 12.0;
-            for item in &row.items {
-                let opened = poster::catalog_tile(
-                    ui,
-                    item,
-                    &svc.images,
-                    svc.settings.tmdb.poster_size,
-                    theme,
-                    svc.is_watched(item.kind, item.id),
-                    scale,
-                );
-                if action.is_none() {
-                    action = opened;
-                }
-            }
-        });
-    });
-    action
-}
-
-pub(crate) fn shelf_heading(ui: &mut Ui, id: HomeRowId, theme: &Theme) -> bool {
-    let title = crate::i18n::home_row_title(id);
-    let icon = ICON_CHEVRON_RIGHT;
-    let title_font = theme.title_font(theme.text_section);
-    let icon_font = FontId::new(theme.text_icon_md, icon.font_family());
-    let title_galley = ui
-        .painter()
-        .layout_no_wrap(title.as_ref().to_owned(), title_font, theme.title);
-    
-    let icon_galley = ui.painter().layout_no_wrap(
-        icon.codepoint.to_owned(),
-        icon_font,
-        theme.muted,
-    );
-    
-    let gap = 4.0;
-    let width = title_galley.size().x + gap + icon_galley.size().x;
-    let height = title_galley.size().y.max(icon_galley.size().y);
-    let (rect, response) = ui.allocate_exact_size(vec2(width, height), Sense::click());
-    let response = pointing(response);
-    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, true, title.as_ref()));
-
-    let title_pos = pos2(rect.left(), rect.center().y - title_galley.size().y * 0.5);
-    ui.painter().galley(title_pos, title_galley, theme.title);
-
-    let icon_pos = pos2(
-        rect.right() - icon_galley.size().x,
-        rect.center().y - icon_galley.size().y * 0.5,
-    );
-    ui.painter().galley(icon_pos, icon_galley, theme.muted);
-
-    response.clicked()
+    shelf(ui, ShelfId::Home(id), &items, None, svc, theme)
 }

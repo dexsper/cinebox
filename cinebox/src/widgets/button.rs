@@ -140,20 +140,21 @@ pub fn add_named<'a>(
 ) -> Response {
     let (idle, hover, active, stroke) = palette(theme, &opts);
 
-    let response = ui
-        .scope(|ui| {
-            paint_visuals(ui, theme, idle, hover, active, stroke, &opts);
-            pointing(
-                ui.add(
-                    egui::Button::new(atoms)
-                        .stroke(stroke)
-                        .gap(opts.gap)
-                        .corner_radius(theme.rounding(theme.radius_card))
-                        .min_size(opts.min_size),
-                ),
-            )
-        })
-        .inner;
+    // Styled in place rather than in `ui.scope`: a child Ui cannot move to the parent's
+    // next row, so chips in `horizontal_wrapped` would overflow instead of wrapping.
+    let style = ui.style().clone();
+    paint_visuals(ui, theme, idle, hover, active, stroke, &opts);
+    let response = pointing(
+        ui.add(
+            egui::Button::new(atoms)
+                .stroke(stroke)
+                .gap(opts.gap)
+                .corner_radius(theme.rounding(theme.radius_card))
+                .min_size(opts.min_size)
+                .wrap_mode(egui::TextWrapMode::Extend),
+        ),
+    );
+    ui.set_style(style);
 
     let Some(name) = name else {
         return response;
@@ -178,6 +179,84 @@ pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, o
     );
 
     add_named(ui, theme, atoms, opts, Some(label)).clicked()
+}
+
+/// How long [`expanding_icon`] takes to open or close.
+const EXPAND_SECS: f32 = 0.15;
+
+/// A square icon button that widens to reveal its label while hovered.
+pub struct ExpandingIcon<'a> {
+    /// Keeps the animation stable when `label` changes (e.g. a list status).
+    pub id_salt: &'a str,
+    pub icon: MaterialIcon,
+    pub label: &'a str,
+    pub height: f32,
+    pub tint: Color32,
+    pub selected: bool,
+}
+
+pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> Response {
+    let ExpandingIcon {
+        id_salt,
+        icon,
+        label,
+        height,
+        tint,
+        selected,
+    } = button;
+    let id = ui.id().with(("expanding-icon", id_salt));
+    let hovered = ui
+        .ctx()
+        .read_response(id)
+        .is_some_and(|response| response.contains_pointer());
+    let t = ui
+        .ctx()
+        .animate_bool_with_time(id.with("expand"), hovered, EXPAND_SECS);
+
+    let label_font = theme.emphasis_font(theme.text_subtitle);
+    let galley = ui
+        .painter()
+        .layout_no_wrap(label.to_owned(), label_font, theme.title);
+    let expanded_w = height + galley.size().x + PAD_X;
+    let width = egui::lerp(height..=expanded_w, t);
+
+    let (rect, _) = ui.allocate_exact_size(vec2(width, height), Sense::hover());
+    let response = pointing(ui.interact(rect, id, Sense::click()));
+    let enabled = response.enabled();
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
+
+    let opts = Opts::secondary(Vec2::ZERO).selected(selected);
+    let (idle, hover, active, stroke) = palette(theme, &opts);
+    let fill = if response.is_pointer_button_down_on() {
+        active
+    } else if response.hovered() {
+        hover
+    } else {
+        idle
+    };
+
+    let radius = theme.rounding(theme.radius_card);
+    let painter = ui.painter();
+    painter.rect(rect, radius, fill, stroke, egui::StrokeKind::Inside);
+    painter.text(
+        egui::pos2(rect.left() + height * 0.5, rect.center().y),
+        egui::Align2::CENTER_CENTER,
+        icon.codepoint,
+        FontId::new(theme.text_cta_icon, icon.font_family()),
+        tint,
+    );
+
+    if t > 0.0 {
+        let text_pos = egui::pos2(
+            rect.left() + height - PAD_X * 0.25,
+            rect.center().y - galley.size().y * 0.5,
+        );
+        painter
+            .with_clip_rect(rect.shrink(1.0))
+            .galley(text_pos, galley, theme.title.gamma_multiply(t));
+    }
+
+    response
 }
 
 pub fn label(ui: &mut Ui, theme: &Theme, text: &str, opts: Opts) -> bool {

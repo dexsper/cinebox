@@ -15,6 +15,7 @@ pub(crate) struct CatalogListItem {
     pub(crate) release_date: Option<String>,
     pub(crate) first_air_date: Option<String>,
     pub(crate) media_type: Option<String>,
+    pub(crate) original_language: Option<String>,
 }
 
 pub(crate) fn catalog_items_from(

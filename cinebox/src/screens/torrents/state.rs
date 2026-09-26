@@ -1,6 +1,6 @@
 //! Torrent explorer state.
 
-use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId};
+use cinebox_core::{MediaDetails, MediaKind, QualityBand, Section, TmdbId};
 use cinebox_indexer::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_hits};
 use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
@@ -15,6 +15,7 @@ pub struct MovieBits {
     pub poster_path: Option<String>,
     pub backdrop_path: Option<String>,
     pub number_of_seasons: Option<u32>,
+    pub section: Section,
     /// Precomputed "year, country | country" line for the left pane.
     pub head_line: String,
     /// Precomputed ", "-joined genres line; empty when there are none.
@@ -34,6 +35,11 @@ impl MovieBits {
             poster_path: details.poster_path.clone(),
             backdrop_path: details.backdrop_path.clone(),
             number_of_seasons: details.number_of_seasons,
+            section: cinebox_tmdb::classify(
+                details.kind,
+                &details.genre_ids,
+                details.original_language.as_deref(),
+            ),
             head_line: head_line(details.year, &details.countries),
             genres_line: genres.join(", "),
         }

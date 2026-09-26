@@ -306,6 +306,33 @@ pub fn multiselect_chip_row<T: Copy + PartialEq>(
     crate::widgets::chips::multi_row(ui, theme, selected, options, option_label)
 }
 
+/// One chip per option, on while the option is not in `hidden`.
+pub fn visibility_chip_row<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    field: Labeled<'_>,
+    hidden: &mut Vec<T>,
+    options: &[T],
+    option_label: impl Fn(T) -> String,
+) -> bool {
+    field_label(ui, theme, field.label, field.hint);
+    let mut changed = false;
+
+    ui.horizontal_wrapped(|ui| {
+        ui.spacing_mut().item_spacing.x = 6.0;
+        for option in options {
+            let shown = !hidden.contains(option);
+            let opts = crate::widgets::button::Opts::chip(shown);
+            if crate::widgets::button::label(ui, theme, &option_label(*option), opts) {
+                crate::widgets::chips::toggle(hidden, *option);
+                changed = true;
+            }
+        }
+    });
+
+    changed
+}
+
 pub fn probe_row<F, Fut>(
     ui: &mut Ui,
     theme: &Theme,

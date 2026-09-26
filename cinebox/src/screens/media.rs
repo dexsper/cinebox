@@ -1,8 +1,8 @@
 use cinebox_core::{
-    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, MediaDetails, MediaKind, TmdbId, format_money,
-    language_key, media_cache_id, media_ttl, tmdb_image_url,
+    CacheHit, CatalogItem, CreditPerson, KIND_MEDIA, LibraryMark, MediaDetails, MediaKind, TmdbId,
+    format_money, language_key, media_cache_id, media_ttl, tmdb_image_url,
 };
-use egui::{Atom, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
+use egui::{Atom, Margin, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_material_icons::icons::{ICON_LOCAL_MOVIES, ICON_PLAY_CIRCLE};
 use rust_i18n::t;
 
@@ -11,7 +11,9 @@ use crate::nav::NavAction;
 use crate::screens::play::WatchCard;
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{self, intro, poster, scroll, skeleton};
+use crate::widgets::button::ExpandingIcon;
+use crate::widgets::lists::{self, MenuPick};
+use crate::widgets::{self, flyout, intro, poster, scroll, skeleton};
 
 use super::trailers::TrailersModal;
 
@@ -43,6 +45,16 @@ pub struct MediaScreen {
     pending_intro: bool,
     reset_scroll: bool,
     trailers: TrailersModal,
+    /// List popover anchor while it is open; follows the button as the page scrolls.
+    lists_anchor: Option<Rect>,
+}
+
+/// Hero button clicks for this frame.
+#[derive(Default)]
+struct HeroOut {
+    open_trailers: bool,
+    toggle_lists: bool,
+    lists_button: Option<Rect>,
 }
 
 impl MediaScreen {
@@ -63,6 +75,7 @@ impl MediaScreen {
         self.preview = Some(item);
         self.pending_intro = true;
         self.reset_scroll = true;
+        self.lists_anchor = None;
         let _ = self.trailers.close();
     }
 
@@ -77,6 +90,10 @@ impl MediaScreen {
     }
 
     pub fn on_back(&mut self) -> bool {
+        if self.lists_anchor.take().is_some() {
+            return true;
+        }
+
         self.trailers.close()
     }
 
@@ -94,6 +111,7 @@ impl MediaScreen {
             self.id = Some(id);
             self.cache.reset();
             self.reset_scroll = true;
+            self.lists_anchor = None;
             let _ = self.trailers.close();
 
             let is_different = self
@@ -159,19 +177,19 @@ impl MediaScreen {
         }
 
         let mut retry = false;
-        let mut open_trailers = false;
+        let mut hero_out = HeroOut::default();
         let action = match outcome.view {
             super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(details)) => {
                     self.reset_scroll = false;
-                    ready(ui, details, svc, theme, t, to_top, &mut open_trailers)
+                    ready(ui, details, svc, theme, t, to_top, &mut hero_out)
                 }
                 _ => None,
             },
             super::swr::Swr::Disk => match self.cache.disk.as_ref() {
                 Some(hit) => {
                     self.reset_scroll = false;
-                    ready(ui, &hit.value, svc, theme, t, to_top, &mut open_trailers)
+                    ready(ui, &hit.value, svc, theme, t, to_top, &mut hero_out)
                 }
                 None => None,
             },
@@ -198,9 +216,11 @@ impl MediaScreen {
             self.cache.retry();
         }
 
-        if open_trailers {
+        if hero_out.open_trailers {
             self.open_trailers_from_details();
         }
+
+        self.lists_popover(ui, svc, theme, &hero_out);
 
         self.trailers.poll();
         if self.trailers.is_open() {
@@ -212,14 +232,7 @@ impl MediaScreen {
 
     fn open_trailers_from_details(&mut self) {
         let packed = self.ready().map(|details| {
-            let card = WatchCard {
-                kind: details.kind,
-                id: details.id,
-                title: details.title.clone(),
-                poster_path: details.poster_path.clone(),
-                year: details.year,
-                vote: details.vote,
-            };
+            let card = WatchCard::from_details(details);
 
             (
                 card,
@@ -233,6 +246,53 @@ impl MediaScreen {
         };
 
         self.trailers.open(card, backdrop_path, items);
+    }
+
+    fn lists_popover(&mut self, ui: &Ui, svc: &mut Services, theme: &Theme, hero: &HeroOut) {
+        if hero.toggle_lists {
+            self.lists_anchor = match self.lists_anchor {
+                Some(_) => None,
+                None => hero.lists_button,
+            };
+        }
+
+        let Some(anchor) = self.lists_anchor.and(hero.lists_button) else {
+            self.lists_anchor = None;
+            return;
+        };
+        self.lists_anchor = Some(anchor);
+
+        let Some(card) = self.ready().map(WatchCard::from_details) else {
+            return;
+        };
+
+        let mark = svc.library_mark(card.kind, card.id);
+        let mut pick = None;
+        let margin = Margin::same(flyout::PAD);
+        let out = flyout::show_below(
+            ui.ctx(),
+            "cinebox-media-lists",
+            anchor,
+            theme,
+            lists::menu_width(),
+            margin,
+            |ui, theme| pick = lists::menu(ui, theme, mark),
+        );
+
+        match pick {
+            Some(MenuPick::Status(status)) => {
+                svc.set_list_status(&card, status);
+                self.lists_anchor = None;
+            }
+            Some(MenuPick::Liked(liked)) => svc.set_liked(&card, liked),
+            Some(MenuPick::Clear) => {
+                svc.set_list_status(&card, None);
+                svc.set_liked(&card, false);
+                self.lists_anchor = None;
+            }
+            None if out.dismissed => self.lists_anchor = None,
+            None => {}
+        }
     }
 
     fn start_intro_if_pending(&mut self, now: f64) {
@@ -250,7 +310,7 @@ fn ready(
     theme: &Theme,
     t: f32,
     to_top: bool,
-    open_trailers: &mut bool,
+    hero_out: &mut HeroOut,
 ) -> Option<NavAction> {
     let mut action = None;
     let poster_size = Vec2::new(
@@ -348,8 +408,13 @@ fn ready(
                         action = Some(NavAction::WatchTorrents);
                     }
                     if has_trailers && trailers_button(ui, theme) {
-                        *open_trailers = true;
+                        hero_out.open_trailers = true;
                     }
+
+                    let mark = svc.library_mark(details.kind, details.id);
+                    let lists = lists_button(ui, theme, mark);
+                    hero_out.toggle_lists = lists.clicked();
+                    hero_out.lists_button = Some(lists.rect);
                 });
             },
         );
@@ -560,9 +625,8 @@ fn hero(
                 svc.settings.tmdb.poster_size,
             )
         });
-        if svc.is_watched(hero.kind, hero.id) {
-            poster::watched_badge(ui, poster, theme, poster::UNSCALED);
-        }
+        let marks = svc.tile_marks(hero.kind, hero.id);
+        poster::paint_marks(ui, poster, marks, theme, poster::UNSCALED);
         ui.add_space(28.0);
 
         let col_w = ui.available_width();
@@ -611,24 +675,40 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
 }
 
 fn trailers_button(ui: &mut Ui, theme: &Theme) -> bool {
-    crate::widgets::button::add_named(
-        ui,
-        theme,
-        (
-            Atom::grow(),
-            ICON_LOCAL_MOVIES
-                .rich_text()
-                .size(theme.text_cta_icon)
-                .color(theme.title),
-            RichText::new(t!("media.trailers").as_ref())
-                .font(theme.emphasis_font(theme.text_subtitle))
-                .color(theme.title),
-            Atom::grow(),
-        ),
-        crate::widgets::button::Opts::secondary(WATCH_BTN_SIZE),
-        Some(t!("media.trailers").as_ref()),
-    )
-    .clicked()
+    let label = t!("media.trailers");
+    let button = ExpandingIcon {
+        id_salt: "media-trailers",
+        icon: ICON_LOCAL_MOVIES,
+        label: label.as_ref(),
+        height: WATCH_BTN_SIZE.y,
+        tint: theme.title,
+        selected: false,
+    };
+
+    crate::widgets::button::expanding_icon(ui, theme, button).clicked()
+}
+
+fn lists_button(ui: &mut Ui, theme: &Theme, mark: LibraryMark) -> egui::Response {
+    let label = match mark.status {
+        Some(status) => crate::i18n::list_status_label(status),
+        None if mark.liked => t!("library.liked"),
+        None => t!("library.add"),
+    };
+    let tint = if mark.status.is_none() && mark.liked {
+        theme.liked
+    } else {
+        theme.title
+    };
+    let button = ExpandingIcon {
+        id_salt: "media-lists",
+        icon: lists::button_icon(mark),
+        label: label.as_ref(),
+        height: WATCH_BTN_SIZE.y,
+        tint,
+        selected: !mark.is_empty(),
+    };
+
+    crate::widgets::button::expanding_icon(ui, theme, button)
 }
 
 fn facts(ui: &mut Ui, details: &MediaDetails, theme: &Theme) {
@@ -793,7 +873,7 @@ fn shelf(
                     &svc.images,
                     svc.settings.tmdb.poster_size,
                     theme,
-                    svc.is_watched(item.kind, item.id),
+                    svc.tile_marks(item.kind, item.id),
                     scale,
                 ) {
                     *action = Some(nav);

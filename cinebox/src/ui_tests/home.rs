@@ -1,4 +1,3 @@
-use cinebox_core::HomeRowId;
 use egui::accesskit::Role;
 use egui::vec2;
 use egui_kittest::Harness;
@@ -27,8 +26,8 @@ fn shelf_heading_click_is_a_button() {
                     return;
                 }
 
-                let clicked =
-                    crate::screens::home::shelf_heading(ui, HomeRowId::NowPlaying, &state.theme);
+                let title = t!("home.now_playing");
+                let clicked = crate::screens::shelf::shelf_heading(ui, &title, &state.theme);
                 if clicked {
                     state.clicked = true;
                 }

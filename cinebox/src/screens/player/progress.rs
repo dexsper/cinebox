@@ -52,7 +52,7 @@ impl PlayerScreen {
             }
         }
 
-        let (entry, hash, time, duration, kind, id, file_id) = {
+        let (entry, hash, time, duration, card, file_id) = {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return None;
             };
@@ -79,6 +79,7 @@ impl PlayerScreen {
             let entry = WatchHistoryEntry {
                 kind,
                 id,
+                section: state.card.section,
                 title: state.card.title.clone(),
                 poster_path: state.card.poster_path.clone(),
                 year: state.card.year,
@@ -92,8 +93,9 @@ impl PlayerScreen {
 
             state.source.set_current_timecode(time);
 
-            (entry, hash, time, duration, kind, id, file_id)
+            (entry, hash, time, duration, state.card.clone(), file_id)
         };
+        let (kind, id) = (card.kind, card.id);
 
         let track = svc.settings.torrserver.track_timecode;
 
@@ -121,6 +123,7 @@ impl PlayerScreen {
         });
 
         svc.mark_watched(kind, id);
+        svc.mark_watching_if_unset(&card);
         self.progress_saved_at = Some(Instant::now());
 
         if !track {
@@ -176,7 +179,7 @@ mod tests {
 
         assert_eq!(got, Some((42.0, 2400.0)));
 
-        let recent = db_block_on(db.recently_watched(10))?;
+        let recent = db_block_on(db.recently_watched(10, None))?;
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].id, id);
         assert_eq!(recent[0].title, "Show");

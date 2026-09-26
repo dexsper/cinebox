@@ -10,12 +10,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Added
 
 - Release/ongoing status pill next to the TMDB rating on the title page (e.g. "Released", "Ongoing").
+- Side rail with Home, Movies, Cartoons, Series, Anime, and My lists; it widens with labels on hover.
+- Section hubs with themed shelves: now playing, last year, worth a rewatch, highly rated, genres, decades, studios, and more.
+- Discover screen: pick genres, decade, minimum rating, and sort order from any section.
+- Personal lists: Watching, Plan to watch, Completed, Dropped, plus an independent Liked flag, set from the title page.
+- Starting playback puts a title into Watching unless it already has a status.
+- List status and Liked badges on posters; Watching and Plan to watch shelves on Home.
+- General settings: choose which rows appear on Home.
 
 ### Changed
 
 - Bigger title, tagline, year/country line, and "In Detail" heading on the title page.
 - Poster and cast/crew cards scale up on wider windows instead of staying a fixed size.
 - Backdrop artwork is darkened a bit more toward the center so text stays readable over bright images.
+- Trailers and the new list button on the title page are compact icons that expand with a label on hover.
 
 ## [0.2.0] - 2026-09-14
 

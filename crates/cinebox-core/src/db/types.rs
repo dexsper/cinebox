@@ -7,6 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::catalog::{CatalogItem, HomeRowId};
 use crate::ids::{MediaKind, TmdbId};
 use crate::media::MediaDetails;
+use crate::section::Section;
 use crate::settings::{PosterSize, VideoScale};
 
 /// TMDB content older than this must be dropped (API ToS).
@@ -79,6 +80,7 @@ impl Default for TorrentPlaybackPrefs {
 pub struct WatchHistoryEntry {
     pub kind: MediaKind,
     pub id: TmdbId,
+    pub section: Section,
     pub title: String,
     pub poster_path: Option<String>,
     pub year: Option<u16>,

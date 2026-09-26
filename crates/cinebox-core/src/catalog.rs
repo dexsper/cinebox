@@ -47,6 +47,8 @@ pub fn parse_tmdb_image_url(url: &str) -> Option<(String, String)> {
 #[serde(rename_all = "snake_case")]
 pub enum HomeRowId {
     RecentlyWatched,
+    Watching,
+    Planned,
     NowPlaying,
     TrendingDay,
     TrendingWeek,
@@ -57,8 +59,10 @@ pub enum HomeRowId {
 }
 
 impl HomeRowId {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 10] = [
         Self::RecentlyWatched,
+        Self::Watching,
+        Self::Planned,
         Self::NowPlaying,
         Self::TrendingDay,
         Self::TrendingWeek,
@@ -67,6 +71,9 @@ impl HomeRowId {
         Self::TopRatedMovies,
         Self::TopRatedTv,
     ];
+
+    /// Rows read from the local database.
+    pub const LOCAL: [Self; 3] = [Self::RecentlyWatched, Self::Watching, Self::Planned];
 
     /// Rows fetched from TMDB (not local history).
     pub const REMOTE: [Self; 7] = [
@@ -84,6 +91,8 @@ impl HomeRowId {
     pub const fn as_key(self) -> &'static str {
         match self {
             Self::RecentlyWatched => "recently_watched",
+            Self::Watching => "watching",
+            Self::Planned => "planned",
             Self::NowPlaying => "now_playing",
             Self::TrendingDay => "trending_day",
             Self::TrendingWeek => "trending_week",
@@ -94,10 +103,10 @@ impl HomeRowId {
         }
     }
 
-    /// TMDB list rows that can load extra pages. Local history cannot.
+    /// TMDB list rows that can load extra pages. Local rows cannot.
     #[must_use]
     pub const fn is_remote(self) -> bool {
-        !matches!(self, Self::RecentlyWatched)
+        !matches!(self, Self::RecentlyWatched | Self::Watching | Self::Planned)
     }
 }
 
@@ -147,20 +156,26 @@ impl HomeRow {
     /// Poster paths on this shelf.
     #[must_use]
     pub fn image_paths(&self) -> Vec<String> {
-        let mut paths = Vec::new();
-        for item in &self.items {
-            let Some(path) = normalize_tmdb_path(item.poster_path.as_deref()) else {
-                continue;
-            };
-
-            if paths.contains(&path) {
-                continue;
-            }
-
-            paths.push(path);
-        }
-        paths
+        poster_paths(&self.items)
     }
+}
+
+/// Distinct canonical poster paths of `items`, for image-cache references.
+#[must_use]
+pub fn poster_paths(items: &[CatalogItem]) -> Vec<String> {
+    let mut paths = Vec::new();
+    for item in items {
+        let Some(path) = normalize_tmdb_path(item.poster_path.as_deref()) else {
+            continue;
+        };
+
+        if paths.contains(&path) {
+            continue;
+        }
+
+        paths.push(path);
+    }
+    paths
 }
 
 /// Full home payload.

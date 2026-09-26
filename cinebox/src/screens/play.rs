@@ -1,4 +1,4 @@
-use cinebox_core::{MediaKind, TmdbId};
+use cinebox_core::{CatalogItem, MediaDetails, MediaKind, Section, TmdbId};
 
 use crate::screens::torrents::TorrentFileRow;
 
@@ -7,10 +7,40 @@ use crate::screens::torrents::TorrentFileRow;
 pub struct WatchCard {
     pub kind: MediaKind,
     pub id: TmdbId,
+    pub section: Section,
     pub title: String,
     pub poster_path: Option<String>,
     pub year: Option<u16>,
     pub vote: Option<f32>,
+}
+
+impl WatchCard {
+    pub fn from_details(details: &MediaDetails) -> Self {
+        Self {
+            kind: details.kind,
+            id: details.id,
+            section: cinebox_tmdb::classify(
+                details.kind,
+                &details.genre_ids,
+                details.original_language.as_deref(),
+            ),
+            title: details.title.clone(),
+            poster_path: details.poster_path.clone(),
+            year: details.year,
+            vote: details.vote,
+        }
+    }
+
+    pub fn item(&self) -> CatalogItem {
+        CatalogItem {
+            id: self.id,
+            kind: self.kind,
+            title: self.title.clone(),
+            year: self.year,
+            vote: self.vote,
+            poster_path: self.poster_path.clone(),
+        }
+    }
 }
 
 /// Stream origin for [`PlayRequest`].

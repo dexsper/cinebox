@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n        DELETE FROM library\n        WHERE kind = ? AND id = ? AND status IS NULL AND liked = 0\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": []
+  },
+  "hash": "70cb5ac7265005979ba74a55f22c49d33efc86cb07941c1023a9efb3f2db8264"
+}

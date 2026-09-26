@@ -227,7 +227,7 @@ fn ready(
                         &svc.images,
                         svc.settings.tmdb.poster_size,
                         theme,
-                        svc.is_watched(item.kind, item.id),
+                        svc.tile_marks(item.kind, item.id),
                         scale,
                     ) {
                         action = Some(nav);

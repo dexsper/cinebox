@@ -6,16 +6,18 @@ pub mod catalog;
 pub mod db;
 pub mod http;
 pub mod ids;
+pub mod library;
 pub mod media;
 pub mod paths;
+pub mod section;
 pub mod settings;
 
 pub use catalog::{
     CatalogItem, HomeCatalog, HomeRow, HomeRowId, normalize_tmdb_path, parse_tmdb_image_url,
-    tmdb_image_url, year_from_date,
+    poster_paths, tmdb_image_url, year_from_date,
 };
 pub use db::{
-    CONFIG_TTL, CacheHit, DETAILS_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
+    CONFIG_TTL, CacheHit, DETAILS_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
     KIND_SEASON, KIND_SKIP, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT, SEASON_TTL,
     SKIP_SEGMENTS_TTL, Store, StoreError, TorrentPlaybackPrefs, WatchHistoryEntry,
     allowed_image_sizes, home_ttl, image_size_key, language_key, media_cache_id,
@@ -23,9 +25,11 @@ pub use db::{
 };
 pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};
+pub use library::{LibraryEntry, LibraryList, LibraryMark, ListStatus};
 pub use media::{
     CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money,
 };
+pub use section::Section;
 pub use settings::{
     GeneralSettings, ParserKind, ParserSettings, PlayerSettings, PosterSize, QualityBand,
     SecretString, Settings, SettingsError, SettingsStore, SkipSegmentsSettings, TorrServerSettings,

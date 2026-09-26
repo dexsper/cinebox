@@ -9,6 +9,7 @@ mod fonts;
 mod i18n;
 mod images;
 mod jobs;
+mod library;
 mod nav;
 mod screens;
 mod services;

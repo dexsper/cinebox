@@ -1340,6 +1340,7 @@ mod tests {
             card: WatchCard {
                 kind: cinebox_core::MediaKind::Tv,
                 id: cinebox_core::TmdbId::new(1),
+                section: cinebox_core::Section::Tv,
                 title: String::from("Show"),
                 poster_path: None,
                 year: Some(2024),
@@ -1361,6 +1362,7 @@ mod tests {
             card: WatchCard {
                 kind: cinebox_core::MediaKind::Movie,
                 id: cinebox_core::TmdbId::new(1),
+                section: cinebox_core::Section::Movies,
                 title: String::from("Movie"),
                 poster_path: None,
                 year: Some(2024),

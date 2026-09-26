@@ -44,6 +44,7 @@ pub enum SelectId {
 
 pub enum MultiSelectId {
     Quality,
+    HomeRows,
 }
 
 pub enum Field {
@@ -143,6 +144,12 @@ const GENERAL: &[Field] = &[
         label: "filter.language",
         hint: None,
         which: SelectId::Language,
+    },
+    Field::MultiSelect {
+        id: "home-rows",
+        label: "settings.home_shelves",
+        hint: Some("settings.home_shelves_hint"),
+        which: MultiSelectId::HomeRows,
     },
     Field::Toggle {
         label: "settings.use_system_proxy",

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO library\n                (kind, id, status, liked, section, title, poster_path, year, vote,\n                 added_at, updated_at)\n            VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)\n            ON CONFLICT (kind, id) DO UPDATE SET\n                status = excluded.status,\n                updated_at = excluded.updated_at\n            WHERE library.status IS NULL\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 10
+    },
+    "nullable": []
+  },
+  "hash": "893e217f8566b09072994e75189c63addf841d6f91e735fe7985b195998b0ff1"
+}

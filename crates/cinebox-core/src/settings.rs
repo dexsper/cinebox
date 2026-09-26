@@ -7,6 +7,7 @@ use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
+use crate::catalog::HomeRowId;
 use crate::paths;
 
 /// Redacted string for API keys and passwords.
@@ -258,6 +259,7 @@ pub struct GeneralSettings {
     pub use_system_proxy: bool,
     pub dns_bypass: bool,
     pub custom_doh_url: String,
+    pub hidden_home_rows: Vec<HomeRowId>,
 }
 
 impl Default for GeneralSettings {
@@ -267,6 +269,7 @@ impl Default for GeneralSettings {
             use_system_proxy: true,
             dns_bypass: true,
             custom_doh_url: String::new(),
+            hidden_home_rows: Vec::new(),
         }
     }
 }

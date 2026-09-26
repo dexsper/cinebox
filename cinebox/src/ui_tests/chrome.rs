@@ -47,6 +47,7 @@ fn header_harness_with(
                     &state.theme,
                     state.settings_open,
                     &mut state.search,
+                    None,
                 ) {
                     state.action = Some(nav);
                 }
@@ -104,7 +105,7 @@ fn home_header_back_when_settings_open() {
 #[test]
 fn category_header_back_click_goes_back() {
     let mut harness = header_harness(Screen::Category {
-        id: cinebox_core::HomeRowId::NowPlaying,
+        id: cinebox_tmdb::ShelfId::Home(cinebox_core::HomeRowId::NowPlaying),
     });
 
     harness

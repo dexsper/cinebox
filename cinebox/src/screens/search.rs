@@ -206,7 +206,7 @@ impl SearchScreen {
                         &svc.images,
                         svc.settings.tmdb.poster_size,
                         theme,
-                        svc.is_watched(item.kind, item.id),
+                        svc.tile_marks(item.kind, item.id),
                         scale,
                     );
                     if action.is_none() {

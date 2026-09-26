@@ -2,7 +2,10 @@
 
 use std::borrow::Cow;
 
-use cinebox_core::{HomeRowId, MediaDetails, MediaKind, UiLanguage};
+use cinebox_core::{
+    HomeRowId, LibraryList, ListStatus, MediaDetails, MediaKind, Section, UiLanguage,
+};
+use cinebox_tmdb::{DiscoverSort, SectionRow, ShelfId, company, genre, keyword};
 use rust_i18n::t;
 
 /// Sync rust-i18n with the settings language.
@@ -28,6 +31,8 @@ pub fn tr(key: &str) -> Cow<'_, str> {
 pub fn home_row_title(id: HomeRowId) -> Cow<'static, str> {
     match id {
         HomeRowId::RecentlyWatched => t!("home.recently_watched"),
+        HomeRowId::Watching => t!("home.watching"),
+        HomeRowId::Planned => t!("home.planned"),
         HomeRowId::NowPlaying => t!("home.now_playing"),
         HomeRowId::TrendingDay => t!("home.trending_day"),
         HomeRowId::TrendingWeek => t!("home.trending_week"),
@@ -35,6 +40,138 @@ pub fn home_row_title(id: HomeRowId) -> Cow<'static, str> {
         HomeRowId::PopularTv => t!("home.popular_tv"),
         HomeRowId::TopRatedMovies => t!("home.top_rated_movies"),
         HomeRowId::TopRatedTv => t!("home.top_rated_tv"),
+    }
+}
+
+#[must_use]
+pub fn shelf_title(id: ShelfId) -> Cow<'static, str> {
+    let row = match id {
+        ShelfId::Home(id) => return home_row_title(id),
+        ShelfId::Section(_, row) => row,
+    };
+
+    match row {
+        SectionRow::RecentlyWatched => t!("shelf.recently_watched"),
+        SectionRow::NowPlaying => t!("shelf.now_playing"),
+        SectionRow::Popular => t!("shelf.popular"),
+        SectionRow::Upcoming => t!("shelf.upcoming"),
+        SectionRow::Recommended => t!("shelf.recommended"),
+        SectionRow::ThisWeek => t!("shelf.this_week"),
+        SectionRow::Airing => t!("shelf.airing"),
+        SectionRow::Series => t!("shelf.series"),
+        SectionRow::Films => t!("shelf.films"),
+        SectionRow::New => t!("shelf.new"),
+        SectionRow::LastYear => t!("shelf.last_year"),
+        SectionRow::WorthRewatch => t!("shelf.worth_rewatch"),
+        SectionRow::HighRated => t!("shelf.high_rated"),
+        SectionRow::Family => t!("shelf.family"),
+        SectionRow::Classics => t!("shelf.classics"),
+        SectionRow::Golden2000s => t!("shelf.golden_2000s"),
+        SectionRow::Comedy2000s => t!("shelf.comedy_2000s"),
+        SectionRow::ModernComedy => t!("shelf.modern_comedy"),
+        SectionRow::Genre(id) => genre_name(id),
+        SectionRow::Keyword(id) => keyword_name(id),
+        SectionRow::Studio(id) => Cow::Borrowed(studio_name(id)),
+    }
+}
+
+#[must_use]
+pub fn section_title(section: Section) -> Cow<'static, str> {
+    match section {
+        Section::Movies => t!("rail.movies"),
+        Section::Cartoons => t!("rail.cartoons"),
+        Section::Tv => t!("rail.tv"),
+        Section::Anime => t!("rail.anime"),
+    }
+}
+
+/// Localized TMDB genre name; empty for ids the app never offers.
+#[must_use]
+pub fn genre_name(id: u32) -> Cow<'static, str> {
+    match id {
+        genre::ACTION => t!("genre.action"),
+        genre::ADVENTURE => t!("genre.adventure"),
+        genre::ANIMATION => t!("genre.animation"),
+        genre::COMEDY => t!("genre.comedy"),
+        genre::CRIME => t!("genre.crime"),
+        genre::DOCUMENTARY => t!("genre.documentary"),
+        genre::DRAMA => t!("genre.drama"),
+        genre::FAMILY => t!("genre.family"),
+        genre::FANTASY => t!("genre.fantasy"),
+        genre::HISTORY => t!("genre.history"),
+        genre::HORROR => t!("genre.horror"),
+        genre::MUSIC => t!("genre.music"),
+        genre::MYSTERY => t!("genre.mystery"),
+        genre::ROMANCE => t!("genre.romance"),
+        genre::SCI_FI => t!("genre.sci_fi"),
+        genre::THRILLER => t!("genre.thriller"),
+        genre::WAR => t!("genre.war"),
+        genre::WESTERN => t!("genre.western"),
+        genre::ACTION_ADVENTURE => t!("genre.action_adventure"),
+        genre::KIDS => t!("genre.kids"),
+        genre::REALITY => t!("genre.reality"),
+        genre::SCI_FI_FANTASY => t!("genre.sci_fi_fantasy"),
+        genre::WAR_POLITICS => t!("genre.war_politics"),
+        _ => Cow::Borrowed(""),
+    }
+}
+
+fn keyword_name(id: u32) -> Cow<'static, str> {
+    match id {
+        keyword::VAMPIRE => t!("keyword.vampire"),
+        keyword::ROBOT => t!("keyword.robot"),
+        keyword::ISEKAI => t!("keyword.isekai"),
+        keyword::ROMANCE => t!("keyword.romance"),
+        keyword::TIME_TRAVEL => t!("keyword.time_travel"),
+        keyword::SUPERHERO => t!("keyword.superhero"),
+        _ => Cow::Borrowed(""),
+    }
+}
+
+/// Studio brand names are not translated.
+fn studio_name(id: u32) -> &'static str {
+    match id {
+        company::PIXAR => "Pixar",
+        company::DREAMWORKS_ANIMATION => "DreamWorks Animation",
+        company::DISNEY_ANIMATION => "Walt Disney Animation Studios",
+        company::GHIBLI => "Studio Ghibli",
+        _ => "",
+    }
+}
+
+#[must_use]
+pub fn list_status_label(status: ListStatus) -> Cow<'static, str> {
+    match status {
+        ListStatus::Watching => t!("library.watching"),
+        ListStatus::Planned => t!("library.planned"),
+        ListStatus::Completed => t!("library.completed"),
+        ListStatus::Dropped => t!("library.dropped"),
+    }
+}
+
+#[must_use]
+pub fn library_list_label(list: LibraryList) -> Cow<'static, str> {
+    match list {
+        LibraryList::Status(status) => list_status_label(status),
+        LibraryList::Liked => t!("library.liked"),
+    }
+}
+
+#[must_use]
+pub fn discover_sort_label(sort: DiscoverSort) -> Cow<'static, str> {
+    match sort {
+        DiscoverSort::Popular => t!("discover.sort_popular"),
+        DiscoverSort::Rating => t!("discover.sort_rating"),
+        DiscoverSort::Newest => t!("discover.sort_newest"),
+        DiscoverSort::Revenue => t!("discover.sort_revenue"),
+    }
+}
+
+#[must_use]
+pub fn kind_label(kind: MediaKind) -> Cow<'static, str> {
+    match kind {
+        MediaKind::Tv => t!("discover.series"),
+        MediaKind::Movie | MediaKind::Person => t!("discover.movies"),
     }
 }
 

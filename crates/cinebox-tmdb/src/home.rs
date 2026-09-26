@@ -1,4 +1,4 @@
-//! Home-row HTTP. Catalog endpoints.
+//! Home-row HTTP and the shared list-endpoint fetcher.
 
 use cinebox_core::{CatalogItem, HomeCatalog, HomeRow, HomeRowId, MediaKind};
 use cinebox_net::NetConfig;
@@ -6,12 +6,14 @@ use futures_util::future::join_all;
 use serde::Deserialize;
 
 use crate::catalog_map::{CatalogListItem, catalog_items_from};
+use crate::discover::{Date, DiscoverQuery};
+use crate::shelves::{ShelfId, ShelfSource, fetch_source_page};
 use crate::{Error, send_json};
 
 const API_BASE: &str = crate::API_BASE;
 pub const MAX_ROW_ITEMS: usize = 20;
 
-/// One TMDB list page for a home shelf.
+/// One TMDB list page for a shelf.
 #[derive(Debug, Clone, PartialEq)]
 pub struct CatalogPage {
     pub items: Vec<CatalogItem>,
@@ -26,27 +28,13 @@ struct ListResponse {
     results: Option<Vec<CatalogListItem>>,
 }
 
-fn path_for(id: HomeRowId) -> Option<&'static str> {
-    match id {
-        HomeRowId::RecentlyWatched => None,
-        HomeRowId::NowPlaying => Some("movie/now_playing"),
-        HomeRowId::TrendingDay => Some("trending/all/day"),
-        HomeRowId::TrendingWeek => Some("trending/all/week"),
-        HomeRowId::PopularMovies => Some("movie/popular"),
-        HomeRowId::PopularTv => Some("tv/popular"),
-        HomeRowId::TopRatedMovies => Some("movie/top_rated"),
-        HomeRowId::TopRatedTv => Some("tv/top_rated"),
-    }
-}
-
-fn default_kind(id: HomeRowId) -> Option<MediaKind> {
-    match id {
-        HomeRowId::RecentlyWatched | HomeRowId::TrendingDay | HomeRowId::TrendingWeek => None,
-        HomeRowId::NowPlaying | HomeRowId::PopularMovies | HomeRowId::TopRatedMovies => {
-            Some(MediaKind::Movie)
-        }
-        HomeRowId::PopularTv | HomeRowId::TopRatedTv => Some(MediaKind::Tv),
-    }
+/// One paged list endpoint such as `movie/popular` or `discover/tv`.
+pub(crate) struct ListRequest<'a> {
+    pub(crate) path: &'a str,
+    pub(crate) params: &'a [(&'static str, String)],
+    /// Kind for results without `media_type`.
+    pub(crate) kind: Option<MediaKind>,
+    pub(crate) exclude_language: Option<&'a str>,
 }
 
 pub(crate) fn page_bounds(
@@ -68,40 +56,43 @@ pub(crate) fn page_bounds(
     (page, page)
 }
 
-async fn fetch_page(
-    net: NetConfig,
-    api_key: String,
-    language: Option<String>,
-    id: HomeRowId,
+pub(crate) async fn fetch_list(
+    net: &NetConfig,
+    api_key: &str,
+    language: Option<&str>,
+    request: &ListRequest<'_>,
     page: u32,
 ) -> Result<CatalogPage, Error> {
-    let Some(path) = path_for(id) else {
-        return Ok(CatalogPage {
-            items: Vec::new(),
-            page: page.max(1),
-            total_pages: 1,
-        });
-    };
-
-    let url = format!("{API_BASE}/{path}");
+    let url = format!("{API_BASE}/{}", request.path);
     let page = page.max(1);
     let page_s = page.to_string();
 
-    let parsed: ListResponse = send_json(&net, |client| {
-        let mut request = client
+    let parsed: ListResponse = send_json(net, |client| {
+        let mut builder = client
             .get(&url)
             .timeout(std::time::Duration::from_secs(20))
-            .query(&[("api_key", api_key.as_str()), ("page", page_s.as_str())]);
+            .query(&[("api_key", api_key), ("page", page_s.as_str())])
+            .query(request.params);
 
-        if let Some(language) = language.as_deref().filter(|s| !s.is_empty()) {
-            request = request.query(&[("language", language)]);
+        if let Some(language) = language.filter(|s| !s.is_empty()) {
+            builder = builder.query(&[("language", language)]);
         }
 
-        request
+        builder
     })
     .await?;
-    let raw = parsed.results.unwrap_or_default();
-    let items = catalog_items_from(raw, default_kind(id), MAX_ROW_ITEMS);
+
+    let raw: Vec<CatalogListItem> = parsed
+        .results
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|item| {
+            request.exclude_language.is_none()
+                || item.original_language.as_deref() != request.exclude_language
+        })
+        .collect();
+
+    let items = catalog_items_from(raw, request.kind, MAX_ROW_ITEMS);
     let (page, total_pages) = page_bounds(page, parsed.page, parsed.total_pages, items.len());
 
     Ok(CatalogPage {
@@ -112,12 +103,14 @@ async fn fetch_page(
 }
 
 async fn fetch_row(
-    net: NetConfig,
-    api_key: String,
-    language: Option<String>,
+    net: &NetConfig,
+    api_key: &str,
+    language: Option<&str>,
     id: HomeRowId,
+    today: Date,
 ) -> HomeRow {
-    match fetch_page(net, api_key, language, id, 1).await {
+    let source = ShelfId::Home(id).source(today);
+    match fetch_source_page(net, api_key, language, &source, 1, today).await {
         Ok(page) => HomeRow {
             id,
             items: page.items,
@@ -137,16 +130,13 @@ pub async fn fetch_home(
     net: &NetConfig,
 ) -> Result<HomeCatalog, Error> {
     let api_key = crate::prepare_api_key(api_key)?;
-    let language = language.map(str::to_owned);
-    let futs = HomeRowId::REMOTE.into_iter().map(|id| {
-        let net = net.clone();
-        let key = api_key.to_owned();
-        let language = language.clone();
-        async move { fetch_row(net, key, language, id).await }
-    });
+    let today = Date::today();
+    let futs = HomeRowId::REMOTE
+        .into_iter()
+        .map(|id| fetch_row(net, api_key, language, id, today));
 
     let mut rows = Vec::with_capacity(HomeRowId::ALL.len());
-    rows.push(HomeRow::empty(HomeRowId::RecentlyWatched));
+    rows.extend(HomeRowId::LOCAL.into_iter().map(HomeRow::empty));
     rows.extend(join_all(futs).await);
 
     Ok(HomeCatalog { rows })
@@ -154,12 +144,14 @@ pub async fn fetch_home(
 
 pub async fn fetch_catalog_page(
     api_key: &str,
-    id: HomeRowId,
+    id: ShelfId,
     page: u32,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
-    if path_for(id).is_none() {
+    let today = Date::today();
+    let source = id.source(today);
+    if source == ShelfSource::Local {
         return Ok(CatalogPage {
             items: Vec::new(),
             page: page.max(1),
@@ -168,9 +160,20 @@ pub async fn fetch_catalog_page(
     }
 
     let api_key = crate::prepare_api_key(api_key)?;
-    let language = language.map(str::to_owned);
+    fetch_source_page(net, api_key, language, &source, page, today).await
+}
 
-    fetch_page(net.clone(), api_key.to_owned(), language, id, page).await
+pub async fn fetch_discover_page(
+    api_key: &str,
+    query: &DiscoverQuery,
+    page: u32,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<CatalogPage, Error> {
+    let api_key = crate::prepare_api_key(api_key)?;
+    let source = ShelfSource::Discover(Box::new(query.clone()));
+
+    fetch_source_page(net, api_key, language, &source, page, Date::today()).await
 }
 
 #[cfg(test)]

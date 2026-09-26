@@ -2,6 +2,7 @@
 
 use crate::catalog::{CatalogItem, HomeRow, HomeRowId};
 use crate::ids::{MediaKind, TmdbId};
+use crate::section::Section;
 
 use super::types::{
     RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, WatchHistoryEntry, episode_key, media_kind_from_key,
@@ -105,6 +106,7 @@ impl Store {
         let episode = entry.episode.map(i64::from);
         let poster_path = entry.poster_path.as_deref();
         let episode_title = entry.episode_title.as_deref();
+        let section = entry.section.as_key();
         let now = unix_now();
 
         let mut tx = self.pool.begin().await?;
@@ -113,8 +115,8 @@ impl Store {
             r#"
             INSERT OR REPLACE INTO watch_history
                 (kind, id, title, poster_path, year, vote, season, episode,
-                 episode_title, time, duration, updated_at)
-            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                 episode_title, time, duration, updated_at, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
             kind,
             id,
@@ -127,7 +129,8 @@ impl Store {
             episode_title,
             entry.time,
             entry.duration,
-            now
+            now,
+            section
         )
         .execute(&mut *tx)
         .await?;
@@ -139,20 +142,30 @@ impl Store {
         Ok(())
     }
 
-    /// Home-shelf tiles, most recently watched first.
+    /// Home-shelf tiles, most recently watched first, optionally limited to one section.
+    ///
+    /// Rows saved before sections existed are placed by media kind.
     ///
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn recently_watched(&self, limit: usize) -> Result<Vec<CatalogItem>, StoreError> {
+    pub async fn recently_watched(
+        &self,
+        limit: usize,
+        section: Option<Section>,
+    ) -> Result<Vec<CatalogItem>, StoreError> {
         let limit = i64::try_from(limit).unwrap_or(i64::MAX);
+        let section = section.map(Section::as_key);
         let rows = sqlx::query!(
             r#"
             SELECT kind, id, title, poster_path, year, vote
             FROM watch_history
+            WHERE ?1 IS NULL
+               OR COALESCE(section, CASE kind WHEN 'tv' THEN 'tv' ELSE 'movies' END) = ?1
             ORDER BY updated_at DESC, rowid DESC
-            LIMIT ?
+            LIMIT ?2
             "#,
+            section,
             limit
         )
         .fetch_all(&self.pool)
@@ -250,7 +263,7 @@ impl Store {
     pub async fn recently_watched_row(&self) -> Result<HomeRow, StoreError> {
         Ok(HomeRow {
             id: HomeRowId::RecentlyWatched,
-            items: self.recently_watched(RECENT_ROW_LIMIT).await?,
+            items: self.recently_watched(RECENT_ROW_LIMIT, None).await?,
             error: None,
         })
     }

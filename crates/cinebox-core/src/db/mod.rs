@@ -1,6 +1,7 @@
 //! Local SQLite via SQLx: TMDB cache, playback prefs, and watch history.
 
 mod cache;
+mod library;
 mod prefs;
 mod search;
 mod skip;
@@ -138,6 +139,9 @@ impl Store {
         let mut cached = self.home_rows(language).await?;
 
         let mut rows = vec![self.recently_watched_row().await?];
+        let history_empty = rows[0].items.is_empty();
+        rows.push(HomeRow::empty(HomeRowId::Watching));
+        rows.push(HomeRow::empty(HomeRowId::Planned));
         let mut any = false;
         let mut fresh = true;
 
@@ -156,7 +160,7 @@ impl Store {
         }
 
         if !any {
-            if rows[0].items.is_empty() {
+            if history_empty {
                 return Ok(None);
             }
 
@@ -235,6 +239,7 @@ mod tests {
     use super::*;
     use crate::catalog::{CatalogItem, HomeRow, HomeRowId};
     use crate::ids::{MediaKind, TmdbId};
+    use crate::section::Section;
     use crate::settings::{PosterSize, VideoScale};
     use types::unix_now;
 
@@ -265,6 +270,7 @@ mod tests {
         WatchHistoryEntry {
             kind: MediaKind::Movie,
             id: TmdbId::new(id),
+            section: Section::Movies,
             title: title.to_owned(),
             poster_path: Some(String::from("/p.jpg")),
             year: Some(2021),
@@ -480,7 +486,7 @@ mod tests {
             .upsert_watch_history(&history_entry(1, "First again"), Some("deadbeef"))
             .await?;
 
-        let recent = store.recently_watched(20).await?;
+        let recent = store.recently_watched(20, None).await?;
         assert_eq!(recent.len(), 2);
         assert_eq!(recent[0].id, TmdbId::new(1));
         assert_eq!(recent[0].title, "First again");
@@ -499,6 +505,46 @@ mod tests {
         let row = store.recently_watched_row().await?;
         assert_eq!(row.id, HomeRowId::RecentlyWatched);
         assert_eq!(row.items.len(), 2);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn recently_watched_filters_by_section() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        let anime = WatchHistoryEntry {
+            kind: MediaKind::Tv,
+            section: Section::Anime,
+            ..history_entry(2, "Anime")
+        };
+
+        store
+            .upsert_watch_history(&history_entry(1, "Movie"), None)
+            .await?;
+        store.upsert_watch_history(&anime, None).await?;
+
+        let recent = store.recently_watched(20, Some(Section::Anime)).await?;
+        let ids: Vec<TmdbId> = recent.iter().map(|item| item.id).collect();
+        assert_eq!(ids, vec![TmdbId::new(2)]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn legacy_history_rows_fall_back_to_kind_section() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        let show = WatchHistoryEntry {
+            kind: MediaKind::Tv,
+            section: Section::Tv,
+            ..history_entry(3, "Show")
+        };
+        store.upsert_watch_history(&show, None).await?;
+        sqlx::query("UPDATE watch_history SET section = NULL")
+            .execute(&store.pool)
+            .await?;
+
+        let recent = store.recently_watched(20, Some(Section::Tv)).await?;
+        assert_eq!(recent.len(), 1);
 
         Ok(())
     }
@@ -542,7 +588,7 @@ mod tests {
             .await?;
         store.clear_tmdb().await?;
 
-        let recent = store.recently_watched(10).await?;
+        let recent = store.recently_watched(10, None).await?;
         assert_eq!(recent.len(), 1);
         assert_eq!(recent[0].id, TmdbId::new(9));
 

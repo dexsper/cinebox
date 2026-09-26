@@ -1,11 +1,11 @@
 //! Catalog poster tiles.
 
-use cinebox_core::{CatalogItem, CreditPerson, MediaKind, PosterSize};
+use cinebox_core::{CatalogItem, CreditPerson, LibraryMark, MediaKind, PosterSize};
 use egui::{
     Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
 };
 use egui_material_icons::MaterialIcon;
-use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_HIDE_IMAGE, ICON_PLAY_ARROW};
+use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_FAVORITE, ICON_HIDE_IMAGE, ICON_PLAY_ARROW};
 
 use crate::images::{ImageCache, ImageSlot};
 use crate::nav::NavAction;
@@ -95,13 +95,21 @@ pub fn card_scale(available_w: f32) -> f32 {
     1.0 + t * (MAX_SCALE - 1.0)
 }
 
+/// Local state painted over a catalog tile.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct TileMarks {
+    /// Playback was started at least once.
+    pub watched: bool,
+    pub library: LibraryMark,
+}
+
 pub fn catalog_tile(
     ui: &mut Ui,
     item: &CatalogItem,
     images: &ImageCache,
     size: PosterSize,
     theme: &Theme,
-    watched: bool,
+    marks: TileMarks,
     scale: f32,
 ) -> Option<NavAction> {
     let pad = theme.ring_pad();
@@ -127,9 +135,7 @@ pub fn catalog_tile(
     let poster = images.poster(item, size);
 
     paint_poster(ui, poster_rect, poster, theme);
-    if watched {
-        watched_badge(ui, poster_rect, theme, scale);
-    }
+    paint_marks(ui, poster_rect, marks, theme, scale);
 
     if let Some(vote) = item.vote.filter(|v| *v > 0.0) {
         vote_badge(ui, poster_rect, vote, theme, scale);
@@ -265,6 +271,44 @@ fn paint_slot_icon(ui: &Ui, rect: Rect, icon: MaterialIcon, theme: &Theme) {
         .min;
 
     ui.painter().galley(pos, galley, theme.muted);
+}
+
+/// Status badge top-left, liked heart top-right. The "started" badge only shows
+/// when no status is set, since every status already implies the user knows the title.
+pub fn paint_marks(ui: &Ui, poster: Rect, marks: TileMarks, theme: &Theme, scale: f32) {
+    let radius = 13.0 * scale;
+    let inset = radius + 8.0 * scale;
+
+    if let Some(status) = marks.library.status {
+        let center = pos2(poster.left() + inset, poster.top() + inset);
+        icon_badge(ui, center, radius, super::lists::status_icon(status), theme.title, theme, scale);
+    } else if marks.watched {
+        watched_badge(ui, poster, theme, scale);
+    }
+
+    if marks.library.liked {
+        let center = pos2(poster.right() - inset, poster.top() + inset);
+        icon_badge(ui, center, radius, ICON_FAVORITE, theme.liked, theme, scale);
+    }
+}
+
+fn icon_badge(
+    ui: &Ui,
+    center: egui::Pos2,
+    radius: f32,
+    icon: MaterialIcon,
+    color: egui::Color32,
+    theme: &Theme,
+    scale: f32,
+) {
+    ui.painter().circle_filled(center, radius, theme.badge_bg);
+
+    let font = FontId::new(16.0 * scale, icon.font_family());
+    let galley = ui
+        .painter()
+        .layout_no_wrap(icon.codepoint.to_owned(), font, color);
+    let pos = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
+    ui.painter().galley(pos, galley, color);
 }
 
 /// Play-icon badge, top-center: this media has been started at least once.

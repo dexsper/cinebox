@@ -44,6 +44,29 @@ pub fn show(
     show_at(ctx, spec, content)
 }
 
+/// Paint an anchored popup just below `anchor`, left edges aligned.
+pub fn show_below(
+    ctx: &egui::Context,
+    id: &'static str,
+    anchor: Rect,
+    theme: &Theme,
+    width: f32,
+    margin: Margin,
+    content: impl FnOnce(&mut Ui, &Theme),
+) -> FlyoutOut {
+    let spec = Spec {
+        id,
+        anchor,
+        theme,
+        width,
+        margin,
+        align: Align2::LEFT_TOP,
+        pos: pos2(anchor.left(), anchor.bottom() + ANCHOR_GAP),
+    };
+
+    show_at(ctx, spec, content)
+}
+
 struct Spec<'a> {
     id: &'static str,
     anchor: Rect,

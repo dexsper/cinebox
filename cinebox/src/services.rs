@@ -4,12 +4,18 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::sync::{Arc, Mutex};
 
-use cinebox_core::{MediaKind, Settings, SettingsStore, Store, TmdbId, allowed_image_sizes};
+use cinebox_core::{
+    LibraryMark, ListStatus, MediaKind, Settings, SettingsStore, Store, StoreError, TmdbId,
+    allowed_image_sizes,
+};
 use cinebox_player::Engine;
 use tracing::{error, info, warn};
 
 use crate::images::ImageCache;
+use crate::library::Library;
+use crate::screens::play::WatchCard;
 use crate::toasts::Toasts;
+use crate::widgets::poster::TileMarks;
 
 pub struct Services {
     pub settings: Settings,
@@ -20,6 +26,7 @@ pub struct Services {
     pub images: ImageCache,
     pub toasts: Toasts,
     pub engine: Option<Arc<Mutex<Engine>>>,
+    pub library: Library,
     watched: HashSet<(MediaKind, TmdbId)>,
     home_needs_refresh: bool,
 }
@@ -35,6 +42,11 @@ impl Services {
             .unwrap_or_default()
             .into_iter()
             .collect();
+        let library = db
+            .as_ref()
+            .and_then(|db| db_block_on(db.library_entries()).ok())
+            .map(Library::from_entries)
+            .unwrap_or_default();
 
         Self {
             settings,
@@ -45,6 +57,7 @@ impl Services {
             images,
             toasts: Toasts::default(),
             engine,
+            library,
             watched,
             home_needs_refresh: false,
         }
@@ -61,6 +74,7 @@ impl Services {
             images: ImageCache::with_db(Some(db)),
             toasts: Toasts::default(),
             engine: None,
+            library: Library::default(),
             watched: HashSet::new(),
             home_needs_refresh: false,
         }
@@ -74,6 +88,46 @@ impl Services {
     pub fn mark_watched(&mut self, kind: MediaKind, id: TmdbId) {
         self.watched.insert((kind, id));
         self.home_needs_refresh = true;
+    }
+
+    #[must_use]
+    pub fn library_mark(&self, kind: MediaKind, id: TmdbId) -> LibraryMark {
+        self.library.mark(kind, id)
+    }
+
+    #[must_use]
+    pub fn tile_marks(&self, kind: MediaKind, id: TmdbId) -> TileMarks {
+        TileMarks {
+            watched: self.is_watched(kind, id),
+            library: self.library_mark(kind, id),
+        }
+    }
+
+    pub fn set_list_status(&mut self, card: &WatchCard, status: Option<ListStatus>) {
+        let item = card.item();
+        self.library.set_status(&item, card.section, status);
+        if let Some(db) = &self.db {
+            warn_library_write(db_block_on(db.set_library_status(&item, card.section, status)));
+        }
+    }
+
+    pub fn set_liked(&mut self, card: &WatchCard, liked: bool) {
+        let item = card.item();
+        self.library.set_liked(&item, card.section, liked);
+        if let Some(db) = &self.db {
+            warn_library_write(db_block_on(db.set_library_liked(&item, card.section, liked)));
+        }
+    }
+
+    pub fn mark_watching_if_unset(&mut self, card: &WatchCard) {
+        let item = card.item();
+        if !self.library.mark_watching_if_unset(&item, card.section) {
+            return;
+        }
+
+        if let Some(db) = &self.db {
+            warn_library_write(db_block_on(db.mark_watching_if_unset(&item, card.section)));
+        }
     }
 
     pub fn persist(&mut self) {
@@ -116,6 +170,12 @@ fn open_app_db(settings: &Settings) -> Option<Arc<Store>> {
             error!(%error, "app database unavailable");
             None
         }
+    }
+}
+
+fn warn_library_write(result: Result<(), StoreError>) {
+    if let Err(error) = result {
+        warn!(%error, "failed to save library entry");
     }
 }
 

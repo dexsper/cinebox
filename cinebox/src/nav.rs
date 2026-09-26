@@ -1,9 +1,15 @@
-use cinebox_core::{CatalogItem, CreditPerson, HomeRowId, MediaKind, TmdbId};
+use cinebox_core::{CatalogItem, CreditPerson, LibraryList, MediaKind, Section, TmdbId};
+use cinebox_tmdb::ShelfId;
+
+use crate::screens::discover::DiscoverFilters;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Screen {
     Home,
-    Category { id: HomeRowId },
+    Section { section: Section },
+    Category { id: ShelfId },
+    Discover { section: Section },
+    Library,
     Search,
     Media { kind: MediaKind, id: TmdbId },
     Person { id: TmdbId },
@@ -11,14 +17,73 @@ pub enum Screen {
     Player { kind: MediaKind, id: TmdbId },
 }
 
+/// Top-level destination in the side rail.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum RailEntry {
+    Home,
+    Section(Section),
+    Library,
+}
+
+impl Screen {
+    /// Browse screens get the side rail; detail and playback screens do not.
+    #[must_use]
+    pub const fn shows_rail(self) -> bool {
+        matches!(
+            self,
+            Self::Home
+                | Self::Section { .. }
+                | Self::Category { .. }
+                | Self::Discover { .. }
+                | Self::Library
+                | Self::Search
+        )
+    }
+
+    /// Rail entry highlighted while this screen is shown.
+    #[must_use]
+    pub const fn rail_entry(self) -> Option<RailEntry> {
+        match self {
+            Self::Home
+            | Self::Category {
+                id: ShelfId::Home(_),
+            } => Some(RailEntry::Home),
+            Self::Section { section }
+            | Self::Discover { section }
+            | Self::Category {
+                id: ShelfId::Section(section, _),
+            } => Some(RailEntry::Section(section)),
+            Self::Library => Some(RailEntry::Library),
+            _ => None,
+        }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NavAction {
     OpenSettings,
     GoBack,
-    OpenCategory { id: HomeRowId, items: Vec<CatalogItem> },
-    OpenSearch { query: String },
-    OpenMedia { item: CatalogItem },
-    OpenPerson { person: CreditPerson },
+    OpenRail(RailEntry),
+    OpenCategory {
+        id: ShelfId,
+        items: Vec<CatalogItem>,
+    },
+    OpenDiscover {
+        section: Section,
+        filters: DiscoverFilters,
+    },
+    OpenLibrary {
+        list: LibraryList,
+    },
+    OpenSearch {
+        query: String,
+    },
+    OpenMedia {
+        item: CatalogItem,
+    },
+    OpenPerson {
+        person: CreditPerson,
+    },
     WatchTorrents,
 }
 
@@ -48,6 +113,12 @@ impl Nav {
         if self.stack.len() > 1 {
             self.stack.pop();
         }
+    }
+
+    /// Jump to a top-level screen: the stack becomes `[Home, screen]`, so Back returns Home.
+    pub fn switch_top(&mut self, screen: Screen) {
+        self.stack.truncate(1);
+        self.push(screen);
     }
 }
 
@@ -160,7 +231,7 @@ mod tests {
     fn category_stacks_on_home() {
         let mut nav = Nav::new();
         let category = Screen::Category {
-            id: HomeRowId::NowPlaying,
+            id: ShelfId::Home(cinebox_core::HomeRowId::NowPlaying),
         };
 
         nav.push(category);
@@ -169,6 +240,41 @@ mod tests {
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
     }
+
+    mod switch_top {
+        use super::*;
+
+        #[test]
+        fn back_from_switched_section_returns_home() {
+            let mut nav = Nav::new();
+            nav.switch_top(Screen::Section {
+                section: Section::Movies,
+            });
+
+            nav.push(Screen::Media {
+                kind: MediaKind::Movie,
+                id: TmdbId::new(1),
+            });
+
+            nav.switch_top(Screen::Section {
+                section: Section::Tv,
+            });
+
+            nav.pop();
+            assert_eq!(nav.current(), Screen::Home);
+        }
+
+        #[test]
+        fn switching_to_home_leaves_only_root() {
+            let mut nav = Nav::new();
+
+            nav.push(Screen::Library);
+            nav.switch_top(Screen::Home);
+
+            assert_eq!(nav.stack, vec![Screen::Home]);
+        }
+    }
+
 
     #[test]
     fn search_stacks_on_home_and_does_not_duplicate() {
