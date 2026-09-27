@@ -4,13 +4,13 @@
 
 [Что и зачем](#что-это-и-зачем) | [Возможности](#возможности) | [Как это работает](#как-это-работает) | [Установка](#установка) | [Архитектура](#архитектура) | [Планы](#планы) | [Как помочь](#как-помочь) | [Отказ от ответственности](#отказ-от-ответственности)
 
-![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
+![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
 
 ![Cinebox русский интерфейс](docs/screen-ru.png)
 
 ## Что это и зачем
 
-Cinebox - нативное приложение для Windows. Каталог фильмов и сериалов, поиск раздач и просмотр в одном окне, без браузера и без отдельного плеера.
+Cinebox - нативное приложение для Windows и Linux. Каталог фильмов и сериалов, поиск раздач и просмотр в одном окне, без браузера и без отдельного плеера.
 
 По стеку это то же самое, к чему все привыкли в **LAMPA MX**: TMDB, Jackett или Prowlarr, TorrServer. Но LAMPA - сайт. Она открывается в браузере или в WebView, встроенный плеер мало какие кодеки умеет и часто тормозит, поэтому почти всегда поток уходит в VLC или MPC-HC. Плюс сам браузер отдельно ест память.
 
@@ -47,7 +47,6 @@ Cinebox - нативное приложение для Windows. Каталог �
 - Системный прокси для TMDB и парсера, TorrServer всегда напрямую
 - Встроенный DNS-over-HTTPS для обхода DNS-блокировок
 - Проверка подключения к TMDB, парсеру и TorrServer, спидтест
-- Портативность: настройки и база лежат рядом с exe
 
 ## Как это работает
 
@@ -77,7 +76,10 @@ flowchart LR
 
 ## Установка
 
-Сборку под Windows x64 качайте в **[GitHub Releases](https://github.com/dexsper/cinebox/releases)**. Распаковали архив, запускаете `cinebox.exe`.
+Сборки лежат в **[GitHub Releases](https://github.com/dexsper/cinebox/releases)**:
+
+- **Windows x64:** распакуйте zip и запустите `cinebox.exe`. Настройки и база хранятся в той же папке.
+- **Linux x86_64:** сделайте AppImage исполняемым (`chmod +x`) и запустите. Настройки в `~/.config/cinebox`, база в `~/.local/share/cinebox`. Нужен glibc 2.39+ (Ubuntu 24.04, Fedora 40 или новее).
 
 Сам Cinebox не ставит TMDB, парсер и TorrServer, их нужно поднять отдельно:
 
@@ -98,7 +100,9 @@ flowchart LR
 
 Нужно, если собираетесь править код или релиза еще нет.
 
-1. Windows 10/11 x64, [Rust](https://rustup.rs/) **1.95+**, MSVC C++ Build Tools (`lib.exe` должен быть в `PATH`).
+1. [Rust](https://rustup.rs/) **1.95+** и инструменты платформы:
+   - Windows 10/11 x64: MSVC C++ Build Tools (`lib.exe` должен быть в `PATH`).
+   - Linux: libmpv 0.35+ с заголовками и `pkg-config`. Debian/Ubuntu: `sudo apt install pkg-config libmpv-dev libxkbcommon-dev libwayland-dev`.
 2. Клонировать и запустить:
 
 ```bash
@@ -107,7 +111,7 @@ cd cinebox
 cargo run -p cinebox --release
 ```
 
-Первая сборка на Windows скачает **libmpv** (около 30 МБ) и соберет `mpv.lib`. Потом это лежит в `crates/cinebox-player/mpv-src/` и заново не качается.
+Первая сборка на Windows скачает **libmpv** (около 30 МБ) и соберет `mpv.lib`. Потом это лежит в `crates/cinebox-player/mpv-src/` и заново не качается. На Linux используется системная libmpv.
 
 ```bash
 cargo test --workspace
@@ -140,7 +144,7 @@ cargo test --workspace
   - [ ] Свой анализатор на Chromaprint
 - [x] Категории на главной и свои списки (Избранное, Просмотрено)
 - [ ] Мастер первого запуска
-- [ ] Сборка под Linux
+- [x] Сборка под Linux
 
 
 

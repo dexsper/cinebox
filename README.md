@@ -4,13 +4,13 @@
 
 [What and why](#what-and-why) | [Features](#features) | [How it works](#how-it-works) | [Install](#install) | [Architecture](#architecture) | [Roadmap](#roadmap) | [Contributing](#contributing) | [Disclaimer](#disclaimer)
 
-![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
+![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
 
 ![Cinebox English UI](docs/screen-en.png)
 
 ## What and why
 
-Cinebox is a native Windows app. Movie and series catalog, torrent search, and playback in one window: no browser, no extra player.
+Cinebox is a native desktop app for Windows and Linux. Movie and series catalog, torrent search, and playback in one window: no browser, no extra player.
 
 The stack is the same one people already use in **LAMPA MX**: TMDB, Jackett or Prowlarr, TorrServer. LAMPA is a website. It runs in a browser or a WebView, the built-in player handles few codecs and often stutters, so the stream almost always ends up in VLC or MPC-HC. The browser also eats RAM on its own.
 
@@ -47,7 +47,6 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - System proxy for TMDB and the parser; TorrServer always connects directly
 - Built-in DNS-over-HTTPS to get around DNS blocks
 - Connection checks for TMDB, the parser, and TorrServer, plus a speed test
-- Portable: settings and database sit next to the exe
 
 ## How it works
 
@@ -73,7 +72,10 @@ flowchart LR
 
 ## Install
 
-Get a Windows x64 build from **[GitHub Releases](https://github.com/dexsper/cinebox/releases)**. Unpack the archive and run `cinebox.exe`.
+Get a build from **[GitHub Releases](https://github.com/dexsper/cinebox/releases)**:
+
+- **Windows x64:** unpack the zip and run `cinebox.exe`. Settings and the database stay in that folder.
+- **Linux x86_64:** make the AppImage executable (`chmod +x`) and run it. Settings go to `~/.config/cinebox`, the database to `~/.local/share/cinebox`. Needs glibc 2.39+ (Ubuntu 24.04, Fedora 40, or newer).
 
 Cinebox does not ship TMDB, a parser, or TorrServer. You run those yourself:
 
@@ -92,7 +94,9 @@ On first launch, open Settings (gear) and fill in the key and URLs. Same screen 
 
 For hacking on the code, or if there is no release yet.
 
-1. Windows 10/11 x64, [Rust](https://rustup.rs/) **1.95+**, MSVC C++ Build Tools (`lib.exe` on `PATH`).
+1. [Rust](https://rustup.rs/) **1.95+** and the platform toolchain:
+   - Windows 10/11 x64: MSVC C++ Build Tools (`lib.exe` on `PATH`).
+   - Linux: libmpv 0.35+ with headers and `pkg-config`. Debian/Ubuntu: `sudo apt install pkg-config libmpv-dev libxkbcommon-dev libwayland-dev`.
 2. Clone and run:
 
 ```bash
@@ -101,7 +105,7 @@ cd cinebox
 cargo run -p cinebox --release
 ```
 
-The first Windows build downloads **libmpv** (about 30 MB) and builds `mpv.lib`. After that it lives in `crates/cinebox-player/mpv-src/` and is not downloaded again.
+The first Windows build downloads **libmpv** (about 30 MB) and builds `mpv.lib`. After that it lives in `crates/cinebox-player/mpv-src/` and is not downloaded again. On Linux the system libmpv is linked.
 
 ```bash
 cargo test --workspace
@@ -131,7 +135,7 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
   - [ ] Custom Chromaprint-based analyzer
 - [x] Categories on the home screen, plus custom lists (Favorites, Watched)
 - [ ] First-run wizard
-- [ ] Linux build
+- [x] Linux build
 
 ## Contributing
 
