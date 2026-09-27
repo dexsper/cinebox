@@ -75,9 +75,11 @@ pub fn plain_client(
     }
 
     let mut builder = base_builder(connect_timeout, user_agent);
-    if !net.use_system_proxy {
-        builder = builder.no_proxy();
-    }
+    builder = if net.use_system_proxy {
+        crate::proxy::with_system_proxy(builder)
+    } else {
+        builder.no_proxy()
+    };
 
     let client = builder.build()?;
     Ok(store_client(key, client))

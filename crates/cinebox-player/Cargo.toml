@@ -14,15 +14,16 @@ cinebox-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 
-[target.'cfg(windows)'.dependencies]
+[target.'cfg(target_os = "windows")'.dependencies]
 libmpv2 = { version = "6.0.0", features = ["build_libmpv"] }
 
-[target.'cfg(not(windows))'.dependencies]
+[target.'cfg(target_os = "linux")'.dependencies]
 libmpv2 = "6.0.0"
 
 [build-dependencies]
 cc = "1.2"
 goblin = { version = "0.10", default-features = false, features = ["std", "pe64"] }
+pkg-config = "0.3"
 sevenz-rust2 = "0.22"
 sha2 = "0.11"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }

@@ -1,4 +1,4 @@
-//! Rasterize `assets/icon.svg` for the window icon and the Windows .exe resource.
+//! Rasterize `assets/icon.svg` for the window icon and, on Windows, the .exe resource.
 
 use std::env;
 use std::fs;
@@ -37,20 +37,25 @@ fn build() -> Result<()> {
     let rgba_path = out_dir.join("icon-256.rgba");
     fs::write(&rgba_path, &rgba).with_context(|| format!("write {}", rgba_path.display()))?;
 
-    let ico_path = out_dir.join("icon.ico");
-    write_ico(&tree, &ico_path)?;
-
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("windows") {
-        let mut resource = winresource::WindowsResource::new();
-        let ico = ico_path
-            .to_str()
-            .context("icon.ico path is not valid UTF-8")?;
-
-        resource.set_icon(ico);
-        resource.compile().context("embed Windows icon resource")?;
+    match env::var("CARGO_CFG_TARGET_OS")?.as_str() {
+        "windows" => embed_windows_icon(&tree, &out_dir),
+        "linux" => Ok(()),
+        other => bail!("unsupported target OS: {other}"),
     }
+}
 
-    Ok(())
+/// The .exe icon comes from a resource; Linux desktops take it from the .desktop entry.
+fn embed_windows_icon(tree: &usvg::Tree, out_dir: &Path) -> Result<()> {
+    let ico_path = out_dir.join("icon.ico");
+    write_ico(tree, &ico_path)?;
+
+    let mut resource = winresource::WindowsResource::new();
+    let ico = ico_path
+        .to_str()
+        .context("icon.ico path is not valid UTF-8")?;
+
+    resource.set_icon(ico);
+    resource.compile().context("embed Windows icon resource")
 }
 
 fn write_ico(tree: &usvg::Tree, path: &Path) -> Result<()> {

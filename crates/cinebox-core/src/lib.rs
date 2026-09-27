@@ -26,6 +26,7 @@ pub use db::{
 pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};
 pub use library::{LibraryEntry, LibraryList, LibraryMark, ListStatus};
+pub use paths::AppDirs;
 pub use media::{
     CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money,
 };

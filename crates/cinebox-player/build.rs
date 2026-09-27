@@ -1,5 +1,8 @@
-//! Bundle libmpv for Windows so `libmpv2` + `build_libmpv` can link without a
-//! system install. Artifacts land in `$MPV_SOURCE/64` (see `.cargo/config.toml`).
+//! Link libmpv per target OS.
+//!
+//! Windows: bundle a prebuilt libmpv so `libmpv2` + `build_libmpv` link without a system
+//! install. Artifacts land in `$MPV_SOURCE/64` (see `.cargo/config.toml`).
+//! Linux: link the system libmpv found through pkg-config.
 
 use std::env;
 use std::fs::{self, File};
@@ -16,11 +19,29 @@ const ARCHIVE_SHA256: &str = "e99b8c85e184463571088c79732f7e1e09ed4524c2945cdca1
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
     println!("cargo:rerun-if-env-changed=MPV_SOURCE");
-    if env::var("CARGO_CFG_TARGET_OS").as_deref() != Ok("windows") {
-        return;
-    }
 
-    bundle_windows_libmpv();
+    match need(env::var("CARGO_CFG_TARGET_OS"), "target OS").as_str() {
+        "windows" => bundle_windows_libmpv(),
+        "linux" => link_system_libmpv(),
+        other => panic!("Cinebox has no libmpv setup for target OS {other}"),
+    }
+}
+
+/// Client API 2.0 ships with mpv 0.35, the minimum `libmpv2` supports.
+const MIN_LIBMPV_API: &str = "2.0";
+
+fn link_system_libmpv() {
+    let probe = pkg_config::Config::new()
+        .atleast_version(MIN_LIBMPV_API)
+        .probe("mpv");
+
+    if let Err(error) = probe {
+        panic!(
+            "libmpv {MIN_LIBMPV_API}+ (mpv 0.35+) not found via pkg-config: {error}\n\
+             Install the development package: libmpv-dev (Debian/Ubuntu), \
+             mpv-devel (Fedora), mpv (Arch)."
+        );
+    }
 }
 
 fn bundle_windows_libmpv() {

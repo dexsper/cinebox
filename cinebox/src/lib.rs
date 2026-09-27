@@ -24,6 +24,10 @@ use rust_i18n::t;
 
 const ICON_PX: u32 = 256;
 
+/// Wayland `app_id` / X11 `WM_CLASS`; must match the `.desktop` file name so the
+/// desktop shows the right name and icon for the window.
+const APP_ID: &str = "io.github.dexsper.cinebox";
+
 /// Run the desktop shell.
 ///
 /// # Errors
@@ -37,6 +41,7 @@ pub fn run() -> eframe::Result {
             .with_min_inner_size([800.0, 600.0])
             .with_decorations(false)
             .with_title(title.as_ref())
+            .with_app_id(APP_ID)
             .with_icon(app_icon()),
         ..Default::default()
     };

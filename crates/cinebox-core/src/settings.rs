@@ -1,4 +1,4 @@
-//! JSON settings stored next to the executable.
+//! JSON settings stored in the platform config directory.
 
 use std::fmt;
 use std::fs;
@@ -53,8 +53,8 @@ impl fmt::Debug for SecretString {
 /// Failures loading or saving settings.
 #[derive(Debug, thiserror::Error)]
 pub enum SettingsError {
-    #[error("could not determine executable directory")]
-    NoExeDir(#[source] io::Error),
+    #[error("could not determine the settings directory")]
+    NoConfigDir(#[source] io::Error),
     #[error("failed to create config directory {}", .path.display())]
     CreateDir {
         path: PathBuf,
@@ -377,15 +377,15 @@ pub struct SettingsStore {
 }
 
 impl SettingsStore {
-    /// Next to the executable: `settings.json`.
+    /// `settings.json` in the platform config directory ([`paths::AppDirs`]).
     ///
     /// # Errors
     ///
-    /// Returns [`SettingsError::NoExeDir`] if the executable path cannot be resolved.
+    /// Returns [`SettingsError::NoConfigDir`] if this platform has no config directory.
     pub fn system() -> Result<Self, SettingsError> {
-        let dir = paths::exe_dir().map_err(SettingsError::NoExeDir)?;
+        let dirs = paths::AppDirs::system().map_err(SettingsError::NoConfigDir)?;
         Ok(Self {
-            path: dir.join("settings.json"),
+            path: dirs.config.join("settings.json"),
         })
     }
 

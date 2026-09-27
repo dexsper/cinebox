@@ -30,8 +30,8 @@ pub use types::{
 /// Failures opening or talking to the local database.
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
-    #[error("could not determine executable directory")]
-    NoExeDir(#[source] io::Error),
+    #[error("could not determine the data directory")]
+    NoDataDir(#[source] io::Error),
     #[error("could not create database directory {}", .path.display())]
     CreateDir {
         path: std::path::PathBuf,
@@ -54,15 +54,15 @@ pub struct Store {
 }
 
 impl Store {
-    /// Next to the executable: `cinebox.sqlite`.
+    /// `cinebox.sqlite` in the platform data directory ([`paths::AppDirs`]).
     ///
     /// # Errors
     ///
-    /// Missing executable dir or sqlite errors.
+    /// No data directory for this platform, or sqlite errors.
     pub async fn system() -> Result<Self, StoreError> {
-        let dir = paths::exe_dir().map_err(StoreError::NoExeDir)?;
+        let dirs = paths::AppDirs::system().map_err(StoreError::NoDataDir)?;
 
-        Self::open(dir.join("cinebox.sqlite")).await
+        Self::open(dirs.data.join("cinebox.sqlite")).await
     }
 
     /// Open (or create) the database at `path` and run embedded migrations.

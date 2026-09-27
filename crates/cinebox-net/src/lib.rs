@@ -19,7 +19,7 @@ pub use proxy::http_proxy_url;
 /// Doubles as the cache key for the long-lived `reqwest` clients.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Hash)]
 pub struct NetConfig {
-    /// WinINet / env HTTP(S) proxy for the primary connection path.
+    /// System proxy for the primary connection path.
     pub use_system_proxy: bool,
     /// Resolve hosts over DoH when the primary path cannot reach the server.
     pub dns_bypass: bool,

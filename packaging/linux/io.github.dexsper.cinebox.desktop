@@ -1,0 +1,15 @@
+[Desktop Entry]
+Type=Application
+Name=Cinebox
+GenericName=Movie Player
+GenericName[ru]=Кинотеатр
+GenericName[uk]=Кінотеатр
+Comment=Movie and series catalog, torrent search, and playback in one window
+Comment[ru]=Каталог фильмов и сериалов, поиск раздач и просмотр в одном окне
+Comment[uk]=Каталог фільмів і серіалів, пошук роздач і перегляд в одному вікні
+Exec=cinebox
+Icon=io.github.dexsper.cinebox
+Terminal=false
+Categories=AudioVideo;Video;Player;
+Keywords=movie;series;torrent;tmdb;mpv;
+StartupWMClass=io.github.dexsper.cinebox
