@@ -20,35 +20,34 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 
 **Catalog**
 
-- Home screen: recently watched, your Watching and Plan to watch lists, now playing, trending (day and week), popular and top-rated. Rows can be hidden in settings
-- Side rail with sections: Movies, Cartoons, Series, Anime. Each has its own shelves: last year, worth a rewatch, highly rated, genres, decades, studios
-- Discover: browse any section by genre, decade, minimum rating, and sort order
-- Personal lists: Watching, Plan to watch, Completed, Dropped, plus Liked. Starting playback puts a title into Watching
-- Search for movies, series, and people, plus query history
-- Title page: overview, runtime, rating, budget, countries, directors, cast, collection, recommendations, similar titles
+- Sections: Movies, Cartoons, Series, Anime, each with its own themed shelves
+- Discover: filter by genre, decade, rating, and sort order
+- Lists: Watching, Plan to watch, Completed, Dropped, and Liked
+- Home: recently watched, your lists, trending, popular, top rated
+- Search for movies, series, and people with query history
+- Title pages with cast, collections, recommendations, and similar titles
 - Actor and director pages
-- Posters show if you already watched it and which list it is in
-- Local watch history: resume from the last position per title or episode
-- Optional TorrServer timecode sync (off by default): progress is also stored on the server. Local history wins when both exist
+- Resume from the last position per movie or episode
+- Optional timecode sync with TorrServer
 
 **Playback**
 
-- Built-in **libmpv**. For MKV, HEVC, HDR, and the rest of what usually sits in torrents, a second player is not needed
-- Jackett or Prowlarr search. Filters: quality, HDR, Dolby Vision, subtitles, year, translation and voice, language. Sort by popularity, seeders, or size
-- Streaming through TorrServer, optional preload wait, file list inside the torrent, play next automatically
-- Audio and subtitle tracks, subtitle size and delay, speed 0.5x-2x, video scale, volume, loudness normalization
-- For the same torrent, the chosen audio and subtitle tracks, speed, and video scale come back next time
-- Fullscreen. Controls hide if you leave the mouse alone. Seek 10 seconds with keys or by clicking the left/right third of the screen
+- Built-in libmpv: MKV, HEVC, and HDR play without an external player
+- Torrent search via Jackett or Prowlarr with quality, HDR, voice, and language filters
+- Streaming through TorrServer with preload and auto-play of the next file
+- Audio and subtitle tracks, subtitle delay, speed, scale, loudness normalization
+- Track, speed, and scale choices remembered per torrent
+- Fullscreen with auto-hiding controls and 10-second seek
 - YouTube trailers in the same player
-- Skip intro, recap, credits, and preview: buttons appear when you enter a skippable zone; press Skip once and it remembers — next time it counts down 8 s and skips automatically
+- Skip intro, recap, credits, and preview, with optional auto-skip
 
 **App**
 
-- UI languages: English, Russian, Ukrainian. TMDB catalog language follows the UI
-- System proxy for TMDB and the parser. TorrServer always connects directly (usually a box on the LAN)
-- DNS-block bypass via DoH for TMDB and the parser
-- Settings can check the TMDB key, the parser, and TorrServer, run a speed test, and clear the cache
-- `settings.json` and `cinebox.sqlite` sit next to the exe, so you can carry the folder around
+- English, Russian, and Ukrainian UI; TMDB content follows the UI language
+- System proxy for TMDB and the parser; TorrServer always connects directly
+- Built-in DNS-over-HTTPS to get around DNS blocks
+- Connection checks for TMDB, the parser, and TorrServer, plus a speed test
+- Portable: settings and database sit next to the exe
 
 ## How it works
 
@@ -64,7 +63,7 @@ flowchart LR
   Parser -.-> DoH
 ```
 
-1. **Catalog.** Cinebox calls TMDB with your key: home, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
+1. **Catalog.** Cinebox calls TMDB with your key: home, sections, discover, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
 2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
 3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the HTTP stream opens in libmpv. No browser in this path.
 4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. If "Track timecode on server" is on, the same time is sent to TorrServer. On open, local position is preferred; otherwise the server's timecode is used.
@@ -115,8 +114,8 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 | Crate | What it does |
 | --- | --- |
 | `cinebox` | Window (egui/eframe), screens, translations |
-| `cinebox-core` | Models, `settings.json`, SQLite (cache and history) |
-| `cinebox-tmdb` | TMDB requests |
+| `cinebox-core` | Models, `settings.json`, SQLite (cache, history, lists) |
+| `cinebox-tmdb` | TMDB requests, section shelves, discover queries |
 | `cinebox-net` | HTTP: proxy, DoH, retries |
 | `cinebox-indexer` | Jackett and Prowlarr, release-name parse, voices, filters |
 | `cinebox-torrserver` | TorrServer client, file/episode parse |
