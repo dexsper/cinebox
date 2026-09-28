@@ -106,8 +106,13 @@ impl Engine {
                 init.set_option("video-timing-offset", 0i64)?;
                 init.set_option("input-vo-keyboard", false)?;
                 init.set_option("input-default-bindings", false)?;
-                init.set_option("osc", false)?;
                 init.set_option("osd-level", 1i64)?;
+
+                match init.set_option("osc", false) {
+                    Ok(()) | Err(libmpv2::Error::Raw(libmpv2::mpv_error::OptionNotFound)) => {}
+                    Err(error) => return Err(error),
+                }
+
                 Ok(())
             })
             .map_err(|_| Error::MpvInit)?,
