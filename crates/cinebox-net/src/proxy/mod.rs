@@ -2,6 +2,8 @@
 
 #[cfg(target_os = "linux")]
 mod linux;
+#[cfg(target_os = "linux")]
+mod portal;
 #[cfg(target_os = "windows")]
 mod windows;
 
@@ -82,11 +84,15 @@ pub fn http_proxy_url(net: &NetConfig) -> Option<String> {
 }
 
 /// reqwest reads the environment itself but not GNOME or KDE settings, so pass
-/// those in when no proxy variable is set.
+/// those in when no proxy variable is set. Inside Flatpak the portal decides per URL.
 #[cfg(target_os = "linux")]
 pub(crate) fn with_system_proxy(builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
     if env_http_proxy().is_some() {
         return builder;
+    }
+
+    if portal::in_flatpak() {
+        return builder.proxy(portal::reqwest_proxy());
     }
 
     match platform_proxy() {
@@ -108,7 +114,13 @@ fn platform_proxy() -> Option<SystemProxy> {
 
 #[cfg(target_os = "linux")]
 fn platform_proxy() -> Option<SystemProxy> {
-    linux::desktop_proxy().filter(|proxy| !proxy.is_empty())
+    let proxy = if portal::in_flatpak() {
+        portal::system_proxy()
+    } else {
+        linux::desktop_proxy()
+    };
+
+    proxy.filter(|proxy| !proxy.is_empty())
 }
 
 #[cfg(not(any(target_os = "windows", target_os = "linux")))]

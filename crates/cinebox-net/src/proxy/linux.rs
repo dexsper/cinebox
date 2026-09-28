@@ -1,4 +1,4 @@
-//! Desktop proxy settings: KDE (`kioslaverc`) and GNOME-family desktops (GSettings).
+//! Desktop proxy settings outside Flatpak: KDE (`kioslaverc`) and GNOME-family desktops (GSettings).
 
 use std::path::PathBuf;
 use std::process::Command;
