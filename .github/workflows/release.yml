@@ -386,6 +386,8 @@ jobs:
             --icon-file "$icon" \
             --output appimage
 
+          # zsyncmake writes into the working directory, not next to the AppImage.
+          mv "$APPIMAGE.zsync" dist/
           test -s "dist/$APPIMAGE.zsync"
           (cd dist && sha256sum "$APPIMAGE" > "$APPIMAGE.sha256" && cat "$APPIMAGE.sha256")
 
