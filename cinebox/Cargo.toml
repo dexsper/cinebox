@@ -46,3 +46,22 @@ egui_kittest.workspace = true
 
 [lints]
 workspace = true
+
+# `cargo deb -p cinebox`; dependencies come from dpkg-shlibdeps (libmpv2 and friends).
+[package.metadata.deb]
+maintainer = "dexsper <dexsperpro@gmail.com>"
+copyright = "dexsper"
+section = "video"
+priority = "optional"
+depends = "$auto"
+extended-description = """\
+Movie and series catalog from TMDB, torrent search through Jackett or \
+Prowlarr, and playback through TorrServer and mpv in one native window."""
+assets = [
+    ["target/release/cinebox", "usr/bin/", "755"],
+    ["../packaging/linux/io.github.dexsper.cinebox.desktop", "usr/share/applications/", "644"],
+    ["../packaging/linux/io.github.dexsper.cinebox.metainfo.xml", "usr/share/metainfo/", "644"],
+    ["assets/icon.svg", "usr/share/icons/hicolor/scalable/apps/io.github.dexsper.cinebox.svg", "644"],
+    ["../README.md", "usr/share/doc/cinebox/", "644"],
+    ["../THIRD_PARTY_NOTICES", "usr/share/doc/cinebox/", "644"],
+]

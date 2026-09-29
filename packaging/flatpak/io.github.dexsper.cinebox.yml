@@ -1,0 +1,95 @@
+id: io.github.dexsper.cinebox
+runtime: org.freedesktop.Platform
+runtime-version: '26.08'
+sdk: org.freedesktop.Sdk
+sdk-extensions:
+  - org.freedesktop.Sdk.Extension.rust-stable
+command: cinebox
+
+finish-args:
+  - --share=ipc
+  - --share=network
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --socket=pulseaudio
+  - --device=dri
+
+cleanup:
+  - /include
+  - /lib/pkgconfig
+  - /share/man
+  - '*.la'
+  - '*.a'
+
+modules:
+  # libmpv and what it needs beyond the runtime (which already ships ffmpeg,
+  # with full codecs through org.freedesktop.Platform.codecs-extra).
+  - name: libass
+    config-opts:
+      - --disable-static
+    sources:
+      - type: git
+        url: https://github.com/libass/libass.git
+        tag: 0.17.5
+        commit: 4a05d8127f525943ebf45fdc6497c9e665947f0d
+        x-checker-data:
+          type: git
+          tag-pattern: ^(\d+\.\d+\.\d+)$
+
+  - name: libplacebo
+    buildsystem: meson
+    config-opts:
+      - -Ddemos=false
+      - -Dtests=false
+    sources:
+      - type: git
+        url: https://code.videolan.org/videolan/libplacebo.git
+        tag: v7.360.1
+        commit: cee9b076f2c63104ccfd497fa79c39a867293ec4
+        x-checker-data:
+          type: git
+          tag-pattern: ^v(\d+\.\d+\.\d+)$
+
+  - name: mpv
+    buildsystem: meson
+    config-opts:
+      - -Dlibmpv=true
+      - -Dcplayer=false
+      - -Dlua=disabled
+      - -Djavascript=disabled
+      - -Dmanpage-build=disabled
+      - -Dhtml-build=disabled
+      - -Dpdf-build=disabled
+    sources:
+      - type: git
+        url: https://github.com/mpv-player/mpv.git
+        tag: v0.41.0
+        commit: 41f6a645068483470267271e1d09966ca3b9f413
+        x-checker-data:
+          type: git
+          tag-pattern: ^v(\d+\.\d+\.\d+)$
+
+  - name: cinebox
+    buildsystem: simple
+    build-options:
+      append-path: /usr/lib/sdk/rust-stable/bin
+      env:
+        CARGO_HOME: /run/build/cinebox/cargo
+        CARGO_NET_OFFLINE: 'true'
+    build-commands:
+      - cargo --offline build --release --locked -p cinebox
+      - install -Dm755 target/release/cinebox -t /app/bin
+      - install -Dm644 packaging/linux/io.github.dexsper.cinebox.desktop -t /app/share/applications
+      - install -Dm644 packaging/linux/io.github.dexsper.cinebox.metainfo.xml -t /app/share/metainfo
+      - install -Dm644 cinebox/assets/icon.svg /app/share/icons/hicolor/scalable/apps/io.github.dexsper.cinebox.svg
+    sources:
+      # Flathub's copy of this manifest swaps this for a git source pinned to the release tag.
+      - type: dir
+        path: ../..
+        skip:
+          - .git
+          - .flatpak-builder
+          - target
+          - dist
+          - crates/cinebox-player/mpv-src
+      - cargo-sources.json

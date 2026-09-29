@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release.yml"
+      - "packaging/**"
   workflow_dispatch:
 
 concurrency:
@@ -243,17 +244,35 @@ jobs:
           retention-days: 14
 
   linux:
-    name: Linux x86_64
+    name: Linux x86_64 (deb, AppImage)
     runs-on: ubuntu-24.04
+    # The oldest supported base: glibc and libmpv from Debian 12 set the floor
+    # for both packages (Debian 12+, Ubuntu 24.04+).
+    container:
+      image: debian:12
     timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
     env:
       TARGET: x86_64-unknown-linux-gnu
       APP_ID: io.github.dexsper.cinebox
+      CARGO_DEB_VERSION: 3.8.0
       LINUXDEPLOY_URL: https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
       LINUXDEPLOY_SHA256: c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
     outputs:
       appimage: ${{ steps.meta.outputs.appimage }}
+      deb: ${{ steps.meta.outputs.deb }}
     steps:
+      # git before checkout, or it falls back to a tarball without history.
+      - name: Install system packages
+        run: |
+          set -euo pipefail
+          apt-get update
+          apt-get install -y --no-install-recommends \
+            ca-certificates curl git file build-essential dpkg-dev desktop-file-utils \
+            pkg-config libmpv-dev
+
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -280,6 +299,7 @@ jobs:
             echo "version=$version"
             echo "msrv=$msrv"
             echo "appimage=cinebox-$version-linux-x86_64.AppImage"
+            echo "deb=cinebox_${version}-1_amd64.deb"
           } >> "$GITHUB_OUTPUT"
 
           if [[ "$GITHUB_REF" != refs/tags/* ]]; then
@@ -291,14 +311,14 @@ jobs:
             exit 1
           fi
 
-      - name: Install system libraries
-        run: |
-          set -euo pipefail
-          sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            pkg-config libmpv-dev \
-            libx11-dev libxcursor-dev libxrandr-dev libxi-dev libxkbcommon-dev \
-            libwayland-dev libegl-dev libgl-dev
+          # Software centers show release notes from here.
+          if ! grep -q "<release version=\"$version\"" "packaging/linux/$APP_ID.metainfo.xml"; then
+            echo "packaging/linux/$APP_ID.metainfo.xml has no <release version=\"$version\">" >&2
+            exit 1
+          fi
+
+      - name: Validate desktop entry
+        run: desktop-file-validate "packaging/linux/$APP_ID.desktop"
 
       - name: Install Rust ${{ steps.meta.outputs.msrv }}
         uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
@@ -312,16 +332,33 @@ jobs:
           cache-targets: false
           cache-on-failure: true
 
+      - name: Install cargo-deb
+        run: cargo install --locked cargo-deb --version "$CARGO_DEB_VERSION"
+
       - name: Test
         run: cargo test --workspace --locked --target ${{ env.TARGET }}
 
       - name: Build
         run: cargo build --locked --release -p cinebox --target ${{ env.TARGET }}
 
+      - name: Package deb
+        env:
+          DEB: ${{ steps.meta.outputs.deb }}
+        run: |
+          set -euo pipefail
+
+          mkdir -p dist
+          cargo deb -p cinebox --no-build --target "$TARGET" --output "dist/$DEB"
+
+          dpkg-deb --info "dist/$DEB"
+          dpkg-deb --contents "dist/$DEB"
+          dpkg-deb --field "dist/$DEB" Depends | grep -q 'libmpv2'
+          (cd dist && sha256sum "$DEB" > "$DEB.sha256" && cat "$DEB.sha256")
+
       - name: Package AppImage
         env:
           APPIMAGE: ${{ steps.meta.outputs.appimage }}
-          # CI runners have no FUSE; tools unpack themselves instead of mounting.
+          # Containers have no FUSE; tools unpack themselves instead of mounting.
           APPIMAGE_EXTRACT_AND_RUN: 1
         run: |
           set -euo pipefail
@@ -333,8 +370,13 @@ jobs:
           icon="$RUNNER_TEMP/$APP_ID.svg"
           cp cinebox/assets/icon.svg "$icon"
 
-          mkdir -p dist
+          # appimagetool reads AppStream data only under the legacy .appdata.xml name.
+          install -Dm644 "packaging/linux/$APP_ID.metainfo.xml" \
+            "AppDir/usr/share/metainfo/$APP_ID.appdata.xml"
+
           export LDAI_OUTPUT="dist/$APPIMAGE"
+          # AppImageUpdate and Gear Lever fetch new versions through this .zsync.
+          export LDAI_UPDATE_INFORMATION="gh-releases-zsync|${GITHUB_REPOSITORY_OWNER}|${GITHUB_REPOSITORY#*/}|latest|cinebox-*-linux-x86_64.AppImage.zsync"
           # libmpv needs libjack, which linuxdeploy's excludelist leaves to the host.
           ./linuxdeploy \
             --appdir AppDir \
@@ -344,21 +386,111 @@ jobs:
             --icon-file "$icon" \
             --output appimage
 
+          # zsyncmake writes into the working directory, not next to the AppImage.
+          mv "$APPIMAGE.zsync" dist/
+          test -s "dist/$APPIMAGE.zsync"
           (cd dist && sha256sum "$APPIMAGE" > "$APPIMAGE.sha256" && cat "$APPIMAGE.sha256")
 
       - name: Upload artifact
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
-          name: ${{ steps.meta.outputs.appimage }}
+          name: cinebox-${{ steps.meta.outputs.version }}-linux-x86_64
           path: |
+            dist/${{ steps.meta.outputs.deb }}
+            dist/${{ steps.meta.outputs.deb }}.sha256
             dist/${{ steps.meta.outputs.appimage }}
             dist/${{ steps.meta.outputs.appimage }}.sha256
+            dist/${{ steps.meta.outputs.appimage }}.zsync
+          if-no-files-found: error
+          retention-days: 14
+
+  flatpak:
+    name: Flatpak x86_64
+    runs-on: ubuntu-24.04
+    container:
+      image: ghcr.io/flathub-infra/flatpak-github-actions:freedesktop-26.08
+      options: --privileged
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      MANIFEST: packaging/flatpak/io.github.dexsper.cinebox.yml
+    outputs:
+      bundle: ${{ steps.meta.outputs.bundle }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read workspace metadata
+        id: meta
+        run: |
+          set -euo pipefail
+          version="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)"
+          if [[ -z "$version" ]]; then
+            echo "Cargo.toml is missing version" >&2
+            exit 1
+          fi
+          echo "bundle=cinebox-$version-linux-x86_64.flatpak" >> "$GITHUB_OUTPUT"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      # The offline build fails anyway on a missing crate; this names the fix.
+      - name: Check cargo sources match Cargo.lock
+        run: |
+          set -euo pipefail
+          missing=0
+          while read -r name version; do
+            if ! grep -q "/$name/$name-$version.crate\"" packaging/flatpak/cargo-sources.json; then
+              echo "cargo-sources.json lacks $name $version" >&2
+              missing=1
+            fi
+          done < <(awk '
+            /^\[\[package\]\]/ { name = ""; version = "" }
+            /^name = /    { gsub(/"/, "", $3); name = $3 }
+            /^version = / { gsub(/"/, "", $3); version = $3 }
+            /^source = "registry\+/ { print name, version }
+          ' Cargo.lock)
+
+          if [[ "$missing" -ne 0 ]]; then
+            echo "Run ./scripts/flatpak-cargo-sources.sh and commit the result." >&2
+            exit 1
+          fi
+
+      - name: Build
+        uses: flatpak/flatpak-github-actions/flatpak-builder@79327416609af08178ad73b352877e51450790b3 # v6.8
+        with:
+          manifest-path: ${{ env.MANIFEST }}
+          bundle: ${{ steps.meta.outputs.bundle }}
+          cache-key: flatpak-builder-${{ hashFiles('packaging/flatpak/io.github.dexsper.cinebox.yml') }}
+          upload-artifact: false
+          # Outside the checkout, which the manifest copies in as the app source.
+          build-dir: ${{ runner.temp }}/flatpak-build
+          repo-dir: ${{ runner.temp }}/flatpak-repo
+
+      - name: Checksum
+        env:
+          BUNDLE: ${{ steps.meta.outputs.bundle }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          mv "$BUNDLE" dist/
+          (cd dist && sha256sum "$BUNDLE" > "$BUNDLE.sha256" && cat "$BUNDLE.sha256")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cinebox-${{ steps.meta.outputs.version }}-linux-x86_64-flatpak
+          path: |
+            dist/${{ steps.meta.outputs.bundle }}
+            dist/${{ steps.meta.outputs.bundle }}.sha256
           if-no-files-found: error
           retention-days: 14
 
   publish:
     name: Publish GitHub Release
-    needs: [windows, linux]
+    needs: [windows, linux, flatpak]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -382,6 +514,8 @@ jobs:
         env:
           ARCHIVE: ${{ needs.windows.outputs.archive }}
           APPIMAGE: ${{ needs.linux.outputs.appimage }}
+          DEB: ${{ needs.linux.outputs.deb }}
+          BUNDLE: ${{ needs.flatpak.outputs.bundle }}
         run: |
           set -euo pipefail
           ls -la
@@ -396,6 +530,12 @@ jobs:
           test -s "${APPIMAGE}.sha256"
           sha256sum --check --strict "${APPIMAGE}.sha256"
           file "${APPIMAGE}" | grep -q 'ELF 64-bit'
+          test -s "${APPIMAGE}.zsync"
+          test -s "${DEB}"
+          sha256sum --check --strict "${DEB}.sha256"
+          dpkg-deb --field "${DEB}" Package | grep -qx cinebox
+          test -s "${BUNDLE}"
+          sha256sum --check --strict "${BUNDLE}.sha256"
 
       - name: Append commit range
         working-directory: dist
@@ -444,6 +584,8 @@ jobs:
           subject-path: |
             dist/${{ needs.windows.outputs.archive }}.zip
             dist/${{ needs.linux.outputs.appimage }}
+            dist/${{ needs.linux.outputs.deb }}
+            dist/${{ needs.flatpak.outputs.bundle }}
 
       - name: Publish GitHub Release
         working-directory: dist
@@ -451,6 +593,8 @@ jobs:
           TAG: ${{ github.ref_name }}
           ARCHIVE: ${{ needs.windows.outputs.archive }}
           APPIMAGE: ${{ needs.linux.outputs.appimage }}
+          DEB: ${{ needs.linux.outputs.deb }}
+          BUNDLE: ${{ needs.flatpak.outputs.bundle }}
         run: |
           set -euo pipefail
           extras=(--title "Cinebox $TAG" --notes-file RELEASE_NOTES.md)
@@ -460,7 +604,9 @@ jobs:
 
           assets=(
             "${ARCHIVE}.zip" "${ARCHIVE}.zip.sha256"
-            "${APPIMAGE}" "${APPIMAGE}.sha256"
+            "${APPIMAGE}" "${APPIMAGE}.sha256" "${APPIMAGE}.zsync"
+            "${DEB}" "${DEB}.sha256"
+            "${BUNDLE}" "${BUNDLE}.sha256"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then

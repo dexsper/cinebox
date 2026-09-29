@@ -79,7 +79,12 @@ flowchart LR
 Сборки лежат в **[GitHub Releases](https://github.com/dexsper/cinebox/releases)**:
 
 - **Windows x64:** распакуйте zip и запустите `cinebox.exe`. Настройки и база хранятся в той же папке.
-- **Linux x86_64:** сделайте AppImage исполняемым (`chmod +x`) и запустите. Настройки в `~/.config/cinebox`, база в `~/.local/share/cinebox`. Нужен glibc 2.39+ (Ubuntu 24.04, Fedora 40 или новее).
+- **Linux x86_64**, на выбор:
+  - **Flatpak** (любой дистрибутив): `flatpak install --user cinebox-*.flatpak`. Появится в меню приложений и в GNOME Software или Discover; рантайм и кодеки приходят с Flathub. Для обновления поставьте новый файл поверх. Настройки и база лежат в `~/.var/app/io.github.dexsper.cinebox/`.
+  - **.deb** (Debian 12+, Ubuntu 24.04+, Mint 22+): `sudo apt install ./cinebox_*.deb`. Использует системную libmpv.
+  - **AppImage** (Debian 12, Ubuntu 24.04, Fedora 37 или новее): `chmod +x` и запустить. libmpv внутри. Ярлык в меню и обновления дают [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) или AppImageLauncher, как для любого AppImage.
+
+  Вне Flatpak настройки в `~/.config/cinebox`, база в `~/.local/share/cinebox`.
 
 Сам Cinebox не ставит TMDB, парсер и TorrServer, их нужно поднять отдельно:
 
@@ -101,8 +106,10 @@ flowchart LR
 Нужно, если собираетесь править код или релиза еще нет.
 
 1. [Rust](https://rustup.rs/) **1.95+** и инструменты платформы:
-   - Windows 10/11 x64: MSVC C++ Build Tools (`lib.exe` должен быть в `PATH`).
-   - Linux: libmpv 0.35+ с заголовками и `pkg-config`. Debian/Ubuntu: `sudo apt install pkg-config libmpv-dev libxkbcommon-dev libwayland-dev`.
+   - Windows 10/11 x64: MSVC C++ Build Tools (`lib.exe` должен быть в `PATH`). Первая сборка скачает libmpv (около 30 МБ) в `crates/cinebox-player/mpv-src/`.
+   - Linux: компилятор C, `pkg-config` и системная libmpv 0.35+ с заголовками.
+     - Debian/Ubuntu: `sudo apt install build-essential pkg-config libmpv-dev`
+     - Arch: `sudo pacman -S --needed base-devel mpv`
 2. Клонировать и запустить:
 
 ```bash
@@ -111,10 +118,13 @@ cd cinebox
 cargo run -p cinebox --release
 ```
 
-Первая сборка на Windows скачает **libmpv** (около 30 МБ) и соберет `mpv.lib`. Потом это лежит в `crates/cinebox-player/mpv-src/` и заново не качается. На Linux используется системная libmpv.
+3. Тесты: `cargo test --workspace`.
+
+Пакеты для Linux: .deb собирается через `cargo install cargo-deb && cargo deb -p cinebox`. Flatpak собирается офлайн из `packaging/flatpak/` (нужен [`org.flatpak.Builder`](https://flathub.org/apps/org.flatpak.Builder)); после изменения `Cargo.lock` запустите `./scripts/flatpak-cargo-sources.sh` и закоммитьте обновленный `cargo-sources.json`.
 
 ```bash
-cargo test --workspace
+flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --force-clean \
+  .flatpak-builder/build-dir packaging/flatpak/io.github.dexsper.cinebox.yml
 ```
 
 

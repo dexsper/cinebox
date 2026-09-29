@@ -8,3 +8,4 @@ crates/cinebox-player/mpv-src/
 *.sqlite
 *.sqlite-wal
 *.sqlite-shm
+/.flatpak-builder/

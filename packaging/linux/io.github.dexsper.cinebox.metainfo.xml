@@ -1,0 +1,125 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<component type="desktop-application">
+  <id>io.github.dexsper.cinebox</id>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GPL-3.0-or-later</project_license>
+
+  <name>Cinebox</name>
+  <summary>Movies and series in one window</summary>
+  <summary xml:lang="ru">Фильмы и сериалы в одном окне</summary>
+  <summary xml:lang="uk">Фільми й серіали в одному вікні</summary>
+
+  <developer id="io.github.dexsper">
+    <name>dexsper</name>
+  </developer>
+
+  <description>
+    <p>
+      Cinebox brings a movie and series catalog, torrent search, and playback
+      together in one native window.
+    </p>
+    <p xml:lang="ru">
+      Cinebox объединяет каталог фильмов и сериалов, поиск раздач и просмотр
+      в одном нативном окне.
+    </p>
+    <p xml:lang="uk">
+      Cinebox поєднує каталог фільмів і серіалів, пошук роздач і перегляд
+      в одному нативному вікні.
+    </p>
+    <ul>
+      <li>Browse titles, cast, and recommendations from TMDB</li>
+      <li xml:lang="ru">Каталог, актёры и рекомендации из TMDB</li>
+      <li xml:lang="uk">Каталог, актори й рекомендації з TMDB</li>
+      <li>Search torrents through Jackett or Prowlarr</li>
+      <li xml:lang="ru">Поиск раздач через Jackett или Prowlarr</li>
+      <li xml:lang="uk">Пошук роздач через Jackett або Prowlarr</li>
+      <li>Stream through TorrServer and play with mpv</li>
+      <li xml:lang="ru">Потоковый просмотр через TorrServer в плеере mpv</li>
+      <li xml:lang="uk">Потоковий перегляд через TorrServer у плеєрі mpv</li>
+      <li>Resume where you stopped and keep personal lists</li>
+      <li xml:lang="ru">Продолжение с места остановки и личные списки</li>
+      <li xml:lang="uk">Продовження з місця зупинки й особисті списки</li>
+    </ul>
+    <p>
+      Cinebox does not host any content. You connect your own TMDB key,
+      torrent indexer, and TorrServer.
+    </p>
+    <p xml:lang="ru">
+      Cinebox не хранит и не раздаёт контент. Ключ TMDB, индексатор раздач
+      и TorrServer подключаются свои.
+    </p>
+    <p xml:lang="uk">
+      Cinebox не зберігає й не роздає контент. Ключ TMDB, індексатор роздач
+      і TorrServer підключаються власні.
+    </p>
+  </description>
+
+  <launchable type="desktop-id">io.github.dexsper.cinebox.desktop</launchable>
+  <provides>
+    <binary>cinebox</binary>
+  </provides>
+
+  <url type="homepage">https://github.com/dexsper/cinebox</url>
+  <url type="bugtracker">https://github.com/dexsper/cinebox/issues</url>
+  <url type="vcs-browser">https://github.com/dexsper/cinebox</url>
+
+  <screenshots>
+    <screenshot type="default">
+      <caption>Title page</caption>
+      <image>https://raw.githubusercontent.com/dexsper/cinebox/master/docs/screen-en.png</image>
+    </screenshot>
+    <screenshot>
+      <caption>Title page in Russian</caption>
+      <image>https://raw.githubusercontent.com/dexsper/cinebox/master/docs/screen-ru.png</image>
+    </screenshot>
+  </screenshots>
+
+  <branding>
+    <color type="primary" scheme_preference="light">#c8d1e8</color>
+    <color type="primary" scheme_preference="dark">#161620</color>
+  </branding>
+
+  <requires>
+    <display_length compare="ge">768</display_length>
+  </requires>
+  <supports>
+    <control>keyboard</control>
+    <control>pointing</control>
+  </supports>
+
+  <categories>
+    <category>AudioVideo</category>
+    <category>Video</category>
+    <category>Player</category>
+  </categories>
+  <keywords>
+    <keyword>movie</keyword>
+    <keyword>series</keyword>
+    <keyword>torrent</keyword>
+    <keyword>tmdb</keyword>
+    <keyword>mpv</keyword>
+  </keywords>
+
+  <content_rating type="oars-1.1"/>
+
+  <releases>
+    <release version="0.3.0" date="2026-09-27">
+      <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.3.0</url>
+      <description>
+        <p>Section hubs, a discover screen, and personal lists.</p>
+      </description>
+    </release>
+    <release version="0.2.0" date="2026-09-14">
+      <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.2.0</url>
+      <description>
+        <p>Skip intro, recap, credits, and preview segments.</p>
+      </description>
+    </release>
+    <release version="0.1.0" date="2026-09-05">
+      <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.1.0</url>
+      <description>
+        <p>First public release.</p>
+      </description>
+    </release>
+  </releases>
+</component>

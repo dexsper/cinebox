@@ -9,8 +9,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
-- Linux x86_64 build (AppImage).
-- System proxy support on Linux.
+- Linux x86_64 builds: Flatpak, .deb (Debian 12+, Ubuntu 24.04+), and AppImage.
+- The AppImage updates in place through Gear Lever or AppImageUpdate.
+- System proxy support on Linux, including the Flatpak build.
 
 ## [0.3.0] - 2026-09-27
 
