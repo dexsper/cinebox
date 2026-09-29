@@ -19,7 +19,7 @@ use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
 use egui::{Align2, Rect, RichText, Sense, Ui};
 use egui_async::Bind;
 use rust_i18n::t;
-use tracing::warn;
+use tracing::{info, warn};
 
 use crate::jobs::JobError;
 use crate::nav::NavAction;
@@ -44,6 +44,7 @@ struct PlayerState {
     muted: bool,
     volume: f64,
     loaded_at: Instant,
+    decoder: Option<cinebox_player::VideoDecoder>,
 }
 
 impl PlayerState {
@@ -60,6 +61,7 @@ impl PlayerState {
             muted: false,
             volume: 100.0,
             loaded_at: Instant::now(),
+            decoder: None,
         }
     }
 
@@ -223,6 +225,14 @@ impl PlayerScreen {
             };
 
             let snap = engine.snapshot();
+            // Logged on every change: mpv may fall back to software mid-stream.
+            let decoder = engine.video_decoder();
+            if decoder.is_some() && decoder != state.decoder {
+                if let Some(d) = &decoder {
+                    info!(hwdec = %d.hwdec, codec = %d.codec, pixel_format = %d.pixel_format, "video decoder");
+                }
+                state.decoder = decoder;
+            }
             drop(engine);
 
             state.paused = snap.paused;
@@ -985,6 +995,7 @@ impl PlayerScreen {
             audio_file: load.audio.as_deref(),
             http_proxy: load.proxy.as_deref(),
             loudnorm: svc.settings.player.loudnorm,
+            hardware_decoding: svc.settings.player.hardware_decoding,
             start_seconds: load.start,
         };
 

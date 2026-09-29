@@ -33,6 +33,7 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 **Playback**
 
 - Built-in libmpv: MKV, HEVC, and HDR play without an external player
+- Hardware video decoding on the GPU
 - Torrent search via Jackett or Prowlarr with quality, HDR, voice, and language filters
 - Streaming through TorrServer with preload and auto-play of the next file
 - Audio and subtitle tracks, subtitle delay, speed, scale, loudness normalization

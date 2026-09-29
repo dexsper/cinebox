@@ -701,6 +701,7 @@ dependencies = [
  "egui_material_icons",
  "ico",
  "image",
+ "raw-window-handle",
  "resvg",
  "rust-i18n",
  "thiserror 2.0.20",

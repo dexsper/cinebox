@@ -173,6 +173,8 @@ settings:
   dns_bypass_hint: "DNS-over-HTTPS для TMDB та індексатора, якщо звичайний шлях недоступний."
   custom_doh_url: "Власний DoH-сервер"
   custom_doh_url_hint: "Необов'язковий DoH URL, спробується раніше вбудованих."
+  hardware_decoding: "Апаратне декодування"
+  hardware_decoding_hint: "Декодує відео на відеокарті. Вимкніть, якщо відео з артефактами або чорний екран."
   loudnorm: "Нормалізація звуку"
   skip_intro: "Пропускати інтро"
   skip_recap: "Пропускати «раніше»"

@@ -469,7 +469,7 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
 
 fn attach_engine(cc: &eframe::CreationContext<'_>) -> Option<Arc<Mutex<cinebox_player::Engine>>> {
     let loader = cc.get_proc_address.clone()?;
-    match cinebox_player::Engine::attach(loader) {
+    match cinebox_player::Engine::attach(loader, native_display(cc)) {
         Ok(mut engine) => {
             let ctx = cc.egui_ctx.clone();
             engine.set_update_callback(move || ctx.request_repaint());
@@ -480,6 +480,30 @@ fn attach_engine(cc: &eframe::CreationContext<'_>) -> Option<Arc<Mutex<cinebox_p
             None
         }
     }
+}
+
+/// VAAPI shares decoded frames with GL only through the window's display.
+/// The display belongs to winit's event loop, which outlives the app and its engine.
+#[cfg(target_os = "linux")]
+fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDisplay {
+    use cinebox_player::NativeDisplay;
+    use raw_window_handle::{HasDisplayHandle, RawDisplayHandle};
+
+    let Ok(handle) = cc.display_handle() else {
+        return NativeDisplay::None;
+    };
+
+    match handle.as_raw() {
+        RawDisplayHandle::Wayland(wayland) => NativeDisplay::Wayland(wayland.display),
+        RawDisplayHandle::Xlib(xlib) => xlib.display.map_or(NativeDisplay::None, NativeDisplay::X11),
+        _ => NativeDisplay::None,
+    }
+}
+
+/// Windows decoders (NVDEC, D3D11VA copy-back) need no display.
+#[cfg(not(target_os = "linux"))]
+fn native_display(_cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDisplay {
+    cinebox_player::NativeDisplay::None
 }
 
 fn load_search_history(svc: &Services) -> Vec<String> {

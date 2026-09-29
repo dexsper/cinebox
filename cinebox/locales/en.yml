@@ -173,6 +173,8 @@ settings:
   dns_bypass_hint: "DNS-over-HTTPS for TMDB and the indexer when the usual path is blocked."
   custom_doh_url: "Custom DoH server"
   custom_doh_url_hint: "Optional DoH URL, tried before the built-in providers."
+  hardware_decoding: "Hardware decoding"
+  hardware_decoding_hint: "Decode video on the GPU. Turn off if playback shows artifacts or a black screen."
   loudnorm: "Audio normalization"
   loudnorm_hint: "Normalize volume across files."
   skip_intro: "Skip intro"

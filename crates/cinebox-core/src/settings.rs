@@ -300,6 +300,7 @@ impl Default for SkipSegmentsSettings {
 #[serde(default)]
 pub struct PlayerSettings {
     pub loudnorm: bool,
+    pub hardware_decoding: bool,
     pub auto_next: bool,
     pub volume: f64,
     pub skip_segments: SkipSegmentsSettings,
@@ -309,6 +310,7 @@ impl Default for PlayerSettings {
     fn default() -> Self {
         Self {
             loudnorm: false,
+            hardware_decoding: true,
             auto_next: true,
             volume: 90.0,
             skip_segments: SkipSegmentsSettings::default(),

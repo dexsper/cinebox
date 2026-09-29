@@ -3,6 +3,7 @@
 //! self-referential render-context setup.
 
 use std::ffi::{CStr, CString, c_void};
+use std::ptr::NonNull;
 use std::sync::Arc;
 
 use cinebox_core::VideoScale;
@@ -15,6 +16,18 @@ use crate::error::Error;
 /// eframe glow `get_proc_address` loader.
 pub type GlLoader = Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>;
 
+/// The window's display connection, for hardware decoding without copies.
+///
+/// VAAPI needs it to share decoded frames with the GL context; without it mpv
+/// falls back to a copying decoder. The pointer must stay valid while the
+/// [`Engine`] lives.
+#[derive(Debug, Clone, Copy)]
+pub enum NativeDisplay {
+    Wayland(NonNull<c_void>),
+    X11(NonNull<c_void>),
+    None,
+}
+
 /// Options applied before `loadfile`.
 ///
 /// `http_header_fields`, `audio_file`, `http_proxy`, and `af` are always
@@ -26,7 +39,19 @@ pub struct PlayOpts<'a> {
     pub audio_file: Option<&'a str>,
     pub http_proxy: Option<&'a str>,
     pub loudnorm: bool,
+    pub hardware_decoding: bool,
     pub start_seconds: f64,
+}
+
+/// Which decoder mpv picked, for logs.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct VideoDecoder {
+    /// `no` for software, otherwise e.g. `nvdec`, `vaapi`, or `d3d11va-copy`.
+    pub hwdec: String,
+    /// e.g. `hevc`.
+    pub codec: String,
+    /// e.g. `p010` for 10-bit.
+    pub pixel_format: String,
 }
 
 /// Polled playback snapshot for the player chrome.
@@ -99,7 +124,7 @@ impl Engine {
     /// # Errors
     ///
     /// Missing bundled libmpv, or render-context creation failure.
-    pub fn attach(loader: GlLoader) -> Result<Self, Error> {
+    pub fn attach(loader: GlLoader, display: NativeDisplay) -> Result<Self, Error> {
         let mpv = Box::new(
             Mpv::with_initializer(|init| {
                 init.set_option("vo", "libmpv")?;
@@ -117,7 +142,7 @@ impl Engine {
             })
             .map_err(|_| Error::MpvInit)?,
         );
-        let render = unsafe { create_render(&mpv, loader)? };
+        let render = unsafe { create_render(&mpv, loader, display)? };
         info!("mpv render context attached");
         Ok(Self {
             render: Some(render),
@@ -336,6 +361,26 @@ impl Engine {
         tracks
     }
 
+    /// Decoder mpv uses for the current video; `None` until the first frame is decoded.
+    #[must_use]
+    pub fn video_decoder(&self) -> Option<VideoDecoder> {
+        let text = |name: &str| {
+            self.mpv
+                .get_property::<String>(name)
+                .ok()
+                .filter(|value| !value.is_empty())
+        };
+
+        Some(VideoDecoder {
+            hwdec: text("hwdec-current")?,
+            codec: text("video-format").unwrap_or_default(),
+            // Hardware frames report the surface type in `pixelformat` and the real format here.
+            pixel_format: text("video-params/hw-pixelformat")
+                .or_else(|| text("video-params/pixelformat"))
+                .unwrap_or_default(),
+        })
+    }
+
     /// Best-effort playback status.
     #[must_use]
     pub fn snapshot(&self) -> Snapshot {
@@ -359,14 +404,24 @@ impl Drop for Engine {
     }
 }
 
-unsafe fn create_render(mpv: &Mpv, loader: GlLoader) -> Result<RenderContext<'static>, Error> {
-    let params = vec![
+unsafe fn create_render(
+    mpv: &Mpv,
+    loader: GlLoader,
+    display: NativeDisplay,
+) -> Result<RenderContext<'static>, Error> {
+    let mut params = vec![
         RenderParam::ApiType(RenderParamApiType::OpenGl),
         RenderParam::InitParams(OpenGLInitParams {
             get_proc_address: load_gl,
             ctx: loader,
         }),
     ];
+
+    match display {
+        NativeDisplay::Wayland(ptr) => params.push(RenderParam::WaylandDisplay(ptr.as_ptr())),
+        NativeDisplay::X11(ptr) => params.push(RenderParam::X11Display(ptr.as_ptr())),
+        NativeDisplay::None => {}
+    }
     let render = mpv.create_render_context(params).map_err(Error::mpv)?;
     // SAFETY: `Engine` boxes `Mpv` so its address is stable. `render` is stored
     // in a field that is dropped before `mpv`.
@@ -405,6 +460,10 @@ fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
 
     let proxy = opts.http_proxy.unwrap_or("");
     set_prop(mpv, "http-proxy", proxy.to_owned())?;
+
+    // `auto` tries direct GPU decoders first, then copying ones, then software.
+    let hwdec = if opts.hardware_decoding { "auto" } else { "no" };
+    set_prop(mpv, "hwdec", hwdec.to_owned())?;
 
     if opts.loudnorm {
         set_prop(mpv, "af", "loudnorm".to_owned())?;

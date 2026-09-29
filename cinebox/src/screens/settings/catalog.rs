@@ -174,6 +174,12 @@ const GENERAL: &[Field] = &[
 
 const PLAYER: &[Field] = &[
     Field::Toggle {
+        label: "settings.hardware_decoding",
+        hint: Some("settings.hardware_decoding_hint"),
+        get: |s| s.player.hardware_decoding,
+        set: |s, v| s.player.hardware_decoding = v,
+    },
+    Field::Toggle {
         label: "settings.loudnorm",
         hint: Some("settings.loudnorm_hint"),
         get: |s| s.player.loudnorm,
