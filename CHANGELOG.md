@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-09-29
+
 ### Added
 
 - Linux x86_64 builds: Flatpak, .deb (Debian 12+, Ubuntu 24.04+), and AppImage.
@@ -72,7 +74,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/dexsper/cinebox/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dexsper/cinebox/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dexsper/cinebox/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/dexsper/cinebox/releases/tag/v0.1.0
