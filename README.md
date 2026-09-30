@@ -147,6 +147,7 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 - [x] Categories on the home screen, plus custom lists (Favorites, Watched)
 - [x] First-run wizard
 - [x] Linux build
+- [ ] Playback sync between clients
 
 ## Contributing
 

@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-30
+
 ### Added
 
 - First-run wizard for the language, TMDB key, parser, and TorrServer.
@@ -15,6 +17,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Settings fields no longer reload the catalog on every keystroke.
 - Error messages are translated and show what to fix.
+
+### Fixed
+
+- On Linux, buttons and banners react to hover right after dragging the window, without an extra click.
 
 ## [0.4.0] - 2026-09-29
 
@@ -83,7 +89,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/dexsper/cinebox/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dexsper/cinebox/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dexsper/cinebox/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/dexsper/cinebox/compare/v0.1.0...v0.2.0
