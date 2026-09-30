@@ -170,15 +170,22 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
     if response.hovered() {
         ui.ctx().set_cursor_icon(cursor);
     }
+
     if response.drag_started() {
-        ui.ctx()
-            .send_viewport_cmd(ViewportCommand::BeginResize(dir));
+        hand_pointer_to_os(ui.ctx(), ViewportCommand::BeginResize(dir));
     }
 }
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(ui, theme, ICON_CLOSE, t!("window.close").as_ref(), true, false) {
+    if chrome_btn(
+        ui,
+        theme,
+        ICON_CLOSE,
+        t!("window.close").as_ref(),
+        true,
+        false,
+    ) {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -231,7 +238,10 @@ fn search_and_drag(
 fn centered_search_rect(bar: Rect, middle: Rect) -> Rect {
     let max_w = (middle.width() - SEARCH_INSET * 2.0).max(0.0);
     let search_w = search::SEARCH_W.min(max_w);
-    let search_h = search::SEARCH_H.min(middle.height() - SEARCH_INSET).max(0.0);
+    let search_h = search::SEARCH_H
+        .min(middle.height() - SEARCH_INSET)
+        .max(0.0);
+
     let desired = Rect::from_center_size(
         pos2(bar.center().x, middle.center().y),
         vec2(search_w, search_h),
@@ -264,13 +274,50 @@ fn title_drag(ui: &Ui, rect: Rect, id: &'static str) {
         Id::new(("cinebox-title-drag", id)),
         Sense::click_and_drag(),
     );
+
     if drag.drag_started() {
-        ui.ctx().send_viewport_cmd(ViewportCommand::StartDrag);
+        hand_pointer_to_os(ui.ctx(), ViewportCommand::StartDrag);
     }
 
     if drag.double_clicked() {
         toggle_maximized(ui);
     }
+}
+
+fn os_grab_id() -> Id {
+    Id::new("cinebox-os-pointer-grab")
+}
+
+/// Starts a window move/resize that the OS runs with its own pointer grab.
+fn hand_pointer_to_os(ctx: &egui::Context, cmd: ViewportCommand) {
+    ctx.data_mut(|d| d.insert_temp(os_grab_id(), true));
+    ctx.send_viewport_cmd(cmd);
+}
+
+/// Wayland and X11 compositors swallow the button release that ends a window
+/// move/resize, so egui keeps the title bar "dragged" and suppresses hover
+/// everywhere until the next click. Synthesize that release on the next pass.
+pub fn release_after_os_grab(ctx: &egui::Context, raw_input: &mut egui::RawInput) {
+    let grabbed = ctx.data_mut(|d| d.remove_temp::<bool>(os_grab_id()).unwrap_or(false));
+    if !grabbed {
+        return;
+    }
+
+    let (still_down, pos) = ctx.input(|i| {
+        let pos = i.pointer.latest_pos().or_else(|| i.pointer.interact_pos());
+        (i.pointer.primary_down(), pos)
+    });
+
+    if !still_down {
+        return;
+    }
+
+    raw_input.events.push(egui::Event::PointerButton {
+        pos: pos.unwrap_or_default(),
+        button: egui::PointerButton::Primary,
+        pressed: false,
+        modifiers: ctx.input(|i| i.modifiers),
+    });
 }
 
 fn chrome_btn(
