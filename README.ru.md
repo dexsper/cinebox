@@ -154,7 +154,7 @@ flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --f
   - [x] Сторонний API (TheIntroDB)
   - [ ] Свой анализатор на Chromaprint
 - [x] Категории на главной и свои списки (Избранное, Просмотрено)
-- [ ] Мастер первого запуска
+- [x] Мастер первого запуска
 - [x] Сборка под Linux
 
 

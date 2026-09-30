@@ -4,23 +4,25 @@ mod catalog;
 mod controls;
 mod speed;
 
-use cinebox_core::{HomeRowId, ParserKind, PosterSize, QualityBand, UiLanguage};
+use cinebox_core::{HomeRowId, ParserKind, PosterSize, QualityBand, SecretString, UiLanguage};
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
 use rust_i18n::t;
 
 use crate::jobs::JobError;
+use crate::nav::{NavAction, SettingsPage};
 use crate::services::Services;
+use crate::settings_input::changed_value;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::scroll;
 
-use catalog::{CategoryId, Field, MultiSelectId, SelectId, catalog, category};
+use catalog::{CategoryId, Check, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
-    Labeled, category_row, clear_cache_row, drawer_title, error_line, multiselect_chip_row,
-    nav_header, probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row,
-    toggle_row, visibility_chip_row,
+    Labeled, category_row, clear_cache_row, drawer_title, error_line, field_warning,
+    multiselect_chip_row, nav_header, probe_row, run_wizard_row, secret_row, select_row, select_row_with,
+    speed_test_row, text_row, toggle_row, visibility_chip_row,
 };
 use speed::SpeedMeter;
 
@@ -32,6 +34,7 @@ pub struct SettingsScreen {
     tmdb: Bind<String, JobError>,
     speed: Bind<(), JobError>,
     speed_meter: SpeedMeter,
+    wizard_requested: bool,
 }
 
 impl Default for SettingsScreen {
@@ -44,6 +47,7 @@ impl Default for SettingsScreen {
             tmdb: Bind::new(true),
             speed: Bind::new(true),
             speed_meter: SpeedMeter::new(),
+            wizard_requested: false,
         }
     }
 }
@@ -55,6 +59,21 @@ impl SettingsScreen {
 
     pub fn toggle(&mut self, now: f64) {
         self.overlay.toggle(now);
+    }
+
+    pub fn close(&mut self, now: f64) {
+        if self.overlay.is_open() {
+            self.overlay.begin_close(now);
+        }
+    }
+
+    /// Open the drawer (if closed) straight on `page`.
+    pub fn open_at(&mut self, page: SettingsPage, now: f64) {
+        if !self.overlay.is_open() {
+            self.overlay.begin_open(now);
+        }
+
+        self.category = Some(CategoryId::from(page));
     }
 
     /// Consume Escape / chrome Back. `true` if the drawer handled it.
@@ -75,7 +94,8 @@ impl SettingsScreen {
         true
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
+    /// Returns navigation the drawer asks for (the setup wizard).
+    pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         let now = ui.input(|i| i.time);
         if !self.overlay.is_blocking(now) {
             self.category = None;
@@ -86,6 +106,9 @@ impl SettingsScreen {
             self.paint_body(ui, svc, theme);
         });
         self.overlay = overlay;
+
+        let wizard = std::mem::take(&mut self.wizard_requested);
+        wizard.then_some(NavAction::OpenOnboarding)
     }
 
     fn paint_body(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
@@ -176,44 +199,54 @@ impl SettingsScreen {
                 label,
                 hint,
                 placeholder,
+                kind,
+                check,
                 get,
                 set,
             } => {
-                let mut value = get(&svc.settings);
+                let value = get(&svc.settings);
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                if !text_row(
+                let draft = text_row(
                     ui,
                     theme,
                     label_text.as_ref(),
                     hint_text.as_deref(),
                     placeholder,
-                    &mut value,
-                ) {
+                    &value,
+                );
+                show_check(ui, theme, *check, &value);
+
+                let Some(next) = changed_value(draft, *kind, &value) else {
                     return false;
-                }
-                set(&mut svc.settings, value);
+                };
+                set(&mut svc.settings, next);
                 true
             }
             Field::Secret {
                 label,
                 hint,
+                kind,
+                check,
                 get,
                 set,
             } => {
-                let mut value = get(&svc.settings);
+                let value = get(&svc.settings);
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                if !secret_row(
+                let draft = secret_row(
                     ui,
                     theme,
                     label_text.as_ref(),
                     hint_text.as_deref(),
-                    &mut value,
-                ) {
+                    &value,
+                );
+                show_check(ui, theme, *check, value.expose());
+
+                let Some(next) = changed_value(draft, *kind, value.expose()) else {
                     return false;
-                }
-                set(&mut svc.settings, value);
+                };
+                set(&mut svc.settings, SecretString::from(next));
                 true
             }
             Field::Select {
@@ -286,6 +319,12 @@ impl SettingsScreen {
                 });
                 false
             }
+            Field::RunWizard => {
+                if run_wizard_row(ui, theme) {
+                    self.wizard_requested = true;
+                }
+                false
+            }
             Field::ClearCache => {
                 if clear_cache_row(ui, theme) {
                     svc.clear_tmdb_cache();
@@ -294,6 +333,14 @@ impl SettingsScreen {
             }
         }
     }
+}
+
+fn show_check(ui: &mut Ui, theme: &Theme, check: Option<Check>, value: &str) {
+    let Some(key) = check.and_then(|check| check(value)) else {
+        return;
+    };
+
+    field_warning(ui, theme, crate::i18n::tr(key).as_ref());
 }
 
 fn paint_select(

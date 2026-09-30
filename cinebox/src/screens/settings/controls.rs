@@ -2,20 +2,22 @@
 
 use cinebox_core::SecretString;
 use egui::{
-    Align, Atom, CornerRadius, CursorIcon, Frame, Layout, Margin, Rect, RichText, Sense, Stroke,
-    TextEdit, Ui, UiBuilder, Vec2, pos2, vec2,
+    Align, Atom, CornerRadius, CursorIcon, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
+    pos2, vec2,
 };
 use egui_async::Bind;
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
-    ICON_ARROW_BACK, ICON_CHEVRON_RIGHT, ICON_DELETE_SWEEP, ICON_SPEED,
+    ICON_ARROW_BACK, ICON_AUTO_FIX_HIGH, ICON_CHEVRON_RIGHT, ICON_DELETE_SWEEP, ICON_SPEED,
 };
 use rust_i18n::t;
 
 use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
+use crate::errors::UserError;
 use crate::jobs::JobError;
 use crate::theme::Theme;
+use crate::widgets::field;
 
 const CATEGORY_H: f32 = 72.0;
 const ICON_WELL: f32 = 40.0;
@@ -24,7 +26,6 @@ const TOGGLE_H: f32 = 26.0;
 const TOGGLE_GAP: f32 = 12.0;
 const HINT_GAP: f32 = 3.0;
 const ROW_PAD_Y: f32 = 4.0;
-const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
 const ACTION_H: f32 = 36.0;
 
 pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
@@ -233,34 +234,37 @@ fn paint_switch(ui: &mut Ui, theme: &Theme, on: bool) {
     ui.painter().circle_filled(knob_pos, knob_r, knob);
 }
 
+/// Returns the raw draft once it commits (see [`field::committed_edit`]).
 pub fn text_row(
     ui: &mut Ui,
     theme: &Theme,
     label: &str,
     hint: Option<&str>,
     placeholder: &str,
-    value: &mut String,
-) -> bool {
+    value: &str,
+) -> Option<String> {
     field_label(ui, theme, label, hint);
-    styled_edit(ui, theme, value, placeholder, false)
+    let id = ui.make_persistent_id(("settings-text", label));
+    field::committed_edit(ui, theme, id, value, placeholder, false)
 }
 
+/// Returns the raw draft once it commits (see [`field::committed_edit`]).
 pub fn secret_row(
     ui: &mut Ui,
     theme: &Theme,
     label: &str,
     hint: Option<&str>,
-    secret: &mut SecretString,
-) -> bool {
+    secret: &SecretString,
+) -> Option<String> {
     field_label(ui, theme, label, hint);
-    let mut value = secret.expose().to_owned();
-    let changed = styled_edit(ui, theme, &mut value, "", true);
-    if !changed {
-        return false;
-    }
+    let id = ui.make_persistent_id(("settings-secret", label));
+    field::committed_edit(ui, theme, id, secret.expose(), "", true)
+}
 
-    *secret = SecretString::from(value);
-    true
+/// Inline validation message under a field.
+pub fn field_warning(ui: &mut Ui, theme: &Theme, text: &str) {
+    ui.add_space(-6.0);
+    ui.label(RichText::new(text).size(theme.text_caption).color(theme.err));
 }
 
 pub fn select_row<T: Copy + PartialEq + std::fmt::Display>(
@@ -345,10 +349,13 @@ pub fn probe_row<F, Fut>(
     Fut: std::future::Future<Output = Result<String, JobError>> + Send + 'static,
 {
     ui.add_space(4.0);
-    if action_button(ui, theme, icon, label, true) {
+    let clicked = action_button(ui, theme, icon, label, true);
+    let busy = bind.is_pending();
+    if clicked && !busy {
         bind.clear();
         bind.request(start());
     }
+
     show_probe(ui, bind, theme);
 }
 
@@ -378,6 +385,12 @@ pub fn speed_test_row<F, Fut>(
     }
 }
 
+pub fn run_wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
+    ui.add_space(4.0);
+    let label = t!("settings.run_wizard");
+    action_button(ui, theme, ICON_AUTO_FIX_HIGH, &label, false)
+}
+
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
     action_button(ui, theme, ICON_DELETE_SWEEP, t!("settings.clear_cache").as_ref(), false)
@@ -402,44 +415,6 @@ fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
                 .color(theme.muted),
         );
     });
-}
-
-fn styled_edit(
-    ui: &mut Ui,
-    theme: &Theme,
-    value: &mut String,
-    placeholder: &str,
-    password: bool,
-) -> bool {
-    let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), INPUT_H), Sense::hover());
-    ui.painter().rect(
-        rect,
-        theme.rounding(theme.radius_card),
-        theme.input_bg,
-        Stroke::new(1.0, theme.window_edge),
-        egui::StrokeKind::Inside,
-    );
-
-    let inner = rect.shrink2(vec2(10.0, 0.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
-    row.spacing_mut().interact_size.y = INPUT_H;
-
-    let mut edit = TextEdit::singleline(value)
-        .desired_width(f32::INFINITY)
-        .vertical_align(Align::Center)
-        .margin(Margin::ZERO)
-        .hint_text(placeholder)
-        .frame(Frame::NONE);
-
-    if password {
-        edit = edit.password(true);
-    }
-
-    row.add(edit).changed()
 }
 
 fn action_button(
@@ -491,13 +466,18 @@ fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {
 }
 
 fn show_probe(ui: &mut Ui, bind: &mut Bind<String, JobError>, theme: &Theme) {
+    if bind.is_pending() {
+        ui.add(egui::Spinner::new().color(theme.muted));
+        return;
+    }
+
     match bind.read() {
         None => {}
         Some(Ok(msg)) => {
             ui.label(RichText::new(msg).size(theme.text_small).color(theme.ok));
         }
         Some(Err(error)) => {
-            let msg = error.to_string();
+            let msg = UserError::from(error).summary();
             ui.label(RichText::new(msg).size(theme.text_small).color(theme.err));
         }
     }

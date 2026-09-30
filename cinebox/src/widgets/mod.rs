@@ -4,10 +4,12 @@ pub mod chips;
 pub mod chrome;
 pub mod combo;
 pub mod drawer;
+pub mod field;
 pub mod flyout;
 pub mod intro;
 pub mod lists;
 pub mod multiselect;
+pub mod page_state;
 pub mod poster;
 pub mod rail;
 pub mod rating;
@@ -16,12 +18,8 @@ pub mod search;
 pub mod skeleton;
 
 use egui::{Align, Color32, Direction, Layout, RichText, Sense, Ui, UiBuilder, Vec2, vec2};
-use egui_material_icons::icons::ICON_REFRESH;
-use rust_i18n::t;
 
 use crate::theme::Theme;
-
-use self::button::Opts;
 
 const PAGE_SPINNER: f32 = 56.0;
 const PAGE_COPY_MAX_W: f32 = 480.0;
@@ -63,11 +61,6 @@ pub fn page_message(ui: &mut Ui, theme: &Theme, text: &str, color: Color32) {
                 .color(color),
         );
     });
-}
-
-/// Centered error plus Retry. Paints in the remaining clip rect so clicks hit the button.
-pub fn page_error(ui: &mut Ui, theme: &Theme, text: &str) -> bool {
-    in_remaining(ui, |ui| error_body(ui, theme, text)).unwrap_or(false)
 }
 
 fn in_remaining<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> Option<R> {
@@ -116,22 +109,4 @@ fn remember_body_size(ui: &Ui, id: egui::Id) {
 
     ui.ctx().data_mut(|data| data.insert_temp(id, measured));
     ui.ctx().request_repaint();
-}
-
-fn error_body(ui: &mut Ui, theme: &Theme, text: &str) -> bool {
-    ui.label(
-        RichText::new(text)
-            .font(theme.emphasis_font(theme.text_display))
-            .color(theme.err),
-    );
-    ui.add_space(16.0);
-    let retry_size = vec2(128.0, combo::HEIGHT);
-
-    button::icon_label(
-        ui,
-        theme,
-        ICON_REFRESH,
-        t!("common.retry").as_ref(),
-        Opts::secondary(retry_size),
-    )
 }

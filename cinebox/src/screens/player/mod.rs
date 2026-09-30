@@ -21,6 +21,7 @@ use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{info, warn};
 
+use crate::errors::UserError;
 use crate::jobs::JobError;
 use crate::nav::NavAction;
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
@@ -817,7 +818,7 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
 
             let url = match cinebox_torrserver::stream_url(base, path, hash, file_id, flag) {
                 Ok(url) => url,
-                Err(error) => return Err(error.to_string()),
+                Err(error) => return Err(stream_error(error)),
             };
 
             let user = svc.settings.torrserver.username.as_str();
@@ -934,7 +935,7 @@ impl PlayerScreen {
             match state.job.read() {
                 None => return,
                 Some(Ok(())) => Ok(()),
-                Some(Err(error)) => Err(error.to_string()),
+                Some(Err(error)) => Err(UserError::from(error).summary()),
             }
         };
 
@@ -1268,6 +1269,11 @@ fn paint_video(
     let callback = video_callback(cache, engine);
 
     ui.painter().add(egui::PaintCallback { rect, callback });
+}
+
+fn stream_error(error: cinebox_torrserver::Error) -> String {
+    let error = JobError::from(error);
+    UserError::from(&error).summary()
 }
 
 #[cfg(test)]

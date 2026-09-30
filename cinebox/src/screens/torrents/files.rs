@@ -7,6 +7,7 @@ use rust_i18n::t;
 use super::state::{FilesPane, ReadyFiles, TorrentState, season_episode_line};
 use crate::services::Services;
 use crate::theme::Theme;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, button, poster, scroll};
 
 pub(super) fn files_modal(
@@ -15,7 +16,7 @@ pub(super) fn files_modal(
     svc: &Services,
     theme: &Theme,
     pick_file: &mut Option<i32>,
-    retry_files: &mut bool,
+    error_choice: &mut Option<ErrorChoice>,
     close_files: &mut bool,
 ) {
     let screen = ctx.content_rect().size();
@@ -42,9 +43,7 @@ pub(super) fn files_modal(
                     widgets::page_spinner(ui, theme);
                 }
                 FilesPane::Failed(error) => {
-                    if widgets::page_error(ui, theme, error) {
-                        *retry_files = true;
-                    }
+                    *error_choice = error_page(ui, theme, error);
                 }
                 FilesPane::Ready(files) => {
                     let media = FileListMedia {

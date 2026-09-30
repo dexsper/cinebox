@@ -6,9 +6,11 @@ use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_PLAY_CIRCLE};
 
+use crate::errors::UserError;
 use crate::theme::Theme;
 use crate::widgets::button::{self, CHIP_MIN_W, Opts};
-use crate::widgets::{self, combo};
+use crate::widgets::page_state::{self, ErrorChoice};
+use crate::widgets::combo;
 
 struct InteractState {
     theme: Theme,
@@ -115,9 +117,9 @@ fn interact_harness() -> Harness<'static, InteractState> {
                     });
                 });
 
-                if widgets::page_error(ui, theme, t!("torrents.need_parser").as_ref()) {
-                    state.retry = true;
-                }
+                let error = UserError::new(t!("torrents.need_parser"));
+                let choice = page_state::error_page(ui, theme, &error);
+                state.retry |= choice == Some(ErrorChoice::Retry);
             },
             InteractState {
                 theme: Theme::dark(),

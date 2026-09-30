@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- First-run wizard for the language, TMDB key, parser, and TorrServer.
+
+### Changed
+
+- Settings fields no longer reload the catalog on every keystroke.
+- Error messages are translated and show what to fix.
+
 ## [0.4.0] - 2026-09-29
 
 ### Added

@@ -15,11 +15,13 @@ use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 use rust_i18n::t;
 
+use crate::errors::UserError;
 use crate::jobs::{self, JobError};
-use crate::nav::NavAction;
+use crate::nav::{NavAction, SettingsPage};
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
+use crate::widgets::page_state::ErrorChoice;
 use crate::widgets::{self, intro, poster, scroll};
 
 pub struct TorrentsScreen {
@@ -134,10 +136,10 @@ impl TorrentsScreen {
         self.poll_opened(svc, ui.ctx());
 
         let t = intro::t(self.intro_at, ui.input(|i| i.time));
-        let mut retry = false;
+        let mut hits_choice = None;
         let mut pick = None;
         let mut pick_file = None;
-        let mut retry_files = false;
+        let mut files_choice = None;
         let mut close_files = false;
 
         let full = ui.available_rect_before_wrap();
@@ -171,7 +173,7 @@ impl TorrentsScreen {
                         ui,
                         state,
                         theme,
-                        &mut retry,
+                        &mut hits_choice,
                         &mut pick,
                         t,
                         &mut self.filters,
@@ -196,13 +198,13 @@ impl TorrentsScreen {
                     svc,
                     theme,
                     &mut pick_file,
-                    &mut retry_files,
+                    &mut files_choice,
                     &mut close_files,
                 );
             }
         }
 
-        if retry {
+        if hits_choice == Some(ErrorChoice::Retry) {
             self.refresh_hits();
         }
 
@@ -210,7 +212,7 @@ impl TorrentsScreen {
             self.pick_torrent(svc, index);
         }
 
-        if retry_files {
+        if files_choice == Some(ErrorChoice::Retry) {
             self.retry_files(svc);
         }
 
@@ -218,11 +220,12 @@ impl TorrentsScreen {
             self.pick_file(file_id);
         }
 
-        if close_files {
+        let files_fix = files_choice.and_then(ErrorChoice::nav);
+        if close_files || files_fix.is_some() {
             self.leave_files_if_open();
         }
 
-        None
+        hits_choice.and_then(ErrorChoice::nav).or(files_fix)
     }
 
     fn left_pane(&self, ui: &mut Ui, svc: &Services, theme: &Theme, t: f32) {
@@ -360,7 +363,7 @@ impl TorrentsScreen {
     fn poll_hits(&mut self, svc: &mut Services, ctx: &egui::Context) {
         if svc.settings.parser.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.set_hits(TorrentHits::Failed(t!("torrents.need_parser").into_owned()));
+                state.set_hits(TorrentHits::Failed(needs_parser()));
             }
             return;
         }
@@ -397,8 +400,8 @@ impl TorrentsScreen {
                 }
             }
             Err(error) => {
-                let error = error.to_string();
-                svc.toasts.error(error.clone(), ctx.input(|i| i.time));
+                let error = UserError::from(error);
+                svc.toasts.error(error.summary(), ctx.input(|i| i.time));
 
                 if let Some(state) = &mut self.state {
                     state.set_hits(TorrentHits::Failed(error));
@@ -427,8 +430,8 @@ impl TorrentsScreen {
                 }
             }
             Err(error) => {
-                let error = error.to_string();
-                svc.toasts.error(error.clone(), ctx.input(|i| i.time));
+                let error = UserError::from(error);
+                svc.toasts.error(error.summary(), ctx.input(|i| i.time));
                 if let Some(state) = &mut self.state {
                     state.files = FilesPane::Failed(error);
                 }
@@ -450,7 +453,7 @@ impl TorrentsScreen {
             return;
         }
         if svc.settings.torrserver.url.trim().is_empty() {
-            state.files = FilesPane::Failed(t!("torrents.need_torrserver").into_owned());
+            state.files = FilesPane::Failed(needs_torrserver());
             return;
         }
 
@@ -482,7 +485,7 @@ impl TorrentsScreen {
         };
         if svc.settings.torrserver.url.trim().is_empty() {
             if let Some(state) = &mut self.state {
-                state.files = FilesPane::Failed(t!("torrents.need_torrserver").into_owned());
+                state.files = FilesPane::Failed(needs_torrserver());
             }
             return;
         }
@@ -558,6 +561,14 @@ impl TorrentsScreen {
     }
 }
 
+fn needs_parser() -> UserError {
+    UserError::new(t!("torrents.need_parser")).fix(SettingsPage::Parser)
+}
+
+fn needs_torrserver() -> UserError {
+    UserError::new(t!("torrents.need_torrserver")).fix(SettingsPage::TorrServer)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -611,7 +622,7 @@ mod tests {
 
     #[test]
     fn refresh_hits_retries_failed() {
-        let state = Some(test_state(TorrentHits::Failed(String::from("down"))));
+        let state = Some(test_state(TorrentHits::Failed(UserError::new("down"))));
 
         let mut screen = TorrentsScreen {
             state,

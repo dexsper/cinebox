@@ -260,6 +260,8 @@ pub struct GeneralSettings {
     pub dns_bypass: bool,
     pub custom_doh_url: String,
     pub hidden_home_rows: Vec<HomeRowId>,
+    /// The first-run setup was finished or dismissed.
+    pub onboarded: bool,
 }
 
 impl Default for GeneralSettings {
@@ -270,6 +272,7 @@ impl Default for GeneralSettings {
             dns_bypass: true,
             custom_doh_url: String::new(),
             hidden_home_rows: Vec::new(),
+            onboarded: false,
         }
     }
 }

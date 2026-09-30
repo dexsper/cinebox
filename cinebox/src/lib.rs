@@ -5,6 +5,8 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod app;
+mod discovery;
+mod errors;
 mod fonts;
 mod i18n;
 mod images;
@@ -13,6 +15,7 @@ mod library;
 mod nav;
 mod screens;
 mod services;
+mod settings_input;
 mod theme;
 mod toasts;
 mod widgets;
@@ -45,6 +48,7 @@ pub fn run() -> eframe::Result {
             .with_icon(app_icon()),
         ..Default::default()
     };
+
     eframe::run_native(
         title.as_ref(),
         native_options,

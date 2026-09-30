@@ -3018,6 +3018,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/if-addrs/if-addrs-0.15.0.crate",
+        "sha256": "c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b",
+        "dest": "cargo/vendor/if-addrs-0.15.0"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"c0a05c691e1fae256cf7013d99dad472dc52d5543322761f83ec8d47eab40d2b\", \"files\": {}}",
+        "dest": "cargo/vendor/if-addrs-0.15.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/ignore/ignore-0.4.33.crate",
         "sha256": "00b69833ed729dc5aa7d19541d96d6cf8e9137194207a04916d658e43168402f",
         "dest": "cargo/vendor/ignore-0.4.33"
@@ -3546,6 +3559,19 @@
         "type": "inline",
         "contents": "{\"package\": \"69b6441f590336821bb897fb28fc622898ccceb1d6cea3fde5ea86b090c4de98\", \"files\": {}}",
         "dest": "cargo/vendor/md-5-0.11.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/mdns-sd/mdns-sd-0.21.4.crate",
+        "sha256": "1067efe2aadc6967f84c95977dca910e98f3edfd6403efc8fa8508d289ce012d",
+        "dest": "cargo/vendor/mdns-sd-0.21.4"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"1067efe2aadc6967f84c95977dca910e98f3edfd6403efc8fa8508d289ce012d\", \"files\": {}}",
+        "dest": "cargo/vendor/mdns-sd-0.21.4",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -5748,6 +5774,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/socket-pktinfo/socket-pktinfo-0.4.1.crate",
+        "sha256": "612942246d0cc239cfd83af1dfd39be47f649208a3524e5e9da651910128e0ac",
+        "dest": "cargo/vendor/socket-pktinfo-0.4.1"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"612942246d0cc239cfd83af1dfd39be47f649208a3524e5e9da651910128e0ac\", \"files\": {}}",
+        "dest": "cargo/vendor/socket-pktinfo-0.4.1",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/socket2/socket2-0.6.5.crate",
         "sha256": "c3d1e2c7f27f8d4cb10542a02c49005dbd6e93095799d6f3be745fae9f8fedd4",
         "dest": "cargo/vendor/socket2-0.6.5"
@@ -6003,6 +6042,19 @@
         "type": "inline",
         "contents": "{\"package\": \"728a70f3dbaf5bab7f0c4b1ac8d7ae5ea60a4b5549c8a5914361c99147a709d2\", \"files\": {}}",
         "dest": "cargo/vendor/synstructure-0.13.2",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/sys-locale/sys-locale-0.3.2.crate",
+        "sha256": "8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4",
+        "dest": "cargo/vendor/sys-locale-0.3.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"8eab9a99a024a169fe8a903cf9d4a3b3601109bcc13bd9e3c6fff259138626c4\", \"files\": {}}",
+        "dest": "cargo/vendor/sys-locale-0.3.2",
         "dest-filename": ".cargo-checksum.json"
     },
     {
@@ -7173,6 +7225,19 @@
         "type": "inline",
         "contents": "{\"package\": \"5a6580f308b1fad9207618087a65c04e7a10bc77e02c8e84e9b00dd4b12fa0bb\", \"files\": {}}",
         "dest": "cargo/vendor/web-time-1.1.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/webbrowser/webbrowser-1.2.4.crate",
+        "sha256": "62c35be770821a214dbc362fc26908c853e776c0004294d0b10b8a6bad582f94",
+        "dest": "cargo/vendor/webbrowser-1.2.4"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"62c35be770821a214dbc362fc26908c853e776c0004294d0b10b8a6bad582f94\", \"files\": {}}",
+        "dest": "cargo/vendor/webbrowser-1.2.4",
         "dest-filename": ".cargo-checksum.json"
     },
     {

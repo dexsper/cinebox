@@ -21,6 +21,24 @@ fn locale_code(lang: UiLanguage) -> &'static str {
     }
 }
 
+/// The OS language, when Cinebox has a translation for it.
+#[must_use]
+pub fn system_language() -> Option<UiLanguage> {
+    let locale = sys_locale::get_locale()?;
+    language_for_locale(&locale)
+}
+
+/// `ru-RU`, `uk_UA.UTF-8`, `en` → the matching UI language.
+fn language_for_locale(locale: &str) -> Option<UiLanguage> {
+    let code = locale.split(['-', '_', '.']).next()?;
+    match code.to_ascii_lowercase().as_str() {
+        "en" => Some(UiLanguage::English),
+        "ru" => Some(UiLanguage::Russian),
+        "uk" => Some(UiLanguage::Ukrainian),
+        _ => None,
+    }
+}
+
 /// Look up a key stored as data (settings catalog, etc.).
 #[must_use]
 pub fn tr(key: &str) -> Cow<'_, str> {
@@ -341,6 +359,19 @@ pub fn format_release_date(iso: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn locale_codes_map_to_ui_languages() {
+        assert_eq!(language_for_locale("ru-RU"), Some(UiLanguage::Russian));
+        assert_eq!(
+            language_for_locale("uk_UA.UTF-8"),
+            Some(UiLanguage::Ukrainian)
+        );
+
+        assert_eq!(language_for_locale("en"), Some(UiLanguage::English));
+        assert_eq!(language_for_locale("de-DE"), None);
+    }
+
     use cinebox_core::{MediaKind, TmdbId};
     use std::sync::{Mutex, MutexGuard, PoisonError};
 
@@ -521,7 +552,7 @@ mod tests {
             status_label(&details("Returning Series")).as_deref(),
             Some("Ongoing")
         );
-        
+
         assert_eq!(status_label(&details("Unknown")).as_deref(), None);
         let no_status = MediaDetails {
             status: None,

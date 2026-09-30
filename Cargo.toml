@@ -35,7 +35,7 @@ cinebox-skip = { path = "crates/cinebox-skip" }
 
 egui = "0.36.1"
 egui_kittest = "0.36.1"
-eframe = { version = "0.36.1", default-features = false, features = ["glow", "default_fonts"] }
+eframe = { version = "0.36.1", default-features = false, features = ["glow", "default_fonts", "links"] }
 egui_extras = "0.36.1"
 egui_glow = "0.36.1"
 egui_material_icons = "0.8"

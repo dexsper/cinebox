@@ -4,6 +4,7 @@ use cinebox_core::{CatalogItem, UiLanguage};
 use cinebox_tmdb::ShelfId;
 use egui::{RichText, Ui};
 
+use super::gate;
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::screens::paged::PagedGrid;
@@ -25,14 +26,6 @@ impl CategoryScreen {
         self.reset_scroll = true;
     }
 
-    /// Drop live pages so the next paint reloads for a new TMDB language/key.
-    pub fn forget_live(&mut self) {
-        self.lang = None;
-        if self.id.is_some_and(ShelfId::is_remote) {
-            self.grid.reset();
-        }
-    }
-
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -40,6 +33,12 @@ impl CategoryScreen {
         theme: &Theme,
         id: ShelfId,
     ) -> Option<NavAction> {
+        if id.is_remote() {
+            if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+                return gate::tmdb_key(ui, theme, problem);
+            }
+        }
+
         if self.id != Some(id) {
             self.seed(id, Vec::new());
         }
@@ -68,5 +67,14 @@ impl CategoryScreen {
         }
 
         out.action
+    }
+}
+
+impl super::LiveTmdb for CategoryScreen {
+    fn forget_live(&mut self) {
+        self.lang = None;
+        if self.id.is_some_and(ShelfId::is_remote) {
+            self.grid.reset();
+        }
     }
 }

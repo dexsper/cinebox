@@ -9,6 +9,7 @@ use cinebox_core::{
     allowed_image_sizes,
 };
 use cinebox_player::Engine;
+use rust_i18n::t;
 use tracing::{error, info, warn};
 
 use crate::images::ImageCache;
@@ -33,7 +34,8 @@ pub struct Services {
 
 impl Services {
     pub fn boot(engine: Option<Arc<Mutex<Engine>>>) -> Self {
-        let (store, settings, load_error) = open_settings_store();
+        let (store, mut settings, load_error) = open_settings_store();
+        let upgraded = mark_existing_setup_onboarded(&mut settings);
         let db = open_app_db(&settings);
         let images = ImageCache::with_db(db.clone());
         let watched = db
@@ -48,7 +50,7 @@ impl Services {
             .map(Library::from_entries)
             .unwrap_or_default();
 
-        Self {
+        let mut services = Self {
             settings,
             store,
             db,
@@ -60,7 +62,13 @@ impl Services {
             library,
             watched,
             home_needs_refresh: false,
+        };
+
+        if upgraded {
+            services.persist();
         }
+
+        services
     }
 
     #[cfg(test)]
@@ -152,9 +160,31 @@ impl Services {
         self.home_needs_refresh = true;
     }
 
+    /// Surface boot failures that would otherwise only show inside the settings drawer.
+    pub fn announce_boot_problems(&mut self, now: f64) {
+        if self.load_error.is_some() {
+            self.toasts.error(t!("settings.load_error"), now);
+        }
+
+        if self.db.is_none() {
+            self.toasts.error(t!("error.no_database"), now);
+        }
+    }
+
     pub fn take_home_refresh(&mut self) -> bool {
         std::mem::take(&mut self.home_needs_refresh)
     }
+}
+
+/// Users who set up Cinebox before the first-run wizard existed skip it.
+fn mark_existing_setup_onboarded(settings: &mut Settings) -> bool {
+    let configured = !settings.tmdb.api_key.is_empty();
+    if settings.general.onboarded || !configured {
+        return false;
+    }
+
+    settings.general.onboarded = true;
+    true
 }
 
 fn open_app_db(settings: &Settings) -> Option<Arc<Store>> {
@@ -208,5 +238,29 @@ fn open_settings_store() -> (Option<SettingsStore>, Settings, Option<String>) {
             error!(%error, "failed to load settings");
             (Some(store), Settings::default(), Some(error.to_string()))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use cinebox_core::SecretString;
+
+    use super::*;
+
+    #[test]
+    fn configured_install_skips_the_wizard() {
+        let mut settings = Settings::default();
+        settings.tmdb.api_key = SecretString::from("0123456789abcdef0123456789abcdef");
+
+        assert!(mark_existing_setup_onboarded(&mut settings));
+        assert!(settings.general.onboarded);
+    }
+
+    #[test]
+    fn fresh_install_sees_the_wizard() {
+        let mut settings = Settings::default();
+
+        assert!(!mark_existing_setup_onboarded(&mut settings));
+        assert!(!settings.general.onboarded);
     }
 }

@@ -6,6 +6,9 @@ use egui::{Atom, Margin, Rect, RichText, Sense, Ui, Vec2, pos2, vec2};
 use egui_material_icons::icons::{ICON_LOCAL_MOVIES, ICON_PLAY_CIRCLE};
 use rust_i18n::t;
 
+use super::gate;
+use crate::errors::UserError;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::screens::play::WatchCard;
@@ -79,12 +82,6 @@ impl MediaScreen {
         let _ = self.trailers.close();
     }
 
-    /// Drop the in-memory card so the next paint reloads for the new language.
-    /// Does not touch the SQLite cache.
-    pub fn forget_live(&mut self) {
-        self.cache.forget_live();
-    }
-
     pub fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
         self.trailers.take_play()
     }
@@ -105,6 +102,10 @@ impl MediaScreen {
         kind: MediaKind,
         id: TmdbId,
     ) -> Option<NavAction> {
+        if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+            return gate::tmdb_key(ui, theme, problem);
+        }
+
         let now = ui.input(|i| i.time);
         if self.kind != Some(kind) || self.id != Some(id) {
             self.kind = Some(kind);
@@ -194,12 +195,10 @@ impl MediaScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                let error = match self.cache.bind.read() {
-                    Some(Err(error)) => error.to_string(),
-                    _ => t!("common.failed").into_owned(),
-                };
-                retry = widgets::page_error(ui, theme, &error);
-                None
+                let error = UserError::from_read(self.cache.bind.read());
+                let choice = error_page(ui, theme, &error);
+                retry = choice == Some(ErrorChoice::Retry);
+                choice.and_then(ErrorChoice::nav)
             }
             super::swr::Swr::Pending => {
                 if let Some(item) = self.preview.as_ref() {
@@ -300,6 +299,12 @@ impl MediaScreen {
             self.intro_at = Some(now);
             self.pending_intro = false;
         }
+    }
+}
+
+impl super::LiveTmdb for MediaScreen {
+    fn forget_live(&mut self) {
+        self.cache.forget_live();
     }
 }
 

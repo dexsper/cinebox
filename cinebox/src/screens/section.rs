@@ -9,8 +9,11 @@ use egui_material_icons::icons::ICON_TUNE;
 use rust_i18n::t;
 
 use super::discover::DiscoverFilters;
+use super::gate;
 use super::shelf::shelf;
 use super::swr::{Cached, Swr};
+use crate::errors::UserError;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
@@ -26,11 +29,6 @@ pub struct SectionScreen {
 }
 
 impl SectionScreen {
-    /// Drop every hub so the next paint reloads for a new TMDB key, language, or network.
-    pub fn forget_live(&mut self) {
-        self.caches.clear();
-    }
-
     pub fn ui(
         &mut self,
         ui: &mut Ui,
@@ -38,9 +36,8 @@ impl SectionScreen {
         theme: &Theme,
         section: Section,
     ) -> Option<NavAction> {
-        if svc.settings.tmdb.api_key.is_empty() {
-            ui.label(RichText::new(t!("catalog.need_tmdb_key").as_ref()).color(theme.muted));
-            return None;
+        if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+            return gate::tmdb_key(ui, theme, problem);
         }
 
         let cache = self.caches.entry(section).or_default();
@@ -66,14 +63,12 @@ impl SectionScreen {
             },
             Swr::Disk => cache.disk.as_ref().map(|(rows, _)| rows.as_slice()),
             Swr::Failed => {
-                let error = match cache.bind.read() {
-                    Some(Err(error)) => error.to_string(),
-                    _ => t!("common.failed").into_owned(),
-                };
-                if widgets::page_error(ui, theme, &error) {
+                let error = UserError::from_read(cache.bind.read());
+                let choice = error_page(ui, theme, &error);
+                if choice == Some(ErrorChoice::Retry) {
                     cache.retry();
                 }
-                return None;
+                return choice.and_then(ErrorChoice::nav);
             }
             Swr::Pending => {
                 widgets::page_spinner(ui, theme);
@@ -98,6 +93,12 @@ impl SectionScreen {
         });
 
         action
+    }
+}
+
+impl super::LiveTmdb for SectionScreen {
+    fn forget_live(&mut self) {
+        self.caches.clear();
     }
 }
 

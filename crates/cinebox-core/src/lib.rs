@@ -9,6 +9,7 @@ pub mod ids;
 pub mod library;
 pub mod media;
 pub mod paths;
+pub mod presets;
 pub mod section;
 pub mod settings;
 
@@ -27,6 +28,7 @@ pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};
 pub use library::{LibraryEntry, LibraryList, LibraryMark, ListStatus};
 pub use paths::AppDirs;
+pub use presets::{ParserPreset, ServicePresets, TorrPresets};
 pub use media::{
     CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money,
 };
