@@ -4,7 +4,9 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
+use crate::errors::UserError;
 use crate::theme::Theme;
+use crate::widgets::page_state::{self, ErrorChoice};
 use crate::widgets;
 
 const TOOLBAR_H: f32 = 40.0;
@@ -38,9 +40,9 @@ fn pane_harness(show_error: bool) -> Harness<'static, PaneState> {
                 state.toolbar_bottom = bar.bottom();
 
                 if state.show_error {
-                    if widgets::page_error(ui, theme, t!("torrents.need_parser").as_ref()) {
-                        state.retry = true;
-                    }
+                    let error = UserError::new(t!("torrents.need_parser"));
+                    let choice = page_state::error_page(ui, theme, &error);
+                    state.retry |= choice == Some(ErrorChoice::Retry);
                     return;
                 }
 
@@ -84,7 +86,8 @@ fn parser_error_centers_below_toolbar() {
         .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
         .rect();
     let copy = harness.get_by_label(t!("torrents.need_parser").as_ref()).rect();
-    let group_mid = (copy.center().y + retry.center().y) * 0.5;
+    let group_top = copy.top() - page_state::BADGE_BLOCK;
+    let group_mid = (group_top + retry.bottom()) * 0.5;
     let mid = remaining_mid_y(&harness);
 
     assert!(

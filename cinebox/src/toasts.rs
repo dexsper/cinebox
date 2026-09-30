@@ -44,12 +44,21 @@ impl Toasts {
         self.push(ToastKind::Error, text, now);
     }
 
+    /// A toast already showing the same text is renewed instead of stacked.
     fn push(&mut self, kind: ToastKind, text: impl Into<String>, now: f64) {
+        let text = text.into();
+        let showing = self.items.iter_mut().find(|toast| toast.text == text);
+        if let Some(toast) = showing {
+            toast.kind = kind;
+            toast.born = now;
+            return;
+        }
+
         self.next_id = self.next_id.wrapping_add(1);
         self.items.push(Toast {
             id: self.next_id,
             kind,
-            text: text.into(),
+            text,
             born: now,
         });
     }
@@ -123,4 +132,20 @@ fn kind_color(kind: ToastKind, theme: &Theme) -> Color32 {
 fn fade(color: Color32, alpha: f32) -> Color32 {
     let [r, g, b, a] = color.to_array();
     Color32::from_rgba_unmultiplied(r, g, b, (f32::from(a) * alpha).round() as u8)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn same_text_renews_instead_of_stacking() {
+        let mut toasts = Toasts::default();
+
+        toasts.error("Network failed", 1.0);
+        toasts.error("Network failed", 2.0);
+
+        assert_eq!(toasts.items.len(), 1);
+        assert!((toasts.items[0].born - 2.0).abs() < f64::EPSILON);
+    }
 }

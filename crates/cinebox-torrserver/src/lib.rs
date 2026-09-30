@@ -5,6 +5,7 @@
 mod auth;
 mod cache;
 mod client;
+mod discover;
 mod episode;
 mod error;
 mod probe;
@@ -15,6 +16,7 @@ mod viewed;
 
 pub use auth::mpv_http_header_fields;
 pub use cache::{CacheState, PieceState, ReaderState, ResumeProgress, cache_state, resume_window_progress};
+pub use discover::{FoundServer, discover};
 pub use episode::{FileEpisode, file_display_name, parse_file_episode};
 pub use error::Error;
 pub use probe::{SPEED_TEST_FILE_MB, SpeedEvent, SpeedReport, echo, speed_test};

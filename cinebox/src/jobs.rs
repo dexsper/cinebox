@@ -45,8 +45,17 @@ pub fn net_config(settings: &Settings) -> NetConfig {
     NetConfig {
         use_system_proxy: settings.general.use_system_proxy,
         dns_bypass: settings.general.dns_bypass,
-        custom_doh_url: settings.general.custom_doh_url.clone(),
+        custom_doh_url: usable_doh_url(&settings.general.custom_doh_url),
     }
+}
+
+/// A half-typed or `http://` DoH endpoint would only add a failing hop; drop it.
+fn usable_doh_url(url: &str) -> String {
+    if crate::settings_input::doh_url_ok(url) {
+        return url.to_owned();
+    }
+
+    String::new()
 }
 
 /// Narrow snapshot of the TMDB settings a job needs.

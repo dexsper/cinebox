@@ -1,6 +1,9 @@
 //! Settings categories and the field list the drawer renders.
 
 use cinebox_core::{SecretString, Settings};
+
+use crate::nav::SettingsPage;
+use crate::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_MOVIE, ICON_PLAY_CIRCLE, ICON_SEARCH, ICON_TUNE,
@@ -24,6 +27,17 @@ impl CategoryId {
             Self::Parser => "parser",
             Self::TorrServer => "torrserver",
             Self::Tmdb => "tmdb",
+        }
+    }
+}
+
+impl From<SettingsPage> for CategoryId {
+    fn from(page: SettingsPage) -> Self {
+        match page {
+            SettingsPage::General => Self::General,
+            SettingsPage::Parser => Self::Parser,
+            SettingsPage::TorrServer => Self::TorrServer,
+            SettingsPage::Tmdb => Self::Tmdb,
         }
     }
 }
@@ -58,12 +72,16 @@ pub enum Field {
         label: &'static str,
         hint: Option<&'static str>,
         placeholder: &'static str,
+        kind: InputKind,
+        check: Option<Check>,
         get: fn(&Settings) -> String,
         set: fn(&mut Settings, String),
     },
     Secret {
         label: &'static str,
         hint: Option<&'static str>,
+        kind: InputKind,
+        check: Option<Check>,
         get: fn(&Settings) -> SecretString,
         set: fn(&mut Settings, SecretString),
     },
@@ -84,6 +102,21 @@ pub enum Field {
     ProbeTmdb,
     SpeedTest,
     ClearCache,
+    RunWizard,
+}
+
+/// Returns the i18n key of a warning shown under the committed value.
+pub type Check = fn(&str) -> Option<&'static str>;
+
+fn check_tmdb_key(key: &str) -> Option<&'static str> {
+    tmdb_key_hint(key).map(|hint| match hint {
+        KeyHint::AccessToken => "settings.tmdb_key_token",
+        KeyHint::BadFormat => "settings.tmdb_key_format",
+    })
+}
+
+fn check_doh_url(url: &str) -> Option<&'static str> {
+    (!doh_url_ok(url)).then_some("settings.doh_needs_https")
 }
 
 pub fn catalog() -> &'static [Category] {
@@ -167,9 +200,12 @@ const GENERAL: &[Field] = &[
         label: "settings.custom_doh_url",
         hint: Some("settings.custom_doh_url_hint"),
         placeholder: "https://dns.example.com/dns-query",
+        kind: InputKind::Url,
+        check: Some(check_doh_url),
         get: |s| s.general.custom_doh_url.clone(),
         set: |s, v| s.general.custom_doh_url = v,
     },
+    Field::RunWizard,
 ];
 
 const PLAYER: &[Field] = &[
@@ -228,12 +264,16 @@ const PARSER: &[Field] = &[
         label: "settings.url",
         hint: None,
         placeholder: "http://127.0.0.1:9117",
+        kind: InputKind::Url,
+        check: None,
         get: |s| s.parser.url.clone(),
         set: |s, v| s.parser.url = v,
     },
     Field::Secret {
         label: "settings.api_key",
         hint: None,
+        kind: InputKind::Key,
+        check: None,
         get: |s| s.parser.api_key.clone(),
         set: |s, v| s.parser.api_key = v,
     },
@@ -251,6 +291,8 @@ const TORRSERVER: &[Field] = &[
         label: "settings.url",
         hint: None,
         placeholder: "http://127.0.0.1:8090",
+        kind: InputKind::Url,
+        check: None,
         get: |s| s.torrserver.url.clone(),
         set: |s, v| s.torrserver.url = v,
     },
@@ -276,12 +318,16 @@ const TORRSERVER: &[Field] = &[
         label: "settings.username",
         hint: None,
         placeholder: "",
+        kind: InputKind::Plain,
+        check: None,
         get: |s| s.torrserver.username.clone(),
         set: |s, v| s.torrserver.username = v,
     },
     Field::Secret {
         label: "settings.password",
         hint: None,
+        kind: InputKind::Raw,
+        check: None,
         get: |s| s.torrserver.password.clone(),
         set: |s, v| s.torrserver.password = v,
     },
@@ -293,6 +339,8 @@ const TMDB: &[Field] = &[
     Field::Secret {
         label: "settings.api_key",
         hint: Some("settings.tmdb_api_key_hint"),
+        kind: InputKind::Key,
+        check: Some(check_tmdb_key),
         get: |s| s.tmdb.api_key.clone(),
         set: |s, v| s.tmdb.api_key = v,
     },

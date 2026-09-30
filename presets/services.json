@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "parsers": [
+    { "kind": "jackett", "url": "https://jac.red", "public": true },
+    { "kind": "jackett", "url": "https://jac-red.ru", "public": true },
+    { "kind": "jackett", "url": "https://jac.black", "public": true },
+    { "kind": "jackett", "url": "https://ru.jac.black", "public": true },
+    { "kind": "jackett", "url": "http://127.0.0.1:9117" },
+    { "kind": "prowlarr", "url": "http://127.0.0.1:9696" }
+  ],
+  "torrserver": {
+    "mdns_service": "_torrserver._tcp.local.",
+    "fallback": ["http://127.0.0.1:8090"]
+  }
+}

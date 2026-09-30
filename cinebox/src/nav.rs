@@ -59,9 +59,20 @@ impl Screen {
     }
 }
 
+/// Settings page that a "fix it" button on an error or empty state jumps to.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SettingsPage {
+    General,
+    Parser,
+    TorrServer,
+    Tmdb,
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub enum NavAction {
     OpenSettings,
+    OpenSettingsAt(SettingsPage),
+    OpenOnboarding,
     GoBack,
     OpenRail(RailEntry),
     OpenCategory {

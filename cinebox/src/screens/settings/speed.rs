@@ -6,6 +6,7 @@ use cinebox_torrserver::SpeedEvent;
 use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
 use rust_i18n::t;
 
+use crate::errors::UserError;
 use crate::jobs::{self, JobError, TorrCtx};
 use crate::theme::Theme;
 
@@ -142,7 +143,7 @@ pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result
 
     match &result {
         Ok(mbps) => meter.finish_ok(*mbps),
-        Err(error) => meter.finish_err(error.to_string()),
+        Err(error) => meter.finish_err(UserError::from(error).summary()),
     }
 
     ctx.request_repaint();

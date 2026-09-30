@@ -2,10 +2,12 @@ use cinebox_core::{
     CatalogItem, HomeCatalog, HomeRowId, LibraryList, ListStatus, RECENT_ROW_LIMIT, language_key,
 };
 use cinebox_tmdb::ShelfId;
-use egui::{RichText, Ui};
-use rust_i18n::t;
+use egui::Ui;
 
+use super::gate;
 use super::shelf::shelf;
+use crate::errors::UserError;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::services::Services;
@@ -23,18 +25,8 @@ impl HomeScreen {
     }
 
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
-        if svc.settings.tmdb.api_key.is_empty() {
-            ui.label(RichText::new(t!("catalog.need_tmdb_key").as_ref()).color(theme.muted));
-            let settings_size = egui::vec2(160.0, crate::widgets::combo::HEIGHT);
-            if crate::widgets::button::label(
-                ui,
-                theme,
-                t!("nav.settings").as_ref(),
-                crate::widgets::button::Opts::secondary(settings_size),
-            ) {
-                return Some(NavAction::OpenSettings);
-            }
-            return None;
+        if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+            return gate::tmdb_key(ui, theme, problem);
         }
 
         self.cache.sync_lang(svc.settings.general.language);
@@ -70,12 +62,10 @@ impl HomeScreen {
                 None => None,
             },
             super::swr::Swr::Failed => {
-                let error = match self.cache.bind.read() {
-                    Some(Err(error)) => error.to_string(),
-                    _ => t!("common.failed").into_owned(),
-                };
-                retry = widgets::page_error(ui, theme, &error);
-                None
+                let error = UserError::from_read(self.cache.bind.read());
+                let choice = error_page(ui, theme, &error);
+                retry = choice == Some(ErrorChoice::Retry);
+                choice.and_then(ErrorChoice::nav)
             }
             super::swr::Swr::Pending => {
                 widgets::page_spinner(ui, theme);
@@ -87,6 +77,12 @@ impl HomeScreen {
         }
 
         action
+    }
+}
+
+impl super::LiveTmdb for HomeScreen {
+    fn forget_live(&mut self) {
+        self.refresh();
     }
 }
 

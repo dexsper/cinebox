@@ -5,6 +5,8 @@ use cinebox_indexer::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_h
 use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 
+use crate::errors::UserError;
+
 #[derive(Debug, Clone)]
 pub struct MovieBits {
     pub title: String,
@@ -70,7 +72,7 @@ fn head_line(year: Option<u16>, countries: &[String]) -> String {
 pub enum TorrentHits {
     Loading,
     Ready(Vec<TorrentHit>),
-    Failed(String),
+    Failed(UserError),
 }
 
 #[derive(Debug, Clone)]
@@ -140,7 +142,7 @@ impl ReadyFiles {
 pub enum FilesPane {
     Closed,
     Loading,
-    Failed(String),
+    Failed(UserError),
     Ready(ReadyFiles),
 }
 

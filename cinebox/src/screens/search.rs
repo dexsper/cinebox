@@ -6,6 +6,9 @@ use egui::{RichText, Sense, Ui, vec2};
 use egui_async::Bind;
 use rust_i18n::t;
 
+use super::gate;
+use crate::errors::UserError;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::jobs::{self, JobError};
 use crate::nav::NavAction;
 use crate::screens::paged::apply_page;
@@ -108,18 +111,9 @@ impl SearchScreen {
         self.reset_scroll = true;
     }
 
-    /// Drop live pages so the next paint reloads for a new TMDB language/key.
-    pub fn forget_live(&mut self) {
-        self.lang = None;
-
-        for tab in &mut self.tabs {
-            tab.reset();
-        }
-    }
-
     pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
-        if svc.settings.tmdb.api_key.is_empty() {
-            return need_key(ui, theme);
+        if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+            return gate::tmdb_key(ui, theme, problem);
         }
 
         if self.query.is_empty() {
@@ -228,12 +222,9 @@ impl SearchScreen {
 
             if failed {
                 ui.add_space(12.0);
-                let error = match self.current_mut().page.read() {
-                    Some(Err(error)) => error.to_string(),
-                    _ => t!("common.failed").into_owned(),
-                };
-
-                ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
+                let error = UserError::from_read(self.current_mut().page.read());
+                let text = RichText::new(error.summary()).size(theme.text_small);
+                ui.label(text.color(theme.err));
                 ui.add_space(8.0);
 
                 if widgets::button::label(
@@ -263,16 +254,13 @@ impl SearchScreen {
 
     fn empty_view(&mut self, ui: &mut Ui, theme: &Theme, failed: bool) -> Option<NavAction> {
         if failed {
-            let error = match self.current_mut().page.read() {
-                Some(Err(error)) => error.to_string(),
-                _ => t!("common.failed").into_owned(),
-            };
-
-            if widgets::page_error(ui, theme, &error) {
+            let error = UserError::from_read(self.current_mut().page.read());
+            let choice = error_page(ui, theme, &error);
+            if choice == Some(ErrorChoice::Retry) {
                 self.current_mut().page.clear();
                 self.current_mut().loading = false;
             }
-            return None;
+            return choice.and_then(ErrorChoice::nav);
         }
 
         let waiting = self.current().loading || self.current().has_more;
@@ -330,20 +318,14 @@ impl SearchScreen {
     }
 }
 
-fn need_key(ui: &mut Ui, theme: &Theme) -> Option<NavAction> {
-    ui.label(RichText::new(t!("catalog.need_tmdb_key").as_ref()).color(theme.muted));
-    let settings_size = vec2(160.0, crate::widgets::combo::HEIGHT);
+impl super::LiveTmdb for SearchScreen {
+    fn forget_live(&mut self) {
+        self.lang = None;
 
-    if crate::widgets::button::label(
-        ui,
-        theme,
-        t!("nav.settings").as_ref(),
-        crate::widgets::button::Opts::secondary(settings_size),
-    ) {
-        return Some(NavAction::OpenSettings);
+        for tab in &mut self.tabs {
+            tab.reset();
+        }
     }
-
-    None
 }
 
 fn scroll_page(ui: &mut Ui, tab: SearchTab, to_top: bool, add: impl FnOnce(&mut Ui)) {

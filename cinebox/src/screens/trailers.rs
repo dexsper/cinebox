@@ -6,6 +6,8 @@ use egui_async::Bind;
 use rust_i18n::t;
 use tracing::warn;
 
+use crate::errors::UserError;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::jobs::{self, JobError};
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::services::Services;
@@ -28,7 +30,7 @@ pub struct TrailersModal {
     resolve: Bind<cinebox_youtube::Playback, JobError>,
     pending_key: Option<String>,
     pending_title: String,
-    error: Option<String>,
+    error: Option<UserError>,
     pending_play: Option<PlayRequest>,
 }
 
@@ -109,7 +111,7 @@ impl TrailersModal {
                     "trailer resolve failed"
                 );
                 self.phase = TrailersPhase::Failed;
-                self.error = Some(error.to_string());
+                self.error = Some(UserError::from(&error));
             }
         }
     }
@@ -131,7 +133,7 @@ impl TrailersModal {
             let items = &self.items;
             let card = self.card.as_ref();
             let phase = self.phase;
-            let error = self.error.as_deref();
+            let error = self.error.as_ref();
 
             let modal = Modal::new(Id::new("media-trailers"))
                 .backdrop_color(theme.overlay)
@@ -159,11 +161,10 @@ impl TrailersModal {
                         }
                         TrailersPhase::Resolving => widgets::page_spinner(ui, theme),
                         TrailersPhase::Failed => {
-                            let failed = t!("common.failed");
-                            let text = error.unwrap_or(failed.as_ref());
-                            if widgets::page_error(ui, theme, text) {
-                                retry = true;
-                            }
+                            let fallback = UserError::new(t!("common.failed"));
+                            let error = error.unwrap_or(&fallback);
+                            let choice = error_page(ui, theme, error);
+                            retry = choice == Some(ErrorChoice::Retry);
                         }
                     }
                 });

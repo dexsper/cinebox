@@ -145,7 +145,7 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
   - [x] Third-party API (TheIntroDB)
   - [ ] Custom Chromaprint-based analyzer
 - [x] Categories on the home screen, plus custom lists (Favorites, Watched)
-- [ ] First-run wizard
+- [x] First-run wizard
 - [x] Linux build
 
 ## Contributing

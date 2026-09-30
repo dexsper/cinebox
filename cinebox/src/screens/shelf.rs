@@ -28,7 +28,8 @@ pub fn shelf(
     }
 
     if let Some(error) = error {
-        ui.label(RichText::new(error).size(theme.text_small).color(theme.err));
+        let text = RichText::new(t!("catalog.shelf_failed")).size(theme.text_small);
+        ui.label(text.color(theme.err)).on_hover_text(error);
     }
 
     if items.is_empty() {

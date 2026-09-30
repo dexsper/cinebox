@@ -6,6 +6,7 @@ use egui::{Align, Layout, RichText, Ui, vec2};
 use egui_material_icons::icons::{ICON_CLOSE, ICON_FILTER_LIST};
 use rust_i18n::t;
 
+use super::gate;
 use crate::jobs;
 use crate::nav::NavAction;
 use crate::screens::paged::PagedGrid;
@@ -145,12 +146,6 @@ impl DiscoverScreen {
         self.reset_scroll = true;
     }
 
-    /// Drop live pages so the next paint reloads for a new TMDB language/key.
-    pub fn forget_live(&mut self) {
-        self.lang = None;
-        self.grid.reset();
-    }
-
     /// Escape / Back closes the filter drawer first.
     pub fn on_back(&mut self, now: f64) -> bool {
         self.drawer.on_back(now)
@@ -163,6 +158,10 @@ impl DiscoverScreen {
         theme: &Theme,
         section: Section,
     ) -> Option<NavAction> {
+        if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
+            return gate::tmdb_key(ui, theme, problem);
+        }
+
         if self.section != Some(section) {
             self.seed(section, DiscoverFilters::new(section.primary_kind()));
         }
@@ -202,6 +201,13 @@ impl DiscoverScreen {
         }
 
         out.action
+    }
+}
+
+impl super::LiveTmdb for DiscoverScreen {
+    fn forget_live(&mut self) {
+        self.lang = None;
+        self.grid.reset();
     }
 }
 

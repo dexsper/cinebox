@@ -12,10 +12,12 @@ use tracing::error;
 use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, RailEntry, Screen};
 use crate::screens::{
-    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, PersonScreen,
-    PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
+    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, LiveTmdb, MediaScreen,
+    OnboardingScreen, PersonScreen, PlayerScreen, SearchScreen, SectionScreen, SettingsScreen,
+    TorrentsScreen,
 };
 use crate::services::{Services, db_block_on};
+use crate::settings_input::tmdb_key_hint;
 use crate::theme::Theme;
 use crate::widgets::search::SearchBar;
 use crate::widgets::{backdrop, chrome, rail};
@@ -29,6 +31,9 @@ struct TmdbView {
 
 enum TmdbChange {
     None,
+    /// The key was removed: nothing can be fetched, cached TMDB data goes too.
+    KeyCleared,
+    /// Key or network changed: refetch everything, images included.
     Catalog,
     Language,
     PosterSize,
@@ -45,6 +50,18 @@ impl TmdbView {
     }
 
     fn change_from(&self, next: &Self) -> TmdbChange {
+        let key_cleared = next.api_key.is_empty() && !self.api_key.is_empty();
+        if key_cleared {
+            return TmdbChange::KeyCleared;
+        }
+
+        // Without a usable key there is nothing to reload; a malformed one would
+        // only earn a 401 and a flash of the error page.
+        let key_unusable = next.api_key.is_empty() || tmdb_key_hint(&next.api_key).is_some();
+        if key_unusable {
+            return TmdbChange::None;
+        }
+
         let key_changed = next.api_key != self.api_key;
         let language_changed = next.language != self.language;
         let net_changed = next.net != self.net;
@@ -78,6 +95,7 @@ pub struct App {
     search: SearchScreen,
     search_bar: SearchBar,
     settings_screen: SettingsScreen,
+    onboarding: OnboardingScreen,
     media: MediaScreen,
     person: PersonScreen,
     torrents: TorrentsScreen,
@@ -94,9 +112,22 @@ impl App {
             .plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
         let engine = attach_engine(cc);
-        let services = Services::boot(engine);
+        let mut services = Services::boot(engine);
+        let first_run = !services.settings.general.onboarded;
+        if first_run {
+            adopt_system_language(&mut services);
+        }
+
         let last_tmdb = TmdbView::from_settings(&services.settings);
         crate::i18n::apply(services.settings.general.language);
+
+        let now = cc.egui_ctx.input(|i| i.time);
+        services.announce_boot_problems(now);
+
+        let mut onboarding = OnboardingScreen::default();
+        if first_run {
+            onboarding.open(&services, now);
+        }
         let search_bar = SearchBar::with_history(load_search_history(&services));
 
         Self {
@@ -112,6 +143,7 @@ impl App {
             search: SearchScreen::default(),
             search_bar,
             settings_screen: SettingsScreen::default(),
+            onboarding,
             media: MediaScreen::default(),
             person: PersonScreen::default(),
             torrents: TorrentsScreen::default(),
@@ -122,6 +154,11 @@ impl App {
     fn apply_nav(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
+            NavAction::OpenSettingsAt(page) => self.settings_screen.open_at(page, now),
+            NavAction::OpenOnboarding => {
+                self.settings_screen.close(now);
+                self.onboarding.open(&self.services, now);
+            }
             NavAction::GoBack => self.go_back(now, ctx),
             NavAction::OpenRail(entry) => {
                 let screen = match entry {
@@ -219,9 +256,7 @@ impl App {
         last.api_key == settings.tmdb.api_key.expose()
             && last.language == settings.general.language
             && last.poster_size == settings.tmdb.poster_size
-            && last.net.use_system_proxy == settings.general.use_system_proxy
-            && last.net.dns_bypass == settings.general.dns_bypass
-            && last.net.custom_doh_url == settings.general.custom_doh_url
+            && last.net == crate::jobs::net_config(settings)
     }
 
     fn sync_tmdb(&mut self) {
@@ -230,59 +265,51 @@ impl App {
         }
 
         let next = TmdbView::from_settings(&self.services.settings);
-        if next.api_key.is_empty() {
-            let had_key = !self.last_tmdb.api_key.is_empty();
-            self.last_tmdb = next;
-            if had_key {
-                self.home.refresh();
-                self.section.forget_live();
-                self.category.forget_live();
-                self.discover.forget_live();
-                self.search.forget_live();
-                self.media.forget_live();
-                self.person.forget_live();
-                if let Some(db) = &self.services.db {
-                    if let Err(error) = db_block_on(db.clear_tmdb()) {
-                        error!(%error, "failed to purge tmdb cache");
-                    }
-                }
-                self.services.images.clear();
-            }
-            return;
-        }
-
         let change = self.last_tmdb.change_from(&next);
         self.last_tmdb = next;
+
         match change {
+            TmdbChange::KeyCleared => {
+                self.forget_live_tmdb();
+                self.services.clear_tmdb_cache();
+            }
             TmdbChange::Catalog => {
-                self.home.refresh();
-                self.section.forget_live();
-                self.category.forget_live();
-                self.discover.forget_live();
-                self.search.forget_live();
-                self.media.forget_live();
-                self.person.forget_live();
+                self.forget_live_tmdb();
                 self.services.images.clear();
             }
-            TmdbChange::Language => {
-                self.home.refresh();
-                self.section.forget_live();
-                self.category.forget_live();
-                self.discover.forget_live();
-                self.search.forget_live();
-                self.media.forget_live();
-                self.person.forget_live();
-            }
-            TmdbChange::PosterSize => {
-                self.services.images.clear();
-                if let Some(db) = &self.services.db {
-                    let sizes = allowed_image_sizes(self.services.settings.tmdb.poster_size);
-                    if let Err(error) = db_block_on(db.gc_images(&sizes)) {
-                        error!(%error, "failed to gc tmdb images");
-                    }
-                }
-            }
+            TmdbChange::Language => self.forget_live_tmdb(),
+            TmdbChange::PosterSize => self.gc_poster_images(),
             TmdbChange::None => {}
+        }
+    }
+
+    fn live_tmdb_screens(&mut self) -> [&mut dyn LiveTmdb; 7] {
+        [
+            &mut self.home,
+            &mut self.section,
+            &mut self.category,
+            &mut self.discover,
+            &mut self.search,
+            &mut self.media,
+            &mut self.person,
+        ]
+    }
+
+    fn forget_live_tmdb(&mut self) {
+        for screen in self.live_tmdb_screens() {
+            screen.forget_live();
+        }
+    }
+
+    fn gc_poster_images(&mut self) {
+        self.services.images.clear();
+        let Some(db) = &self.services.db else {
+            return;
+        };
+
+        let sizes = allowed_image_sizes(self.services.settings.tmdb.poster_size);
+        if let Err(error) = db_block_on(db.gc_images(&sizes)) {
+            error!(%error, "failed to gc tmdb images");
         }
     }
 
@@ -348,7 +375,9 @@ impl eframe::App for App {
         let theme = self.theme.clone();
         let on_player = matches!(screen, Screen::Player { .. });
 
-        if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+        // The wizard is dismissed with its own "Set up later" button only.
+        let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
+        if escape && !self.onboarding.is_open() {
             let search_consumed = self.search_bar.consume_escape(ui.ctx());
             let player_consumed = on_player && self.player.consume_escape(ui.ctx());
 
@@ -428,7 +457,9 @@ impl eframe::App for App {
                     chrome::window_outline(ui, &theme);
                 }
 
-                self.settings_screen.ui(ui, &mut self.services, &theme);
+                if let Some(nav) = self.settings_screen.ui(ui, &mut self.services, &theme) {
+                    action = Some(nav);
+                }
 
                 if action.is_none() {
                     action = screen_action;
@@ -436,6 +467,8 @@ impl eframe::App for App {
             });
 
         let ctx = ui.ctx().clone();
+        self.onboarding.ui(&ctx, &mut self.services, &theme);
+
         self.services.toasts.show(&ctx, &theme);
         self.take_pending_play(&ctx);
         if let Some(action) = action {
@@ -499,7 +532,9 @@ fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDis
 
     match handle.as_raw() {
         RawDisplayHandle::Wayland(wayland) => NativeDisplay::Wayland(wayland.display),
-        RawDisplayHandle::Xlib(xlib) => xlib.display.map_or(NativeDisplay::None, NativeDisplay::X11),
+        RawDisplayHandle::Xlib(xlib) => {
+            xlib.display.map_or(NativeDisplay::None, NativeDisplay::X11)
+        }
         _ => NativeDisplay::None,
     }
 }
@@ -508,6 +543,15 @@ fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDis
 #[cfg(not(target_os = "linux"))]
 fn native_display(_cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDisplay {
     cinebox_player::NativeDisplay::None
+}
+
+/// A fresh install starts in the OS language when there is a translation for it.
+fn adopt_system_language(services: &mut Services) {
+    let Some(language) = crate::i18n::system_language() else {
+        return;
+    };
+
+    services.settings.general.language = language;
 }
 
 fn load_search_history(svc: &Services) -> Vec<String> {

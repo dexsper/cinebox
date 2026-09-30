@@ -16,6 +16,7 @@ use super::state::{TorrentHits, TorrentState};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::drawer::Overlay;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, chips, combo, multiselect, scroll};
 
 const FILTERS_BTN_W: f32 = 152.0;
@@ -24,7 +25,7 @@ pub(super) fn list_pane(
     ui: &mut Ui,
     state: &mut TorrentState,
     theme: &Theme,
-    retry: &mut bool,
+    error_choice: &mut Option<ErrorChoice>,
     pick: &mut Option<usize>,
     t: f32,
     filters: &mut Overlay,
@@ -41,9 +42,7 @@ pub(super) fn list_pane(
             widgets::page_spinner(ui, theme);
         }
         TorrentHits::Failed(error) => {
-            if widgets::page_error(ui, theme, error) {
-                *retry = true;
-            }
+            *error_choice = error_page(ui, theme, error);
         }
         TorrentHits::Ready(hits) => {
             let visible = &state.visible;
