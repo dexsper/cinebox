@@ -16,7 +16,7 @@ use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::ExpandingIcon;
 use crate::widgets::lists::{self, MenuPick};
-use crate::widgets::{self, flyout, intro, poster, scroll, skeleton};
+use crate::widgets::{self, flyout, focus, intro, poster, scroll, skeleton};
 
 use super::trailers::TrailersModal;
 
@@ -828,7 +828,7 @@ fn people(
                 let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), photo);
 
                 poster::paint_poster(ui, photo_rect, tex, theme);
-                if response.hovered() {
+                if focus::lit(&response) {
                     poster::hover_ring(ui, photo_rect, theme);
                 }
 

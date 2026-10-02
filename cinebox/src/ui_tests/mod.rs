@@ -9,3 +9,4 @@ mod onboarding;
 mod pane;
 mod scroll;
 mod toasts;
+mod tv;

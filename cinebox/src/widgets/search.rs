@@ -3,7 +3,7 @@
 use cinebox_core::SEARCH_HISTORY_LIMIT;
 use egui::emath::GuiRounding;
 use egui::{
-    Align, Align2, Area, Color32, FontId, Frame, Id, Key, Layout, Margin, Order, Rect, Sense,
+    Align, Align2, Area, Color32, FontId, Frame, Id, Key, LayerId, Layout, Margin, Order, Rect, Sense,
     Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_SCHEDULE, ICON_SEARCH};
@@ -12,7 +12,7 @@ use rust_i18n::t;
 use crate::nav::NavAction;
 use crate::theme::Theme;
 use crate::widgets::button::{self, pointing};
-use crate::widgets::flyout;
+use crate::widgets::{flyout, focus};
 
 pub const SEARCH_W: f32 = 380.0;
 pub const SEARCH_H: f32 = 28.0;
@@ -200,6 +200,12 @@ impl SearchBar {
         }
 
         let edit_rect = Rect::from_min_max(pos2(rect.left() + ICON_W, rect.top()), rect.max);
+        let gate = focus::edit_gate(ui, edit_rect, Id::new(EDIT_ID));
+        // On TV the history drops down as soon as the D-pad reaches the field.
+        if gate.stop.as_ref().is_some_and(egui::Response::has_focus) {
+            self.history_open = true;
+        }
+
         let mut submitted = None;
         ui.scope_builder(
             UiBuilder::new()
@@ -211,6 +217,7 @@ impl SearchBar {
                 let edit = ui.add(
                     TextEdit::singleline(&mut self.query)
                         .id(Id::new(EDIT_ID))
+                        .interactive(gate.interactive)
                         .desired_width(f32::INFINITY)
                         .vertical_align(Align::Center)
                         .margin(Margin::ZERO)
@@ -220,6 +227,7 @@ impl SearchBar {
                 );
 
                 edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint.as_ref()));
+                focus::edit_done(ui, &edit);
                 if edit.gained_focus() || edit.clicked() {
                     self.history_open = true;
                 }
@@ -239,6 +247,13 @@ impl SearchBar {
     fn close_if_unfocused(&mut self, ctx: &egui::Context, layer: Rect) {
         let focused = ctx.memory(|mem| mem.has_focus(Id::new(EDIT_ID)));
         if focused {
+            return;
+        }
+
+        // The D-pad is on the field or a history row.
+        let field_layer = LayerId::new(Order::Foreground, Id::new(FIELD_LAYER_ID));
+        let in_field = focus::focused_layer(ctx) == Some(field_layer);
+        if in_field && crate::platform::is_tv(ctx) {
             return;
         }
 

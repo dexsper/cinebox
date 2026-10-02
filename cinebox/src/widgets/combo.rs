@@ -6,6 +6,7 @@ use egui::{Color32, ComboBox, CursorIcon, Margin, RichText, Stroke, TextStyle, U
 use super::button::{PAD_X, PAD_Y};
 
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 pub const HEIGHT: f32 = super::button::CONTROL_H;
 
@@ -97,8 +98,15 @@ pub fn show_with<T: Copy + PartialEq>(
             .selected_text(selected)
             .popup_style(popup_style(theme))
             .show_ui(ui, |ui| {
+                focus::trap(ui);
+                let opening = focus::focused_layer(ui.ctx()) != Some(ui.layer_id());
                 for opt in options {
+                    let current = *value == *opt;
                     let clicked = ui.selectable_value(value, *opt, label(*opt));
+                    focus::track(&clicked);
+                    if opening && current {
+                        focus::enter_popup(&clicked);
+                    }
                     changed |= clicked.changed();
                 }
             })

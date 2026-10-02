@@ -17,7 +17,7 @@ use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::drawer::Overlay;
 use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::widgets::{self, chips, combo, multiselect, scroll};
+use crate::widgets::{self, chips, combo, focus, multiselect, scroll};
 
 const FILTERS_BTN_W: f32 = 152.0;
 
@@ -393,7 +393,7 @@ fn hit_row(
         });
 
     let response = button::click_rect(ui, id, shown.response.rect);
-    if response.hovered() {
+    if focus::lit(&response) {
         hit_ring(ui, shown.response.rect, theme);
     }
 

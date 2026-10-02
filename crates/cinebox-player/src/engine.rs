@@ -1,6 +1,6 @@
-//! libmpv OpenGL render API. The only `unsafe` in the workspace: a `Send`
-//! impl (all access is serialized through `Arc<Mutex<Engine>>`) and the
-//! self-referential render-context setup.
+//! libmpv OpenGL render API. Besides the Android JNI glue, the only `unsafe`
+//! in the workspace: a `Send` impl (all access is serialized through
+//! `Arc<Mutex<Engine>>`) and the self-referential render-context setup.
 
 use std::ffi::{CStr, CString, c_void};
 use std::ptr::NonNull;
@@ -132,6 +132,8 @@ impl Engine {
                 init.set_option("input-vo-keyboard", false)?;
                 init.set_option("input-default-bindings", false)?;
                 init.set_option("osd-level", 1i64)?;
+                #[cfg(target_os = "android")]
+                init.set_option("ao", "audiotrack,opensles")?;
 
                 match init.set_option("osc", false) {
                     Ok(()) | Err(libmpv2::Error::Raw(libmpv2::mpv_error::OptionNotFound)) => {}
@@ -461,8 +463,7 @@ fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
     let proxy = opts.http_proxy.unwrap_or("");
     set_prop(mpv, "http-proxy", proxy.to_owned())?;
 
-    // `auto` tries direct GPU decoders first, then copying ones, then software.
-    let hwdec = if opts.hardware_decoding { "auto" } else { "no" };
+    let hwdec = if opts.hardware_decoding { HWDEC } else { "no" };
     set_prop(mpv, "hwdec", hwdec.to_owned())?;
 
     if opts.loudnorm {
@@ -473,6 +474,15 @@ fn apply_play_opts(mpv: &Mpv, opts: PlayOpts<'_>) -> Result<(), Error> {
     set_prop(mpv, "af", String::new())?;
     Ok(())
 }
+
+/// `auto` tries direct GPU decoders first, then copying ones, then software.
+#[cfg(not(target_os = "android"))]
+const HWDEC: &str = "auto";
+
+/// Direct MediaCodec output needs mpv's own Android surface; under the render
+/// API only the copy-back decoder works.
+#[cfg(target_os = "android")]
+const HWDEC: &str = "mediacodec-copy";
 
 fn set_prop(mpv: &Mpv, name: &'static str, value: String) -> Result<(), Error> {
     if let Err(error) = mpv.set_property(name, value) {

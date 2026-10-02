@@ -14,6 +14,7 @@ use rust_i18n::t;
 use crate::nav::RailEntry;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;
+use crate::widgets::focus;
 
 /// Collapsed width; content is laid out against this.
 pub const WIDTH: f32 = 60.0;
@@ -71,7 +72,7 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
     let hovered = ctx
         .read_response(id)
         .is_some_and(|response| response.contains_pointer());
-    let t = ctx.animate_bool_with_time(id.with("expand"), hovered, EXPAND_SECS);
+    let t = ctx.animate_bool_with_time(id.with("expand"), hovered || focused(ctx), EXPAND_SECS);
     let width = egui::lerp(WIDTH..=EXPANDED_W, t);
     let top = body.top() - BAR_RULE_TOP - BAR_RULE_BOTTOM;
     let rect = Rect::from_min_max(pos2(body.left(), top), pos2(body.left() + width, body.bottom()));
@@ -136,6 +137,19 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
     clicked
 }
 
+fn item_id(index: usize) -> Id {
+    Id::new(("cinebox-rail-item", index))
+}
+
+/// The D-pad is on the rail: it opens with labels, as under the pointer.
+fn focused(ctx: &egui::Context) -> bool {
+    let Some(id) = ctx.memory(|mem| mem.focused()) else {
+        return false;
+    };
+
+    (0..ENTRIES.len()).any(|index| item_id(index) == id)
+}
+
 fn item_ui(
     ui: &Ui,
     rect: Rect,
@@ -146,10 +160,10 @@ fn item_ui(
     index: usize,
 ) -> bool {
     let text = label(entry);
-    let response = pointing(ui.interact(rect, Id::new(("cinebox-rail-item", index)), Sense::click()));
+    let response = pointing(ui.interact(rect, item_id(index), Sense::click()));
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, active, text.as_ref()));
 
-    let fill = if response.hovered() {
+    let fill = if focus::lit(&response) {
         theme.widget_hover
     } else if active {
         theme.widget_active

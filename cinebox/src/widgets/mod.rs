@@ -6,6 +6,7 @@ pub mod combo;
 pub mod drawer;
 pub mod field;
 pub mod flyout;
+pub mod focus;
 pub mod intro;
 pub mod lists;
 pub mod multiselect;

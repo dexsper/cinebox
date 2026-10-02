@@ -2,7 +2,7 @@
 
 use cinebox_core::SecretString;
 use egui::{
-    Align, Atom, CornerRadius, CursorIcon, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
+    Align, Atom, CornerRadius, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
     pos2, vec2,
 };
 use egui_async::Bind;
@@ -461,8 +461,7 @@ fn action_fg(theme: &Theme, primary: bool) -> egui::Color32 {
 }
 
 fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {
-    ui.interact(rect, ui.id().with(id), Sense::click())
-        .on_hover_cursor(CursorIcon::PointingHand)
+    crate::widgets::button::pointing(ui.interact(rect, ui.id().with(id), Sense::click()))
 }
 
 fn show_probe(ui: &mut Ui, bind: &mut Bind<String, JobError>, theme: &Theme) {

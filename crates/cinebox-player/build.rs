@@ -3,6 +3,9 @@
 //! Windows: bundle a prebuilt libmpv so `libmpv2` + `build_libmpv` link without a system
 //! install. Artifacts land in `$MPV_SOURCE/64` (see `.cargo/config.toml`).
 //! Linux: link the system libmpv found through pkg-config.
+//! Android: link the libmpv + FFmpeg shared objects from the `dev.jdtech.mpv:libmpv`
+//! AAR. Gradle packages the same AAR into the APK (`android/app/build.gradle.kts`),
+//! so both pins must change together.
 
 use std::env;
 use std::fs::{self, File};
@@ -23,6 +26,7 @@ fn main() {
     match need(env::var("CARGO_CFG_TARGET_OS"), "target OS").as_str() {
         "windows" => bundle_windows_libmpv(),
         "linux" => link_system_libmpv(),
+        "android" => link_android_libmpv(),
         other => panic!("Cinebox has no libmpv setup for target OS {other}"),
     }
 }
@@ -41,6 +45,87 @@ fn link_system_libmpv() {
              Install the development package: libmpv-dev (Debian/Ubuntu), \
              mpv-devel (Fedora), mpv (Arch)."
         );
+    }
+}
+
+/// Keep in sync with `libmpv` in `android/gradle/libs.versions.toml`.
+const ANDROID_AAR_VERSION: &str = "1.0.0";
+const ANDROID_AAR_SHA256: &str = "df146592480fc8418415a06b1f1a1d6318b0088e21f52254b0e9a82b61ca8fa2";
+
+/// Only the link-time copies live here; the APK gets its .so files from Gradle.
+fn link_android_libmpv() {
+    let arch = need(env::var("CARGO_CFG_TARGET_ARCH"), "target arch");
+    let abi = match arch.as_str() {
+        "aarch64" => "arm64-v8a",
+        "arm" => "armeabi-v7a",
+        "x86_64" => "x86_64",
+        "x86" => "x86",
+        other => panic!("libmpv AAR has no build for Android arch {other}"),
+    };
+
+    let source = mpv_source_dir();
+    let dir = source.join("android").join(abi);
+    let libmpv = dir.join("libmpv.so");
+    if !libmpv.is_file() {
+        let aar = fetch_android_aar(&source);
+        extract_android_abi(&aar, abi, &dir);
+    }
+
+    if !libmpv.is_file() {
+        panic!("libmpv.so missing at {}", libmpv.display());
+    }
+
+    println!("cargo:rustc-link-search=native={}", dir.display());
+}
+
+fn fetch_android_aar(source: &Path) -> PathBuf {
+    let cache = source.join("cache");
+    need(fs::create_dir_all(&cache), "create mpv cache");
+
+    let name = format!("libmpv-{ANDROID_AAR_VERSION}.aar");
+    let aar = cache.join(&name);
+    if aar.is_file() && sha256_file(&aar) != ANDROID_AAR_SHA256 {
+        println!("cargo:warning=cached libmpv AAR hash mismatch; re-downloading");
+        need(fs::remove_file(&aar), "remove bad AAR");
+    }
+
+    if aar.is_file() {
+        return aar;
+    }
+
+    let url = format!(
+        "https://repo1.maven.org/maven2/dev/jdtech/mpv/libmpv/{ANDROID_AAR_VERSION}/{name}"
+    );
+    download(&url, &aar);
+
+    let hash = sha256_file(&aar);
+    if hash != ANDROID_AAR_SHA256 {
+        let _ = fs::remove_file(&aar);
+        panic!("libmpv AAR sha256 mismatch (got {hash}, expected {ANDROID_AAR_SHA256})");
+    }
+
+    aar
+}
+
+/// Copy `jni/<abi>/*.so` out of the AAR (a zip archive).
+fn extract_android_abi(aar: &Path, abi: &str, dest: &Path) {
+    need(fs::create_dir_all(dest), "create android libmpv dir");
+
+    let file = need(File::open(aar), "open libmpv AAR");
+    let mut archive = need(zip::ZipArchive::new(file), "read libmpv AAR");
+    let prefix = format!("jni/{abi}/");
+
+    for index in 0..archive.len() {
+        let mut entry = need(archive.by_index(index), "read AAR entry");
+        let Some(name) = entry.name().strip_prefix(&prefix).map(str::to_owned) else {
+            continue;
+        };
+        if name.is_empty() || name.contains('/') {
+            continue;
+        }
+
+        let mut out = need(File::create(dest.join(&name)), "create extracted .so");
+        need(io::copy(&mut entry, &mut out), "extract .so from AAR");
     }
 }
 
@@ -212,7 +297,7 @@ fn profile_dir() -> PathBuf {
 }
 
 fn download(url: &str, dest: &Path) {
-    println!("cargo:warning=downloading bundled libmpv (~30MB)");
+    println!("cargo:warning=downloading bundled libmpv (30-50MB)");
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(300)))
         .build()

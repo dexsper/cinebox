@@ -125,6 +125,8 @@ pub struct PlayerScreen {
     fullscreen: bool,
     was_maximized: bool,
     activity: Activity,
+    /// TV: the D-pad was on the transport controls, so Back hides them first.
+    controls_focused: bool,
     popup: Popup,
     playlist_scroll: bool,
     prefs: TorrentPlaybackPrefs,
@@ -145,6 +147,7 @@ impl Default for PlayerScreen {
             fullscreen: false,
             was_maximized: false,
             activity: Activity::new(),
+            controls_focused: false,
             popup: Popup::None,
             playlist_scroll: false,
             prefs: TorrentPlaybackPrefs::default(),
@@ -175,6 +178,7 @@ impl PlayerScreen {
         self.sub_scale = 1.0;
         self.sub_delay = 0.0;
         self.activity.poke(ctx.input(|i| i.time));
+        crate::platform::keep_awake(ctx, true);
 
         self.begin_load(
             svc,
@@ -203,6 +207,15 @@ impl PlayerScreen {
         }
 
         self.set_fullscreen(ctx, false);
+        crate::platform::keep_awake(ctx, false);
+    }
+
+    /// Pause without toggling (the app went to the background).
+    pub fn pause(&mut self, svc: &Services) {
+        let playing = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if !state.paused);
+        if playing {
+            self.toggle(svc);
+        }
     }
 
     #[must_use]
@@ -359,7 +372,9 @@ impl PlayerScreen {
             }
         };
 
-        let (rect, response) = ui.allocate_exact_size(video.size(), Sense::click());
+        let (rect, _) = ui.allocate_exact_size(video.size(), Sense::hover());
+        let response = ui.interact(rect, input::video_id(), Sense::click());
+        let show_controls = self.tv_video_focus(ui, &response, popup_was_open, now);
         if let Some(error) = view.error.as_deref() {
             ui.painter().rect_filled(rect, 0.0, theme.video_bg);
             ui.painter().text(
@@ -384,6 +399,9 @@ impl PlayerScreen {
                 ClickZone::Pause => toggle = true,
                 ClickZone::SeekFwd => seek_rel = Some(SEEK_SECS),
             }
+        } else if video_clicked {
+            // OK on the remote: no pointer, so no click zone.
+            toggle = true;
         }
 
         if popup_was_open {
@@ -403,8 +421,15 @@ impl PlayerScreen {
             file_index: view.file_index,
             has_next: view.has_next,
             fullscreen: self.fullscreen,
+            tv: crate::platform::is_tv(&ctx),
         };
         let footer = overlay::footer(&ctx, theme, rect, &footer_view, alpha);
+        if show_controls {
+            ctx.memory_mut(|mem| mem.request_focus(footer.play_id));
+        }
+
+        let focused = ctx.memory(|mem| mem.focused());
+        self.controls_focused = focused.is_some_and(|id| id != input::video_id());
 
         let pointer = ctx.pointer_latest_pos();
         let over_chrome = pointer.is_some_and(|pos| {

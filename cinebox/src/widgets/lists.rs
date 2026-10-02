@@ -10,7 +10,7 @@ use egui_material_icons::icons::{
 use rust_i18n::t;
 
 use crate::theme::Theme;
-use crate::widgets::button;
+use crate::widgets::{button, focus};
 
 const ROW_H: f32 = 36.0;
 const MENU_W: f32 = 240.0;
@@ -96,7 +96,7 @@ fn row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, active: bool
     let response = button::pointing(response);
     response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, active, label));
 
-    let fill = if response.hovered() {
+    let fill = if focus::lit(&response) {
         theme.widget_hover
     } else if active {
         theme.widget_active

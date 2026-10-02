@@ -39,12 +39,13 @@ fn build() -> Result<()> {
 
     match env::var("CARGO_CFG_TARGET_OS")?.as_str() {
         "windows" => embed_windows_icon(&tree, &out_dir),
-        "linux" => Ok(()),
+        "linux" | "android" => Ok(()),
         other => bail!("unsupported target OS: {other}"),
     }
 }
 
-/// The .exe icon comes from a resource; Linux desktops take it from the .desktop entry.
+/// The .exe icon comes from a resource; Linux desktops take it from the .desktop
+/// entry, Android from the APK resources.
 fn embed_windows_icon(tree: &usvg::Tree, out_dir: &Path) -> Result<()> {
     let ico_path = out_dir.join("icon.ico");
     write_ico(tree, &ico_path)?;

@@ -1,0 +1,12 @@
+[versions]
+agp = "9.4.1"
+# Keep in sync with ANDROID_AAR_VERSION in crates/cinebox-player/build.rs.
+libmpv = "1.0.0"
+
+[libraries]
+libmpv = { group = "dev.jdtech.mpv", name = "libmpv", version.ref = "libmpv" }
+# cargo keeps the bundled Maven repo at the version matching the Rust crate.
+rustls-platform-verifier = { group = "rustls", name = "rustls-platform-verifier", version = "latest.release" }
+
+[plugins]
+android-application = { id = "com.android.application", version.ref = "agp" }

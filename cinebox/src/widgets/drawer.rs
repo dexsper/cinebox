@@ -3,7 +3,7 @@
 use egui::{Area, Frame, Id, Margin, Order, Rect, Sense, Ui, UiBuilder, pos2};
 
 use crate::theme::Theme;
-use crate::widgets::intro;
+use crate::widgets::{focus, intro};
 
 const DRAWER_FRAC: f32 = 0.4;
 const DRAWER_MIN: f32 = 340.0;
@@ -130,9 +130,14 @@ impl Overlay {
                 ui.set_min_size(body.size());
                 ui.set_clip_rect(body);
 
+                if self.want_open {
+                    focus::trap(ui);
+                }
+
                 if dim_rect.width() > 1.0 {
                     ui.painter().rect_filled(dim_rect, 0.0, theme.overlay_at(t));
-                    let dim = ui.interact(dim_rect, Id::new((id, "dim")), Sense::click());
+                    // Not a focus stop: the D-pad belongs to the drawer.
+                    let dim = ui.interact(dim_rect, Id::new((id, "dim")), Sense::CLICK);
                     if dim.clicked() {
                         dim_clicked = true;
                     }

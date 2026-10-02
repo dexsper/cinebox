@@ -9,3 +9,10 @@ crates/cinebox-player/mpv-src/
 *.sqlite-wal
 *.sqlite-shm
 /.flatpak-builder/
+# Android: Gradle state and the Rust library cargo-ndk copies in.
+/android/.gradle/
+/android/build/
+/android/app/build/
+/android/local.properties
+/android/app/src/main/jniLibs/
+/scripts/android-icons/target/

@@ -20,7 +20,7 @@ use crate::services::{Services, db_block_on};
 use crate::settings_input::tmdb_key_hint;
 use crate::theme::Theme;
 use crate::widgets::search::SearchBar;
-use crate::widgets::{backdrop, chrome, rail};
+use crate::widgets::{backdrop, chrome, focus, rail};
 
 struct TmdbView {
     api_key: String,
@@ -100,10 +100,13 @@ pub struct App {
     person: PersonScreen,
     torrents: TorrentsScreen,
     player: PlayerScreen,
+    /// The window had focus last frame (TV backgrounding).
+    foreground: bool,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+    pub fn new(cc: &eframe::CreationContext<'_>, host: crate::platform::Host) -> Self {
+        crate::platform::set(&cc.egui_ctx, host);
         let theme = Theme::dark();
         theme.apply(&cc.egui_ctx);
         crate::fonts::install(&cc.egui_ctx);
@@ -148,10 +151,22 @@ impl App {
             person: PersonScreen::default(),
             torrents: TorrentsScreen::default(),
             player: PlayerScreen::default(),
+            foreground: true,
         }
     }
 
     fn apply_nav(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
+        let before = self.nav.current();
+        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
+        self.apply_nav_action(action, now, ctx);
+
+        let returned = self.nav.current() != before;
+        if let Some(id) = self.nav.focus_mark().filter(|_| returned) {
+            ctx.memory_mut(|mem| mem.request_focus(id));
+        }
+    }
+
+    fn apply_nav_action(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
             NavAction::OpenSettingsAt(page) => self.settings_screen.open_at(page, now),
@@ -244,6 +259,12 @@ impl App {
             return;
         }
 
+        // A remote's Back on the first screen leaves the app, like any TV app.
+        if self.nav.is_root() && crate::platform::is_tv(ctx) {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+
         self.nav.pop();
     }
 
@@ -326,6 +347,18 @@ impl App {
         self.nav.push(Screen::Player { kind, id });
     }
 
+    /// Home button or another app on top: the film should not keep playing unseen.
+    fn pause_in_background(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.viewport().focused);
+        let backgrounded = focused == Some(false) && self.foreground;
+        self.foreground = focused != Some(false);
+
+        let on_player = matches!(self.nav.current(), Screen::Player { .. });
+        if backgrounded && on_player {
+            self.player.pause(&self.services);
+        }
+    }
+
     fn paint_backdrop(&mut self, ui: &mut egui::Ui) {
         let url = match self.nav.current() {
             Screen::Media { .. } | Screen::Torrents { .. } => self
@@ -345,9 +378,15 @@ impl App {
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         chrome::release_after_os_grab(ctx, raw_input);
+        focus::before_pass(ctx, raw_input);
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        if crate::platform::is_tv(ctx) {
+            fit_tv_zoom(ctx);
+            self.pause_in_background(ctx);
+        }
+
         let language = self.services.settings.general.language;
         if self.last_tmdb.language != language {
             crate::i18n::apply(language);
@@ -374,14 +413,19 @@ impl eframe::App for App {
         let screen = self.nav.current();
         let theme = self.theme.clone();
         let on_player = matches!(screen, Screen::Player { .. });
+        let tv = crate::platform::is_tv(ui.ctx());
 
         // The wizard is dismissed with its own "Set up later" button only.
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if escape && !self.onboarding.is_open() {
+            // Escape closes an open dropdown; on TV, Back while typing only leaves the field.
+            let popup_consumed = egui::Popup::is_any_open(ui.ctx());
+            let field_consumed = tv && focus::was_editing(ui.ctx());
             let search_consumed = self.search_bar.consume_escape(ui.ctx());
             let player_consumed = on_player && self.player.consume_escape(ui.ctx());
+            let consumed = popup_consumed || field_consumed || search_consumed || player_consumed;
 
-            if !search_consumed && !player_consumed {
+            if !consumed {
                 action = Some(NavAction::GoBack);
             }
         }
@@ -393,8 +437,15 @@ impl eframe::App for App {
             theme.page_bg
         };
 
+        // TVs may crop the picture edges; video stays full-bleed.
+        let safe_area = if tv && !on_player {
+            egui::Margin::symmetric(TV_SAFE_X, TV_SAFE_Y)
+        } else {
+            egui::Margin::ZERO
+        };
+
         CentralPanel::default()
-            .frame(Frame::new().fill(fill))
+            .frame(Frame::new().fill(fill).inner_margin(safe_area))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
                 let with_rail = screen.shows_rail() && !player_fullscreen;
@@ -447,12 +498,13 @@ impl eframe::App for App {
                     }
                 }
 
-                let screen_action = Frame::new()
+                let content = Frame::new()
                     .inner_margin(content_margin)
-                    .show(ui, |ui| screen_ui(self, ui, screen, &theme))
-                    .inner;
+                    .show(ui, |ui| screen_ui(self, ui, screen, &theme));
+                focus::set_content(ui.ctx(), content.response.rect);
+                let screen_action = content.inner;
 
-                if !player_fullscreen {
+                if !player_fullscreen && !tv {
                     chrome::resize_edges(ui, &theme);
                     chrome::window_outline(ui, &theme);
                 }
@@ -470,12 +522,37 @@ impl eframe::App for App {
         self.onboarding.ui(&ctx, &mut self.services, &theme);
 
         self.services.toasts.show(&ctx, &theme);
+        focus::paint_ring(&ctx, &theme);
         self.take_pending_play(&ctx);
         if let Some(action) = action {
             self.apply_nav(action, ui.input(|i| i.time), &ctx);
         }
 
         self.services.images.end_frame();
+    }
+}
+
+/// Logical width the TV layout is set for; 1080p panels report density 2.0,
+/// which alone would leave only 960x540 points.
+const TV_WIDTH_PT: f32 = 1280.0;
+
+/// Android TV's recommended overscan margins at that width.
+const TV_SAFE_X: i8 = 48;
+const TV_SAFE_Y: i8 = 27;
+
+fn fit_tv_zoom(ctx: &egui::Context) {
+    let Some(native) = ctx.input(|i| i.viewport().native_pixels_per_point) else {
+        return;
+    };
+
+    let width_px = ctx.content_rect().width() * ctx.pixels_per_point();
+    if width_px <= 0.0 || native <= 0.0 {
+        return;
+    }
+
+    let zoom = width_px / TV_WIDTH_PT / native;
+    if (ctx.zoom_factor() - zoom).abs() > 0.01 {
+        ctx.set_zoom_factor(zoom);
     }
 }
 

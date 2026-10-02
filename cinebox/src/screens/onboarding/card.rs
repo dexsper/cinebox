@@ -1,11 +1,12 @@
 //! The wizard's centered card over a dimmed window, and its selectable rows.
 
 use egui::{
-    Align2, Area, Context, CursorIcon, FontId, Frame, Id, Margin, Order, Rect, Sense, Stroke, Ui,
+    Align2, Area, Context, FontId, Frame, Id, Margin, Order, Rect, Sense, Stroke, Ui,
     UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 
 use crate::theme::Theme;
+use crate::widgets::{button, focus};
 
 const CARD_W: f32 = 560.0;
 const WINDOW_GAP: f32 = 24.0;
@@ -30,7 +31,8 @@ pub fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
             ui.set_min_size(body.size());
             ui.set_clip_rect(body);
             ui.painter().rect_filled(body, 0.0, theme.overlay_at(t));
-            ui.interact(body, Id::new("cinebox-onboarding-block"), Sense::click());
+            ui.interact(body, Id::new("cinebox-onboarding-block"), Sense::CLICK);
+            focus::trap(ui);
 
             let card = card_rect(body, last_h, t);
             let builder = UiBuilder::new().max_rect(card);
@@ -85,13 +87,13 @@ fn card_frame(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
 pub fn choice(ui: &mut Ui, theme: &Theme, title: &str, note: Option<&str>, selected: bool) -> bool {
     let size = vec2(ui.available_width(), choice_height(note));
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
-    let response = response.on_hover_cursor(CursorIcon::PointingHand);
+    let response = button::pointing(response);
 
     let enabled = response.enabled();
     let kind = WidgetType::SelectableLabel;
     response.widget_info(|| WidgetInfo::selected(kind, enabled, selected, title));
 
-    let fill = choice_fill(theme, selected, response.hovered());
+    let fill = choice_fill(theme, selected, focus::lit(&response));
     let stroke = choice_stroke(theme, selected);
     let radius = theme.rounding(theme.radius_card);
     let painter = ui.painter();

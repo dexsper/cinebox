@@ -46,7 +46,11 @@ pub fn header(
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
-                window_buttons(ui, theme);
+                // A TV app has no window to move, resize, or minimize.
+                let tv = crate::platform::is_tv(ui.ctx());
+                if !tv {
+                    window_buttons(ui, theme);
+                }
                 if chrome_btn(
                     ui,
                     theme,
@@ -226,11 +230,13 @@ fn search_and_drag(
 ) -> Option<NavAction> {
     let search_rect = centered_search_rect(bar, middle);
 
-    let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
-    let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
+    if !crate::platform::is_tv(ui.ctx()) {
+        let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
+        let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
 
-    title_drag(ui, left_drag, "left");
-    title_drag(ui, right_drag, "right");
+        title_drag(ui, left_drag, "left");
+        title_drag(ui, right_drag, "right");
+    }
 
     search.show(ui, theme, search_rect)
 }

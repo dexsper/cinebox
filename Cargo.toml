@@ -11,6 +11,7 @@ members = [
     "crates/cinebox-player",
     "crates/cinebox-youtube",
     "crates/cinebox-skip",
+    "crates/cinebox-android",
 ]
 
 [workspace.package]

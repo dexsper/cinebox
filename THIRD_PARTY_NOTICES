@@ -5,7 +5,8 @@ Rust crate licenses live in each crate's own package metadata, not in this
 repository's Cargo.toml. They can be collected from Cargo.lock.
 
 This file lists third-party material that Cargo does not see: IBM Plex and
-typograf are in the repository; libmpv is fetched at Windows build time.
+typograf are in the repository; libmpv is fetched at Windows and Android
+build time.
 
 IBM Plex Sans
 ----------------
@@ -29,3 +30,12 @@ mpv:      GPL-2.0-or-later
 Build:    shinchiro mpv-dev 20260829 (git e8673660ab)
           https://github.com/shinchiro/mpv-winbuild-cmake
           This binary links GPL FFmpeg, so the shipped DLL is GPL.
+
+libmpv for Android
+----------------
+Location: not in git; the Android build of cinebox-player and Gradle fetch
+          dev.jdtech.mpv:libmpv 1.0.0 from Maven Central
+Packaging: MIT
+          https://github.com/jarnedemeulemeester/libmpv-android
+mpv:      GPL-2.0-or-later, linked with FFmpeg
+          https://github.com/mpv-player/mpv

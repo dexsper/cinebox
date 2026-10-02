@@ -6,6 +6,7 @@ use rust_i18n::t;
 use super::chips;
 use super::combo;
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 pub fn show_with<T: Copy + PartialEq>(
     ui: &mut Ui,
@@ -27,9 +28,17 @@ pub fn show_with<T: Copy + PartialEq>(
             .selected_text(selected_text)
             .popup_style(combo::popup_style(theme))
             .show_ui(ui, |ui| {
-                for opt in options {
+                focus::trap(ui);
+                let opening = focus::focused_layer(ui.ctx()) != Some(ui.layer_id());
+                for (index, opt) in options.iter().enumerate() {
                     let mut on = selected.contains(opt);
-                    if !ui.checkbox(&mut on, label(*opt)).changed() {
+                    let checkbox = ui.checkbox(&mut on, label(*opt));
+                    focus::track(&checkbox);
+                    if opening && index == 0 {
+                        focus::enter_popup(&checkbox);
+                    }
+
+                    if !checkbox.changed() {
                         continue;
                     }
 

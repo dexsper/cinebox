@@ -3,12 +3,12 @@
 use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::VideoScale;
 use cinebox_player::{Track, TrackKind};
-use egui::{Align, CursorIcon, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
+use egui::{Align, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
 use rust_i18n::t;
 
 use crate::theme::Theme;
-use crate::widgets::poster;
+use crate::widgets::{button, focus, poster};
 
 const ROW_H: f32 = 36.0;
 const ROW_GAP: f32 = 8.0;
@@ -238,9 +238,7 @@ fn selected_sub_label(tracks: &[Track]) -> String {
 
 fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
-    let response = ui
-        .interact(rect, ui.id().with(id_salt), Sense::click())
-        .on_hover_cursor(CursorIcon::PointingHand);
+    let response = button::pointing(ui.interact(rect, ui.id().with(id_salt), Sense::click()));
 
     (rect, response)
 }
@@ -275,7 +273,7 @@ fn galley_y(rect: egui::Rect, height: f32) -> f32 {
 
 fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
     let (rect, mut response) = hover_row(ui, label);
-    if response.hovered() {
+    if focus::lit(&response) {
         ui.painter()
             .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
@@ -346,7 +344,7 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
 
 fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let (rect, response) = hover_row(ui, "back");
-    if response.hovered() {
+    if focus::lit(&response) {
         ui.painter()
             .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
@@ -383,7 +381,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
         egui::Color32::TRANSPARENT
     };
 
-    let fill = if response.hovered() {
+    let fill = if focus::lit(&response) {
         theme.widget_hover
     } else {
         idle

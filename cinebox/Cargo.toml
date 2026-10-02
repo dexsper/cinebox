@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "Native desktop movie theater"
+description = "Native movie theater for desktop and Android TV"
 
 [dependencies]
 cinebox-core.workspace = true
@@ -38,6 +38,9 @@ sys-locale = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { workspace = true, features = ["wayland", "x11"] }
 raw-window-handle = "0.6"
+
+[target.'cfg(target_os = "android")'.dependencies]
+eframe = { workspace = true, features = ["android-native-activity"] }
 
 [build-dependencies]
 anyhow.workspace = true

@@ -1,4 +1,4 @@
-//! Cinebox desktop application (egui / eframe glow).
+//! Cinebox application (egui / eframe glow) for desktop and Android TV.
 
 #![forbid(unsafe_code)]
 
@@ -13,6 +13,7 @@ mod images;
 mod jobs;
 mod library;
 mod nav;
+mod platform;
 mod screens;
 mod services;
 mod settings_input;
@@ -24,6 +25,8 @@ mod widgets;
 mod ui_tests;
 
 use rust_i18n::t;
+
+pub use platform::{Form, Host, KeepAwake};
 
 const ICON_PX: u32 = 256;
 
@@ -37,8 +40,15 @@ const APP_ID: &str = "io.github.dexsper.cinebox";
 ///
 /// Returns an [`eframe::Error`] if the window or renderer fails to start.
 pub fn run() -> eframe::Result {
+    run_with(native_options(), Host::default())
+}
+
+/// Window setup shared by every platform; Android adds its `android_app`.
+#[must_use]
+pub fn native_options() -> eframe::NativeOptions {
     let title = t!("app.title");
-    let native_options = eframe::NativeOptions {
+
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
@@ -47,12 +57,21 @@ pub fn run() -> eframe::Result {
             .with_app_id(APP_ID)
             .with_icon(app_icon()),
         ..Default::default()
-    };
+    }
+}
+
+/// Run the app with prepared options.
+///
+/// # Errors
+///
+/// Returns an [`eframe::Error`] if the window or renderer fails to start.
+pub fn run_with(native_options: eframe::NativeOptions, host: Host) -> eframe::Result {
+    let title = t!("app.title");
 
     eframe::run_native(
         title.as_ref(),
         native_options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
+        Box::new(move |cc| Ok(Box::new(app::App::new(cc, host)))),
     )
 }
 
