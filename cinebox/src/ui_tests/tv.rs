@@ -5,7 +5,14 @@ use egui::{Area, Id, Key, Order, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
+use std::sync::Arc;
+
+use cinebox_core::UiLanguage;
+use rust_i18n::t;
+
 use crate::platform::{self, Form, Host};
+use crate::screens::OnboardingScreen;
+use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::{field, focus};
@@ -41,6 +48,7 @@ fn harness(add: fn(&mut egui::Ui, &mut TvState)) -> Harness<'static, TvState> {
                 }
 
                 add(ui, state);
+                focus::navigate(ui.ctx());
             },
             TvState::default(),
         );
@@ -49,14 +57,14 @@ fn harness(add: fn(&mut egui::Ui, &mut TvState)) -> Harness<'static, TvState> {
 }
 
 /// One frame, through the same hook the app runs before each frame.
-fn frame(harness: &mut Harness<'_, TvState>) {
+fn frame<S>(harness: &mut Harness<'_, S>) {
     let ctx = harness.ctx.clone();
     focus::before_pass(&ctx, harness.input_mut());
     harness.step();
 }
 
 /// One remote key press, then a frame for the focus to settle.
-fn press(harness: &mut Harness<'_, TvState>, key: Key) {
+fn press<S>(harness: &mut Harness<'_, S>, key: Key) {
     for pressed in [true, false] {
         harness.input_mut().events.push(egui::Event::Key {
             key,
@@ -73,7 +81,7 @@ fn press(harness: &mut Harness<'_, TvState>, key: Key) {
     }
 }
 
-fn focused(harness: &Harness<'_, TvState>, label: &str) -> bool {
+fn focused<S>(harness: &Harness<'_, S>, label: &str) -> bool {
     harness.get_by_label(label).is_focused()
 }
 
@@ -96,7 +104,10 @@ fn first_press_only_places_focus() {
     let mut harness = harness(row_of_buttons);
 
     press(&mut harness, Key::ArrowRight);
-    assert!(focused(&harness, "One"), "focus should start on the first widget");
+    assert!(
+        focused(&harness, "One"),
+        "focus should start on the first widget"
+    );
 
     press(&mut harness, Key::ArrowRight);
     assert!(focused(&harness, "Two"));
@@ -152,10 +163,16 @@ fn text_field_waits_for_ok_before_typing() {
     let mut harness = harness(field_ui);
 
     press(&mut harness, Key::ArrowDown);
-    assert!(!harness.ctx.text_edit_focused(), "the D-pad must not land inside the edit");
+    assert!(
+        !harness.ctx.text_edit_focused(),
+        "the D-pad must not land inside the edit"
+    );
 
     press(&mut harness, Key::ArrowDown);
-    assert!(focused(&harness, "Below"), "arrows pass over a field that is not being edited");
+    assert!(
+        focused(&harness, "Below"),
+        "arrows pass over a field that is not being edited"
+    );
 
     press(&mut harness, Key::ArrowUp);
     press(&mut harness, Key::Enter);
@@ -169,7 +186,10 @@ fn text_field_waits_for_ok_before_typing() {
     assert_eq!(harness.state().value, "tmdb");
 
     press(&mut harness, Key::ArrowDown);
-    assert!(focused(&harness, "Below"), "the D-pad continues from the field");
+    assert!(
+        focused(&harness, "Below"),
+        "the D-pad continues from the field"
+    );
 }
 
 fn popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
@@ -215,10 +235,98 @@ fn popup_keeps_the_dpad_and_gives_it_back() {
 
     press(&mut harness, Key::ArrowRight);
     press(&mut harness, Key::ArrowUp);
-    assert!(focused(&harness, "Also"), "the D-pad cannot reach widgets behind the popup");
+    assert!(
+        focused(&harness, "Also"),
+        "the D-pad cannot reach widgets behind the popup"
+    );
 
     press(&mut harness, Key::BrowserBack);
     frame(&mut harness);
     assert!(!harness.state().popup);
-    assert!(focused(&harness, "Open"), "focus returns to what opened the popup");
+    assert!(
+        focused(&harness, "Open"),
+        "focus returns to what opened the popup"
+    );
+}
+
+struct WizardTv {
+    wizard: OnboardingScreen,
+    svc: Services,
+    theme: Theme,
+    fonts: bool,
+}
+
+fn wizard_harness(language: UiLanguage) -> Harness<'static, WizardTv> {
+    let Ok(store) = db_block_on(cinebox_core::Store::memory()) else {
+        panic!("in-memory store");
+    };
+
+    let mut wizard = OnboardingScreen::default();
+    wizard.open_offline();
+    let mut svc = Services::test_with_db(Arc::new(store));
+    svc.settings.general.language = language;
+
+    let state = WizardTv {
+        wizard,
+        svc,
+        theme: Theme::dark(),
+        fonts: false,
+    };
+
+    let mut harness = Harness::builder()
+        .with_size(vec2(1000.0, 800.0))
+        .build_ui_state(draw_wizard_over_screen, state);
+
+    for _ in 0..3 {
+        frame(&mut harness);
+    }
+
+    harness
+}
+
+/// The wizard over a screen full of focusable rows, like Home behind it.
+fn draw_wizard_over_screen(ui: &mut egui::Ui, state: &mut WizardTv) {
+    platform::set(ui.ctx(), tv_host());
+    if !state.fonts {
+        crate::fonts::install(ui.ctx());
+        egui_material_icons::initialize(ui.ctx());
+        state.theme.apply(ui.ctx());
+        state.fonts = true;
+        return;
+    }
+
+    ui.vertical_centered(|ui| {
+        for row in 0..24 {
+            let label = format!("Behind {row}");
+            let opts = Opts::secondary(vec2(400.0, 20.0));
+            let _ = button::label(ui, &state.theme, &label, opts);
+        }
+    });
+
+    let ctx = ui.ctx().clone();
+    state.wizard.ui(&ctx, &mut state.svc, &state.theme);
+    focus::navigate(&ctx);
+}
+
+#[test]
+fn wizard_starts_on_the_current_language() {
+    let harness = wizard_harness(UiLanguage::Russian);
+
+    assert!(focused(&harness, "Русский"));
+}
+
+#[test]
+fn wizard_dpad_walks_the_card_not_the_screen_behind() {
+    let mut harness = wizard_harness(UiLanguage::Russian);
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Українська"));
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, &t!("wizard.next")));
+
+    press(&mut harness, Key::ArrowUp);
+    press(&mut harness, Key::ArrowUp);
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "English"));
 }

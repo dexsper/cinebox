@@ -16,7 +16,7 @@ use crate::jobs::JobError;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::intro;
+use crate::widgets::{focus, intro};
 
 const FOOTER_BUTTON: egui::Vec2 = vec2(132.0, 36.0);
 /// Header, title, and footer around the scrolling step body.
@@ -229,7 +229,10 @@ impl OnboardingScreen {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let label = self.next_label(svc);
                 let opts = Opts::primary(FOOTER_BUTTON);
-                if button::icon_label(ui, theme, ICON_ARROW_FORWARD, &label, opts) {
+                let next = button::icon_label_response(ui, theme, ICON_ARROW_FORWARD, &label, opts);
+                // Unless the step marked its current choice, OK keeps moving forward.
+                focus::prefer(&next);
+                if next.clicked() {
                     nav = Some(self.forward());
                 }
             });

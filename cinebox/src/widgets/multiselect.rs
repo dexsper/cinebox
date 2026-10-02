@@ -1,8 +1,9 @@
 //! ComboBox that keeps several values checked.
 
-use egui::{ComboBox, CursorIcon, RichText, Ui};
+use egui::{ComboBox, RichText, Ui};
 use rust_i18n::t;
 
+use super::button;
 use super::chips;
 use super::combo;
 use crate::theme::Theme;
@@ -23,7 +24,7 @@ pub fn show_with<T: Copy + PartialEq>(
 
     ui.scope(|ui| {
         combo::apply_visuals(ui, theme);
-        ComboBox::from_id_salt(id)
+        let combo = ComboBox::from_id_salt(id)
             .width(width)
             .selected_text(selected_text)
             .popup_style(combo::popup_style(theme))
@@ -45,9 +46,8 @@ pub fn show_with<T: Copy + PartialEq>(
                     chips::toggle(selected, *opt);
                     changed = true;
                 }
-            })
-            .response
-            .on_hover_cursor(CursorIcon::PointingHand);
+            });
+        button::pointing(combo.response);
     });
 
     changed

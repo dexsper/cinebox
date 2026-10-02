@@ -1,6 +1,6 @@
 //! Non-blocking toasts. Colors come from [`crate::theme::Theme`].
 
-use egui::{Align2, Area, Color32, Frame, Id, Order, RichText, Sense};
+use egui::{Align2, Area, Color32, Frame, Id, Order, RichText, Sense, Vec2};
 
 use crate::theme::Theme;
 
@@ -70,8 +70,9 @@ impl Toasts {
             return;
         }
 
+        let gap = Vec2::splat(16.0) + crate::platform::edge_inset(ctx).right_bottom();
         Area::new(Id::new("cinebox-toasts"))
-            .anchor(Align2::RIGHT_BOTTOM, [-16.0, -16.0])
+            .anchor(Align2::RIGHT_BOTTOM, -gap)
             .order(Order::Foreground)
             .interactable(true)
             .show(ctx, |ui| {

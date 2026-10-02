@@ -142,7 +142,7 @@ pub fn catalog_tile(
         vote_badge(ui, poster_rect, vote, theme, scale);
     }
 
-    if focus::lit(&response) {
+    if focus::own_ring(&response) {
         hover_ring(ui, poster_rect, theme);
     }
 

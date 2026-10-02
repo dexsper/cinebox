@@ -437,25 +437,23 @@ impl eframe::App for App {
             theme.page_bg
         };
 
-        // TVs may crop the picture edges; video stays full-bleed.
-        let safe_area = if tv && !on_player {
-            egui::Margin::symmetric(TV_SAFE_X, TV_SAFE_Y)
-        } else {
-            egui::Margin::ZERO
-        };
+        // A TV has no window outline to keep clear of.
+        let outline = if tv { 0.0 } else { 1.0 };
 
         CentralPanel::default()
-            .frame(Frame::new().fill(fill).inner_margin(safe_area))
+            .frame(Frame::new().fill(fill))
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
                 let with_rail = screen.shows_rail() && !player_fullscreen;
-                // Inside the 1px window outline, starting at the title bar's bottom edge.
+                // Inside the window outline, starting at the title bar's bottom edge.
                 let window = ui.max_rect();
+                let bar_h = chrome::bar_height(ui.ctx(), &theme);
                 let rail_body = egui::Rect::from_min_max(
-                    egui::pos2(window.left() + 1.0, window.top() + theme.title_bar_h),
-                    egui::pos2(window.right(), window.bottom() - 1.0),
+                    egui::pos2(window.left() + outline, window.top() + bar_h),
+                    egui::pos2(window.right(), window.bottom() - outline),
                 );
-                let back_x = with_rail.then(|| rail::column_center(rail_body.left()));
+                let rail_column = rail::column_center(ui.ctx(), rail_body.left());
+                let back_x = with_rail.then_some(rail_column);
 
                 if !player_fullscreen
                     && let Some(nav) = chrome::header(
@@ -471,24 +469,26 @@ impl eframe::App for App {
                 }
 
                 let pad = theme.pad.round() as i8;
+                let edge = crate::platform::edge_inset(ui.ctx());
                 let left = if with_rail {
-                    (rail::WIDTH + theme.pad).round() as i8
+                    (rail::collapsed_width(ui.ctx()) + theme.pad).round() as i8
                 } else {
-                    pad
+                    pad + edge.left
                 };
+                let right = pad + edge.right;
                 let content_margin = match screen {
                     Screen::Player { .. } => egui::Margin::ZERO,
                     Screen::Home => egui::Margin {
                         left,
-                        right: pad,
+                        right,
                         top: 0,
-                        bottom: pad,
+                        bottom: pad + edge.bottom,
                     },
                     _ => egui::Margin {
                         left,
-                        right: pad,
+                        right,
                         top: 0,
-                        bottom: 0,
+                        bottom: edge.bottom,
                     },
                 };
 
@@ -523,6 +523,7 @@ impl eframe::App for App {
 
         self.services.toasts.show(&ctx, &theme);
         focus::paint_ring(&ctx, &theme);
+        focus::navigate(&ctx);
         self.take_pending_play(&ctx);
         if let Some(action) = action {
             self.apply_nav(action, ui.input(|i| i.time), &ctx);
@@ -535,10 +536,6 @@ impl eframe::App for App {
 /// Logical width the TV layout is set for; 1080p panels report density 2.0,
 /// which alone would leave only 960x540 points.
 const TV_WIDTH_PT: f32 = 1280.0;
-
-/// Android TV's recommended overscan margins at that width.
-const TV_SAFE_X: i8 = 48;
-const TV_SAFE_Y: i8 = 27;
 
 fn fit_tv_zoom(ctx: &egui::Context) {
     let Some(native) = ctx.input(|i| i.viewport().native_pixels_per_point) else {

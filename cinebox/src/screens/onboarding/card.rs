@@ -5,6 +5,7 @@ use egui::{
     UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 
+use crate::platform;
 use crate::theme::Theme;
 use crate::widgets::{button, focus};
 
@@ -15,8 +16,9 @@ const CHOICE_H: f32 = 44.0;
 const CHOICE_WITH_NOTE_H: f32 = 56.0;
 const CHOICE_PAD_X: f32 = 14.0;
 
-/// Paint `add` in a card centered below the title bar, dimming and blocking
-/// everything else. `t` (0..=1) drives the fade and slide-in.
+/// Paint `add` in a card centered below the title bar (on TV, on the whole
+/// screen), dimming and blocking everything else. `t` (0..=1) drives the fade
+/// and slide-in.
 pub fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
     let body = body_rect(ctx, theme);
     let height_id = Id::new("cinebox-onboarding-card-h");
@@ -52,8 +54,12 @@ pub fn max_body_height(ctx: &Context, theme: &Theme, chrome_h: f32) -> f32 {
 
 fn body_rect(ctx: &Context, theme: &Theme) -> Rect {
     let full = ctx.content_rect();
-    let top = full.top() + theme.title_bar_h;
+    // The desktop title bar stays usable; a TV has no window to move or close.
+    if platform::is_tv(ctx) {
+        return full;
+    }
 
+    let top = full.top() + theme.title_bar_h;
     Rect::from_min_max(pos2(full.left(), top), full.right_bottom())
 }
 
@@ -88,6 +94,9 @@ pub fn choice(ui: &mut Ui, theme: &Theme, title: &str, note: Option<&str>, selec
     let size = vec2(ui.available_width(), choice_height(note));
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let response = button::pointing(response);
+    if selected {
+        focus::prefer(&response);
+    }
 
     let enabled = response.enabled();
     let kind = WidgetType::SelectableLabel;

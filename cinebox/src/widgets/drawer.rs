@@ -2,8 +2,9 @@
 
 use egui::{Area, Frame, Id, Margin, Order, Rect, Sense, Ui, UiBuilder, pos2};
 
+use crate::platform;
 use crate::theme::Theme;
-use crate::widgets::{focus, intro};
+use crate::widgets::{chrome, focus, intro};
 
 const DRAWER_FRAC: f32 = 0.4;
 const DRAWER_MIN: f32 = 340.0;
@@ -113,7 +114,7 @@ impl Overlay {
         }
 
         let full = ui.ctx().content_rect();
-        let body_top = full.top() + theme.title_bar_h;
+        let body_top = full.top() + chrome::bar_height(ui.ctx(), theme);
         let body = Rect::from_min_max(pos2(full.left(), body_top), full.right_bottom());
         let width = (body.width() * DRAWER_FRAC).clamp(DRAWER_MIN, DRAWER_MAX);
         let shown = width * t;
@@ -152,7 +153,7 @@ impl Overlay {
                     ui.set_max_size(drawer_rect.size());
                     Frame::new()
                         .fill(theme.panel_elevated)
-                        .inner_margin(Margin::symmetric(20, 16))
+                        .inner_margin(inner_margin(ui.ctx()))
                         .show(ui, |ui| {
                             content(ui, theme);
                         });
@@ -162,6 +163,18 @@ impl Overlay {
         if dim_clicked {
             self.begin_close(now);
         }
+    }
+}
+
+/// The drawer sits on the right edge, so its content keeps clear of it like the rest.
+fn inner_margin(ctx: &egui::Context) -> Margin {
+    let edge = platform::edge_inset(ctx);
+
+    Margin {
+        left: 20,
+        right: 20 + edge.right,
+        top: 16,
+        bottom: 16 + edge.bottom,
     }
 }
 

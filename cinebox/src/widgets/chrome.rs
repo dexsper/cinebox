@@ -1,7 +1,8 @@
 //! Custom title bar: drag, window controls, back, settings, and search.
 
 use egui::{
-    CursorIcon, Id, Rect, Sense, Ui, Vec2, ViewportCommand, pos2, vec2, viewport::ResizeDirection,
+    CursorIcon, Id, Margin, Rect, Sense, Ui, Vec2, ViewportCommand, pos2, vec2,
+    viewport::ResizeDirection,
 };
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
@@ -10,6 +11,7 @@ use egui_material_icons::icons::{
 
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
+use crate::widgets::button;
 use crate::widgets::search::{self, SearchBar};
 use rust_i18n::t;
 
@@ -26,8 +28,10 @@ pub fn header(
     back_x: Option<f32>,
 ) -> Option<NavAction> {
     let mut action = None;
-    let height = theme.title_bar_h;
+    let height = bar_height(ui.ctx(), theme);
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    let edge = crate::platform::edge_inset(ui.ctx());
+    let controls = bar - Margin { bottom: 0, ..edge };
 
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
@@ -36,11 +40,11 @@ pub fn header(
         egui::Stroke::new(1.0, theme.window_edge),
     );
 
-    ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(controls), |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.horizontal_centered(|ui| {
             let show_back = settings_open || !matches!(screen, Screen::Home);
-            if back_slot(ui, theme, bar, show_back, back_x) {
+            if back_slot(ui, theme, controls, show_back, back_x) {
                 action = Some(NavAction::GoBack);
             }
 
@@ -64,7 +68,7 @@ pub fn header(
 
                 let remaining = ui.available_size();
                 let (middle, _) = ui.allocate_exact_size(remaining, Sense::hover());
-                if let Some(nav) = search_and_drag(ui, theme, search, bar, middle) {
+                if let Some(nav) = search_and_drag(ui, theme, search, controls, middle) {
                     action = Some(nav);
                 }
             });
@@ -72,6 +76,12 @@ pub fn header(
     });
 
     action
+}
+
+/// Height of the bar [`header`] draws; the rail and drawers start below it.
+#[must_use]
+pub fn bar_height(ctx: &egui::Context, theme: &Theme) -> f32 {
+    theme.title_bar_h + crate::platform::edge_inset(ctx).topf()
 }
 
 /// Back button at the leading edge, or centered on `center_x` when a rail sits below.
@@ -368,8 +378,5 @@ fn chrome_btn(
 
     let enabled = clicked.enabled();
     clicked.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
-    clicked
-        .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(hint)
-        .clicked()
+    button::pointing(clicked).on_hover_text(hint).clicked()
 }

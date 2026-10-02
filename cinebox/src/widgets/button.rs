@@ -173,6 +173,16 @@ fn announce(response: Response, label: &str) -> Response {
 }
 
 pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> bool {
+    icon_label_response(ui, theme, icon, label, opts).clicked()
+}
+
+pub fn icon_label_response(
+    ui: &mut Ui,
+    theme: &Theme,
+    icon: MaterialIcon,
+    label: &str,
+    opts: Opts,
+) -> Response {
     let fg = foreground(theme, opts.tone);
     let atoms = (
         Atom::grow(),
@@ -181,7 +191,7 @@ pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, o
         Atom::grow(),
     );
 
-    add_named(ui, theme, atoms, opts, Some(label)).clicked()
+    add_named(ui, theme, atoms, opts, Some(label))
 }
 
 /// How long [`expanding_icon`] takes to open or close.

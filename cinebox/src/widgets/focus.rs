@@ -1,14 +1,15 @@
 //! D-pad focus for the TV form.
 //!
-//! egui already moves keyboard focus with the arrow keys and clicks the focused
-//! widget on Enter. This module fills in what a remote needs on top of that:
-//! a visible ring, scrolling the focused widget into view, a starting point when
-//! nothing is focused, keeping focus inside popups, and text fields that do not
-//! swallow the D-pad. On desktop everything here is inert except [`track`].
+//! egui clicks the focused widget on Enter. This module adds what a remote needs
+//! on top of that: moving focus with the arrows between the widgets passed to
+//! [`track`], a visible ring, scrolling the focused widget into view, a starting
+//! point when nothing is focused, keeping focus inside popups, and text fields
+//! that do not swallow the D-pad. On desktop everything here is inert except
+//! [`track`].
 
 use egui::{
-    Context, CornerRadius, EventFilter, Id, Key, LayerId, Rect, Response, Sense, Stroke,
-    StrokeKind, Ui,
+    Context, CornerRadius, EventFilter, FocusDirection, Id, Key, LayerId, Rangef, Rect, Response,
+    Sense, Stroke, StrokeKind, Ui, Vec2, vec2,
 };
 
 use crate::platform;
@@ -22,12 +23,46 @@ struct Candidate {
     layer: LayerId,
 }
 
+/// A widget that takes some arrows itself while focused (see [`hold_arrows`]).
+#[derive(Clone, Copy)]
+struct Hold {
+    id: Id,
+    horizontal: bool,
+    vertical: bool,
+}
+
+impl Hold {
+    /// `widget` is this one and keeps arrows pointing `toward` for itself.
+    fn keeps(&self, widget: Id, toward: Vec2) -> bool {
+        if self.id != widget {
+            return false;
+        }
+
+        if toward.x != 0.0 {
+            return self.horizontal;
+        }
+
+        self.vertical
+    }
+}
+
+const DIRECTIONS: [(Key, Vec2); 4] = [
+    (Key::ArrowUp, Vec2::UP),
+    (Key::ArrowDown, Vec2::DOWN),
+    (Key::ArrowLeft, Vec2::LEFT),
+    (Key::ArrowRight, Vec2::RIGHT),
+];
+
 #[derive(Clone, Default)]
 struct State {
     /// Filled by [`track`] during the frame, read before the next one.
     candidates: Vec<Candidate>,
-    /// Widgets that painted their own focus look this frame (see [`lit`]).
-    lit: Vec<Id>,
+    /// Starting focus a screen or popup asked for this frame (see [`prefer`]).
+    preferred: Option<Id>,
+    /// Filled by [`hold_arrows`] during the frame.
+    holds: Vec<Hold>,
+    /// Widgets that drew their own focus ring this frame (see [`own_ring`]).
+    own_rings: Vec<Id>,
     /// Where the next starting focus should land when nothing is focused.
     content: Option<Rect>,
     /// Focus outside the popup when it opened; given back when it closes.
@@ -47,13 +82,21 @@ fn with_state<R>(ctx: &Context, f: impl FnOnce(&mut State) -> R) -> R {
     ctx.data_mut(|data| f(data.get_temp_mut_or_default::<State>(state_id())))
 }
 
-/// Pointer over the widget, or the D-pad on it. A widget that uses this paints
-/// its own highlight, so the shared focus ring leaves it alone.
+/// Pointer over the widget, or the D-pad on it: when a widget that paints its
+/// own background shows the hover look. On TV [`paint_ring`] still marks focus.
 #[must_use]
 pub fn lit(response: &Response) -> bool {
     let focused = response.has_focus() && platform::is_tv(&response.ctx);
+    focused || response.hovered()
+}
+
+/// Like [`lit`], for a widget that draws its own ring (a poster's), so
+/// [`paint_ring`] does not add a second one.
+#[must_use]
+pub fn own_ring(response: &Response) -> bool {
+    let focused = response.has_focus() && platform::is_tv(&response.ctx);
     if focused {
-        with_state(&response.ctx, |state| state.lit.push(response.id));
+        with_state(&response.ctx, |state| state.own_rings.push(response.id));
         return true;
     }
 
@@ -106,6 +149,19 @@ pub fn enter_popup(response: &Response) {
     }
 }
 
+/// Where focus should start in this popup or screen instead of its first widget
+/// (the current choice, the main action). The first call in a frame wins.
+pub fn prefer(response: &Response) {
+    if !platform::is_tv(&response.ctx) {
+        return;
+    }
+
+    let id = response.id;
+    with_state(&response.ctx, |state| {
+        state.preferred.get_or_insert(id);
+    });
+}
+
 /// The arrows act on this widget instead of moving focus off it (seek bars, video).
 pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
     let filter = EventFilter {
@@ -116,6 +172,110 @@ pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
 
     ui.ctx()
         .memory_mut(|mem| mem.set_focus_lock_filter(id, filter));
+
+    let hold = Hold {
+        id,
+        horizontal,
+        vertical,
+    };
+    with_state(ui.ctx(), |state| state.holds.push(hold));
+}
+
+/// Move focus with the D-pad. Call after every widget of the frame is shown.
+///
+/// egui moves focus itself, but it also lands on widgets under an open popup
+/// (it remembers them from before the popup opened). This walks only this
+/// frame's focus stops on layers that take input, the way egui scores them.
+pub fn navigate(ctx: &Context) {
+    if !platform::is_tv(ctx) {
+        return;
+    }
+
+    if ctx.text_edit_focused() {
+        return;
+    }
+
+    let Some(toward) = pressed_direction(ctx) else {
+        return;
+    };
+
+    let Some(focused) = ctx.memory(|mem| mem.focused()) else {
+        return;
+    };
+
+    let state = with_state(ctx, |state| state.clone());
+    let held = state.holds.iter().any(|hold| hold.keeps(focused, toward));
+    if held {
+        return;
+    }
+
+    let Some(from) = ctx.read_response(focused) else {
+        return;
+    };
+
+    // egui would make its own move at the end of the pass.
+    ctx.memory_mut(|mem| mem.move_focus(FocusDirection::None));
+    ctx.request_repaint();
+
+    let Some(target) = nearest(ctx, from.rect, toward, &state.candidates) else {
+        return;
+    };
+
+    ctx.memory_mut(|mem| mem.request_focus(target));
+}
+
+fn pressed_direction(ctx: &Context) -> Option<Vec2> {
+    for (key, toward) in DIRECTIONS {
+        let pressed = ctx.input(|i| i.key_pressed(key));
+        if pressed {
+            return Some(toward);
+        }
+    }
+
+    None
+}
+
+/// The candidate closest to `from` within 45° of `toward`. Overlapping spans
+/// count as aligned, so the list item below beats a button off to the side.
+fn nearest(ctx: &Context, from: Rect, toward: Vec2, candidates: &[Candidate]) -> Option<Id> {
+    let mut best: Option<(Id, f32)> = None;
+
+    for candidate in candidates {
+        let interactive = ctx.memory(|mem| mem.allows_interaction(candidate.layer));
+        if !interactive {
+            continue;
+        }
+
+        let dx = span_offset(candidate.rect.x_range(), from.x_range());
+        let dy = span_offset(candidate.rect.y_range(), from.y_range());
+        let offset = vec2(dx, dy);
+
+        // Zero for the focused widget itself, so it never qualifies.
+        let alignment = offset.normalized().dot(toward);
+        if alignment < std::f32::consts::FRAC_1_SQRT_2 {
+            continue;
+        }
+
+        let score = offset.length() / (alignment * alignment);
+        let better = best.is_none_or(|(_, best_score)| score < best_score);
+        if better {
+            best = Some((candidate.id, score));
+        }
+    }
+
+    best.map(|(id, _)| id)
+}
+
+/// Zero when the spans overlap by at least half the shorter one, else the
+/// distance between their centers (negative when `a` comes first).
+fn span_offset(a: Rangef, b: Rangef) -> f32 {
+    let overlap = a.intersection(b).span();
+    let shorter = a.span().min(b.span());
+    if overlap >= shorter * 0.5 {
+        return 0.0;
+    }
+
+    a.center() - b.center()
 }
 
 /// The focused widget's layer, from the previous frame.
@@ -218,12 +378,8 @@ fn keep_in_modal(ctx: &Context, state: &State, next: &mut State) {
         return;
     }
 
-    let fallback = state
-        .last_allowed
-        .filter(|id| allowed(ctx, *id))
-        .or_else(|| first_allowed(ctx, &state.candidates, None));
-
-    let Some(target) = fallback else {
+    let previous = state.last_allowed.filter(|id| allowed(ctx, *id));
+    let Some(target) = previous.or_else(|| starting_point(ctx, state, None)) else {
         return;
     };
 
@@ -244,9 +400,7 @@ fn start_focus(ctx: &Context, state: &State, raw_input: &mut egui::RawInput) {
         return;
     };
 
-    let target = first_allowed(ctx, &state.candidates, state.content)
-        .or_else(|| first_allowed(ctx, &state.candidates, None));
-    let Some(target) = target else {
+    let Some(target) = starting_point(ctx, state, state.content) else {
         return;
     };
 
@@ -268,6 +422,22 @@ fn is_nav_press(event: &egui::Event) -> bool {
     )
 }
 
+/// Where focus lands when it has nowhere to be: the spot the screen or popup
+/// asked for, else its first widget inside `area`, else the first one at all.
+fn starting_point(ctx: &Context, state: &State, area: Option<Rect>) -> Option<Id> {
+    let preferred = state.preferred.filter(|id| allowed(ctx, *id));
+    if preferred.is_some() {
+        return preferred;
+    }
+
+    let in_area = first_allowed(ctx, &state.candidates, area);
+    if in_area.is_some() {
+        return in_area;
+    }
+
+    first_allowed(ctx, &state.candidates, None)
+}
+
 /// First visible candidate on an interactive layer, optionally inside `area`.
 fn first_allowed(ctx: &Context, candidates: &[Candidate], area: Option<Rect>) -> Option<Id> {
     let screen = ctx.content_rect();
@@ -282,7 +452,8 @@ fn first_allowed(ctx: &Context, candidates: &[Candidate], area: Option<Rect>) ->
     found.map(|candidate| candidate.id)
 }
 
-/// Ring around the focused widget unless it drew its own highlight. Call last.
+/// Ring around the focused widget, the one focus mark a remote user looks for.
+/// Call after every widget is shown.
 pub fn paint_ring(ctx: &Context, theme: &Theme) {
     if !platform::is_tv(ctx) {
         return;
@@ -292,7 +463,7 @@ pub fn paint_ring(ctx: &Context, theme: &Theme) {
         return;
     };
 
-    let drew_own = with_state(ctx, |state| state.lit.contains(&id));
+    let drew_own = with_state(ctx, |state| state.own_rings.contains(&id));
     if drew_own {
         return;
     }

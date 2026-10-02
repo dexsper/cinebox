@@ -131,10 +131,11 @@ pub fn header(
         return None;
     }
 
-    let max_w = (video.width() - 48.0).max(280.0);
+    let safe = video - crate::platform::edge_inset(ctx);
+    let max_w = (safe.width() - 48.0).max(280.0);
     let response = Area::new(Id::new("player-header"))
         .order(Order::Foreground)
-        .fixed_pos(video.left_top() + vec2(16.0, 16.0))
+        .fixed_pos(safe.left_top() + vec2(16.0, 16.0))
         .constrain(false)
         .show(ctx, |ui| {
             ui.set_opacity(alpha);
@@ -167,7 +168,11 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
         return out;
     }
 
-    let rect = Rect::from_min_max(pos2(video.left(), video.bottom() - FOOTER_H), video.right_bottom());
+    // The scrim runs to the screen edges; the controls keep clear of them.
+    let safe = video - crate::platform::edge_inset(ctx);
+    let top = safe.bottom() - FOOTER_H;
+    let rect = Rect::from_min_max(pos2(video.left(), top), video.right_bottom());
+    let controls = Rect::from_x_y_ranges(safe.x_range(), top..=safe.bottom());
     out.rect = rect;
 
     Area::new(Id::new("player-footer"))
@@ -178,7 +183,7 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
             ui.set_opacity(alpha);
             scrim(ui, rect, theme);
 
-            let inner = rect.shrink2(vec2(20.0, 0.0));
+            let inner = controls.shrink2(vec2(20.0, 0.0));
             let mut body = ui.new_child(
                 UiBuilder::new()
                     .max_rect(inner)

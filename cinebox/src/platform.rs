@@ -4,7 +4,7 @@
 
 use std::sync::Arc;
 
-use egui::{Context, Id};
+use egui::{Context, Id, Margin};
 
 /// How the app is shown and operated.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
@@ -53,6 +53,19 @@ fn host(ctx: &Context) -> Host {
 pub fn is_tv(ctx: &Context) -> bool {
     host(ctx).form == Form::Tv
 }
+
+/// Room for controls along the screen edges, which many TVs crop. Backgrounds
+/// still run to the edges; only what sits on them moves in.
+#[must_use]
+pub fn edge_inset(ctx: &Context) -> Margin {
+    if !is_tv(ctx) {
+        return Margin::ZERO;
+    }
+
+    TV_EDGE_INSET
+}
+
+const TV_EDGE_INSET: Margin = Margin::symmetric(24, 16);
 
 /// Playback keeps the screen on; leaving the player lets it sleep again.
 pub fn keep_awake(ctx: &Context, on: bool) {

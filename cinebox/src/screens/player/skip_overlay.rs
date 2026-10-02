@@ -53,14 +53,15 @@ pub fn show(
         return SkipBannerOut::none();
     }
 
+    let safe = video - crate::platform::edge_inset(ctx);
     let footer_visible = seek_rect != Rect::NOTHING;
     let anchor_bottom = if footer_visible {
         seek_rect.top() - BOTTOM_GAP
     } else {
-        video.bottom() - BOTTOM_GAP
+        safe.bottom() - BOTTOM_GAP
     };
 
-    let anchor = pos2(video.right() - RIGHT_MARGIN, anchor_bottom);
+    let anchor = pos2(safe.right() - RIGHT_MARGIN, anchor_bottom);
     let area_id = Id::new("player-skip-banner");
 
     let tv = crate::platform::is_tv(ctx);

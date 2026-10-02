@@ -12,12 +12,13 @@ use egui_material_icons::icons::{
 use rust_i18n::t;
 
 use crate::nav::RailEntry;
+use crate::platform;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;
 use crate::widgets::focus;
 
-/// Collapsed width; content is laid out against this.
-pub const WIDTH: f32 = 60.0;
+/// Width of the icon column while collapsed.
+const WIDTH: f32 = 60.0;
 const EXPANDED_W: f32 = 216.0;
 const ITEM_H: f32 = 44.0;
 const ITEM_GAP: f32 = 4.0;
@@ -57,11 +58,17 @@ fn label(entry: RailEntry) -> std::borrow::Cow<'static, str> {
     }
 }
 
+/// Room the collapsed rail takes from the left edge; content is laid out against this.
+#[must_use]
+pub fn collapsed_width(ctx: &egui::Context) -> f32 {
+    platform::edge_inset(ctx).leftf() + WIDTH
+}
+
 /// X of the rail's icon column for a rail whose left edge is `left`, so the title bar's
 /// Back button can line up with the rail icons.
 #[must_use]
-pub fn column_center(left: f32) -> f32 {
-    left + WIDTH * 0.5
+pub fn column_center(ctx: &egui::Context, left: f32) -> f32 {
+    left + platform::edge_inset(ctx).leftf() + WIDTH * 0.5
 }
 
 /// Paint the rail along the left edge of `body`, which starts at the title bar's bottom edge.
@@ -73,7 +80,10 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
         .read_response(id)
         .is_some_and(|response| response.contains_pointer());
     let t = ctx.animate_bool_with_time(id.with("expand"), hovered || focused(ctx), EXPAND_SECS);
-    let width = egui::lerp(WIDTH..=EXPANDED_W, t);
+    // The background runs to the screen edge; the items keep clear of it.
+    let edge = platform::edge_inset(ctx).leftf();
+    let column_w = egui::lerp(WIDTH..=EXPANDED_W, t);
+    let width = edge + column_w;
     let top = body.top() - BAR_RULE_TOP - BAR_RULE_BOTTOM;
     let rect = Rect::from_min_max(pos2(body.left(), top), pos2(body.left() + width, body.bottom()));
     let edge_top = body.top() - BAR_RULE_TOP;
@@ -113,19 +123,20 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
                 Stroke::new(1.0, theme.window_edge),
             );
 
+            let column_left = rect.left() + edge;
             let mut top = body.top() + ITEM_INSET;
             for (index, entry) in ENTRIES.into_iter().enumerate() {
                 if entry == RailEntry::Library {
                     let y = top + ITEM_GAP;
-                    let x_range = (rect.left() + ITEM_INSET)..=(rect.right() - ITEM_INSET);
+                    let x_range = (column_left + ITEM_INSET)..=(rect.right() - ITEM_INSET);
                     ui.painter()
                         .hline(x_range, y, Stroke::new(1.0, theme.window_edge));
                     top += ITEM_GAP * 3.0;
                 }
 
                 let item = Rect::from_min_size(
-                    pos2(rect.left() + ITEM_INSET, top),
-                    vec2(width - ITEM_INSET * 2.0, ITEM_H),
+                    pos2(column_left + ITEM_INSET, top),
+                    vec2(column_w - ITEM_INSET * 2.0, ITEM_H),
                 );
                 if item_ui(ui, item, entry, active == Some(entry), t, theme, index) {
                     clicked = Some(entry);
