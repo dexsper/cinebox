@@ -21,10 +21,20 @@ pub enum Windowing {
     System,
 }
 
+/// How far the viewer sits from the screen.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Viewing {
+    /// At a desk, or the device in hand.
+    Near,
+    /// Across the room: the header and its search are set larger.
+    Far,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Profile {
     pub navigation: Navigation,
     pub windowing: Windowing,
+    pub viewing: Viewing,
     /// Kept clear of controls along the screen edges; backgrounds still reach them.
     pub edge_inset: Margin,
     /// Logical width the layout is scaled to, where the OS density alone gets it wrong.
@@ -37,6 +47,7 @@ impl Profile {
         Self {
             navigation: Navigation::Pointer,
             windowing: Windowing::Desktop,
+            viewing: Viewing::Near,
             edge_inset: Margin::ZERO,
             layout_width: None,
         }
@@ -49,6 +60,7 @@ impl Profile {
         Self {
             navigation: Navigation::Directional,
             windowing: Windowing::System,
+            viewing: Viewing::Far,
             edge_inset: Margin::symmetric(24, 16),
             layout_width: Some(1280.0),
         }
@@ -57,6 +69,11 @@ impl Profile {
     #[must_use]
     pub fn is_directional(self) -> bool {
         self.navigation == Navigation::Directional
+    }
+
+    #[must_use]
+    pub fn is_far(self) -> bool {
+        self.viewing == Viewing::Far
     }
 
     #[must_use]

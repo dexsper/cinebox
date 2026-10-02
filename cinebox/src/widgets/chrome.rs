@@ -31,10 +31,7 @@ pub fn header(
     let profile = crate::platform::profile(ui.ctx());
     let height = bar_height(ui.ctx(), theme);
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    let controls = bar - Margin {
-        bottom: 0,
-        ..profile.edge_inset
-    };
+    let controls = bar - Margin::symmetric(profile.edge_inset.left, 0);
 
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
@@ -240,7 +237,7 @@ fn search_and_drag(
     bar: Rect,
     middle: Rect,
 ) -> Option<NavAction> {
-    let search_rect = centered_search_rect(bar, middle);
+    let search_rect = centered_search_rect(bar, middle, theme.search_h);
 
     if crate::platform::profile(ui.ctx()).is_desktop_window() {
         let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
@@ -253,12 +250,11 @@ fn search_and_drag(
     search.show(ui, theme, search_rect)
 }
 
-fn centered_search_rect(bar: Rect, middle: Rect) -> Rect {
+fn centered_search_rect(bar: Rect, middle: Rect, height: f32) -> Rect {
     let max_w = (middle.width() - SEARCH_INSET * 2.0).max(0.0);
     let search_w = search::SEARCH_W.min(max_w);
-    let search_h = search::SEARCH_H
-        .min(middle.height() - SEARCH_INSET)
-        .max(0.0);
+    let max_h = (middle.height() - SEARCH_INSET).max(0.0);
+    let search_h = height.min(max_h);
 
     let desired = Rect::from_center_size(
         pos2(bar.center().x, middle.center().y),

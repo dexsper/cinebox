@@ -69,6 +69,7 @@ pub struct Theme {
     pub still_h: f32,
     pub pad: f32,
     pub title_bar_h: f32,
+    pub search_h: f32,
     pub overview_max_w: f32,
     pub text_micro: f32,
     pub text_caption: f32,
@@ -88,6 +89,7 @@ pub struct Theme {
     pub text_cta_icon: f32,
     pub text_gauge_min: f32,
     pub text_gauge_max: f32,
+    pub text_search: f32,
 }
 
 impl Theme {
@@ -152,6 +154,7 @@ impl Theme {
             still_h: 98.0,
             pad: 16.0,
             title_bar_h: 40.0,
+            search_h: 28.0,
             overview_max_w: 640.0,
             text_micro: 11.0,
             text_caption: 12.0,
@@ -171,6 +174,7 @@ impl Theme {
             text_cta_icon: 22.0,
             text_gauge_min: 26.0,
             text_gauge_max: 38.0,
+            text_search: 12.5,
         }
     }
 
@@ -181,6 +185,12 @@ impl Theme {
         if profile.is_directional() {
             self.ring_w = 2.0;
             self.ring_gap = 2.0;
+        }
+
+        if profile.is_far() {
+            self.title_bar_h = 48.0;
+            self.search_h = 34.0;
+            self.text_search = 16.0;
         }
 
         self

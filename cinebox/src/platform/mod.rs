@@ -17,7 +17,7 @@ pub use device::{
     SpeechRequest, TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 pub(crate) use media_session::SessionPublisher;
-pub use profile::{Navigation, Profile, Windowing};
+pub use profile::{Navigation, Profile, Viewing, Windowing};
 
 /// What a platform entry point hands the shared app.
 #[derive(Clone)]

@@ -16,9 +16,6 @@ use crate::widgets::button::{self, pointing};
 use crate::widgets::{flyout, focus};
 
 pub const SEARCH_W: f32 = 380.0;
-pub const SEARCH_H: f32 = 28.0;
-const ICON_W: f32 = SEARCH_H;
-const ROW_H: f32 = SEARCH_H;
 const MIN_SHOW: f32 = 8.0;
 const HISTORY_PAD: f32 = 4.0;
 const HISTORY_PAD_BOTTOM: f32 = 8.0;
@@ -200,7 +197,7 @@ impl SearchBar {
         picked: &mut Option<String>,
     ) -> Option<NavAction> {
         let history = self.history.clone();
-        let body_h = history_body_h(history.len());
+        let body_h = history_body_h(history.len(), theme.search_h);
         let size = vec2(field.width(), field.height() + body_h);
         let (combined, _) = ui.allocate_exact_size(size, Sense::hover());
 
@@ -263,7 +260,8 @@ impl SearchBar {
 
     fn paint_contents(&mut self, ui: &mut Ui, theme: &Theme, rect: Rect) -> Option<NavAction> {
         let directional = platform::profile(ui.ctx()).is_directional();
-        let icon_rect = Rect::from_min_size(rect.min, vec2(ICON_W, rect.height()));
+        let icon_w = rect.height();
+        let icon_rect = Rect::from_min_size(rect.min, vec2(icon_w, rect.height()));
         let icon_clicked = search_icon(ui, theme, icon_rect, directional);
         if icon_clicked {
             if let Some(action) = submit(&self.query) {
@@ -275,7 +273,7 @@ impl SearchBar {
                 .memory_mut(|mem| mem.request_focus(Id::new(EDIT_ID)));
         }
 
-        let edit_rect = Rect::from_min_max(pos2(rect.left() + ICON_W, rect.top()), rect.max);
+        let edit_rect = Rect::from_min_max(pos2(rect.left() + icon_w, rect.top()), rect.max);
         // On a remote the whole bar is one stop: OK opens the keyboard, whose
         // search key submits.
         let stop_rect = if directional { rect } else { edit_rect };
@@ -305,6 +303,7 @@ impl SearchBar {
                 let edit = ui.add(
                     TextEdit::singleline(&mut self.query)
                         .id(Id::new(EDIT_ID))
+                        .font(theme.ui_font(theme.text_search))
                         .interactive(gate.interactive)
                         .desired_width(f32::INFINITY)
                         .vertical_align(Align::Center)
@@ -369,12 +368,12 @@ fn submit(query: &str) -> Option<NavAction> {
     })
 }
 
-fn history_body_h(count: usize) -> f32 {
+fn history_body_h(count: usize, row_h: f32) -> f32 {
     if count == 0 {
         return 0.0;
     }
 
-    let rows = count as f32 * ROW_H;
+    let rows = count as f32 * row_h;
     let gaps = (count - 1) as f32 * HISTORY_GAP;
 
     rows + gaps + HISTORY_PAD + HISTORY_PAD_BOTTOM
@@ -468,7 +467,7 @@ fn mic_colors(
 }
 
 fn history_row(ui: &mut Ui, theme: &Theme, query: &str) -> bool {
-    let size = vec2(ui.available_width(), ROW_H);
+    let size = vec2(ui.available_width(), theme.search_h);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
     let id = ui.id().with(query);
     let response = pointing(ui.interact(rect, id, Sense::click()));
