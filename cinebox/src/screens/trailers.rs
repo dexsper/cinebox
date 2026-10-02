@@ -169,7 +169,8 @@ impl TrailersModal {
                     }
                 });
 
-            (pick, retry, modal.should_close())
+            // Not `should_close`: Escape is the app's Back, which closes this itself.
+            (pick, retry, modal.backdrop_response.clicked())
         };
 
         if should_close {
