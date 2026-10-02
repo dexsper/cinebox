@@ -21,4 +21,7 @@ final class Natives {
     static native void onEditorAction();
 
     static native void onKeyboardHidden();
+
+    /** The video player has something new to show. */
+    static native void onPlayerChanged();
 }

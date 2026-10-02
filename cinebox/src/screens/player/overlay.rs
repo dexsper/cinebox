@@ -67,6 +67,8 @@ pub struct FooterView {
     pub paused: bool,
     pub muted: bool,
     pub volume: f64,
+    /// The player has its own volume; otherwise the OS or the receiver sets it.
+    pub volume_control: bool,
     pub file_count: usize,
     pub file_index: usize,
     pub has_next: bool,
@@ -359,10 +361,12 @@ fn right_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out: 
             icon_btn(&mut right, theme, fs_icon, fs_hint.as_ref(), true).clicked();
     }
 
-    let volume = icon_btn(&mut right, theme, volume_icon(view), t!("player.volume").as_ref(), true);
-    out.volume_clicked = volume.clicked();
-    out.volume_hovered = volume.hovered();
-    out.volume_rect = volume.rect;
+    if view.volume_control {
+        let volume = icon_btn(&mut right, theme, volume_icon(view), t!("player.volume").as_ref(), true);
+        out.volume_clicked = volume.clicked();
+        out.volume_hovered = volume.hovered();
+        out.volume_rect = volume.rect;
+    }
 
     let settings = icon_btn(&mut right, theme, ICON_SETTINGS, t!("nav.settings").as_ref(), true);
     out.settings_clicked = settings.clicked();

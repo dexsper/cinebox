@@ -25,6 +25,9 @@ pub use profile::{Navigation, Profile, Viewing, Windowing};
 pub struct Host {
     pub profile: Profile,
     pub device: Arc<dyn Device>,
+    /// The platform's own video player; `None` plays through libmpv in the
+    /// window's GL context.
+    pub player: Option<Arc<dyn cinebox_player::Player>>,
 }
 
 impl Host {
@@ -33,6 +36,7 @@ impl Host {
         Self {
             profile: Profile::desktop(),
             device: Arc::new(NoDevice),
+            player: None,
         }
     }
 }

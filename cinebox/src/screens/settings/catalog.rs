@@ -1,6 +1,7 @@
 //! Settings categories and the field list the drawer renders.
 
 use cinebox_core::{SecretString, Settings};
+use cinebox_player::Features;
 
 use crate::nav::SettingsPage;
 use crate::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
@@ -96,6 +97,11 @@ pub enum Field {
         label: &'static str,
         hint: Option<&'static str>,
         which: MultiSelectId,
+    },
+    /// `field`, while the player has what it sets.
+    PlayerOnly {
+        needs: fn(&Features) -> bool,
+        field: &'static Field,
     },
     ProbeParser,
     ProbeTorr,
@@ -209,17 +215,23 @@ const GENERAL: &[Field] = &[
 ];
 
 const PLAYER: &[Field] = &[
-    Field::Toggle {
-        label: "settings.hardware_decoding",
-        hint: Some("settings.hardware_decoding_hint"),
-        get: |s| s.player.hardware_decoding,
-        set: |s, v| s.player.hardware_decoding = v,
+    Field::PlayerOnly {
+        needs: |features| features.decoder_choice,
+        field: &Field::Toggle {
+            label: "settings.hardware_decoding",
+            hint: Some("settings.hardware_decoding_hint"),
+            get: |s| s.player.hardware_decoding,
+            set: |s, v| s.player.hardware_decoding = v,
+        },
     },
-    Field::Toggle {
-        label: "settings.loudnorm",
-        hint: Some("settings.loudnorm_hint"),
-        get: |s| s.player.loudnorm,
-        set: |s, v| s.player.loudnorm = v,
+    Field::PlayerOnly {
+        needs: |features| features.loudnorm,
+        field: &Field::Toggle {
+            label: "settings.loudnorm",
+            hint: Some("settings.loudnorm_hint"),
+            get: |s| s.player.loudnorm,
+            set: |s, v| s.player.loudnorm = v,
+        },
     },
     Field::Toggle {
         label: "settings.play_next",

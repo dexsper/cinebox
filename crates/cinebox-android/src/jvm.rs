@@ -8,7 +8,7 @@ use jni::refs::Global;
 use jni::{Env, JavaVM, jni_sig, jni_str};
 use winit::platform::android::activity::AndroidApp;
 
-/// Outlives every activity instance, so FFmpeg and the TLS verifier keep it.
+/// Outlives every activity instance, so the TLS verifier keeps it.
 static APP_CONTEXT: OnceLock<Global<JObject<'static>>> = OnceLock::new();
 
 /// Released when collected, so it is kept for the process lifetime.
@@ -20,6 +20,10 @@ pub struct Java {
 }
 
 impl Java {
+    pub fn vm(&self) -> &JavaVM {
+        &self.vm
+    }
+
     /// Run `call` with the activity on the current thread; a failure is logged.
     pub fn with_activity<T, F>(&self, what: &str, call: F) -> Option<T>
     where
@@ -48,7 +52,7 @@ pub fn init(app: &AndroidApp) -> Option<Java> {
         // SAFETY: an unowned global reference that stays valid while `app` lives;
         // `JObject` does not delete it on drop.
         let activity = unsafe { JObject::from_raw(env, activity) };
-        init_with_activity(env, &activity, &vm)?;
+        init_with_activity(env, &activity)?;
         env.new_global_ref(&activity)
     });
 
@@ -61,7 +65,7 @@ pub fn init(app: &AndroidApp) -> Option<Java> {
     }
 }
 
-fn init_with_activity(env: &mut Env, activity: &JObject, vm: &JavaVM) -> jni::errors::Result<()> {
+fn init_with_activity(env: &mut Env, activity: &JObject) -> jni::errors::Result<()> {
     let context = env
         .call_method(
             activity,
@@ -76,11 +80,6 @@ fn init_with_activity(env: &mut Env, activity: &JObject, vm: &JavaVM) -> jni::er
     // reqwest verifies TLS through Android's trust store.
     let local = env.new_local_ref(context.as_obj())?;
     rustls_platform_verifier::android::init_with_env(env, local)?;
-
-    // SAFETY: both are valid for the process lifetime (`APP_CONTEXT` is never dropped).
-    unsafe {
-        cinebox_player::init_mediacodec(vm.get_raw().cast(), context.as_raw().cast());
-    }
 
     if let Err(error) = acquire_multicast_lock(env, context) {
         tracing::warn!(%error, "no multicast lock; TorrServer discovery may find nothing");

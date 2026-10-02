@@ -2,13 +2,13 @@
 
 use std::collections::HashSet;
 use std::future::Future;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use cinebox_core::{
     LibraryMark, ListStatus, MediaKind, Settings, SettingsStore, Store, StoreError, TmdbId,
     allowed_image_sizes,
 };
-use cinebox_player::Engine;
+use cinebox_player::{Features, Player};
 use rust_i18n::t;
 use tracing::{error, info, warn};
 
@@ -26,14 +26,14 @@ pub struct Services {
     pub save_error: Option<String>,
     pub images: ImageCache,
     pub toasts: Toasts,
-    pub engine: Option<Arc<Mutex<Engine>>>,
+    pub player: Option<Arc<dyn Player>>,
     pub library: Library,
     watched: HashSet<(MediaKind, TmdbId)>,
     home_needs_refresh: bool,
 }
 
 impl Services {
-    pub fn boot(engine: Option<Arc<Mutex<Engine>>>) -> Self {
+    pub fn boot(player: Option<Arc<dyn Player>>) -> Self {
         let (store, mut settings, load_error) = open_settings_store();
         let upgraded = mark_existing_setup_onboarded(&mut settings);
         let db = open_app_db(&settings);
@@ -44,6 +44,7 @@ impl Services {
             .unwrap_or_default()
             .into_iter()
             .collect();
+
         let library = db
             .as_ref()
             .and_then(|db| db_block_on(db.library_entries()).ok())
@@ -58,7 +59,7 @@ impl Services {
             save_error: None,
             images,
             toasts: Toasts::default(),
-            engine,
+            player,
             library,
             watched,
             home_needs_refresh: false,
@@ -81,11 +82,20 @@ impl Services {
             save_error: None,
             images: ImageCache::with_db(Some(db)),
             toasts: Toasts::default(),
-            engine: None,
+            player: None,
             library: Library::default(),
             watched: HashSet::new(),
             home_needs_refresh: false,
         }
+    }
+
+    /// What the player lets the user change; everything while there is none,
+    /// since the settings still apply to the next run.
+    #[must_use]
+    pub fn player_features(&self) -> Features {
+        self.player
+            .as_ref()
+            .map_or(Features::ALL, |player| player.features())
     }
 
     #[must_use]
@@ -115,7 +125,11 @@ impl Services {
         let item = card.item();
         self.library.set_status(&item, card.section, status);
         if let Some(db) = &self.db {
-            warn_library_write(db_block_on(db.set_library_status(&item, card.section, status)));
+            warn_library_write(db_block_on(db.set_library_status(
+                &item,
+                card.section,
+                status,
+            )));
         }
     }
 
@@ -123,7 +137,11 @@ impl Services {
         let item = card.item();
         self.library.set_liked(&item, card.section, liked);
         if let Some(db) = &self.db {
-            warn_library_write(db_block_on(db.set_library_liked(&item, card.section, liked)));
+            warn_library_write(db_block_on(db.set_library_liked(
+                &item,
+                card.section,
+                liked,
+            )));
         }
     }
 

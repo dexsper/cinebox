@@ -20,7 +20,7 @@ val keystorePath: String? = System.getenv("ANDROID_KEYSTORE_PATH")
 
 android {
     namespace = "io.github.dexsper.cinebox"
-    // libmpv 1.0.0 requires compileSdk 36 and minSdk 26.
+    // minSdk is the API level the Rust library is built for (scripts/android-build.sh).
     compileSdk = 36
 
     defaultConfig {
@@ -58,6 +58,6 @@ android {
 }
 
 dependencies {
-    implementation(libs.libmpv)
+    implementation(libs.media3.exoplayer)
     implementation(libs.rustls.platform.verifier)
 }

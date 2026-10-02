@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "libmpv2 playback via the OpenGL render API"
+description = "Video playback: libmpv in the window's GL context, or a platform player"
 
 [dependencies]
 cinebox-core.workspace = true
@@ -20,12 +20,6 @@ libmpv2 = { version = "6.0.0", features = ["build_libmpv"] }
 [target.'cfg(target_os = "linux")'.dependencies]
 libmpv2 = "6.0.0"
 
-[target.'cfg(target_os = "android")'.dependencies]
-libmpv2 = "6.0.0"
-# Only here to turn on bindgen: the pregenerated bindings assume 64-bit layouts
-# and fail their size checks on armeabi-v7a, which most Android TV boxes run.
-libmpv2-sys = { version = "4.0.1", features = ["use-bindgen"] }
-
 [build-dependencies]
 cc = "1.2"
 goblin = { version = "0.10", default-features = false, features = ["std", "pe64"] }
@@ -33,7 +27,6 @@ pkg-config = "0.3"
 sevenz-rust2 = "0.22"
 sha2 = "0.11"
 ureq = { version = "3.4", default-features = false, features = ["rustls"] }
-zip = { version = "8.6", default-features = false, features = ["deflate-flate2-zlib-rs"] }
 
 [lints]
 workspace = true

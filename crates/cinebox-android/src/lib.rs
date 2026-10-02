@@ -9,6 +9,7 @@ mod events;
 mod jvm;
 mod keys;
 mod natives;
+mod player;
 
 use std::sync::Arc;
 
@@ -23,6 +24,7 @@ use winit::platform::android::activity::AndroidApp;
 
 use device::AndroidDevice;
 use keys::KeyRouter;
+use player::ExoPlayer;
 
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
@@ -35,8 +37,9 @@ fn android_main(app: AndroidApp) {
     cinebox_core::paths::set_android_root(root);
 
     let java = jvm::init(&app);
+    let player = java.as_ref().and_then(ExoPlayer::attach);
     let device = AndroidDevice::new(java);
-    if let Err(error) = run(app, device) {
+    if let Err(error) = run(app, device, player) {
         tracing::error!(%error, "running eframe application");
     }
 
@@ -45,16 +48,22 @@ fn android_main(app: AndroidApp) {
     std::process::exit(0);
 }
 
-fn run(app: AndroidApp, device: AndroidDevice) -> eframe::Result {
+fn run(app: AndroidApp, device: AndroidDevice, player: Option<ExoPlayer>) -> eframe::Result {
     let event_loop = EventLoop::<UserEvent>::with_user_event()
         .with_android_app(app)
         .build()?;
 
+    let player = player.map(|player| Arc::new(player) as Arc<dyn cinebox_player::Player>);
     let host = Host {
         profile: Profile::tv(),
         device: Arc::new(device),
+        player,
     };
-    let options = cinebox::native_options();
+
+    let mut options = cinebox::native_options();
+    // The video plays in a layer below the window and shows through where the app
+    // leaves the window clear, which needs an alpha channel.
+    options.viewport = options.viewport.with_transparent(true);
     let creator = cinebox::app_creator(host);
     let eframe_app = eframe::create_native(&cinebox::app_name(), options, creator, &event_loop);
 

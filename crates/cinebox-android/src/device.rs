@@ -270,7 +270,7 @@ fn millis(seconds: f64) -> i64 {
     (seconds * 1000.0).round() as i64
 }
 
-fn optional_string<'local>(env: &mut Env<'local>, text: Option<&str>) -> jni::errors::Result<JObject<'local>> {
+pub(crate) fn optional_string<'local>(env: &mut Env<'local>, text: Option<&str>) -> jni::errors::Result<JObject<'local>> {
     let Some(text) = text else {
         return Ok(JObject::null());
     };

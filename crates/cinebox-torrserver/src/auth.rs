@@ -1,11 +1,11 @@
-//! Basic auth header for mpv `http-header-fields`. Never log the return value.
+//! Basic auth header for the player's stream requests. Never log the return value.
 
 use base64::Engine;
 use base64::engine::general_purpose::STANDARD;
 
-/// `Authorization: Basic …` for mpv. `None` when username is empty.
+/// `Authorization: Basic …`. `None` when username is empty.
 #[must_use]
-pub fn mpv_http_header_fields(username: &str, password: &str) -> Option<String> {
+pub fn basic_auth_header(username: &str, password: &str) -> Option<String> {
     if username.is_empty() {
         return None;
     }
@@ -19,12 +19,12 @@ mod tests {
 
     #[test]
     fn empty_username_skips_header() {
-        assert_eq!(mpv_http_header_fields("", "secret"), None);
+        assert_eq!(basic_auth_header("", "secret"), None);
     }
 
     #[test]
     fn encodes_user_pass() {
-        let header = mpv_http_header_fields("user", "pass");
+        let header = basic_auth_header("user", "pass");
         assert_eq!(header.as_deref(), Some("Authorization: Basic dXNlcjpwYXNz"));
     }
 }

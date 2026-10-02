@@ -1,11 +1,12 @@
 //! Thin dispatcher: navigation + shared services. Screens own their state.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use cinebox_core::{
     PosterSize, SEARCH_HISTORY_LIMIT, Settings, UiLanguage, allowed_image_sizes, tmdb_image_url,
 };
+use cinebox_player::VideoOutput;
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
@@ -110,15 +111,24 @@ pub struct App {
 impl App {
     pub fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
         let theme = Theme::dark().for_profile(host.profile);
+        let platform_player = host.player.clone();
+
         platform::install(&cc.egui_ctx, host);
         theme.apply(&cc.egui_ctx);
+
         crate::fonts::install(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
+
         cc.egui_ctx
             .plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
-        let engine = attach_engine(cc);
-        let mut services = Services::boot(engine);
+        let player = platform_player.or_else(|| attach_mpv(cc));
+        if let Some(player) = &player {
+            let ctx = cc.egui_ctx.clone();
+            player.on_change(Box::new(move || ctx.request_repaint()));
+        }
+
+        let mut services = Services::boot(player);
         let first_run = !services.settings.general.onboarded;
         if first_run {
             adopt_system_language(&mut services);
@@ -407,6 +417,11 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Clear wherever nothing is painted, so a video layer below the window shows there.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         chrome::release_after_os_grab(ctx, raw_input);
         let events = platform::take_input(ctx, raw_input);
@@ -467,13 +482,21 @@ impl eframe::App for App {
         }
 
         let player_fullscreen = on_player && self.player.fills_screen(profile);
-        let fill = if matches!(screen, Screen::Player { .. }) {
-            theme.video_bg
-        } else {
+
+        // Over a video layer the player paints its own background around the picture.
+        let fill = if !on_player {
             theme.page_bg
+        } else if video_underlay(&self.services) {
+            egui::Color32::TRANSPARENT
+        } else {
+            theme.video_bg
         };
 
-        let outline = if profile.is_desktop_window() { 1.0 } else { 0.0 };
+        let outline = if profile.is_desktop_window() {
+            1.0
+        } else {
+            0.0
+        };
 
         CentralPanel::default()
             .frame(Frame::new().fill(fill))
@@ -593,19 +616,27 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
     }
 }
 
-fn attach_engine(cc: &eframe::CreationContext<'_>) -> Option<Arc<Mutex<cinebox_player::Engine>>> {
+fn video_underlay(svc: &Services) -> bool {
+    let output = svc.player.as_ref().map(|player| player.output());
+    output == Some(VideoOutput::Underlay)
+}
+
+#[cfg(not(target_os = "android"))]
+fn attach_mpv(cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
     let loader = cc.get_proc_address.clone()?;
-    match cinebox_player::Engine::attach(loader, native_display(cc)) {
-        Ok(mut engine) => {
-            let ctx = cc.egui_ctx.clone();
-            engine.set_update_callback(move || ctx.request_repaint());
-            Some(Arc::new(Mutex::new(engine)))
-        }
+    match cinebox_player::MpvPlayer::attach(loader, native_display(cc)) {
+        Ok(player) => Some(Arc::new(player)),
         Err(error) => {
             error!(%error, "mpv render attach failed");
             None
         }
     }
+}
+
+/// There is no libmpv on Android; the entry point always brings a player.
+#[cfg(target_os = "android")]
+fn attach_mpv(_cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
+    None
 }
 
 /// VAAPI shares decoded frames with GL only through the window's display.
@@ -629,7 +660,7 @@ fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDis
 }
 
 /// Windows decoders (NVDEC, D3D11VA copy-back) need no display.
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
 fn native_display(_cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDisplay {
     cinebox_player::NativeDisplay::None
 }

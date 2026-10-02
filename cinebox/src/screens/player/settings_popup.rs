@@ -2,7 +2,7 @@
 
 use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::VideoScale;
-use cinebox_player::{Track, TrackKind};
+use cinebox_player::{Features, Track, TrackKind};
 use egui::{Align, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
 use rust_i18n::t;
@@ -37,6 +37,7 @@ pub enum Page {
 /// Read-only inputs for one popup frame.
 pub struct View<'a> {
     pub page: Page,
+    pub features: Features,
     pub tracks: &'a [Track],
     pub prefs: TorrentPlaybackPrefs,
     pub sub_scale: f64,
@@ -75,8 +76,11 @@ fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         out.page = Some(Page::VideoSize);
     }
 
-    if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed_label(view.prefs.speed)) {
-        out.page = Some(Page::Speed);
+    if view.features.speed {
+        let speed = speed_label(view.prefs.speed);
+        if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed) {
+            out.page = Some(Page::Speed);
+        }
     }
 
     if submenu_row(ui, theme, t!("player.subtitle_track").as_ref(), &selected_sub_label(view.tracks)) {
@@ -154,6 +158,10 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     if scale_step != 0.0 {
         let next = view.sub_scale + f64::from(scale_step) * SUB_SCALE_STEP;
         out.sub_scale = Some(next.clamp(SUB_SCALE_MIN, SUB_SCALE_MAX));
+    }
+
+    if !view.features.subtitle_delay {
+        return;
     }
 
     let delay_text = format!("{:+.1}s", view.sub_delay);

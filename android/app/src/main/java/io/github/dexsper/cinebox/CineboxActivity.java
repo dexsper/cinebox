@@ -4,6 +4,7 @@ import android.app.NativeActivity;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
+import android.graphics.PixelFormat;
 import android.os.Bundle;
 import android.view.ViewGroup;
 import android.view.WindowManager;
@@ -23,6 +24,7 @@ public final class CineboxActivity extends NativeActivity {
     private MediaSessionController mediaSession;
     private TextInputView textInput;
     private SpeechInput speech;
+    private VideoPlayer videoPlayer;
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -30,16 +32,27 @@ public final class CineboxActivity extends NativeActivity {
         mediaSession = new MediaSessionController(this);
         textInput = new TextInputView(this);
         speech = new SpeechInput(this);
+        videoPlayer = new VideoPlayer(this);
 
         super.onCreate(savedInstanceState);
         addContentView(textInput, new ViewGroup.LayoutParams(1, 1));
+
+        // The video plays in a layer below the window and shows through where
+        // the app leaves the window clear.
+        getWindow().setFormat(PixelFormat.TRANSLUCENT);
+        videoPlayer.attachView();
     }
 
     @Override
     protected void onDestroy() {
+        videoPlayer.release();
         mediaSession.release();
         speech.release();
         super.onDestroy();
+    }
+
+    public VideoPlayer videoPlayer() {
+        return videoPlayer;
     }
 
     public void keepScreenOn(boolean on) {

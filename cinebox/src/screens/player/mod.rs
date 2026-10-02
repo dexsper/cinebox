@@ -12,12 +12,14 @@ mod skip;
 mod skip_overlay;
 mod volume;
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs};
-use cinebox_player::{ClickZone, Engine, SEEK_SECS, Track, click_zone};
-use egui::{Align2, Rect, RichText, Sense, Ui};
+use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs, VideoScale};
+use cinebox_player::{
+    Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video,
+};
+use egui::{Align, Align2, Color32, Rect, RichText, Sense, Ui, pos2};
 use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{info, warn};
@@ -46,6 +48,9 @@ struct PlayerState {
     error: Option<String>,
     muted: bool,
     volume: f64,
+    video_size: Option<[u32; 2]>,
+    /// Drawn by the app when the player leaves subtitles to it.
+    subtitle: Option<String>,
     loaded_at: Instant,
     decoder: Option<cinebox_player::VideoDecoder>,
 }
@@ -63,6 +68,8 @@ impl PlayerState {
             error: None,
             muted: false,
             volume: 100.0,
+            video_size: None,
+            subtitle: None,
             loaded_at: Instant::now(),
             decoder: None,
         }
@@ -115,10 +122,10 @@ struct LoadSpec {
     backdrop_path: Option<String>,
 }
 
-/// The video `PaintCallback` closure, reused across frames while the engine
-/// identity stays the same.
+/// The video `PaintCallback` closure, reused across frames while the player
+/// stays the same.
 struct VideoCallback {
-    engine: Arc<Mutex<Engine>>,
+    player: Arc<dyn Player>,
     callback: Arc<egui_glow::CallbackFn>,
 }
 
@@ -198,7 +205,7 @@ impl PlayerScreen {
 
     pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) {
         self.save_progress(svc, true);
-        stop_engine(svc);
+        stop_player(svc);
 
         self.abort_buffering();
         self.skip_state.reset();
@@ -264,29 +271,35 @@ impl PlayerScreen {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return;
             };
-            let Some(engine) = &svc.engine else {
-                return;
-            };
-            let Ok(engine) = engine.lock() else {
+            
+            let Some(player) = &svc.player else {
                 return;
             };
 
-            let snap = engine.snapshot();
-            // Logged on every change: mpv may fall back to software mid-stream.
-            let decoder = engine.video_decoder();
+            let snap = player.snapshot();
+            // Logged on every change: the player may fall back to software mid-stream.
+            let decoder = player.video_decoder();
             if decoder.is_some() && decoder != state.decoder {
                 if let Some(d) = &decoder {
                     info!(hwdec = %d.hwdec, codec = %d.codec, pixel_format = %d.pixel_format, "video decoder");
                 }
                 state.decoder = decoder;
             }
-            drop(engine);
 
             state.paused = snap.paused;
             state.time = snap.time;
             state.duration = snap.duration;
             state.muted = snap.muted;
             state.volume = snap.volume;
+            state.video_size = snap.video_size;
+            state.subtitle = snap.subtitle;
+
+            if let Some(failure) = &snap.failure {
+                if state.error.is_none() {
+                    warn!(?failure, "playback failed");
+                    state.error = Some(failure_message(failure));
+                }
+            }
 
             let started = http_stream_started(snap.time, snap.duration);
             let waiting = state.is_youtube() && state.error.is_none() && !started;
@@ -304,7 +317,7 @@ impl PlayerScreen {
         };
 
         if stall {
-            stop_engine(svc);
+            stop_player(svc);
         }
 
         let _ = self.viewed_job.read();
@@ -328,6 +341,7 @@ impl PlayerScreen {
 
         match &self.phase {
             None => {
+                ui.painter().rect_filled(video, 0.0, theme.video_bg);
                 ui.label(RichText::new(t!("common.loading").as_ref()).color(theme.muted));
                 None
             }
@@ -351,6 +365,8 @@ struct PlayingView {
     paused: bool,
     muted: bool,
     volume: f64,
+    video_size: Option<[u32; 2]>,
+    subtitle: Option<String>,
     file_count: usize,
     file_index: usize,
     has_next: bool,
@@ -399,6 +415,8 @@ impl PlayerScreen {
                 paused: state.paused,
                 muted: state.muted,
                 volume: state.volume,
+                video_size: state.video_size,
+                subtitle: state.subtitle.clone(),
                 file_count: state.files().len(),
                 file_index: state.file_index(),
                 has_next: state.has_next(),
@@ -422,7 +440,13 @@ impl PlayerScreen {
                 theme.err,
             );
         } else {
-            paint_video(ui, rect, svc.engine.clone(), theme, &mut self.video_cb);
+            let frame = VideoFrame {
+                scale: self.prefs.scale,
+                size: view.video_size,
+                subtitle: view.subtitle.as_deref(),
+                subtitle_scale: self.sub_scale,
+            };
+            paint_video(ui, rect, svc.player.clone(), theme, &mut self.video_cb, &frame);
         }
 
         let mut seek_rel = None;
@@ -455,6 +479,7 @@ impl PlayerScreen {
             paused: view.paused,
             muted: view.muted,
             volume: view.volume,
+            volume_control: svc.player_features().volume,
             file_count: view.file_count,
             file_index: view.file_index,
             has_next: view.has_next,
@@ -586,9 +611,10 @@ impl PlayerScreen {
         anchor: Rect,
         page: settings_popup::Page,
     ) {
-        let tracks = engine_tracks(svc);
+        let tracks = player_tracks(svc);
         let view = settings_popup::View {
             page,
+            features: svc.player_features(),
             tracks: &tracks,
             prefs: self.prefs,
             sub_scale: self.sub_scale,
@@ -617,47 +643,47 @@ impl PlayerScreen {
 
         if let Some(scale) = out.scale {
             self.prefs.scale = scale;
-            with_engine(svc, |engine| {
-                log_mpv("set_scale", engine.set_scale(scale));
+            with_player(svc, |player| {
+                log_player("set_scale", player.set_scale(scale));
             });
             dirty = true;
         }
 
         if let Some(speed) = out.speed {
             self.prefs.speed = speed;
-            with_engine(svc, |engine| {
-                log_mpv("set_speed", engine.set_speed(speed));
+            with_player(svc, |player| {
+                log_player("set_speed", player.set_speed(speed));
             });
             dirty = true;
         }
 
         if let Some(id) = out.audio {
             self.prefs.aid = id;
-            with_engine(svc, |engine| {
-                log_mpv("select_audio", engine.select_audio(id));
+            with_player(svc, |player| {
+                log_player("select_audio", player.select_audio(id));
             });
             dirty = true;
         }
 
         if let Some(sub) = out.sub {
             self.prefs.sid = sub.unwrap_or(0);
-            with_engine(svc, |engine| {
-                log_mpv("select_sub", engine.select_sub(sub));
+            with_player(svc, |player| {
+                log_player("select_subtitle", player.select_subtitle(sub));
             });
             dirty = true;
         }
 
         if let Some(scale) = out.sub_scale {
             self.sub_scale = scale;
-            with_engine(svc, |engine| {
-                log_mpv("set_sub_scale", engine.set_sub_scale(scale));
+            with_player(svc, |player| {
+                log_player("set_subtitle_scale", player.set_subtitle_scale(scale));
             });
         }
 
         if let Some(delay) = out.sub_delay {
             self.sub_delay = delay;
-            with_engine(svc, |engine| {
-                log_mpv("set_sub_delay", engine.set_sub_delay(delay));
+            with_player(svc, |player| {
+                log_player("set_subtitle_delay", player.set_subtitle_delay(delay));
             });
         }
 
@@ -756,8 +782,8 @@ impl PlayerScreen {
         if changed {
             let level = level.clamp(0.0, 100.0);
             svc.settings.player.volume = level;
-            with_engine(svc, |engine| {
-                log_mpv("set_volume", engine.set_volume(level));
+            with_player(svc, |player| {
+                log_player("set_volume", player.set_volume(level));
             });
             self.volume_dirty = true;
         }
@@ -799,7 +825,7 @@ impl PlayerScreen {
 const RESUME_PRELOAD_MIN_SECS: f64 = 60.0;
 const STREAM_STALL: Duration = Duration::from_secs(20);
 
-/// mpv can report `duration == 0` while `time-pos` already advances.
+/// The player can report `duration == 0` while the clock already advances.
 fn http_stream_started(time: f64, duration: f64) -> bool {
     if time > 0.0 {
         return true;
@@ -830,7 +856,7 @@ fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
 
 struct LoadMedia {
     url: String,
-    header: Option<String>,
+    headers: Vec<String>,
     audio: Option<String>,
     proxy: Option<String>,
     start: f64,
@@ -843,23 +869,17 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
             audio_url,
             http_header_fields,
         } => {
-            let header = if http_header_fields.is_empty() {
-                None
-            } else {
-                Some(http_header_fields.join(","))
-            };
-
             let net = crate::jobs::net_config(&svc.settings);
             let proxy = cinebox_net::http_proxy_url(&net);
             if net.use_system_proxy && proxy.is_none() {
-                warn!("system proxy is on but no http proxy url was found for mpv");
+                warn!("system proxy is on but no http proxy url was found for the player");
             }
 
-            tracing::debug!(has_proxy = proxy.is_some(), "youtube mpv load");
+            tracing::debug!(has_proxy = proxy.is_some(), "youtube load");
 
             Ok(LoadMedia {
                 url: video_url.clone(),
-                header,
+                headers: http_header_fields.clone(),
                 audio: audio_url.clone(),
                 proxy,
                 start: 0.0,
@@ -887,11 +907,11 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
 
             let user = svc.settings.torrserver.username.as_str();
             let pass = svc.settings.torrserver.password.expose();
-            let header = cinebox_torrserver::mpv_http_header_fields(user, pass);
+            let auth = cinebox_torrserver::basic_auth_header(user, pass);
 
             Ok(LoadMedia {
                 url,
-                header,
+                headers: auth.into_iter().collect(),
                 audio: None,
                 proxy: None,
                 start: state.time,
@@ -927,7 +947,7 @@ impl PlayerScreen {
             return;
         }
 
-        stop_engine(svc);
+        stop_player(svc);
 
         let (path, file_id, resume_bytes, hash_owned) = {
             let files = spec.source.files();
@@ -1041,8 +1061,8 @@ impl PlayerScreen {
             return;
         };
 
-        let Some(engine) = &svc.engine else {
-            state.error = Some(t!("player.mpv_render_failed").into_owned());
+        let Some(player) = svc.player.clone() else {
+            state.error = Some(t!("player.player_unavailable").into_owned());
             return;
         };
 
@@ -1055,44 +1075,41 @@ impl PlayerScreen {
             }
         };
 
-        let opts = cinebox_player::PlayOpts {
-            http_header_fields: load.header.as_deref(),
-            audio_file: load.audio.as_deref(),
+        let media = Media {
+            url: &load.url,
+            headers: &load.headers,
+            audio_url: load.audio.as_deref(),
             http_proxy: load.proxy.as_deref(),
+            start_seconds: load.start,
             loudnorm: svc.settings.player.loudnorm,
             hardware_decoding: svc.settings.player.hardware_decoding,
-            start_seconds: load.start,
         };
 
-        let Ok(engine) = engine.lock() else {
-            return;
-        };
-
-        if let Err(error) = engine.load(&load.url, opts) {
+        if let Err(error) = player.load(&media) {
             state.error = Some(error.to_string());
             return;
         }
 
         state.error = None;
 
-        log_mpv("set_scale", engine.set_scale(prefs.scale));
-        log_mpv("set_speed", engine.set_speed(prefs.speed));
-        log_mpv("set_volume", engine.set_volume(volume));
-        log_mpv("set_sub_scale", engine.set_sub_scale(sub_scale));
-        log_mpv("set_sub_delay", engine.set_sub_delay(sub_delay));
+        log_player("set_scale", player.set_scale(prefs.scale));
+        log_player("set_speed", player.set_speed(prefs.speed));
+        log_player("set_volume", player.set_volume(volume));
+        log_player("set_subtitle_scale", player.set_subtitle_scale(sub_scale));
+        log_player("set_subtitle_delay", player.set_subtitle_delay(sub_delay));
 
         if is_youtube {
             return;
         }
 
         if prefs.aid > 0 {
-            log_mpv("select_audio", engine.select_audio(prefs.aid));
+            log_player("select_audio", player.select_audio(prefs.aid));
         }
 
         if prefs.sid > 0 {
-            log_mpv("select_sub", engine.select_sub(Some(prefs.sid)));
+            log_player("select_subtitle", player.select_subtitle(Some(prefs.sid)));
         } else if prefs.sid == 0 {
-            log_mpv("select_sub", engine.select_sub(None));
+            log_player("select_subtitle", player.select_subtitle(None));
         }
     }
 
@@ -1211,21 +1228,22 @@ impl PlayerScreen {
     }
 
     fn toggle(&mut self, svc: &Services) {
-        let paused = with_engine(svc, |engine| match engine.toggle_pause() {
-            Ok(paused) => Some(paused),
-            Err(error) => {
-                warn!(%error, "mpv toggle pause failed");
-                None
-            }
-        })
-        .flatten();
-
-        let Some(paused) = paused else {
+        let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
             return;
         };
 
-        if let Some(PlayerPhase::Playing(state)) = &mut self.phase {
-            state.paused = paused;
+        let next = !state.paused;
+        let ok = with_player(svc, |player| match player.set_paused(next) {
+            Ok(()) => true,
+            Err(error) => {
+                warn!(%error, "pause failed");
+                false
+            }
+        })
+        .unwrap_or(false);
+
+        if ok {
+            state.paused = next;
         }
     }
 
@@ -1235,10 +1253,10 @@ impl PlayerScreen {
         };
 
         let next = !state.muted;
-        let ok = with_engine(svc, |engine| match engine.set_mute(next) {
+        let ok = with_player(svc, |player| match player.set_muted(next) {
             Ok(()) => true,
             Err(error) => {
-                warn!(%error, "mpv mute failed");
+                warn!(%error, "mute failed");
                 false
             }
         })
@@ -1250,14 +1268,14 @@ impl PlayerScreen {
     }
 
     fn seek(&self, svc: &Services, delta: f64) {
-        with_engine(svc, |engine| {
-            log_mpv("seek", engine.seek(delta));
+        with_player(svc, |player| {
+            log_player("seek_by", player.seek_by(delta));
         });
     }
 
     fn seek_abs(&mut self, svc: &Services, to: f64) {
-        with_engine(svc, |engine| {
-            log_mpv("seek_abs", engine.seek_abs(to));
+        with_player(svc, |player| {
+            log_player("seek_to", player.seek_to(to));
         });
 
         if let Some(PlayerPhase::Playing(state)) = &mut self.phase {
@@ -1266,51 +1284,66 @@ impl PlayerScreen {
     }
 }
 
-/// Log an mpv control failure instead of dropping it silently.
-fn log_mpv(op: &'static str, result: Result<(), cinebox_player::Error>) {
+/// Log a player control failure instead of dropping it silently.
+fn log_player(op: &'static str, result: Result<(), cinebox_player::Error>) {
     if let Err(error) = result {
-        warn!(%error, op, "mpv control failed");
+        warn!(%error, op, "player control failed");
     }
 }
 
-fn with_engine<R>(svc: &Services, f: impl FnOnce(&Engine) -> R) -> Option<R> {
-    let engine = svc.engine.as_ref()?;
-    let engine = engine.lock().ok()?;
+fn with_player<R>(svc: &Services, f: impl FnOnce(&dyn Player) -> R) -> Option<R> {
+    let player = svc.player.as_deref()?;
 
-    Some(f(&engine))
+    Some(f(player))
 }
 
-fn stop_engine(svc: &Services) {
-    with_engine(svc, Engine::stop);
+fn stop_player(svc: &Services) {
+    with_player(svc, |player| player.stop());
 }
 
-fn engine_tracks(svc: &Services) -> Vec<Track> {
-    with_engine(svc, Engine::track_list).unwrap_or_default()
+fn player_tracks(svc: &Services) -> Vec<Track> {
+    with_player(svc, |player| player.tracks()).unwrap_or_default()
 }
 
-/// Returns the cached render callback, rebuilding it only when the engine
-/// identity changes; allocating a new `Arc<CallbackFn>` per frame is waste.
+fn failure_message(failure: &Failure) -> String {
+    let message = match failure {
+        Failure::Unsupported => t!("player.unsupported_format"),
+        Failure::Network => t!("player.stream_failed"),
+        Failure::Other(_) => t!("player.playback_failed"),
+    };
+
+    message.into_owned()
+}
+
+/// What one frame of video needs beyond the player itself.
+struct VideoFrame<'a> {
+    scale: VideoScale,
+    size: Option<[u32; 2]>,
+    subtitle: Option<&'a str>,
+    subtitle_scale: f64,
+}
+
+/// Returns the cached render callback, rebuilding it only when the player
+/// changes; allocating a new `Arc<CallbackFn>` per frame is waste.
 fn video_callback(
     cache: &mut Option<VideoCallback>,
-    engine: Arc<Mutex<Engine>>,
+    player: Arc<dyn Player>,
 ) -> Arc<egui_glow::CallbackFn> {
-    let cached = cache.as_ref().filter(|cb| Arc::ptr_eq(&cb.engine, &engine));
+    let cached = cache.as_ref().filter(|cb| Arc::ptr_eq(&cb.player, &player));
 
     if let Some(cb) = cached {
         return cb.callback.clone();
     }
 
-    let render_engine = engine.clone();
+    let render_player = player.clone();
     let callback = Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
         let vp = info.viewport_in_pixels();
         let fbo = painter.intermediate_fbo().map(|fb| fb.0.get()).unwrap_or(0);
-        if let Ok(engine) = render_engine.lock() {
-            let _ = engine.render(fbo, vp.width_px, vp.height_px);
-        }
+        let _ = render_player.render(fbo, vp.width_px, vp.height_px);
     }));
 
     *cache = Some(VideoCallback {
-        engine,
+        player,
         callback: callback.clone(),
     });
 
@@ -1320,19 +1353,116 @@ fn video_callback(
 fn paint_video(
     ui: &Ui,
     rect: Rect,
-    engine: Option<Arc<Mutex<Engine>>>,
+    player: Option<Arc<dyn Player>>,
     theme: &Theme,
     cache: &mut Option<VideoCallback>,
+    frame: &VideoFrame<'_>,
 ) {
-    ui.painter().rect_filled(rect, 0.0, theme.video_bg);
-
-    let Some(engine) = engine else {
+    let Some(player) = player else {
+        ui.painter().rect_filled(rect, 0.0, theme.video_bg);
         return;
     };
 
-    let callback = video_callback(cache, engine);
+    let draws_subtitles = player.features().draws_subtitles;
+    match player.output() {
+        VideoOutput::Rendered => {
+            ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+            let callback = video_callback(cache, player);
+            ui.painter().add(egui::PaintCallback { rect, callback });
+        }
+        VideoOutput::Underlay => paint_underlay(ui, rect, player.as_ref(), theme, frame),
+    }
 
-    ui.painter().add(egui::PaintCallback { rect, callback });
+    if draws_subtitles {
+        return;
+    }
+
+    if let Some(text) = frame.subtitle {
+        paint_subtitle(ui, rect, text, frame.subtitle_scale);
+    }
+}
+
+/// The picture shows through the window where nothing is painted, so only the
+/// bars around it are filled. Until its size is known the whole rect stays dark.
+fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, theme: &Theme, frame: &VideoFrame<'_>) {
+    let pixels_per_point = ui.ctx().pixels_per_point();
+    let area = to_area(rect);
+
+    let Some(size) = frame.size else {
+        ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+        player.place_video(area.to_pixels(pixels_per_point));
+        return;
+    };
+
+    let picture = fit_video(area, size, frame.scale);
+    for bar in bars_around(rect, to_rect(picture)) {
+        ui.painter().rect_filled(bar, 0.0, theme.video_bg);
+    }
+
+    player.place_video(picture.to_pixels(pixels_per_point));
+}
+
+fn to_area(rect: Rect) -> Area {
+    Area {
+        x: rect.left(),
+        y: rect.top(),
+        width: rect.width(),
+        height: rect.height(),
+    }
+}
+
+fn to_rect(area: Area) -> Rect {
+    Rect::from_min_size(pos2(area.x, area.y), egui::vec2(area.width, area.height))
+}
+
+/// The parts of `outer` that `inner` leaves uncovered, as up to four bars.
+fn bars_around(outer: Rect, inner: Rect) -> Vec<Rect> {
+    let inner = inner.intersect(outer);
+    if !inner.is_positive() {
+        return vec![outer];
+    }
+
+    let top = Rect::from_min_max(outer.min, pos2(outer.right(), inner.top()));
+    let bottom = Rect::from_min_max(pos2(outer.left(), inner.bottom()), outer.max);
+    let left = Rect::from_min_max(pos2(outer.left(), inner.top()), pos2(inner.left(), inner.bottom()));
+    let right = Rect::from_min_max(pos2(inner.right(), inner.top()), pos2(outer.right(), inner.bottom()));
+
+    [top, bottom, left, right]
+        .into_iter()
+        .filter(|bar| bar.is_positive())
+        .collect()
+}
+
+/// Subtitle height as a share of the video rect, close to mpv's default.
+const SUBTITLE_SHARE: f32 = 0.053;
+/// Distance of the last line from the rect's bottom edge, as a share of its height.
+const SUBTITLE_MARGIN_SHARE: f32 = 0.05;
+/// Outline width in points, drawn as offset copies (egui text has no stroke).
+const SUBTITLE_OUTLINE: f32 = 2.0;
+
+/// White text with a dark outline, centred above the bottom of the video.
+fn paint_subtitle(ui: &Ui, rect: Rect, text: &str, scale: f64) {
+    let size = rect.height() * SUBTITLE_SHARE * scale as f32;
+    let font = egui::FontId::proportional(size);
+    let wrap = rect.width() * 0.9;
+
+    let mut job = egui::text::LayoutJob::simple(text.to_owned(), font, Color32::WHITE, wrap);
+    job.halign = Align::Center;
+    let galley = ui.painter().layout_job(job);
+
+    let inset = crate::platform::edge_inset(ui.ctx());
+    let margin = (rect.height() * SUBTITLE_MARGIN_SHARE).max(f32::from(inset.bottom));
+    let top = rect.bottom() - margin - galley.size().y;
+    let anchor = pos2(rect.center().x, top);
+
+    let painter = ui.painter();
+    for dx in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
+        for dy in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
+            let offset = egui::vec2(dx, dy);
+            painter.galley_with_override_text_color(anchor + offset, galley.clone(), Color32::BLACK);
+        }
+    }
+    painter.galley(anchor, galley, Color32::WHITE);
 }
 
 fn stream_error(error: cinebox_torrserver::Error) -> String {

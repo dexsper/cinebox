@@ -286,6 +286,13 @@ impl SettingsScreen {
                     which,
                 )
             }
+            Field::PlayerOnly { needs, field } => {
+                if !needs(&svc.player_features()) {
+                    return false;
+                }
+
+                self.paint_field(ui, svc, theme, field)
+            }
             Field::ProbeParser => {
                 let parser = crate::jobs::ParserCtx::from(&svc.settings);
                 let label = t!("settings.test_parser");

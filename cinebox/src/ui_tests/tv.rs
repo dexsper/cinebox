@@ -132,6 +132,7 @@ fn install(ui: &egui::Ui, device: Arc<TvDevice>) {
     let host = Host {
         profile: Profile::tv(),
         device,
+        player: None,
     };
     platform::install(ui.ctx(), host);
 }

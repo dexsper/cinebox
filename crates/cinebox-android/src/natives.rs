@@ -110,6 +110,14 @@ pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onKeyboardHidden(
     events::push(typed(TextInputEvent::KeyboardHidden));
 }
 
+#[unsafe(no_mangle)]
+pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onPlayerChanged(
+    _env: EnvUnowned<'_>,
+    _class: JClass<'_>,
+) {
+    crate::player::wake();
+}
+
 fn typed(event: TextInputEvent) -> DeviceEvent {
     DeviceEvent::Text(event)
 }
