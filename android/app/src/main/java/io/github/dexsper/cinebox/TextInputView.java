@@ -1,19 +1,29 @@
 package io.github.dexsper.cinebox;
 
 import android.content.Context;
+import android.os.Build;
+import android.text.Editable;
 import android.text.InputType;
+import android.text.Selection;
+import android.text.SpannableStringBuilder;
 import android.view.KeyEvent;
 import android.view.View;
 import android.view.inputmethod.BaseInputConnection;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.ExtractedText;
+import android.view.inputmethod.ExtractedTextRequest;
 import android.view.inputmethod.InputConnection;
 import android.view.inputmethod.InputMethodManager;
 
 /**
  * An invisible editor the soft keyboard can attach to. NativeActivity has no
  * text view of its own, so without this the keyboard would neither show nor
- * deliver text. The text itself lives in the Rust UI; this view only relays
- * what the keyboard does. UI thread only.
+ * deliver text.
+ *
+ * <p>It holds a copy of the Rust field being typed. Keyboards read the field
+ * back, and typing from a phone (the Google TV remote) sends nothing to a
+ * field that will not say what it holds. Every edit goes back to Rust as the
+ * whole field; Rust sends its own changes with {@link #update}. UI thread only.
  */
 final class TextInputView extends View {
     /** Codes sent by the Rust side (device.rs `purpose_code`, `action_code`). */
@@ -25,19 +35,29 @@ final class TextInputView extends View {
     static final int ACTION_SEARCH = 1;
 
     private final InputMethodManager inputMethods;
+    private final Editable text = new SpannableStringBuilder();
     private int inputType = InputType.TYPE_CLASS_TEXT;
     private int imeAction = EditorInfo.IME_ACTION_DONE;
     private boolean editing;
+    /** Set while the keyboard asked to be told of every change to the text. */
+    private ExtractedTextRequest monitor;
+    /** The field as Rust last knew it, in code points like Rust's characters. */
+    private String reported = "";
+    private int reportedStart;
+    private int reportedEnd;
 
     TextInputView(Context context) {
         super(context);
         inputMethods = context.getSystemService(InputMethodManager.class);
     }
 
-    void start(int purpose, int action) {
+    /** {@code start} and {@code end} count code points. */
+    void start(int purpose, int action, String value, int start, int end) {
         inputType = inputType(purpose);
         imeAction = action == ACTION_SEARCH ? EditorInfo.IME_ACTION_SEARCH : EditorInfo.IME_ACTION_DONE;
         editing = true;
+        monitor = null;
+        replace(value, start, end);
 
         // Focusable only while typing: the system shows the keyboard on its own
         // for a focused editor when the window gains focus.
@@ -48,8 +68,23 @@ final class TextInputView extends View {
         inputMethods.showSoftInput(this, 0);
     }
 
+    /** The field changed on the Rust side, not through the keyboard. */
+    void update(String value, int start, int end) {
+        if (!editing) {
+            return;
+        }
+
+        if (isReported(value, start, end)) {
+            return;
+        }
+
+        replace(value, start, end);
+        tellKeyboard();
+    }
+
     void stop() {
         editing = false;
+        monitor = null;
         inputMethods.hideSoftInputFromWindow(getWindowToken(), 0);
         clearFocus();
         setFocusable(false);
@@ -63,12 +98,18 @@ final class TextInputView extends View {
     @Override
     public InputConnection onCreateInputConnection(EditorInfo info) {
         info.inputType = inputType;
-        // Fullscreen (extract) mode would show the keyboard's own empty copy of
-        // the text: the real text is only in the Rust field.
+        // Fullscreen (extract) mode would cover the app with the keyboard's
+        // own copy of the field.
         info.imeOptions = imeAction
                 | EditorInfo.IME_FLAG_NO_FULLSCREEN
                 | EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-        return new Relay(this);
+        info.initialSelStart = Selection.getSelectionStart(text);
+        info.initialSelEnd = Selection.getSelectionEnd(text);
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            info.setInitialSurroundingText(text);
+        }
+
+        return new Relay();
     }
 
     /**
@@ -91,6 +132,121 @@ final class TextInputView extends View {
         return true;
     }
 
+    private void replace(String value, int start, int end) {
+        BaseInputConnection.removeComposingSpans(text);
+        text.replace(0, text.length(), value);
+        Selection.setSelection(text, offset(value, start), offset(value, end));
+        remember(value, start, end);
+    }
+
+    private boolean isReported(String value, int start, int end) {
+        return value.equals(reported) && start == reportedStart && end == reportedEnd;
+    }
+
+    private void remember(String value, int start, int end) {
+        reported = value;
+        reportedStart = start;
+        reportedEnd = end;
+    }
+
+    /** After the keyboard's edit settled: what the field holds now, to both sides. */
+    private void edited() {
+        tellKeyboard();
+
+        String value = text.toString();
+        int start = codePoints(value, Selection.getSelectionStart(text));
+        int end = codePoints(value, Selection.getSelectionEnd(text));
+        if (isReported(value, start, end)) {
+            return;
+        }
+
+        remember(value, start, end);
+        Natives.onTextEdited(value, start, end);
+    }
+
+    private void tellKeyboard() {
+        int start = Selection.getSelectionStart(text);
+        int end = Selection.getSelectionEnd(text);
+        int composingStart = BaseInputConnection.getComposingSpanStart(text);
+        int composingEnd = BaseInputConnection.getComposingSpanEnd(text);
+        inputMethods.updateSelection(this, start, end, composingStart, composingEnd);
+
+        if (monitor != null) {
+            inputMethods.updateExtractedText(this, monitor.token, extracted());
+        }
+    }
+
+    private ExtractedText extracted() {
+        ExtractedText out = new ExtractedText();
+        out.text = text.toString();
+        out.startOffset = 0;
+        out.partialStartOffset = -1;
+        out.partialEndOffset = -1;
+        out.selectionStart = Selection.getSelectionStart(text);
+        out.selectionEnd = Selection.getSelectionEnd(text);
+        out.flags = ExtractedText.FLAG_SINGLE_LINE;
+        return out;
+    }
+
+    /**
+     * Backspace and Delete sent by the keyboard are applied to the copy: in
+     * the app they would land after the keyboard's next edit of the copy.
+     */
+    private boolean deleteKey(KeyEvent event) {
+        int code = event.getKeyCode();
+        boolean backward = code == KeyEvent.KEYCODE_DEL;
+        boolean forward = code == KeyEvent.KEYCODE_FORWARD_DEL;
+        if (!backward && !forward) {
+            return false;
+        }
+
+        if (event.getAction() != KeyEvent.ACTION_DOWN) {
+            return true;
+        }
+
+        int start = Selection.getSelectionStart(text);
+        int end = Selection.getSelectionEnd(text);
+        if (start == end) {
+            if (backward) {
+                start = previousCodePoint(start);
+            } else {
+                end = nextCodePoint(end);
+            }
+        }
+
+        BaseInputConnection.removeComposingSpans(text);
+        text.delete(start, end);
+        edited();
+        return true;
+    }
+
+    private int previousCodePoint(int index) {
+        if (index <= 0) {
+            return 0;
+        }
+
+        return Character.offsetByCodePoints(text, index, -1);
+    }
+
+    private int nextCodePoint(int index) {
+        if (index >= text.length()) {
+            return text.length();
+        }
+
+        return Character.offsetByCodePoints(text, index, 1);
+    }
+
+    private static int codePoints(String value, int index) {
+        int clamped = Math.max(0, Math.min(index, value.length()));
+        return value.codePointCount(0, clamped);
+    }
+
+    private static int offset(String value, int codePoints) {
+        int total = value.codePointCount(0, value.length());
+        int clamped = Math.max(0, Math.min(codePoints, total));
+        return value.offsetByCodePoints(0, clamped);
+    }
+
     private static int inputType(int purpose) {
         switch (purpose) {
             case PURPOSE_URL:
@@ -105,41 +261,66 @@ final class TextInputView extends View {
         }
     }
 
-    /** Keys the keyboard sends as key events (Backspace, Enter) reach the app as usual input. */
-    private static final class Relay extends BaseInputConnection {
-        private String composing = "";
+    /**
+     * BaseInputConnection edits {@link #text} itself and wraps each edit in a
+     * batch, so the end of the outermost batch is when an edit has settled.
+     * Keys other than Backspace and Delete (Enter) reach the app as usual input.
+     */
+    private final class Relay extends BaseInputConnection {
+        private int batches;
 
-        Relay(View view) {
-            super(view, false);
+        Relay() {
+            super(TextInputView.this, true);
         }
 
         @Override
-        public boolean setComposingText(CharSequence text, int newCursorPosition) {
-            composing = text.toString();
-            Natives.onComposingText(composing);
+        public Editable getEditable() {
+            return text;
+        }
+
+        @Override
+        public boolean beginBatchEdit() {
+            batches++;
             return true;
         }
 
         @Override
-        public boolean commitText(CharSequence text, int newCursorPosition) {
-            composing = "";
-            Natives.onCommitText(text.toString());
-            return true;
-        }
-
-        @Override
-        public boolean finishComposingText() {
-            if (!composing.isEmpty()) {
-                Natives.onCommitText(composing);
-                composing = "";
+        public boolean endBatchEdit() {
+            if (batches > 0) {
+                batches--;
             }
-            return true;
+
+            if (batches == 0) {
+                edited();
+            }
+
+            return batches > 0;
         }
 
         @Override
-        public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-            Natives.onDeleteSurrounding(beforeLength, afterLength);
-            return true;
+        public boolean setSelection(int start, int end) {
+            beginBatchEdit();
+            boolean done = super.setSelection(start, end);
+            endBatchEdit();
+            return done;
+        }
+
+        @Override
+        public ExtractedText getExtractedText(ExtractedTextRequest request, int flags) {
+            if ((flags & GET_EXTRACTED_TEXT_MONITOR) != 0) {
+                monitor = request;
+            }
+
+            return extracted();
+        }
+
+        @Override
+        public boolean sendKeyEvent(KeyEvent event) {
+            if (deleteKey(event)) {
+                return true;
+            }
+
+            return super.sendKeyEvent(event);
         }
 
         @Override

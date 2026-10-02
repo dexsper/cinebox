@@ -1,20 +1,26 @@
 //! Text fields typed on an on-screen keyboard the OS has to be asked for.
 //!
-//! Fields [`declare`] how they want to be typed; [`sync`] opens and closes the
-//! keyboard as a `TextEdit` gains and loses focus; [`feed`] turns the keyboard's
-//! typing into the egui input a `TextEdit` already understands. Without a soft
-//! keyboard (desktop) all of it is inert.
+//! Each field reports itself through [`field`]; [`sync`] opens and closes the
+//! keyboard as a `TextEdit` gains and loses focus and keeps the keyboard's copy
+//! of the field current. The keyboard edits that copy and sends the whole
+//! result back, which [`field`] puts into the field. Without a soft keyboard
+//! (desktop) all of it is inert.
 
-use egui::{Context, Event, Id, ImeEvent, Key, Modifiers, RawInput};
+use egui::text::{CCursor, CCursorRange};
+use egui::{Context, Event, Id, Key, Modifiers, RawInput, Response, TextEdit};
 
-use super::{TextInputEvent, TextInputSpec, device};
+use super::{FieldText, TextInputEvent, TextInputSpec, device};
 
 #[derive(Clone, Default)]
 struct State {
-    declared: Vec<(Id, TextInputSpec)>,
+    /// The fields shown this frame, as they are after this frame's editing.
+    shown: Vec<(Id, TextInputSpec, FieldText)>,
     /// The `TextEdit` the keyboard is open for.
     open: Option<Id>,
-    leave_pending: bool,
+    /// The keyboard's copy of the open field.
+    keyboard_has: Option<FieldText>,
+    /// The keyboard's latest edit, not yet put into the field.
+    edited: Option<FieldText>,
 }
 
 fn state_id() -> Id {
@@ -25,15 +31,61 @@ fn with_state<R>(ctx: &Context, f: impl FnOnce(&mut State) -> R) -> R {
     ctx.data_mut(|data| f(data.get_temp_mut_or_default::<State>(state_id())))
 }
 
-/// How the `TextEdit` with `edit_id` is typed; undeclared fields get the default.
-/// Call every frame the field is shown.
-pub(crate) fn declare(ctx: &Context, edit_id: Id, spec: TextInputSpec) {
-    with_state(ctx, |state| state.declared.push((edit_id, spec)));
+/// After the field's `TextEdit` is shown, every frame: puts the keyboard's
+/// edit into `text` and tells the keyboard how to type the field.
+pub(crate) fn field(response: &mut Response, spec: TextInputSpec, text: &mut String) {
+    let ctx = response.ctx.clone();
+    if !device(&ctx).soft_keyboard() {
+        return;
+    }
+
+    let edit_id = response.id;
+    let edited = with_state(&ctx, |state| take_edit(state, edit_id));
+    if let Some(edited) = edited {
+        put(&ctx, edit_id, text, &edited);
+        response.mark_changed();
+    }
+
+    let shown = FieldText {
+        text: text.clone(),
+        selection: selection(&ctx, edit_id, text),
+    };
+    with_state(&ctx, |state| state.shown.push((edit_id, spec, shown)));
+}
+
+fn take_edit(state: &mut State, edit_id: Id) -> Option<FieldText> {
+    if state.open != Some(edit_id) {
+        return None;
+    }
+
+    state.edited.take()
+}
+
+fn put(ctx: &Context, edit_id: Id, text: &mut String, edited: &FieldText) {
+    text.clone_from(&edited.text);
+
+    let start = CCursor::new(edited.selection.start);
+    let end = CCursor::new(edited.selection.end);
+    let mut edit = TextEdit::load_state(ctx, edit_id).unwrap_or_default();
+    edit.cursor.set_char_range(Some(CCursorRange::two(start, end)));
+    edit.store(ctx, edit_id);
+    ctx.request_repaint();
+}
+
+fn selection(ctx: &Context, edit_id: Id, text: &str) -> std::ops::Range<usize> {
+    let range = TextEdit::load_state(ctx, edit_id).and_then(|edit| edit.cursor.char_range());
+    let Some(range) = range else {
+        let end = text.chars().count();
+        return end..end;
+    };
+
+    let [start, end] = range.sorted_cursors();
+    start.index.0..end.index.0
 }
 
 /// After the frame's widgets are shown.
 pub(crate) fn sync(ctx: &Context) {
-    let declared = with_state(ctx, |state| std::mem::take(&mut state.declared));
+    let shown = with_state(ctx, |state| std::mem::take(&mut state.shown));
     let device = device(ctx);
     if !device.soft_keyboard() {
         return;
@@ -42,63 +94,48 @@ pub(crate) fn sync(ctx: &Context) {
     let focused = ctx.memory(|mem| mem.focused());
     let editing = focused.filter(|_| ctx.text_edit_focused());
     let was_open = with_state(ctx, |state| std::mem::replace(&mut state.open, editing));
+    let current = shown.into_iter().find(|(id, _, _)| Some(*id) == editing);
 
-    if editing == was_open {
+    if editing != was_open {
+        with_state(ctx, |state| state.edited = None);
+        if editing.is_none() {
+            with_state(ctx, |state| state.keyboard_has = None);
+            device.stop_text_input();
+            return;
+        }
+
+        let (spec, field) = match current {
+            Some((_, spec, field)) => (spec, field),
+            None => (TextInputSpec::default(), FieldText::default()),
+        };
+        device.start_text_input(spec, &field);
+        with_state(ctx, |state| state.keyboard_has = Some(field));
         return;
     }
 
-    let Some(edit_id) = editing else {
-        device.stop_text_input();
+    let Some((_, _, field)) = current else {
         return;
     };
 
-    let declared = declared.iter().find(|(id, _)| *id == edit_id);
-    let spec = declared.map(|(_, spec)| *spec).unwrap_or_default();
-    device.start_text_input(spec);
-}
-
-/// Before this frame's keyboard events: finish an edit deferred by [`feed`].
-pub(crate) fn begin_input(ctx: &Context, raw_input: &mut RawInput) {
-    let leave = with_state(ctx, |state| std::mem::take(&mut state.leave_pending));
-    if leave {
-        tap(raw_input, Key::Escape);
+    let known = with_state(ctx, |state| state.keyboard_has.as_ref() == Some(&field));
+    if known {
+        return;
     }
+
+    device.update_text_input(&field);
+    with_state(ctx, |state| state.keyboard_has = Some(field));
 }
 
-/// What the keyboard did, as egui input for the focused `TextEdit`.
+/// What the keyboard did, for the open field or as egui input.
 pub(crate) fn feed(ctx: &Context, raw_input: &mut RawInput, event: TextInputEvent) {
-    let ime = match event {
-        TextInputEvent::Preedit(text) => ImeEvent::Preedit {
-            text,
-            active_range_chars: None,
-        },
-        TextInputEvent::Commit(text) => ImeEvent::Commit(text),
-        TextInputEvent::DeleteSurrounding { before, after } => delete_surrounding(before, after),
-        TextInputEvent::Action => return tap(raw_input, Key::Enter),
-        TextInputEvent::KeyboardHidden => return leave_field(ctx, raw_input),
-    };
-
-    raw_input.events.push(Event::Ime(ime));
-}
-
-/// Back already went to the keyboard; finish the edit as Back would. egui
-/// drops focus on Escape before widgets see the frame's input, so text typed
-/// in the same frame would be lost: then the Escape waits a frame.
-fn leave_field(ctx: &Context, raw_input: &mut RawInput) {
-    let typed = raw_input.events.iter().any(|event| matches!(event, Event::Ime(_)));
-    if !typed {
-        tap(raw_input, Key::Escape);
-        return;
-    }
-
-    with_state(ctx, |state| state.leave_pending = true);
-    ctx.request_repaint();
-}
-
-fn delete_surrounding(before_chars: usize, after_chars: usize) -> ImeEvent {
-    ImeEvent::DeleteSurrounding {
-        before_chars,
-        after_chars,
+    match event {
+        TextInputEvent::Edited(field) => with_state(ctx, |state| {
+            state.keyboard_has = Some(field.clone());
+            state.edited = Some(field);
+        }),
+        TextInputEvent::Action => tap(raw_input, Key::Enter),
+        // Back already went to the keyboard; finish the edit as Back would.
+        TextInputEvent::KeyboardHidden => tap(raw_input, Key::Escape),
     }
 }
 

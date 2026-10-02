@@ -15,11 +15,8 @@ final class Natives {
 
     static native void onSpeechEnded();
 
-    static native void onComposingText(String text);
-
-    static native void onCommitText(String text);
-
-    static native void onDeleteSurrounding(int before, int after);
+    /** The whole field after the keyboard's edit; {@code start} and {@code end} count code points. */
+    static native void onTextEdited(String text, int start, int end);
 
     static native void onEditorAction();
 

@@ -4,11 +4,12 @@
 use std::sync::{Arc, Mutex};
 
 use cinebox::platform::{
-    Device, DeviceEvent, Direction, MediaSessionState, SpeechRequest, TextAction, TextInputSpec,
-    TextPurpose, UiSound,
+    Device, DeviceEvent, Direction, FieldText, MediaSessionState, SpeechRequest, TextAction,
+    TextInputSpec, TextPurpose, UiSound,
 };
 use eframe::egui;
 use jni::objects::{JByteArray, JObject, JValue};
+use jni::sys::jint;
 use jni::{Env, jni_sig, jni_str};
 use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
@@ -174,12 +175,32 @@ impl Device for AndroidDevice {
         true
     }
 
-    fn start_text_input(&self, spec: TextInputSpec) {
+    fn start_text_input(&self, spec: TextInputSpec, field: &FieldText) {
         let purpose = purpose_code(spec.purpose);
         let action = action_code(spec.action);
+        let (start, end) = selection(field);
         self.call("startTextInput", |env, activity| {
-            let args = [JValue::Int(purpose), JValue::Int(action)];
-            env.call_method(activity, jni_str!("startTextInput"), jni_sig!("(II)V"), &args)?
+            let text = env.new_string(&field.text)?;
+            let args = [
+                JValue::Int(purpose),
+                JValue::Int(action),
+                JValue::Object(&text),
+                JValue::Int(start),
+                JValue::Int(end),
+            ];
+            let sig = jni_sig!("(IILjava/lang/String;II)V");
+            env.call_method(activity, jni_str!("startTextInput"), sig, &args)?
+                .v()
+        });
+    }
+
+    fn update_text_input(&self, field: &FieldText) {
+        let (start, end) = selection(field);
+        self.call("updateTextInput", |env, activity| {
+            let text = env.new_string(&field.text)?;
+            let args = [JValue::Object(&text), JValue::Int(start), JValue::Int(end)];
+            let sig = jni_sig!("(Ljava/lang/String;II)V");
+            env.call_method(activity, jni_str!("updateTextInput"), sig, &args)?
                 .v()
         });
     }
@@ -194,6 +215,14 @@ impl Device for AndroidDevice {
     fn poll_event(&self) -> Option<DeviceEvent> {
         events::pop()
     }
+}
+
+/// In characters, which Java counts as code points.
+fn selection(field: &FieldText) -> (jint, jint) {
+    let start = jint::try_from(field.selection.start).unwrap_or(jint::MAX);
+    let end = jint::try_from(field.selection.end).unwrap_or(jint::MAX);
+
+    (start, end)
 }
 
 fn speech_available(java: &Java) -> bool {

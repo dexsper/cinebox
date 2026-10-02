@@ -81,8 +81,12 @@ public final class CineboxActivity extends NativeActivity {
         speech.onPermissionResult(granted);
     }
 
-    public void startTextInput(int purpose, int action) {
-        runOnUiThread(() -> textInput.start(purpose, action));
+    public void startTextInput(int purpose, int action, String text, int start, int end) {
+        runOnUiThread(() -> textInput.start(purpose, action, text, start, end));
+    }
+
+    public void updateTextInput(String text, int start, int end) {
+        runOnUiThread(() -> textInput.update(text, start, end));
     }
 
     public void stopTextInput() {

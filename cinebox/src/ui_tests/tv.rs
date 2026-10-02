@@ -13,8 +13,8 @@ use rust_i18n::t;
 
 use crate::nav::NavAction;
 use crate::platform::{
-    self, Device, DeviceEvent, Direction, Host, Profile, SpeechEvent, SpeechRequest, TextAction,
-    TextInputEvent, TextInputSpec, TextPurpose, UiSound,
+    self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest,
+    TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 use crate::screens::OnboardingScreen;
 use crate::services::{Services, db_block_on};
@@ -36,6 +36,8 @@ struct DeviceLog {
     sounds: Vec<UiSound>,
     /// `Some` for each keyboard opening, `None` for each closing.
     keyboard: Vec<Option<TextInputSpec>>,
+    /// What the keyboard was told the field holds, in order.
+    fields: Vec<FieldText>,
     speech_requests: usize,
     speech_stops: usize,
 }
@@ -61,8 +63,15 @@ impl Device for TvDevice {
         true
     }
 
-    fn start_text_input(&self, spec: TextInputSpec) {
-        self.record(|log| log.keyboard.push(Some(spec)));
+    fn start_text_input(&self, spec: TextInputSpec, field: &FieldText) {
+        self.record(|log| {
+            log.keyboard.push(Some(spec));
+            log.fields.push(field.clone());
+        });
+    }
+
+    fn update_text_input(&self, field: &FieldText) {
+        self.record(|log| log.fields.push(field.clone()));
     }
 
     fn stop_text_input(&self) {
@@ -94,6 +103,10 @@ impl TvDevice {
 
     fn keyboard(&self) -> Vec<Option<TextInputSpec>> {
         self.log.lock().map(|log| log.keyboard.clone()).unwrap_or_default()
+    }
+
+    fn fields(&self) -> Vec<FieldText> {
+        self.log.lock().map(|log| log.fields.clone()).unwrap_or_default()
     }
 
     fn speech_requests(&self) -> usize {
@@ -346,8 +359,8 @@ fn ok_on_a_field_opens_the_keyboard_and_its_confirm_commits() {
     };
     assert_eq!(device.keyboard(), vec![Some(url)]);
 
-    device.type_on_keyboard(TextInputEvent::Preedit(String::from("при")));
-    device.type_on_keyboard(TextInputEvent::Commit(String::from("привет")));
+    device.type_on_keyboard(edited("при", 3));
+    device.type_on_keyboard(edited("привет", 6));
     device.type_on_keyboard(TextInputEvent::Action);
     settle(&mut harness);
 
@@ -363,7 +376,7 @@ fn closing_the_keyboard_leaves_the_field() {
 
     press(&mut harness, Key::ArrowDown);
     press(&mut harness, Key::Enter);
-    device.type_on_keyboard(TextInputEvent::Commit(String::from("tmdb")));
+    device.type_on_keyboard(edited("tmdb", 4));
     device.type_on_keyboard(TextInputEvent::KeyboardHidden);
     settle(&mut harness);
 
@@ -372,6 +385,38 @@ fn closing_the_keyboard_leaves_the_field() {
 
     press(&mut harness, Key::ArrowDown);
     assert!(focused(&harness, "Below"), "the D-pad continues from the field");
+}
+
+#[test]
+fn the_keyboard_reads_the_field_and_may_replace_all_of_it() {
+    let mut harness = harness(field_ui);
+    harness.state_mut().value = String::from("dune");
+    let device = harness.state().device();
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert_eq!(device.fields(), vec![field_text("dune", 4)], "typing starts from the field");
+
+    device.type_on_keyboard(edited("alien", 2));
+    settle(&mut harness);
+    harness.get_by_role(Role::TextInput).type_text("x");
+    settle(&mut harness);
+    let typed_on_tv = field_text("alxien", 3);
+    assert_eq!(device.fields().last(), Some(&typed_on_tv), "the keyboard follows the field");
+
+    press(&mut harness, Key::BrowserBack);
+    assert_eq!(harness.state().value, "alxien");
+}
+
+fn field_text(text: &str, cursor: usize) -> FieldText {
+    FieldText {
+        text: text.to_owned(),
+        selection: cursor..cursor,
+    }
+}
+
+fn edited(text: &str, cursor: usize) -> TextInputEvent {
+    TextInputEvent::Edited(field_text(text, cursor))
 }
 
 /// A side menu on the current screen ("Movies") and the screen body beside
@@ -513,7 +558,7 @@ fn keyboard_search_key_submits_the_query() {
     };
     assert_eq!(device.keyboard(), vec![Some(search)]);
 
-    device.type_on_keyboard(TextInputEvent::Commit(String::from("дюна")));
+    device.type_on_keyboard(edited("дюна", 4));
     device.type_on_keyboard(TextInputEvent::Action);
     settle(&mut harness);
 

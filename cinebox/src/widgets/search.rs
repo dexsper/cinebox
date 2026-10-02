@@ -278,11 +278,6 @@ impl SearchBar {
         // search key submits.
         let stop_rect = if directional { rect } else { edit_rect };
         let gate = focus::edit_gate(ui, stop_rect, Id::new(EDIT_ID));
-        let spec = TextInputSpec {
-            purpose: TextPurpose::Text,
-            action: TextAction::Search,
-        };
-        platform::text_input::declare(ui.ctx(), Id::new(EDIT_ID), spec);
         // On TV the history drops down as soon as the D-pad reaches the field.
         if gate.stop.as_ref().is_some_and(egui::Response::has_focus) {
             self.history_open = true;
@@ -300,7 +295,7 @@ impl SearchBar {
                 } else {
                     t!("search.placeholder")
                 };
-                let edit = ui.add(
+                let mut edit = ui.add(
                     TextEdit::singleline(&mut self.query)
                         .id(Id::new(EDIT_ID))
                         .font(theme.ui_font(theme.text_search))
@@ -313,6 +308,11 @@ impl SearchBar {
                         .text_color(theme.title),
                 );
 
+                let spec = TextInputSpec {
+                    purpose: TextPurpose::Text,
+                    action: TextAction::Search,
+                };
+                platform::text_input::field(&mut edit, spec, &mut self.query);
                 edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint.as_ref()));
                 focus::edit_done(ui, &edit);
                 if edit.gained_focus() || edit.clicked() {

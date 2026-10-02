@@ -103,11 +103,6 @@ fn styled_edit(
         egui::StrokeKind::Inside,
     );
     let gate = focus::edit_gate(ui, rect, edit_id);
-    let spec = TextInputSpec {
-        purpose,
-        action: TextAction::Done,
-    };
-    platform::text_input::declare(ui.ctx(), edit_id, spec);
 
     let inner = rect.shrink2(vec2(10.0, 0.0));
     let mut row = ui.new_child(
@@ -130,7 +125,12 @@ fn styled_edit(
         edit = edit.password(true);
     }
 
-    let response = row.add(edit);
+    let mut response = row.add(edit);
+    let spec = TextInputSpec {
+        purpose,
+        action: TextAction::Done,
+    };
+    platform::text_input::field(&mut response, spec, value);
     focus::edit_done(ui, &response);
     response
 }

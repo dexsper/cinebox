@@ -14,8 +14,8 @@ use cinebox_core::Overscan;
 use egui::{Context, Id, Key, Margin, RawInput};
 
 pub use device::{
-    Device, DeviceEvent, Direction, MediaCommand, MediaSessionState, NoDevice, SpeechEvent,
-    SpeechRequest, TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
+    Device, DeviceEvent, Direction, FieldText, MediaCommand, MediaSessionState, NoDevice,
+    SpeechEvent, SpeechRequest, TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 pub(crate) use media_session::SessionPublisher;
 pub use profile::{Navigation, Profile, Viewing, Windowing};
@@ -89,14 +89,13 @@ pub(crate) fn edge_inset(ctx: &Context) -> Margin {
 }
 
 /// Before egui sees the frame's input: the OS Back becomes Escape, which
-/// popups, fields and navigation already handle, and on-screen keyboard typing
-/// becomes egui input. Returns the device events the app itself acts on.
+/// popups, fields and navigation already handle, and on-screen keyboard edits
+/// wait for their field. Returns the device events the app itself acts on.
 pub(crate) fn take_input(ctx: &Context, raw_input: &mut RawInput) -> Vec<DeviceEvent> {
     if profile(ctx).windowing == Windowing::System {
         back_is_escape(raw_input);
     }
 
-    text_input::begin_input(ctx, raw_input);
     let device = device(ctx);
     let mut for_app = Vec::new();
     while let Some(event) = device.poll_event() {

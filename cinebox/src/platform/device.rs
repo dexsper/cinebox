@@ -1,5 +1,6 @@
 //! What the app asks of the operating system beyond a window.
 
+use std::ops::Range;
 use std::sync::Arc;
 
 /// One per platform entry point. Every method has a do-nothing default, which
@@ -33,7 +34,12 @@ pub trait Device: Send + Sync {
         false
     }
 
-    fn start_text_input(&self, _spec: TextInputSpec) {}
+    /// `field` is what the field holds as typing starts.
+    fn start_text_input(&self, _spec: TextInputSpec, _field: &FieldText) {}
+
+    /// The app changed the field while the keyboard is open (a hardware key,
+    /// a picked suggestion), so the keyboard edits the same text.
+    fn update_text_input(&self, _field: &FieldText) {}
 
     fn stop_text_input(&self) {}
 
@@ -139,14 +145,20 @@ pub enum DeviceEvent {
     Text(TextInputEvent),
 }
 
+/// A text field's content as the keyboard sees it. Keyboards and remote
+/// typing (a phone app) read the field back and may replace any part of it.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct FieldText {
+    pub text: String,
+    /// In characters; empty where it is only the cursor.
+    pub selection: Range<usize>,
+}
+
 /// What the on-screen keyboard did to the field being edited.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TextInputEvent {
-    /// Text still being composed; replaces the previous composition.
-    Preedit(String),
-    Commit(String),
-    /// Counts are in characters around the cursor.
-    DeleteSurrounding { before: usize, after: usize },
+    /// The field's whole content after the keyboard's edit.
+    Edited(FieldText),
     /// The confirm key.
     Action,
     /// Closed by the user (Back), not by the app.

@@ -1,7 +1,7 @@
 //! `static native` methods of `io.github.dexsper.cinebox.Natives`, called on
 //! the Java UI thread. The symbol names are that class's JNI names.
 
-use cinebox::platform::{DeviceEvent, MediaCommand, SpeechEvent, TextInputEvent};
+use cinebox::platform::{DeviceEvent, FieldText, MediaCommand, SpeechEvent, TextInputEvent};
 use cinebox_player::SEEK_SECS;
 use jni::errors::ThrowRuntimeExAndDefault;
 use jni::objects::{JClass, JString};
@@ -74,36 +74,24 @@ pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onSpeechEnded(
     events::push(speech(SpeechEvent::Ended));
 }
 
+/// `start` and `end` are in code points, which are Rust's characters.
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onComposingText<'caller>(
+pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onTextEdited<'caller>(
     mut env: EnvUnowned<'caller>,
     _class: JClass<'caller>,
     text: JString<'caller>,
+    start: jint,
+    end: jint,
 ) {
-    with_text(&mut env, &text, |text| typed(TextInputEvent::Preedit(text)));
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onCommitText<'caller>(
-    mut env: EnvUnowned<'caller>,
-    _class: JClass<'caller>,
-    text: JString<'caller>,
-) {
-    with_text(&mut env, &text, |text| typed(TextInputEvent::Commit(text)));
-}
-
-#[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onDeleteSurrounding(
-    _env: EnvUnowned<'_>,
-    _class: JClass<'_>,
-    before: jint,
-    after: jint,
-) {
-    let event = TextInputEvent::DeleteSurrounding {
-        before: usize::try_from(before).unwrap_or(0),
-        after: usize::try_from(after).unwrap_or(0),
-    };
-    events::push(typed(event));
+    let start = usize::try_from(start).unwrap_or(0);
+    let end = usize::try_from(end).unwrap_or(0);
+    with_text(&mut env, &text, |text| {
+        let field = FieldText {
+            text,
+            selection: start..end,
+        };
+        typed(TextInputEvent::Edited(field))
+    });
 }
 
 #[unsafe(no_mangle)]
