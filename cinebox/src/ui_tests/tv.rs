@@ -20,7 +20,7 @@ use crate::screens::OnboardingScreen;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::search::SearchBar;
+use crate::widgets::search::{self, SearchBar};
 use crate::widgets::{field, focus, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
@@ -686,6 +686,67 @@ fn search_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
             let _ = button::label(ui, &theme, label, Opts::secondary(vec2(300.0, 200.0)));
         }
     });
+}
+
+/// The app's header over a page: the search bar centred, settings at the right
+/// edge, and a row of tiles across the page below.
+fn header_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let bar = Rect::from_min_size(pos2(170.0, 8.0), vec2(300.0, 28.0));
+    let _ = state.search.show(ui, &theme, bar);
+
+    let settings_rect = Rect::from_min_size(pos2(596.0, 6.0), vec2(32.0, 32.0));
+    let settings = ui.put(settings_rect, |ui: &mut egui::Ui| {
+        button::add(ui, &theme, "Settings", Opts::secondary(vec2(32.0, 32.0)))
+    });
+
+    let [field, mic] = search::stop_ids();
+    focus::group(ui.ctx(), vec![field, mic, settings.id], field);
+
+    for (label, x) in [("Left", 20.0), ("Middle", 260.0), ("Right", 500.0)] {
+        let tile = Rect::from_min_size(pos2(x, 140.0), vec2(120.0, 80.0));
+        ui.put(tile, |ui: &mut egui::Ui| {
+            button::add(ui, &theme, label, Opts::secondary(vec2(120.0, 80.0)))
+        });
+    }
+
+    let page = Rect::from_min_max(pos2(0.0, 100.0), pos2(640.0, 360.0));
+    focus::set_content(ui.ctx(), page);
+}
+
+fn search_focused<S>(harness: &Harness<'_, S>) -> bool {
+    let [field, _] = search::stop_ids();
+    harness.ctx.memory(|mem| mem.has_focus(field))
+}
+
+#[test]
+fn up_from_far_left_of_the_page_reaches_the_search_bar() {
+    let mut harness = harness(header_over_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Left"));
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(search_focused(&harness), "nothing straight above, yet Up still reaches the bar");
+}
+
+#[test]
+fn up_under_settings_lands_on_the_search_bar() {
+    let mut harness = harness(header_over_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowRight);
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "Right"));
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(search_focused(&harness), "the bar is entered at its field");
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "Settings"), "inside the bar the arrows move as usual");
 }
 
 fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {

@@ -77,7 +77,9 @@ pub(super) fn step(ctx: &Context, state: &State) {
     let toward = toward(press.direction);
     let areas = state.areas_of(focused);
     let candidates = &state.candidates;
-    let Some(nearest) = nearest_staying_in(ctx, from.rect, toward, candidates, areas) else {
+    let in_cone = nearest_staying_in(ctx, from.rect, toward, candidates, areas);
+    let found = in_cone.or_else(|| nearest_past(ctx, from.rect, press.direction, candidates));
+    let Some(nearest) = found else {
         return;
     };
 
@@ -172,6 +174,37 @@ fn nearest<'a>(
         }
 
         let score = offset.length() / (alignment * alignment);
+        let better = best.is_none_or(|(_, best_score)| score < best_score);
+        if better {
+            best = Some((candidate.id, score));
+        }
+    }
+
+    best.map(|(id, _)| id)
+}
+
+/// Up or Down with nothing inside the cone: the closest stop wholly above (below).
+/// Reaches a top bar from anywhere under it, however far to the side.
+fn nearest_past(ctx: &Context, from: Rect, direction: Direction, candidates: &[Candidate]) -> Option<Id> {
+    let mut best: Option<(Id, f32)> = None;
+
+    for candidate in candidates {
+        let interactive = ctx.memory(|mem| mem.allows_interaction(candidate.layer));
+        if !interactive {
+            continue;
+        }
+
+        let gap = match direction {
+            Direction::Up => from.top() - candidate.rect.bottom(),
+            Direction::Down => candidate.rect.top() - from.bottom(),
+            Direction::Left | Direction::Right => return None,
+        };
+        if gap < 0.0 {
+            continue;
+        }
+
+        let dx = span_offset(candidate.rect.x_range(), from.x_range());
+        let score = vec2(dx, gap).length();
         let better = best.is_none_or(|(_, best_score)| score < best_score);
         if better {
             best = Some((candidate.id, score));

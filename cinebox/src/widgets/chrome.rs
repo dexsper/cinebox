@@ -1,7 +1,7 @@
 //! Custom title bar: drag, window controls, back, settings, and search.
 
 use egui::{
-    CursorIcon, Id, Margin, Rect, Sense, Ui, Vec2, ViewportCommand, pos2, vec2,
+    CursorIcon, Id, Margin, Rect, Response, Sense, Ui, Vec2, ViewportCommand, pos2, vec2,
     viewport::ResizeDirection,
 };
 use egui_material_icons::MaterialIcon;
@@ -11,8 +11,8 @@ use egui_material_icons::icons::{
 
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
-use crate::widgets::button;
 use crate::widgets::search::{self, SearchBar};
+use crate::widgets::{button, focus};
 use rust_i18n::t;
 
 const RESIZE_GRIP: f32 = 6.0;
@@ -55,14 +55,15 @@ pub fn header(
                 if profile.is_desktop_window() {
                     window_buttons(ui, theme);
                 }
-                if chrome_btn(
+                let settings = chrome_btn(
                     ui,
                     theme,
                     ICON_SETTINGS,
                     t!("nav.settings").as_ref(),
                     false,
                     settings_open,
-                ) {
+                );
+                if settings.clicked() {
                     action = Some(NavAction::OpenSettings);
                 }
 
@@ -71,6 +72,11 @@ pub fn header(
                 if let Some(nav) = search_and_drag(ui, theme, search, controls, middle) {
                     action = Some(nav);
                 }
+
+                // Coming from the page below, the D-pad lands on the search field,
+                // whichever control of the bar is nearest.
+                let [field, mic] = search::stop_ids();
+                focus::group(ui.ctx(), vec![field, mic, settings.id], field);
             });
         });
     });
@@ -90,7 +96,11 @@ fn back_slot(ui: &mut Ui, theme: &Theme, bar: Rect, show: bool, center_x: Option
     let label = t!("nav.back");
     let Some(center_x) = center_x else {
         ui.add_space(6.0);
-        return show && chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false);
+        if !show {
+            return false;
+        }
+
+        return chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false).clicked();
     };
 
     let size = Vec2::splat(theme.title_bar_h - 8.0);
@@ -102,7 +112,7 @@ fn back_slot(ui: &mut Ui, theme: &Theme, bar: Rect, show: bool, center_x: Option
 
     let rect = Rect::from_center_size(pos2(center_x, slot.center().y), size);
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false)
+        chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false).clicked()
     })
     .inner
 }
@@ -192,14 +202,8 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(
-        ui,
-        theme,
-        ICON_CLOSE,
-        t!("window.close").as_ref(),
-        true,
-        false,
-    ) {
+    let close = chrome_btn(ui, theme, ICON_CLOSE, t!("window.close").as_ref(), true, false);
+    if close.clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -209,18 +213,12 @@ fn window_buttons(ui: &mut Ui, theme: &Theme) {
         (ICON_FULLSCREEN, t!("window.maximize"))
     };
 
-    if chrome_btn(ui, theme, max_icon, max_hint.as_ref(), false, false) {
+    if chrome_btn(ui, theme, max_icon, max_hint.as_ref(), false, false).clicked() {
         toggle_maximized(ui);
     }
 
-    if chrome_btn(
-        ui,
-        theme,
-        ICON_REMOVE,
-        t!("window.minimize").as_ref(),
-        false,
-        false,
-    ) {
+    let minimize = chrome_btn(ui, theme, ICON_REMOVE, t!("window.minimize").as_ref(), false, false);
+    if minimize.clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
     }
 }
@@ -342,7 +340,7 @@ fn chrome_btn(
     hint: &str,
     is_close: bool,
     active: bool,
-) -> bool {
+) -> Response {
     let size = Vec2::splat(theme.title_bar_h - 8.0);
     let idle = if active {
         theme.chrome_btn_hover
@@ -377,5 +375,5 @@ fn chrome_btn(
 
     let enabled = clicked.enabled();
     clicked.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
-    button::pointing(clicked).on_hover_text(hint).clicked()
+    button::pointing(clicked).on_hover_text(hint)
 }

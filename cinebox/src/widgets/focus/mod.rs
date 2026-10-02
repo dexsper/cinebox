@@ -18,7 +18,7 @@ use egui::{Context, EventFilter, Id, LayerId, PointerButton, Rect, Response, Ui}
 use crate::platform::{self, UiSound};
 use crate::widgets::scroll;
 
-pub use edit_gate::{edit_done, edit_gate};
+pub use edit_gate::{edit_done, edit_gate, field_stop};
 pub use frame::{begin_frame, end_frame};
 
 /// A focusable widget seen this frame, in creation (reading) order.

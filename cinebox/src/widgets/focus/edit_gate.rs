@@ -31,7 +31,7 @@ pub fn edit_gate(ui: &mut Ui, rect: Rect, edit_id: Id) -> EditGate {
         };
     }
 
-    let stop = ui.interact(rect, stop_id(edit_id), Sense::click());
+    let stop = ui.interact(rect, field_stop(edit_id), Sense::click());
     track(&stop);
 
     let start = stop.clicked();
@@ -59,7 +59,7 @@ pub fn edit_done(ui: &Ui, edit: &Response) {
         return;
     }
 
-    let stop = stop_id(edit.id);
+    let stop = field_stop(edit.id);
     with_state(ui.ctx(), |state| state.return_to = Some(stop));
     ui.ctx().request_repaint();
 }
@@ -68,6 +68,8 @@ fn ring_around_field(ui: &Ui, edit_id: Id, rect: Rect) {
     with_state(ui.ctx(), |state| state.field_rings.push((edit_id, rect)));
 }
 
-fn stop_id(edit_id: Id) -> Id {
+/// The stop that stands for the field `edit_id` while it is not being typed in.
+#[must_use]
+pub fn field_stop(edit_id: Id) -> Id {
     edit_id.with("focus-stop")
 }

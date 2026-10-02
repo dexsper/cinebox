@@ -26,6 +26,7 @@ const MIC_GAP: f32 = 6.0;
 const LISTEN_PULSE_SECS: f64 = 1.6;
 
 const EDIT_ID: &str = "cinebox-header-search";
+const MIC_ID: &str = "cinebox-search-voice";
 const FIELD_LAYER_ID: &str = "cinebox-header-search-layer";
 
 #[derive(Default)]
@@ -418,9 +419,15 @@ fn split_off_mic(ctx: &egui::Context, rect: Rect) -> (Rect, Option<Rect>) {
     (field, Some(mic))
 }
 
+/// The D-pad stops [`SearchBar::show`] adds: the field, then the microphone beside it.
+#[must_use]
+pub fn stop_ids() -> [Id; 2] {
+    [focus::field_stop(Id::new(EDIT_ID)), Id::new(MIC_ID)]
+}
+
 fn mic_button(ui: &mut Ui, theme: &Theme, rect: Rect, listening: bool) -> bool {
     let hint = t!("search.voice");
-    let response = button::click_rect(ui, Id::new("cinebox-search-voice"), rect);
+    let response = button::click_rect(ui, Id::new(MIC_ID), rect);
     let info = || WidgetInfo::selected(WidgetType::Button, true, listening, hint.as_ref());
     response.widget_info(info);
 
