@@ -132,7 +132,7 @@ pub fn header(
         return None;
     }
 
-    let safe = video - crate::platform::profile(ctx).edge_inset;
+    let safe = video - crate::platform::edge_inset(ctx);
     let max_w = (safe.width() - 48.0).max(280.0);
     let response = Area::new(Id::new("player-header"))
         .order(Order::Foreground)
@@ -170,7 +170,7 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
     }
 
     // The scrim runs to the screen edges; the controls keep clear of them.
-    let safe = video - crate::platform::profile(ctx).edge_inset;
+    let safe = video - crate::platform::edge_inset(ctx);
     let top = safe.bottom() - FOOTER_H;
     let rect = Rect::from_min_max(pos2(video.left(), top), video.right_bottom());
     let controls = Rect::from_x_y_ranges(safe.x_range(), top..=safe.bottom());

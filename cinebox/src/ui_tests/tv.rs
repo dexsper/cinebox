@@ -691,6 +691,7 @@ fn draw_wizard_over_screen(ui: &mut egui::Ui, state: &mut WizardTv) {
     });
 
     let ctx = ui.ctx().clone();
+    platform::set_overscan(&ctx, state.svc.settings.general.overscan);
     state.wizard.ui(&ctx, &mut state.svc, &state.theme);
     end_frame(ui, &state.theme);
 }
@@ -716,4 +717,25 @@ fn wizard_dpad_walks_the_card_not_the_screen_behind() {
     press(&mut harness, Key::ArrowUp);
     press(&mut harness, Key::ArrowUp);
     assert!(focused(&harness, "English"));
+}
+
+#[test]
+fn wizard_fits_the_screen_with_left_and_right() {
+    let mut harness = wizard_harness(UiLanguage::English);
+    let inset = |harness: &Harness<'_, WizardTv>| platform::edge_inset(&harness.ctx);
+    let before = inset(&harness);
+
+    for _ in 0..3 {
+        press(&mut harness, Key::ArrowDown);
+    }
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Edge margin 2%"), "the step opens on its control");
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "Edge margin 2.5%"), "the arrows change the value, not the focus");
+    assert!(inset(&harness).left > before.left, "the interface moves in at once");
+
+    press(&mut harness, Key::ArrowLeft);
+    press(&mut harness, Key::ArrowLeft);
+    assert_eq!(harness.state().svc.settings.general.overscan.permille(), 15);
 }

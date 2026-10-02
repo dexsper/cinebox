@@ -1,7 +1,5 @@
 //! What the screen and the input are like, as far as the layout cares.
 
-use egui::Margin;
-
 /// How the user reaches a widget.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Navigation {
@@ -35,8 +33,9 @@ pub struct Profile {
     pub navigation: Navigation,
     pub windowing: Windowing,
     pub viewing: Viewing,
-    /// Kept clear of controls along the screen edges; backgrounds still reach them.
-    pub edge_inset: Margin,
+    /// The screen may crop the picture's edges (TV overscan); the user
+    /// calibrates how much.
+    pub overscan: bool,
     /// Logical width the layout is scaled to, where the OS density alone gets it wrong.
     pub layout_width: Option<f32>,
 }
@@ -48,20 +47,19 @@ impl Profile {
             navigation: Navigation::Pointer,
             windowing: Windowing::Desktop,
             viewing: Viewing::Near,
-            edge_inset: Margin::ZERO,
+            overscan: false,
             layout_width: None,
         }
     }
 
-    /// 1080p TVs report density 2.0, which alone leaves 960x540 points, and
-    /// many crop a few percent of the picture at the edges.
+    /// 1080p TVs report density 2.0, which alone leaves 960x540 points.
     #[must_use]
     pub const fn tv() -> Self {
         Self {
             navigation: Navigation::Directional,
             windowing: Windowing::System,
             viewing: Viewing::Far,
-            edge_inset: Margin::symmetric(24, 16),
+            overscan: true,
             layout_width: Some(1280.0),
         }
     }

@@ -34,8 +34,8 @@ pub use media::{
 };
 pub use section::Section;
 pub use settings::{
-    GeneralSettings, ParserKind, ParserSettings, PlayerSettings, PosterSize, QualityBand,
-    SecretString, Settings, SettingsError, SettingsStore, SkipSegmentsSettings, TorrServerSettings,
-    UiLanguage, VideoScale,
+    GeneralSettings, Overscan, ParserKind, ParserSettings, PlayerSettings, PosterSize,
+    QualityBand, SecretString, Settings, SettingsError, SettingsStore, SkipSegmentsSettings,
+    TorrServerSettings, UiLanguage, VideoScale,
 };
 pub use cinebox_typograf::typograph;

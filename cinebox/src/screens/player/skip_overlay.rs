@@ -53,7 +53,7 @@ pub fn show(
         return SkipBannerOut::none();
     }
 
-    let safe = video - crate::platform::profile(ctx).edge_inset;
+    let safe = video - crate::platform::edge_inset(ctx);
     let footer_visible = seek_rect != Rect::NOTHING;
     let anchor_bottom = if footer_visible {
         seek_rect.top() - BOTTOM_GAP

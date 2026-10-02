@@ -19,7 +19,7 @@ use crate::services::Services;
 use crate::settings_input::{InputKind, changed_value};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::field;
+use crate::widgets::{field, focus, overscan};
 
 const LANGUAGES: [(UiLanguage, &str); 3] = [
     (UiLanguage::English, "English"),
@@ -32,7 +32,7 @@ const LINK_H: f32 = 30.0;
 /// Whether the step's service has a value, so "Next" does not read as "Skip".
 pub(super) fn is_set(step: Step, settings: &Settings) -> bool {
     match step {
-        Step::Language | Step::Done => true,
+        Step::Language | Step::Screen | Step::Done => true,
         Step::Tmdb => !settings.tmdb.api_key.is_empty(),
         Step::Parser => !settings.parser.url.is_empty(),
         Step::TorrServer => !settings.torrserver.url.is_empty(),
@@ -50,6 +50,20 @@ pub(super) fn language(ui: &mut Ui, svc: &mut Services, theme: &Theme) {
 
         svc.settings.general.language = lang;
         crate::i18n::apply(lang);
+        svc.persist();
+    }
+}
+
+/// Applied at once: the whole interface moves with the corner marks.
+pub(super) fn screen(ui: &mut Ui, svc: &mut Services, theme: &Theme, arrived: bool) {
+    let label = t!("wizard.screen_margin");
+    let overscan = &mut svc.settings.general.overscan;
+    let stepper = overscan::stepper(ui, theme, overscan, &label);
+    if arrived {
+        focus::enter_popup(&stepper);
+    }
+
+    if stepper.changed() {
         svc.persist();
     }
 }

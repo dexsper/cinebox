@@ -416,6 +416,7 @@ impl eframe::App for App {
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         platform::begin_frame(ctx);
+        platform::set_overscan(ctx, self.services.settings.general.overscan);
         if !platform::profile(ctx).is_desktop_window() {
             self.pause_in_background(ctx);
         }
@@ -503,7 +504,7 @@ impl eframe::App for App {
                 }
 
                 let pad = theme.pad.round() as i8;
-                let edge = profile.edge_inset;
+                let edge = platform::edge_inset(ui.ctx());
                 let left = if with_rail {
                     (rail::collapsed_width(ui.ctx()) + theme.pad).round() as i8
                 } else {

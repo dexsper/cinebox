@@ -168,7 +168,7 @@ impl Overlay {
 
 /// The drawer sits on the right edge, so its content keeps clear of it like the rest.
 fn inner_margin(ctx: &egui::Context) -> Margin {
-    let edge = platform::profile(ctx).edge_inset;
+    let edge = platform::edge_inset(ctx);
 
     Margin {
         left: 20,

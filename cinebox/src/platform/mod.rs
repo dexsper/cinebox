@@ -10,7 +10,8 @@ pub(crate) mod text_input;
 
 use std::sync::Arc;
 
-use egui::{Context, Id, Key, RawInput};
+use cinebox_core::Overscan;
+use egui::{Context, Id, Key, Margin, RawInput};
 
 pub use device::{
     Device, DeviceEvent, Direction, MediaCommand, MediaSessionState, NoDevice, SpeechEvent,
@@ -44,6 +45,10 @@ fn device_id() -> Id {
     Id::new("cinebox-platform-device")
 }
 
+fn overscan_id() -> Id {
+    Id::new("cinebox-platform-overscan")
+}
+
 pub(crate) fn install(ctx: &Context, host: Host) {
     host.device.attach(ctx);
     ctx.data_mut(|data| {
@@ -62,6 +67,25 @@ pub(crate) fn profile(ctx: &Context) -> Profile {
 pub(crate) fn device(ctx: &Context) -> Arc<dyn Device> {
     let device = ctx.data(|data| data.get_temp::<Arc<dyn Device>>(device_id()));
     device.unwrap_or_else(|| Arc::new(NoDevice))
+}
+
+/// The user's calibration of how much the screen crops off.
+pub(crate) fn set_overscan(ctx: &Context, overscan: Overscan) {
+    ctx.data_mut(|data| data.insert_temp(overscan_id(), overscan));
+}
+
+/// Kept clear of controls along the screen edges; backgrounds still reach them.
+#[must_use]
+pub(crate) fn edge_inset(ctx: &Context) -> Margin {
+    if !profile(ctx).overscan {
+        return Margin::ZERO;
+    }
+
+    let overscan = ctx.data(|data| data.get_temp::<Overscan>(overscan_id()));
+    let share = overscan.unwrap_or_default().fraction();
+    let cropped = ctx.content_rect().size() * share;
+
+    Margin::symmetric(cropped.x.round() as i8, cropped.y.round() as i8)
 }
 
 /// Before egui sees the frame's input: the OS Back becomes Escape, which

@@ -31,7 +31,8 @@ pub fn header(
     let profile = crate::platform::profile(ui.ctx());
     let height = bar_height(ui.ctx(), theme);
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    let controls = bar - Margin::symmetric(profile.edge_inset.left, 0);
+    let edge = crate::platform::edge_inset(ui.ctx());
+    let controls = bar - Margin::symmetric(edge.left, 0);
 
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
@@ -80,7 +81,7 @@ pub fn header(
 /// Height of the bar [`header`] draws; the rail and drawers start below it.
 #[must_use]
 pub fn bar_height(ctx: &egui::Context, theme: &Theme) -> f32 {
-    theme.title_bar_h + crate::platform::profile(ctx).edge_inset.topf()
+    theme.title_bar_h + crate::platform::edge_inset(ctx).topf()
 }
 
 /// Back button at the leading edge, or centered on `center_x` when a rail sits below.

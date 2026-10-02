@@ -70,7 +70,7 @@ impl Toasts {
             return;
         }
 
-        let edge = crate::platform::profile(ctx).edge_inset;
+        let edge = crate::platform::edge_inset(ctx);
         let gap = Vec2::splat(16.0) + edge.right_bottom();
         Area::new(Id::new("cinebox-toasts"))
             .anchor(Align2::RIGHT_BOTTOM, -gap)

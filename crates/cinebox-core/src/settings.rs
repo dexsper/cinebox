@@ -249,6 +249,58 @@ fn default_system_proxy() -> bool {
     true
 }
 
+/// How much of each screen side a TV crops off (overscan), in tenths of a
+/// percent. The interface keeps its controls inside what is left.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(transparent)]
+pub struct Overscan(u16);
+
+impl Overscan {
+    const MAX: u16 = 60;
+    const STEP: u16 = 5;
+
+    /// Share of the screen's width or height cut off at each side.
+    #[must_use]
+    pub fn fraction(self) -> f32 {
+        f32::from(self.0.min(Self::MAX)) / 1000.0
+    }
+
+    /// In tenths of a percent, for display.
+    #[must_use]
+    pub fn permille(self) -> u16 {
+        self.0.min(Self::MAX)
+    }
+
+    #[must_use]
+    pub fn grow(self) -> Self {
+        let next = self.permille() + Self::STEP;
+
+        Self(next.min(Self::MAX))
+    }
+
+    #[must_use]
+    pub fn shrink(self) -> Self {
+        Self(self.permille().saturating_sub(Self::STEP))
+    }
+
+    #[must_use]
+    pub fn can_grow(self) -> bool {
+        self.permille() < Self::MAX
+    }
+
+    #[must_use]
+    pub fn can_shrink(self) -> bool {
+        self.permille() > 0
+    }
+}
+
+/// Most TVs show the whole picture or crop only a little.
+impl Default for Overscan {
+    fn default() -> Self {
+        Self(20)
+    }
+}
+
 /// General category.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
@@ -262,6 +314,7 @@ pub struct GeneralSettings {
     pub hidden_home_rows: Vec<HomeRowId>,
     /// The first-run setup was finished or dismissed.
     pub onboarded: bool,
+    pub overscan: Overscan,
 }
 
 impl Default for GeneralSettings {
@@ -273,6 +326,7 @@ impl Default for GeneralSettings {
             custom_doh_url: String::new(),
             hidden_home_rows: Vec::new(),
             onboarded: false,
+            overscan: Overscan::default(),
         }
     }
 }
@@ -473,6 +527,30 @@ mod tests {
         let back: Settings = serde_json::from_str(&json)?;
         assert_eq!(settings, back);
 
+        Ok(())
+    }
+
+    #[test]
+    fn overscan_steps_stay_in_range() {
+        let none = Overscan::default().shrink().shrink().shrink().shrink();
+        assert_eq!(none.permille(), 0);
+        assert!(!none.can_shrink());
+        assert_eq!(none.shrink(), none);
+
+        let mut most = Overscan::default();
+        while most.can_grow() {
+            most = most.grow();
+        }
+
+        assert!((most.fraction() - 0.06).abs() < f32::EPSILON);
+        assert_eq!(most.grow(), most);
+    }
+
+    #[test]
+    fn overscan_from_a_hand_edited_file_is_capped() -> Result<(), serde_json::Error> {
+        let general: GeneralSettings = serde_json::from_str(r#"{"overscan": 500}"#)?;
+
+        assert!((general.overscan.fraction() - 0.06).abs() < f32::EPSILON);
         Ok(())
     }
 
