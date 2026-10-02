@@ -28,6 +28,7 @@ impl SystemProxy {
             .or_else(|| self.socks.clone())
     }
 
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
     fn is_empty(&self) -> bool {
         self.http.is_none() && self.https.is_none() && self.socks.is_none()
     }

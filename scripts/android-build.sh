@@ -34,8 +34,18 @@ cd "$repo"
 cargo ndk \
   -t arm64-v8a -t armeabi-v7a \
   --platform 26 \
-  -o android/app/src/main/jniLibs \
   build -p cinebox-android --release
+
+# Not cargo-ndk's -o: it also copies host cdylibs that build scripts depend on
+# (sevenz-rust2), which would ship x86-64 libraries inside the ARM folders.
+jni_libs=android/app/src/main/jniLibs
+rm -rf "$jni_libs"
+for abi_triple in arm64-v8a:aarch64-linux-android armeabi-v7a:armv7-linux-androideabi; do
+  abi="${abi_triple%%:*}"
+  triple="${abi_triple#*:}"
+  mkdir -p "$jni_libs/$abi"
+  cp "target/$triple/release/libcinebox_android.so" "$jni_libs/$abi/"
+done
 
 cd android
 ./gradlew --no-daemon "$task"

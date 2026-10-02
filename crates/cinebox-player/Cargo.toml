@@ -22,6 +22,9 @@ libmpv2 = "6.0.0"
 
 [target.'cfg(target_os = "android")'.dependencies]
 libmpv2 = "6.0.0"
+# Only here to turn on bindgen: the pregenerated bindings assume 64-bit layouts
+# and fail their size checks on armeabi-v7a, which most Android TV boxes run.
+libmpv2-sys = { version = "4.0.1", features = ["use-bindgen"] }
 
 [build-dependencies]
 cc = "1.2"

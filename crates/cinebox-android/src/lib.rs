@@ -9,10 +9,10 @@ mod jvm;
 
 use std::sync::Arc;
 
-use eframe::winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 use tracing_subscriber::EnvFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
+use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {

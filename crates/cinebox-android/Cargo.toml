@@ -25,6 +25,8 @@ paranoid-android = "0.2"
 rustls-platform-verifier = "0.7"
 tracing.workspace = true
 tracing-subscriber.workspace = true
+# eframe does not re-export winit; this must stay the version eframe runs on
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
 
 [lints]
 workspace = true

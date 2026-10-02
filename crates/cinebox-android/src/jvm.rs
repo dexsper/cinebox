@@ -2,10 +2,10 @@
 
 use std::sync::{Once, OnceLock};
 
-use eframe::winit::platform::android::activity::AndroidApp;
 use jni::objects::{JObject, JValue};
 use jni::refs::Global;
 use jni::{Env, JavaVM, jni_sig, jni_str};
+use winit::platform::android::activity::AndroidApp;
 
 /// The application context outlives every activity instance, so FFmpeg and the
 /// TLS verifier can keep it for the whole process.
