@@ -21,7 +21,7 @@ use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::search::SearchBar;
-use crate::widgets::{field, focus};
+use crate::widgets::{field, focus, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
 #[derive(Default)]
@@ -551,6 +551,84 @@ fn the_microphone_again_or_back_stops_listening() {
     let consumed = harness.state_mut().search.consume_escape(&ctx);
     assert!(consumed, "Back stops listening before anything else");
     assert_eq!(device.speech_stops(), 2);
+}
+
+const ROWS: [&str; 16] = [
+    "Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7", "Row 8", "Row 9", "Row 10",
+    "Row 11", "Row 12", "Row 13", "Row 14", "Row 15", "Row 16",
+];
+
+const SHELVES: [[&str; 8]; 4] = [
+    ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"],
+    ["B1", "B2", "B3", "B4", "B5", "B6", "B7", "B8"],
+    ["C1", "C2", "C3", "C4", "C5", "C6", "C7", "C8"],
+    ["D1", "D2", "D3", "D4", "D5", "D6", "D7", "D8"],
+];
+
+fn long_list_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    scroll::vertical(ui, "tv-list", |ui| {
+        for label in ROWS {
+            let _ = button::label(ui, &theme, label, Opts::secondary(vec2(160.0, 40.0)));
+        }
+    });
+}
+
+fn shelves_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let poster = Opts::secondary(vec2(140.0, 120.0));
+    scroll::vertical(ui, "tv-page", |ui| {
+        for (row, shelf) in SHELVES.iter().enumerate() {
+            scroll::horizontal(ui, ("tv-shelf", row), |ui| {
+                ui.horizontal(|ui| {
+                    for label in shelf {
+                        let _ = button::label(ui, &theme, label, poster);
+                    }
+                });
+            });
+        }
+    });
+}
+
+fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {
+    let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(640.0, 360.0));
+
+    screen.contains_rect(harness.get_by_label(label).rect())
+}
+
+#[test]
+fn a_long_list_scrolls_to_the_focused_row() {
+    let mut harness = harness(long_list_ui);
+
+    for _ in ROWS {
+        press(&mut harness, Key::ArrowDown);
+    }
+    settle(&mut harness);
+
+    assert!(focused(&harness, "Row 16"));
+    assert!(on_screen(&harness, "Row 16"));
+}
+
+#[test]
+fn a_shelf_and_the_page_around_it_both_scroll_to_the_focus() {
+    let mut harness = harness(shelves_ui);
+
+    for _ in SHELVES {
+        press(&mut harness, Key::ArrowDown);
+    }
+    for _ in 1..SHELVES[3].len() {
+        press(&mut harness, Key::ArrowRight);
+    }
+    settle(&mut harness);
+
+    assert!(focused(&harness, "D8"));
+    assert!(on_screen(&harness, "D8"));
 }
 
 struct WizardTv {

@@ -5,8 +5,8 @@
 
 use egui::containers::scroll_area::{DragScroll, ScrollSource};
 use egui::{
-    AsIdSalt, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea,
-    Shape, Ui, Vec2, Vec2b, pos2, vec2,
+    AsIdSalt, Context, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect,
+    Response, ScrollArea, Shape, Ui, UiKind, Vec2, Vec2b, pos2, vec2,
 };
 
 const FRICTION: f32 = 4.2;
@@ -15,6 +15,7 @@ const WHEEL_GAIN: f32 = 10.0;
 const PIXEL_GAIN: f32 = 6.0;
 const MAX_SPEED: f32 = 4200.0;
 const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
+const REVEALED: &str = "cinebox-scroll-revealed";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: i32 = 12;
@@ -142,6 +143,38 @@ pub fn vertical_capped(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: imp
     show(ui, id, Vec2b::new(false, true), auto_shrink, Some(max_height), false, add);
 }
 
+/// Scroll every area around the widget until it is in view.
+pub fn reveal(response: &Response) {
+    response.scroll_to_me(None);
+
+    let ctx = &response.ctx;
+    let revealed = (ctx.cumulative_pass_nr(), response.rect);
+    ctx.data_mut(|d| d.insert_temp(Id::new(REVEALED), revealed));
+}
+
+fn revealed_this_pass(ctx: &Context) -> Option<Rect> {
+    let (pass, rect) = ctx.data(|d| d.get_temp::<(u64, Rect)>(Id::new(REVEALED)))?;
+
+    (pass == ctx.cumulative_pass_nr()).then_some(rect)
+}
+
+/// egui hands a scroll target to the innermost area only, and that area drops
+/// the axis it does not scroll: a shelf would move sideways while the page
+/// around it stays put. Passes that axis on to the enclosing area.
+fn pass_reveal_out(ui: &Ui, enabled: Vec2b) {
+    if enabled.all() {
+        return;
+    }
+
+    if !ui.stack().contained_in(UiKind::ScrollArea) {
+        return;
+    }
+
+    if let Some(rect) = revealed_this_pass(ui.ctx()) {
+        ui.scroll_to_rect(rect, None);
+    }
+}
+
 /// Horizontal shelf: height follows content.
 pub fn horizontal(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
     show(
@@ -213,7 +246,12 @@ fn show(
     }
 
     let origin = ui.cursor().min;
+    let revealed_outside = revealed_this_pass(ui.ctx()).is_some();
     let output = area.show(ui, add);
+    if !revealed_outside {
+        pass_reveal_out(ui, enabled);
+    }
+
     let hit = hover_rect(
         origin,
         ui.cursor().min,

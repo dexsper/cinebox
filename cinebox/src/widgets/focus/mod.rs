@@ -16,6 +16,7 @@ mod ring;
 use egui::{Context, EventFilter, Id, LayerId, PointerButton, Rect, Response, Ui};
 
 use crate::platform::{self, UiSound};
+use crate::widgets::scroll;
 
 pub use edit_gate::{edit_done, edit_gate};
 pub use frame::{begin_frame, end_frame};
@@ -61,6 +62,8 @@ struct State {
     had_modal: bool,
     last_allowed: Option<Id>,
     was_editing: bool,
+    /// The focused widget last scrolled into view.
+    revealed: Option<Id>,
 }
 
 fn state_id() -> Id {
@@ -99,8 +102,8 @@ pub fn own_mark(response: &Response) -> bool {
 /// Register a clickable as a focus stop. Must run where the widget is created
 /// (inside its scroll area), so gaining focus can scroll it into view.
 pub fn track(response: &Response) {
-    if response.gained_focus() {
-        response.scroll_to_me(None);
+    if needs_reveal(response) {
+        scroll::reveal(response);
     }
 
     if !directional(&response.ctx) {
@@ -123,6 +126,23 @@ pub fn track(response: &Response) {
         layer: response.layer_id,
     };
     with_state(&response.ctx, |state| state.candidates.push(candidate));
+}
+
+/// The D-pad moves focus after the frame's widgets are built, so by the next
+/// frame egui no longer reports it as `gained_focus`.
+fn needs_reveal(response: &Response) -> bool {
+    if !directional(&response.ctx) {
+        return response.gained_focus();
+    }
+
+    if !response.has_focus() {
+        return false;
+    }
+
+    let id = response.id;
+    let shown_before = with_state(&response.ctx, |state| state.revealed.replace(id));
+
+    shown_before != Some(id)
 }
 
 /// Keep the D-pad inside this popup while it is open.
