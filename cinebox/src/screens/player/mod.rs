@@ -245,8 +245,14 @@ impl PlayerScreen {
         self.activity.poke(ctx.input(|i| i.time));
     }
 
+    /// Video with nothing of the app's chrome around it. Where the OS owns the
+    /// window there is no fullscreen to toggle: the player always fills it.
     #[must_use]
-    pub fn is_fullscreen(&self) -> bool {
+    pub fn fills_screen(&self, profile: crate::platform::Profile) -> bool {
+        if !profile.is_desktop_window() {
+            return true;
+        }
+
         self.fullscreen
     }
 

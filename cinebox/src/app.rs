@@ -466,7 +466,7 @@ impl eframe::App for App {
             }
         }
 
-        let player_fullscreen = on_player && self.player.is_fullscreen();
+        let player_fullscreen = on_player && self.player.fills_screen(profile);
         let fill = if matches!(screen, Screen::Player { .. }) {
             theme.video_bg
         } else {

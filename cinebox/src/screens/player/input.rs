@@ -182,10 +182,10 @@ mod tests {
 
         assert!(screen.consume_escape(&ctx));
         assert!(screen.popup == Popup::None);
-        assert!(screen.is_fullscreen());
+        assert!(screen.fullscreen);
 
         assert!(screen.consume_escape(&ctx));
-        assert!(!screen.is_fullscreen());
+        assert!(!screen.fullscreen);
 
         assert!(!screen.consume_escape(&ctx));
     }
