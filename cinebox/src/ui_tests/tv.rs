@@ -641,6 +641,52 @@ fn shelves_ui(ui: &mut egui::Ui, state: &mut TvState) {
     });
 }
 
+/// A side menu beside one shelf, like Home: the shelf starts right of the menu.
+fn menu_and_shelf_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let item = Opts::secondary(vec2(48.0, 48.0));
+    let poster = Opts::secondary(vec2(140.0, 210.0));
+    ui.horizontal(|ui| {
+        ui.vertical(|ui| {
+            ui.add_space(60.0);
+            for label in ["Home", "Movies", "Shows"] {
+                let _ = button::label(ui, &theme, label, item);
+            }
+        });
+
+        ui.add_space(16.0);
+        ui.vertical(|ui| {
+            ui.add_space(40.0);
+            scroll::horizontal(ui, "tv-menu-shelf", |ui| {
+                ui.horizontal(|ui| {
+                    for label in SHELVES[0] {
+                        let _ = button::label(ui, &theme, label, poster);
+                    }
+                });
+            });
+        });
+    });
+}
+
+const TILES: [&str; 5] = ["T1", "T2", "T3", "T4", "T5"];
+
+/// A search bar above a scrolling page of tall tiles, like the header over Home.
+fn search_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let _ = button::label(ui, &theme, "Search", Opts::secondary(vec2(400.0, 32.0)));
+    scroll::vertical(ui, "tv-tiles", |ui| {
+        for label in TILES {
+            let _ = button::label(ui, &theme, label, Opts::secondary(vec2(300.0, 200.0)));
+        }
+    });
+}
+
 fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {
     let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(640.0, 360.0));
 
@@ -674,6 +720,48 @@ fn a_shelf_and_the_page_around_it_both_scroll_to_the_focus() {
 
     assert!(focused(&harness, "D8"));
     assert!(on_screen(&harness, "D8"));
+}
+
+#[test]
+fn left_along_a_scrolled_shelf_stays_in_the_shelf() {
+    let mut harness = harness(menu_and_shelf_ui);
+
+    press(&mut harness, Key::ArrowRight);
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "A1"));
+    for _ in 1..SHELVES[0].len() {
+        press(&mut harness, Key::ArrowRight);
+    }
+    assert!(focused(&harness, "A8"));
+
+    for label in SHELVES[0].iter().rev().skip(1) {
+        press(&mut harness, Key::ArrowLeft);
+        assert!(focused(&harness, label), "Left should land on {label}");
+    }
+
+    press(&mut harness, Key::ArrowLeft);
+    assert!(focused(&harness, "Movies"), "past the first item the menu takes over");
+}
+
+#[test]
+fn up_a_scrolled_page_stays_in_the_page() {
+    let mut harness = harness(search_over_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "T1"));
+    for _ in 1..TILES.len() {
+        press(&mut harness, Key::ArrowDown);
+    }
+    assert!(focused(&harness, "T5"));
+
+    for label in TILES.iter().rev().skip(1) {
+        press(&mut harness, Key::ArrowUp);
+        assert!(focused(&harness, label), "Up should land on {label}");
+    }
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "Search"), "past the first tile the search takes over");
 }
 
 struct WizardTv {

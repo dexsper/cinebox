@@ -16,6 +16,7 @@ const PIXEL_GAIN: f32 = 6.0;
 const MAX_SPEED: f32 = 4200.0;
 const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
 const REVEALED: &str = "cinebox-scroll-revealed";
+const BUILDING: &str = "cinebox-scroll-building";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: i32 = 12;
@@ -143,6 +144,23 @@ pub fn vertical_capped(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: imp
     show(ui, id, Vec2b::new(false, true), auto_shrink, Some(max_height), false, add);
 }
 
+/// The scroll areas whose content is being built right now, outermost first.
+#[must_use]
+pub fn enclosing(ctx: &Context) -> Vec<Id> {
+    let building = ctx.data(|d| d.get_temp::<Vec<Id>>(Id::new(BUILDING)));
+    building.unwrap_or_default()
+}
+
+/// Builds an area's content with the area on the stack [`enclosing`] reads.
+fn inside_area<R>(ctx: &Context, area: Id, build: impl FnOnce() -> R) -> R {
+    let key = Id::new(BUILDING);
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<Id>>(key).push(area));
+    let built = build();
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<Id>>(key).pop());
+
+    built
+}
+
 /// Scroll every area around the widget until it is in view.
 pub fn reveal(response: &Response) {
     response.scroll_to_me(None);
@@ -247,7 +265,8 @@ fn show(
 
     let origin = ui.cursor().min;
     let revealed_outside = revealed_this_pass(ui.ctx()).is_some();
-    let output = area.show(ui, add);
+    let ctx = ui.ctx().clone();
+    let output = inside_area(&ctx, coast_id, || area.show(ui, add));
     if !revealed_outside {
         pass_reveal_out(ui, enabled);
     }

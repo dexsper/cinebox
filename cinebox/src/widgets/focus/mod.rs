@@ -22,11 +22,13 @@ pub use edit_gate::{edit_done, edit_gate};
 pub use frame::{begin_frame, end_frame};
 
 /// A focusable widget seen this frame, in creation (reading) order.
-#[derive(Clone, Copy)]
+#[derive(Clone)]
 struct Candidate {
     id: Id,
     rect: Rect,
     layer: LayerId,
+    /// The scroll areas it sits in, outermost first.
+    areas: Vec<Id>,
 }
 
 /// A widget that takes some arrows itself while focused (see [`hold_arrows`]).
@@ -124,6 +126,7 @@ pub fn track(response: &Response) {
         id: response.id,
         rect: response.rect,
         layer: response.layer_id,
+        areas: scroll::enclosing(&response.ctx),
     };
     with_state(&response.ctx, |state| state.candidates.push(candidate));
 }

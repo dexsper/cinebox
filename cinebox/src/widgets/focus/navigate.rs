@@ -10,6 +10,11 @@ use egui::{Context, FocusDirection, Id, Rangef, Rect, Vec2, vec2};
 use super::{Candidate, Hold, State};
 
 impl State {
+    fn areas_of(&self, id: Id) -> &[Id] {
+        let candidate = self.candidates.iter().find(|candidate| candidate.id == id);
+        candidate.map_or(&[], |candidate| &candidate.areas)
+    }
+
     fn arrival(&self, target: Id, from: Id) -> Id {
         let group = self.groups.iter().find(|group| group.members.contains(&target));
         let Some(group) = group else {
@@ -70,7 +75,9 @@ pub(super) fn step(ctx: &Context, state: &State) {
     ctx.request_repaint();
 
     let toward = toward(press.direction);
-    let Some(nearest) = nearest(ctx, from.rect, toward, &state.candidates) else {
+    let areas = state.areas_of(focused);
+    let candidates = &state.candidates;
+    let Some(nearest) = nearest_staying_in(ctx, from.rect, toward, candidates, areas) else {
         return;
     };
 
@@ -117,9 +124,35 @@ fn toward(direction: Direction) -> Vec2 {
     }
 }
 
+/// Inside a scroll area the D-pad stays in it while the area has somewhere
+/// to go that way, even when a widget outside (a side menu, the search bar)
+/// is nearer on screen: scrolling brings the next item into view. Only then
+/// does it leave, one enclosing area at a time.
+fn nearest_staying_in(
+    ctx: &Context,
+    from: Rect,
+    toward: Vec2,
+    candidates: &[Candidate],
+    areas: &[Id],
+) -> Option<Id> {
+    for area in areas.iter().rev() {
+        let inside = candidates.iter().filter(|candidate| candidate.areas.contains(area));
+        if let Some(found) = nearest(ctx, from, toward, inside) {
+            return Some(found);
+        }
+    }
+
+    nearest(ctx, from, toward, candidates)
+}
+
 /// The candidate closest to `from` within 45° of `toward`. Overlapping spans
 /// count as aligned, so the list item below beats a button off to the side.
-fn nearest(ctx: &Context, from: Rect, toward: Vec2, candidates: &[Candidate]) -> Option<Id> {
+fn nearest<'a>(
+    ctx: &Context,
+    from: Rect,
+    toward: Vec2,
+    candidates: impl IntoIterator<Item = &'a Candidate>,
+) -> Option<Id> {
     let mut best: Option<(Id, f32)> = None;
 
     for candidate in candidates {
