@@ -35,7 +35,7 @@ fn android_main(app: AndroidApp) {
     cinebox_core::paths::set_android_root(root);
 
     let java = jvm::init(&app);
-    let device = AndroidDevice::new(app.clone(), java);
+    let device = AndroidDevice::new(java);
     if let Err(error) = run(app, device) {
         tracing::error!(%error, "running eframe application");
     }

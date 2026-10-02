@@ -11,13 +11,11 @@ use eframe::egui;
 use jni::objects::{JByteArray, JObject, JValue};
 use jni::sys::jint;
 use jni::{Env, jni_sig, jni_str};
-use winit::platform::android::activity::{AndroidApp, WindowManagerFlags};
 
 use crate::events;
 use crate::jvm::Java;
 
 pub struct AndroidDevice {
-    app: AndroidApp,
     java: Option<Java>,
     speech: bool,
     /// Last metadata sent; Java decodes the artwork again on every send.
@@ -44,11 +42,10 @@ impl Metadata {
 }
 
 impl AndroidDevice {
-    pub fn new(app: AndroidApp, java: Option<Java>) -> Self {
+    pub fn new(java: Option<Java>) -> Self {
         let speech = java.as_ref().is_some_and(speech_available);
 
         Self {
-            app,
             java,
             speech,
             shown: Mutex::new(None),
@@ -111,14 +108,15 @@ impl Device for AndroidDevice {
         events::attach(ctx);
     }
 
+    /// Through Java, not `AndroidApp::set_window_flags`: that takes a write
+    /// lock `AndroidApp::poll_events` holds for reading while winit runs a
+    /// frame, so calling it from the app deadlocks the UI thread.
     fn keep_screen_on(&self, on: bool) {
-        let flags = WindowManagerFlags::KEEP_SCREEN_ON;
-        if on {
-            self.app.set_window_flags(flags, WindowManagerFlags::empty());
-            return;
-        }
-
-        self.app.set_window_flags(WindowManagerFlags::empty(), flags);
+        self.call("keepScreenOn", |env, activity| {
+            let args = [JValue::Bool(on)];
+            env.call_method(activity, jni_str!("keepScreenOn"), jni_sig!("(Z)V"), &args)?
+                .v()
+        });
     }
 
     fn play_sound(&self, sound: UiSound) {

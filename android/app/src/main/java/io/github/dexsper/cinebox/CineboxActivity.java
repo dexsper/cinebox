@@ -6,6 +6,7 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.os.Bundle;
 import android.view.ViewGroup;
+import android.view.WindowManager;
 
 /**
  * The app's only activity. The Rust library draws and runs the app; the
@@ -39,6 +40,18 @@ public final class CineboxActivity extends NativeActivity {
         mediaSession.release();
         speech.release();
         super.onDestroy();
+    }
+
+    public void keepScreenOn(boolean on) {
+        int flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+        runOnUiThread(() -> {
+            if (on) {
+                getWindow().addFlags(flag);
+                return;
+            }
+
+            getWindow().clearFlags(flag);
+        });
     }
 
     public void playUiSound(int sound, boolean repeat) {
