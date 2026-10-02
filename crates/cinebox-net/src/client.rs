@@ -1,6 +1,8 @@
 //! Client cache and resilient send: system proxy first, direct DoH second.
 
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -172,10 +174,32 @@ where
         return Err(error);
     }
 
-    warn!(%error, "proxy request failed; retrying directly via DoH");
+    let error = error.without_url();
+    warn!(error = %Causes(&error), "proxy request failed; retrying directly via DoH");
     let fallback = doh_client(net, connect_timeout, user_agent).await?;
 
-    build(&fallback).send().await
+    build(&fallback).send().await.map_err(|error| {
+        let error = error.without_url();
+        warn!(error = %Causes(&error), "direct request via DoH failed");
+        error
+    })
+}
+
+/// An error with every cause behind it. Logged errors go without their URL:
+/// request URLs carry API keys.
+struct Causes<'a>(&'a dyn Error);
+
+impl fmt::Display for Causes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)?;
+        let mut source = self.0.source();
+        while let Some(cause) = source {
+            write!(f, ": {cause}")?;
+            source = cause.source();
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]

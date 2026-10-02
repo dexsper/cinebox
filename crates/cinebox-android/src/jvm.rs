@@ -73,7 +73,7 @@ fn init_with_activity(env: &mut Env, activity: &JObject, vm: &JavaVM) -> jni::er
     let global = env.new_global_ref(&context)?;
     let context = APP_CONTEXT.get_or_init(|| global);
 
-    // reqwest and hickory verify TLS through Android's trust store.
+    // reqwest verifies TLS through Android's trust store.
     let local = env.new_local_ref(context.as_obj())?;
     rustls_platform_verifier::android::init_with_env(env, local)?;
 

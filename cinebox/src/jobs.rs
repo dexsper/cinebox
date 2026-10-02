@@ -171,7 +171,9 @@ pub async fn cached_section(
             .ok()
             .flatten();
 
-        let Some(hit) = cached else {
+        // Failures were cached by older versions.
+        let loaded = cached.filter(|hit| hit.value.error.is_none());
+        let Some(hit) = loaded else {
             fresh = false;
             rows.push(ShelfRow::empty(id));
             continue;
@@ -206,12 +208,9 @@ pub async fn load_section(
         }
 
         let key = row.id.as_key();
-        if row.error.is_some() && row.items.is_empty() {
-            let cached = db.get_json::<ShelfRow>(lang, KIND_HOME, &key).await;
-            if let Ok(Some(hit)) = cached {
-                rows.push(hit.value);
-                continue;
-            }
+        if row.error.is_some() {
+            rows.push(shelf_instead(&db, lang, row).await);
+            continue;
         }
 
         let paths = poster_paths(&row.items);
@@ -223,6 +222,19 @@ pub async fn load_section(
     }
 
     Ok(rows)
+}
+
+/// Like [`home_row_instead`], for a section's shelf.
+async fn shelf_instead(db: &Store, lang: &str, failed: ShelfRow) -> ShelfRow {
+    let key = failed.id.as_key();
+    let error = failed.error.as_deref().unwrap_or_default();
+    warn!(shelf = key, error, "section shelf failed to load");
+
+    let cached = db.get_json::<ShelfRow>(lang, KIND_HOME, &key).await;
+    match cached {
+        Ok(Some(hit)) if hit.value.error.is_none() => hit.value,
+        _ => failed,
+    }
 }
 
 async fn recent_in_section(db: &Store, section: Section) -> ShelfRow {
@@ -286,16 +298,9 @@ pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCata
             continue;
         }
 
-        let stale_empty = row.error.is_some() && row.items.is_empty();
-        if stale_empty {
-            let cached = db
-                .get_json::<HomeRow>(lang, KIND_HOME, row.id.as_key())
-                .await;
-
-            if let Ok(Some(hit)) = cached {
-                rows.push(hit.value);
-                continue;
-            }
+        if row.error.is_some() {
+            rows.push(home_row_instead(&db, lang, row).await);
+            continue;
         }
 
         let paths = row.image_paths();
@@ -311,6 +316,20 @@ pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCata
     }
 
     Ok(HomeCatalog { rows })
+}
+
+/// A row that failed to load is never cached, or every start would show the
+/// failure as fresh without asking TMDB again. The last row that did load
+/// stands in for it.
+async fn home_row_instead(db: &Store, lang: &str, failed: HomeRow) -> HomeRow {
+    let error = failed.error.as_deref().unwrap_or_default();
+    warn!(row = failed.id.as_key(), error, "home row failed to load");
+
+    let cached = db.get_json::<HomeRow>(lang, KIND_HOME, failed.id.as_key()).await;
+    match cached {
+        Ok(Some(hit)) if hit.value.error.is_none() => hit.value,
+        _ => failed,
+    }
 }
 
 pub async fn load_media(

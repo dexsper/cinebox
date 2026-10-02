@@ -21,7 +21,7 @@ cinebox-player.workspace = true
 eframe.workspace = true
 jni = { version = "0.22", default-features = false }
 paranoid-android = "0.2"
-# Same version reqwest and hickory pull in, so this initializes their verifier.
+# Same version reqwest pulls in, so this initializes its verifier.
 rustls-platform-verifier = "0.7"
 tracing.workspace = true
 tracing-subscriber.workspace = true

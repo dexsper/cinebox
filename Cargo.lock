@@ -2248,7 +2248,6 @@ dependencies = [
  "jni",
  "rand 0.10.2",
  "rustls",
- "rustls-platform-verifier",
  "thiserror 2.0.20",
  "tinyvec",
  "tokio",

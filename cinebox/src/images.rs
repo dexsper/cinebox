@@ -93,7 +93,10 @@ impl ImageCache {
                     let texture = ctx.load_texture(url.clone(), image, TextureOptions::LINEAR);
                     self.insert_texture(url, texture, bytes, epoch);
                 }
-                Err(_) => self.remember_failed(url),
+                Err(error) => {
+                    warn!(error, url, "image failed to load");
+                    self.remember_failed(url);
+                }
             }
         }
     }
