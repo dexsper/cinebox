@@ -16,9 +16,8 @@ const CHOICE_H: f32 = 44.0;
 const CHOICE_WITH_NOTE_H: f32 = 56.0;
 const CHOICE_PAD_X: f32 = 14.0;
 
-/// Paint `add` in a card centered below the title bar (on TV, on the whole
-/// screen), dimming and blocking everything else. `t` (0..=1) drives the fade
-/// and slide-in.
+/// Paint `add` in a card centered below the title bar, dimming and blocking
+/// everything else. `t` (0..=1) drives the fade and slide-in.
 pub fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
     let body = body_rect(ctx, theme);
     let height_id = Id::new("cinebox-onboarding-card-h");
@@ -54,8 +53,8 @@ pub fn max_body_height(ctx: &Context, theme: &Theme, chrome_h: f32) -> f32 {
 
 fn body_rect(ctx: &Context, theme: &Theme) -> Rect {
     let full = ctx.content_rect();
-    // The desktop title bar stays usable; a TV has no window to move or close.
-    if platform::is_tv(ctx) {
+    // The desktop title bar stays usable for moving and closing the window.
+    if !platform::profile(ctx).is_desktop_window() {
         return full;
     }
 

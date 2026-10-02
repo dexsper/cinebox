@@ -10,6 +10,18 @@ pub enum InputKind {
     Key,
 }
 
+impl InputKind {
+    /// Which on-screen keyboard layout suits the field.
+    #[must_use]
+    pub fn text_purpose(self) -> crate::platform::TextPurpose {
+        match self {
+            Self::Plain => crate::platform::TextPurpose::Text,
+            Self::Url => crate::platform::TextPurpose::Url,
+            Self::Raw | Self::Key => crate::platform::TextPurpose::Verbatim,
+        }
+    }
+}
+
 /// Problem with a TMDB key that is visible without a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum KeyHint {

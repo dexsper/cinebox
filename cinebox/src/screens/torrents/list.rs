@@ -393,7 +393,7 @@ fn hit_row(
         });
 
     let response = button::click_rect(ui, id, shown.response.rect);
-    if focus::own_ring(&response) {
+    if focus::own_mark(&response) {
         hit_ring(ui, shown.response.rect, theme);
     }
 

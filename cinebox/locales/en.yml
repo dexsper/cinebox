@@ -11,6 +11,8 @@ window:
   close: "Close"
 search:
   placeholder: "Search"
+  voice: "Search by voice"
+  listening: "Listening…"
   movies: "Movies"
   tv: "Series"
   actors: "Actors"

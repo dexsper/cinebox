@@ -53,7 +53,7 @@ pub fn show(
         return SkipBannerOut::none();
     }
 
-    let safe = video - crate::platform::edge_inset(ctx);
+    let safe = video - crate::platform::profile(ctx).edge_inset;
     let footer_visible = seek_rect != Rect::NOTHING;
     let anchor_bottom = if footer_visible {
         seek_rect.top() - BOTTOM_GAP
@@ -64,12 +64,12 @@ pub fn show(
     let anchor = pos2(safe.right() - RIGHT_MARGIN, anchor_bottom);
     let area_id = Id::new("player-skip-banner");
 
-    let tv = crate::platform::is_tv(ctx);
+    let directional = crate::platform::profile(ctx).is_directional();
     let banner = ctx.read_response(area_id);
     let appeared = banner.is_none();
     let pointed = banner.as_ref().is_some_and(|r| r.contains_pointer());
     let focused_layer = focus::focused_layer(ctx);
-    let focused = tv && banner.is_some_and(|r| focused_layer == Some(r.layer_id));
+    let focused = directional && banner.is_some_and(|r| focused_layer == Some(r.layer_id));
     let hovered = pointed || focused;
 
     let opacity = if hovered { 1.0 } else { IDLE_OPACITY };
@@ -100,7 +100,7 @@ pub fn show(
                     let frac = active.countdown_frac(now);
                     let is_counting = active.countdown_started_at.is_some();
                     // On TV only when it appears: grabbing every frame would trap the D-pad.
-                    let grab = if tv { appeared } else { !is_counting };
+                    let grab = if directional { appeared } else { !is_counting };
                     skip_clicked = skip_btn(ui, theme, active, btn_size, frac, grab);
                 });
             });
@@ -158,7 +158,7 @@ fn skip_btn(
     }
 
     // A remote's OK clicks whatever is focused, Cancel included.
-    let tv = crate::platform::is_tv(ui.ctx());
-    let enter = !tv && ui.input(|i| i.key_pressed(egui::Key::Enter));
+    let directional = crate::platform::profile(ui.ctx()).is_directional();
+    let enter = !directional && ui.input(|i| i.key_pressed(egui::Key::Enter));
     response.clicked() || enter
 }

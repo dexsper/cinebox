@@ -828,7 +828,7 @@ fn people(
                 let photo_rect = Rect::from_min_size(rect.min + vec2(pad, pad), photo);
 
                 poster::paint_poster(ui, photo_rect, tex, theme);
-                if focus::own_ring(&response) {
+                if focus::own_mark(&response) {
                     poster::hover_ring(ui, photo_rect, theme);
                 }
 

@@ -214,6 +214,7 @@ impl SettingsScreen {
                     hint_text.as_deref(),
                     placeholder,
                     &value,
+                    kind.text_purpose(),
                 );
                 show_check(ui, theme, *check, &value);
 

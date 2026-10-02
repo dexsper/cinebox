@@ -16,6 +16,7 @@ use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
 use crate::errors::UserError;
 use crate::jobs::JobError;
+use crate::platform::TextPurpose;
 use crate::theme::Theme;
 use crate::widgets::field;
 
@@ -242,10 +243,11 @@ pub fn text_row(
     hint: Option<&str>,
     placeholder: &str,
     value: &str,
+    purpose: TextPurpose,
 ) -> Option<String> {
     field_label(ui, theme, label, hint);
     let id = ui.make_persistent_id(("settings-text", label));
-    field::committed_edit(ui, theme, id, value, placeholder, false)
+    field::committed_edit(ui, theme, id, value, placeholder, purpose)
 }
 
 /// Returns the raw draft once it commits (see [`field::committed_edit`]).
@@ -258,7 +260,7 @@ pub fn secret_row(
 ) -> Option<String> {
     field_label(ui, theme, label, hint);
     let id = ui.make_persistent_id(("settings-secret", label));
-    field::committed_edit(ui, theme, id, secret.expose(), "", true)
+    field::committed_edit(ui, theme, id, secret.expose(), "", TextPurpose::Secret)
 }
 
 /// Inline validation message under a field.

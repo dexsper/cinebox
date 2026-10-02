@@ -6,6 +6,7 @@ mod input;
 mod overlay;
 mod playlist_popup;
 mod progress;
+mod session;
 mod settings_popup;
 mod skip;
 mod skip_overlay;
@@ -24,6 +25,7 @@ use tracing::{info, warn};
 use crate::errors::UserError;
 use crate::jobs::JobError;
 use crate::nav::NavAction;
+use crate::platform::MediaCommand;
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::{Services, db_block_on};
@@ -138,6 +140,7 @@ pub struct PlayerScreen {
     skip_state: skip::SkipState,
     skip_save_job: Bind<(), JobError>,
     video_cb: Option<VideoCallback>,
+    session: session::MediaSession,
 }
 
 impl Default for PlayerScreen {
@@ -159,6 +162,7 @@ impl Default for PlayerScreen {
             skip_state: skip::SkipState::default(),
             skip_save_job: Bind::new(true),
             video_cb: None,
+            session: session::MediaSession::default(),
         }
     }
 }
@@ -178,7 +182,7 @@ impl PlayerScreen {
         self.sub_scale = 1.0;
         self.sub_delay = 0.0;
         self.activity.poke(ctx.input(|i| i.time));
-        crate::platform::keep_awake(ctx, true);
+        crate::platform::device(ctx).keep_screen_on(true);
 
         self.begin_load(
             svc,
@@ -207,7 +211,8 @@ impl PlayerScreen {
         }
 
         self.set_fullscreen(ctx, false);
-        crate::platform::keep_awake(ctx, false);
+        crate::platform::device(ctx).keep_screen_on(false);
+        self.session.clear(ctx);
     }
 
     /// Pause without toggling (the app went to the background).
@@ -216,6 +221,28 @@ impl PlayerScreen {
         if playing {
             self.toggle(svc);
         }
+    }
+
+    fn resume(&mut self, svc: &Services) {
+        let paused = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if state.paused);
+        if paused {
+            self.toggle(svc);
+        }
+    }
+
+    /// Transport control from outside the player UI.
+    pub fn apply(&mut self, command: MediaCommand, svc: &mut Services, ctx: &egui::Context) {
+        match command {
+            MediaCommand::Play => self.resume(svc),
+            MediaCommand::Pause | MediaCommand::Stop => self.pause(svc),
+            MediaCommand::PlayPause => self.toggle(svc),
+            MediaCommand::SeekTo(secs) => self.seek_abs(svc, secs),
+            MediaCommand::SeekBy(secs) => self.seek(svc, secs),
+            MediaCommand::Next => self.next_file(svc, ctx),
+            MediaCommand::Previous => self.prev_file(svc, ctx),
+        }
+
+        self.activity.poke(ctx.input(|i| i.time));
     }
 
     #[must_use]
@@ -279,6 +306,10 @@ impl PlayerScreen {
 
         if go_next {
             self.next_file(svc, ctx);
+        }
+
+        if let Some(PlayerPhase::Playing(state)) = &self.phase {
+            self.session.publish(svc, state, ctx);
         }
     }
 
@@ -374,7 +405,7 @@ impl PlayerScreen {
 
         let (rect, _) = ui.allocate_exact_size(video.size(), Sense::hover());
         let response = ui.interact(rect, input::video_id(), Sense::click());
-        let show_controls = self.tv_video_focus(ui, &response, popup_was_open, now);
+        let show_controls = self.dpad_video_focus(ui, &response, popup_was_open, now);
         if let Some(error) = view.error.as_deref() {
             ui.painter().rect_filled(rect, 0.0, theme.video_bg);
             ui.painter().text(
@@ -411,6 +442,7 @@ impl PlayerScreen {
         let alpha = self.activity.visual_t(now);
         let header_rect = overlay::header(&ctx, theme, rect, &view.title, alpha);
 
+        let profile = crate::platform::profile(&ctx);
         let footer_view = FooterView {
             time: view.time,
             duration: view.duration,
@@ -421,7 +453,8 @@ impl PlayerScreen {
             file_index: view.file_index,
             has_next: view.has_next,
             fullscreen: self.fullscreen,
-            tv: crate::platform::is_tv(&ctx),
+            can_fullscreen: profile.is_desktop_window(),
+            directional: profile.is_directional(),
         };
         let footer = overlay::footer(&ctx, theme, rect, &footer_view, alpha);
         if show_controls {

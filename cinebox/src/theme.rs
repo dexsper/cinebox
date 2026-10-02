@@ -4,6 +4,8 @@ use egui::{
     Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle,
 };
 
+use crate::platform::Profile;
+
 pub const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
 
 /// Application theme. Screens and widgets take `&Theme`; they do not pick colors.
@@ -170,6 +172,18 @@ impl Theme {
             text_gauge_min: 26.0,
             text_gauge_max: 38.0,
         }
+    }
+
+    /// With a D-pad one widget always carries the ring, so it is drawn lighter
+    /// than the pointer's hover ring.
+    #[must_use]
+    pub fn for_profile(mut self, profile: Profile) -> Self {
+        if profile.is_directional() {
+            self.ring_w = 2.0;
+            self.ring_gap = 2.0;
+        }
+
+        self
     }
 
     #[must_use]

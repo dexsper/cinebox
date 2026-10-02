@@ -71,8 +71,9 @@ pub struct FooterView {
     pub file_index: usize,
     pub has_next: bool,
     pub fullscreen: bool,
-    /// No window to toggle, and the arrows scrub the focused seek bar.
-    pub tv: bool,
+    pub can_fullscreen: bool,
+    /// The arrows scrub the seek bar while it has focus.
+    pub directional: bool,
 }
 
 /// Clicks and rects reported by one footer frame.
@@ -131,7 +132,7 @@ pub fn header(
         return None;
     }
 
-    let safe = video - crate::platform::edge_inset(ctx);
+    let safe = video - crate::platform::profile(ctx).edge_inset;
     let max_w = (safe.width() - 48.0).max(280.0);
     let response = Area::new(Id::new("player-header"))
         .order(Order::Foreground)
@@ -169,7 +170,7 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
     }
 
     // The scrim runs to the screen edges; the controls keep clear of them.
-    let safe = video - crate::platform::edge_inset(ctx);
+    let safe = video - crate::platform::profile(ctx).edge_inset;
     let top = safe.bottom() - FOOTER_H;
     let rect = Rect::from_min_max(pos2(video.left(), top), video.right_bottom());
     let controls = Rect::from_x_y_ranges(safe.x_range(), top..=safe.bottom());
@@ -225,7 +226,7 @@ fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView, out: &mut FooterOut) 
     let response = crate::widgets::button::pointing(response);
     out.seek_rect = rect;
 
-    if view.tv && response.has_focus() {
+    if view.directional && response.has_focus() {
         focus::hold_arrows(ui, response.id, true, false);
         out.seek_rel = arrow_seek(ui);
     }
@@ -348,7 +349,7 @@ fn right_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out: 
     );
     right.spacing_mut().item_spacing.x = BTN_GAP;
 
-    if !view.tv {
+    if view.can_fullscreen {
         let (fs_icon, fs_hint) = if view.fullscreen {
             (ICON_FULLSCREEN_EXIT, t!("player.exit_fullscreen"))
         } else {

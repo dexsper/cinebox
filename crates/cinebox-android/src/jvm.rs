@@ -1,38 +1,64 @@
-//! One-time JNI setup the Rust side cannot do on its own.
+//! The process's JVM: one-time setup the Rust side cannot do on its own, and
+//! calls into `CineboxActivity`.
 
-use std::sync::{Once, OnceLock};
+use std::sync::OnceLock;
 
 use jni::objects::{JObject, JValue};
 use jni::refs::Global;
 use jni::{Env, JavaVM, jni_sig, jni_str};
 use winit::platform::android::activity::AndroidApp;
 
-/// The application context outlives every activity instance, so FFmpeg and the
-/// TLS verifier can keep it for the whole process.
+/// Outlives every activity instance, so FFmpeg and the TLS verifier keep it.
 static APP_CONTEXT: OnceLock<Global<JObject<'static>>> = OnceLock::new();
 
 /// Released when collected, so it is kept for the process lifetime.
 static MULTICAST_LOCK: OnceLock<Global<JObject<'static>>> = OnceLock::new();
 
-static INIT: Once = Once::new();
+pub struct Java {
+    vm: JavaVM,
+    activity: Global<JObject<'static>>,
+}
 
-pub fn init(app: &AndroidApp) {
-    INIT.call_once(|| {
-        // SAFETY: android-activity hands out the process's JavaVM pointer.
-        let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
-        let activity = app.activity_as_ptr() as jni::sys::jobject;
+impl Java {
+    /// Run `call` with the activity on the current thread; a failure is logged.
+    pub fn with_activity<T, F>(&self, what: &str, call: F) -> Option<T>
+    where
+        F: FnOnce(&mut Env, &JObject) -> jni::errors::Result<T>,
+    {
+        let result = self
+            .vm
+            .attach_current_thread(|env| call(env, self.activity.as_obj()));
 
-        let result = vm.attach_current_thread(|env| -> jni::errors::Result<()> {
-            // SAFETY: an unowned global reference that stays valid while `app` lives;
-            // `JObject` does not delete it on drop.
-            let activity = unsafe { JObject::from_raw(env, activity) };
-            init_with_activity(env, &activity, &vm)
-        });
-
-        if let Err(error) = result {
-            tracing::error!(%error, "Android JNI setup failed");
+        match result {
+            Ok(value) => Some(value),
+            Err(error) => {
+                tracing::warn!(%error, what, "call into Android failed");
+                None
+            }
         }
+    }
+}
+
+pub fn init(app: &AndroidApp) -> Option<Java> {
+    // SAFETY: android-activity hands out the process's JavaVM pointer.
+    let vm = unsafe { JavaVM::from_raw(app.vm_as_ptr().cast()) };
+    let activity = app.activity_as_ptr() as jni::sys::jobject;
+
+    let result = vm.attach_current_thread(|env| -> jni::errors::Result<_> {
+        // SAFETY: an unowned global reference that stays valid while `app` lives;
+        // `JObject` does not delete it on drop.
+        let activity = unsafe { JObject::from_raw(env, activity) };
+        init_with_activity(env, &activity, &vm)?;
+        env.new_global_ref(&activity)
     });
+
+    match result {
+        Ok(activity) => Some(Java { vm, activity }),
+        Err(error) => {
+            tracing::error!(%error, "Android JNI setup failed");
+            None
+        }
+    }
 }
 
 fn init_with_activity(env: &mut Env, activity: &JObject, vm: &JavaVM) -> jni::errors::Result<()> {

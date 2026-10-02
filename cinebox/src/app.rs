@@ -11,6 +11,7 @@ use tracing::error;
 
 use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, RailEntry, Screen};
+use crate::platform::{self, DeviceEvent, Host, MediaCommand, SpeechEvent};
 use crate::screens::{
     CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, LiveTmdb, MediaScreen,
     OnboardingScreen, PersonScreen, PlayerScreen, SearchScreen, SectionScreen, SettingsScreen,
@@ -100,14 +101,16 @@ pub struct App {
     person: PersonScreen,
     torrents: TorrentsScreen,
     player: PlayerScreen,
-    /// The window had focus last frame (TV backgrounding).
+    /// The window had focus last frame (see `pause_in_background`).
     foreground: bool,
+    /// Taken from the device before the frame, acted on in `logic`.
+    device_events: Vec<DeviceEvent>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, host: crate::platform::Host) -> Self {
-        crate::platform::set(&cc.egui_ctx, host);
-        let theme = Theme::dark();
+    pub fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
+        let theme = Theme::dark().for_profile(host.profile);
+        platform::install(&cc.egui_ctx, host);
         theme.apply(&cc.egui_ctx);
         crate::fonts::install(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
@@ -152,6 +155,7 @@ impl App {
             torrents: TorrentsScreen::default(),
             player: PlayerScreen::default(),
             foreground: true,
+            device_events: Vec::new(),
         }
     }
 
@@ -259,8 +263,8 @@ impl App {
             return;
         }
 
-        // A remote's Back on the first screen leaves the app, like any TV app.
-        if self.nav.is_root() && crate::platform::is_tv(ctx) {
+        let system_back = platform::profile(ctx).has_system_back();
+        if self.nav.is_root() && system_back {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
             return;
         }
@@ -359,6 +363,33 @@ impl App {
         }
     }
 
+    fn handle_device_events(&mut self, ctx: &egui::Context) {
+        for event in std::mem::take(&mut self.device_events) {
+            match event {
+                DeviceEvent::Media(command) => self.media_command(command, ctx),
+                DeviceEvent::Speech(speech) => self.voice_search(speech, ctx),
+                DeviceEvent::SearchKey => self.search_bar.start_search(ctx),
+                // Already turned into input for the focused field by `take_input`.
+                DeviceEvent::Text(_) => {}
+            }
+        }
+    }
+
+    fn media_command(&mut self, command: MediaCommand, ctx: &egui::Context) {
+        let on_player = matches!(self.nav.current(), Screen::Player { .. });
+        if on_player {
+            self.player.apply(command, &mut self.services, ctx);
+        }
+    }
+
+    fn voice_search(&mut self, speech: SpeechEvent, ctx: &egui::Context) {
+        let Some(action) = self.search_bar.on_speech(speech) else {
+            return;
+        };
+
+        self.apply_nav(action, ctx.input(|i| i.time), ctx);
+    }
+
     fn paint_backdrop(&mut self, ui: &mut egui::Ui) {
         let url = match self.nav.current() {
             Screen::Media { .. } | Screen::Torrents { .. } => self
@@ -378,14 +409,18 @@ impl App {
 impl eframe::App for App {
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         chrome::release_after_os_grab(ctx, raw_input);
-        focus::before_pass(ctx, raw_input);
+        let events = platform::take_input(ctx, raw_input);
+        self.device_events.extend(events);
+        focus::begin_frame(ctx, raw_input);
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        if crate::platform::is_tv(ctx) {
-            fit_tv_zoom(ctx);
+        platform::begin_frame(ctx);
+        if !platform::profile(ctx).is_desktop_window() {
             self.pause_in_background(ctx);
         }
+
+        self.handle_device_events(ctx);
 
         let language = self.services.settings.general.language;
         if self.last_tmdb.language != language {
@@ -413,14 +448,14 @@ impl eframe::App for App {
         let screen = self.nav.current();
         let theme = self.theme.clone();
         let on_player = matches!(screen, Screen::Player { .. });
-        let tv = crate::platform::is_tv(ui.ctx());
+        let profile = platform::profile(ui.ctx());
 
         // The wizard is dismissed with its own "Set up later" button only.
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if escape && !self.onboarding.is_open() {
             // Escape closes an open dropdown; on TV, Back while typing only leaves the field.
             let popup_consumed = egui::Popup::is_any_open(ui.ctx());
-            let field_consumed = tv && focus::was_editing(ui.ctx());
+            let field_consumed = profile.is_directional() && focus::was_editing(ui.ctx());
             let search_consumed = self.search_bar.consume_escape(ui.ctx());
             let player_consumed = on_player && self.player.consume_escape(ui.ctx());
             let consumed = popup_consumed || field_consumed || search_consumed || player_consumed;
@@ -437,8 +472,7 @@ impl eframe::App for App {
             theme.page_bg
         };
 
-        // A TV has no window outline to keep clear of.
-        let outline = if tv { 0.0 } else { 1.0 };
+        let outline = if profile.is_desktop_window() { 1.0 } else { 0.0 };
 
         CentralPanel::default()
             .frame(Frame::new().fill(fill))
@@ -469,7 +503,7 @@ impl eframe::App for App {
                 }
 
                 let pad = theme.pad.round() as i8;
-                let edge = crate::platform::edge_inset(ui.ctx());
+                let edge = profile.edge_inset;
                 let left = if with_rail {
                     (rail::collapsed_width(ui.ctx()) + theme.pad).round() as i8
                 } else {
@@ -501,10 +535,10 @@ impl eframe::App for App {
                 let content = Frame::new()
                     .inner_margin(content_margin)
                     .show(ui, |ui| screen_ui(self, ui, screen, &theme));
-                focus::set_content(ui.ctx(), content.response.rect);
+                focus::set_content(ui.ctx(), content.response.rect - content_margin);
                 let screen_action = content.inner;
 
-                if !player_fullscreen && !tv {
+                if !player_fullscreen && profile.is_desktop_window() {
                     chrome::resize_edges(ui, &theme);
                     chrome::window_outline(ui, &theme);
                 }
@@ -522,34 +556,14 @@ impl eframe::App for App {
         self.onboarding.ui(&ctx, &mut self.services, &theme);
 
         self.services.toasts.show(&ctx, &theme);
-        focus::paint_ring(&ctx, &theme);
-        focus::navigate(&ctx);
+        focus::end_frame(&ctx, &theme);
+        platform::end_frame(&ctx);
         self.take_pending_play(&ctx);
         if let Some(action) = action {
             self.apply_nav(action, ui.input(|i| i.time), &ctx);
         }
 
         self.services.images.end_frame();
-    }
-}
-
-/// Logical width the TV layout is set for; 1080p panels report density 2.0,
-/// which alone would leave only 960x540 points.
-const TV_WIDTH_PT: f32 = 1280.0;
-
-fn fit_tv_zoom(ctx: &egui::Context) {
-    let Some(native) = ctx.input(|i| i.viewport().native_pixels_per_point) else {
-        return;
-    };
-
-    let width_px = ctx.content_rect().width() * ctx.pixels_per_point();
-    if width_px <= 0.0 || native <= 0.0 {
-        return;
-    }
-
-    let zoom = width_px / TV_WIDTH_PT / native;
-    if (ctx.zoom_factor() - zoom).abs() > 0.01 {
-        ctx.set_zoom_factor(zoom);
     }
 }
 

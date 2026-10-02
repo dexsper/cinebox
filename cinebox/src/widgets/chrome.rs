@@ -28,10 +28,13 @@ pub fn header(
     back_x: Option<f32>,
 ) -> Option<NavAction> {
     let mut action = None;
+    let profile = crate::platform::profile(ui.ctx());
     let height = bar_height(ui.ctx(), theme);
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
-    let edge = crate::platform::edge_inset(ui.ctx());
-    let controls = bar - Margin { bottom: 0, ..edge };
+    let controls = bar - Margin {
+        bottom: 0,
+        ..profile.edge_inset
+    };
 
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
@@ -43,16 +46,15 @@ pub fn header(
     ui.scope_builder(egui::UiBuilder::new().max_rect(controls), |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.horizontal_centered(|ui| {
-            let show_back = settings_open || !matches!(screen, Screen::Home);
+            let away_from_home = settings_open || !matches!(screen, Screen::Home);
+            let show_back = away_from_home && !profile.has_system_back();
             if back_slot(ui, theme, controls, show_back, back_x) {
                 action = Some(NavAction::GoBack);
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
-                // A TV app has no window to move, resize, or minimize.
-                let tv = crate::platform::is_tv(ui.ctx());
-                if !tv {
+                if profile.is_desktop_window() {
                     window_buttons(ui, theme);
                 }
                 if chrome_btn(
@@ -81,7 +83,7 @@ pub fn header(
 /// Height of the bar [`header`] draws; the rail and drawers start below it.
 #[must_use]
 pub fn bar_height(ctx: &egui::Context, theme: &Theme) -> f32 {
-    theme.title_bar_h + crate::platform::edge_inset(ctx).topf()
+    theme.title_bar_h + crate::platform::profile(ctx).edge_inset.topf()
 }
 
 /// Back button at the leading edge, or centered on `center_x` when a rail sits below.
@@ -240,7 +242,7 @@ fn search_and_drag(
 ) -> Option<NavAction> {
     let search_rect = centered_search_rect(bar, middle);
 
-    if !crate::platform::is_tv(ui.ctx()) {
+    if crate::platform::profile(ui.ctx()).is_desktop_window() {
         let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
         let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
 

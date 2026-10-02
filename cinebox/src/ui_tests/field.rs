@@ -3,6 +3,7 @@ use egui::vec2;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
+use crate::platform::TextPurpose;
 use crate::theme::Theme;
 use crate::widgets::field;
 
@@ -21,7 +22,7 @@ fn field_harness() -> Harness<'static, FieldState> {
         .build_ui_state(
             |ui, state| {
                 let FieldState { theme, value, .. } = state;
-                let committed = field::committed_edit(ui, theme, field_id(), value, "", false);
+                let committed = field::committed_edit(ui, theme, field_id(), value, "", TextPurpose::Text);
                 if let Some(text) = committed {
                     state.value.clone_from(&text);
                     state.commits.push(text);

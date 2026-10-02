@@ -4,6 +4,7 @@ use std::time::Duration;
 
 use egui::{Align, Frame, Id, Layout, Margin, Sense, Stroke, TextEdit, Ui, UiBuilder, vec2};
 
+use crate::platform::{self, TextAction, TextInputSpec, TextPurpose};
 use crate::theme::Theme;
 use crate::widgets::focus;
 
@@ -46,14 +47,14 @@ pub fn committed_edit(
     id: Id,
     value: &str,
     placeholder: &str,
-    password: bool,
+    purpose: TextPurpose,
 ) -> Option<String> {
     let now = ui.input(|i| i.time);
     let stored = ui.data(|d| d.get_temp::<Draft>(id));
     let mut draft = stored.unwrap_or_else(|| Draft::clean(value));
 
     let edit_id = id.with("edit");
-    let response = styled_edit(ui, theme, edit_id, &mut draft.text, placeholder, password);
+    let response = styled_edit(ui, theme, edit_id, &mut draft.text, placeholder, purpose);
     if response.changed() {
         draft.edited_at = Some(now);
     }
@@ -91,7 +92,7 @@ fn styled_edit(
     edit_id: Id,
     value: &mut String,
     placeholder: &str,
-    password: bool,
+    purpose: TextPurpose,
 ) -> egui::Response {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), INPUT_H), Sense::hover());
     ui.painter().rect(
@@ -102,6 +103,11 @@ fn styled_edit(
         egui::StrokeKind::Inside,
     );
     let gate = focus::edit_gate(ui, rect, edit_id);
+    let spec = TextInputSpec {
+        purpose,
+        action: TextAction::Done,
+    };
+    platform::text_input::declare(ui.ctx(), edit_id, spec);
 
     let inner = rect.shrink2(vec2(10.0, 0.0));
     let mut row = ui.new_child(
@@ -120,7 +126,7 @@ fn styled_edit(
         .hint_text(placeholder)
         .frame(Frame::NONE);
 
-    if password {
+    if purpose == TextPurpose::Secret {
         edit = edit.password(true);
     }
 

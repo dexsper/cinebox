@@ -13,7 +13,7 @@ mod images;
 mod jobs;
 mod library;
 mod nav;
-mod platform;
+pub mod platform;
 mod screens;
 mod services;
 mod settings_input;
@@ -25,8 +25,6 @@ mod widgets;
 mod ui_tests;
 
 use rust_i18n::t;
-
-pub use platform::{Form, Host, KeepAwake};
 
 const ICON_PX: u32 = 256;
 
@@ -40,7 +38,8 @@ const APP_ID: &str = "io.github.dexsper.cinebox";
 ///
 /// Returns an [`eframe::Error`] if the window or renderer fails to start.
 pub fn run() -> eframe::Result {
-    run_with(native_options(), Host::default())
+    let creator = app_creator(platform::Host::desktop());
+    eframe::run_native(&app_name(), native_options(), creator)
 }
 
 /// Window setup shared by every platform; Android adds its `android_app`.
@@ -60,19 +59,16 @@ pub fn native_options() -> eframe::NativeOptions {
     }
 }
 
-/// Run the app with prepared options.
-///
-/// # Errors
-///
-/// Returns an [`eframe::Error`] if the window or renderer fails to start.
-pub fn run_with(native_options: eframe::NativeOptions, host: Host) -> eframe::Result {
-    let title = t!("app.title");
+/// What eframe identifies the app by (window title, storage).
+#[must_use]
+pub fn app_name() -> String {
+    t!("app.title").into_owned()
+}
 
-    eframe::run_native(
-        title.as_ref(),
-        native_options,
-        Box::new(move |cc| Ok(Box::new(app::App::new(cc, host)))),
-    )
+/// The app for an entry point that runs eframe itself.
+#[must_use]
+pub fn app_creator(host: platform::Host) -> eframe::AppCreator<'static> {
+    Box::new(move |cc| Ok(Box::new(app::App::new(cc, host))))
 }
 
 fn app_icon() -> egui::IconData {

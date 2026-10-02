@@ -11,6 +11,8 @@ window:
   close: "Закрыть"
 search:
   placeholder: "Поиск"
+  voice: "Голосовой поиск"
+  listening: "Слушаю…"
   movies: "Фильмы"
   tv: "Сериалы"
   actors: "Актёры"

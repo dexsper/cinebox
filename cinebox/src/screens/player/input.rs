@@ -24,7 +24,7 @@ impl PlayerScreen {
         }
 
         // Back from the controls returns the D-pad to the video before leaving.
-        if self.controls_focused && platform::is_tv(ctx) {
+        if self.controls_focused && platform::profile(ctx).is_directional() {
             self.controls_focused = false;
             self.activity.hide();
             return true;
@@ -42,10 +42,10 @@ impl PlayerScreen {
             self.toggle(svc);
         }
 
-        // On TV the arrows also walk the controls; they seek only from the video.
-        let tv = platform::is_tv(ui.ctx());
+        // With a D-pad the arrows also walk the controls; they seek only from the video.
+        let directional = platform::profile(ui.ctx()).is_directional();
         let on_video = ui.ctx().memory(|mem| mem.has_focus(video_id()));
-        if tv && !on_video {
+        if directional && !on_video {
             return;
         }
 
@@ -58,16 +58,16 @@ impl PlayerScreen {
         }
     }
 
-    /// TV: the video holds focus while nothing else does, so the D-pad seeks
+    /// The video holds D-pad focus while nothing else does, so the arrows seek
     /// and OK pauses. `true` when Up/Down asked for the controls.
-    pub(super) fn tv_video_focus(
+    pub(super) fn dpad_video_focus(
         &mut self,
         ui: &Ui,
         video: &Response,
         popup_open: bool,
         now: f64,
     ) -> bool {
-        if !platform::is_tv(ui.ctx()) {
+        if !platform::profile(ui.ctx()).is_directional() {
             return false;
         }
 
@@ -105,8 +105,12 @@ impl PlayerScreen {
     }
 
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
-        // A TV app is always fullscreen.
-        if self.fullscreen == on || platform::is_tv(ctx) {
+        if self.fullscreen == on {
+            return;
+        }
+
+        // A window the OS owns is always full screen.
+        if !platform::profile(ctx).is_desktop_window() {
             return;
         }
 

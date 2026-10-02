@@ -61,14 +61,14 @@ fn label(entry: RailEntry) -> std::borrow::Cow<'static, str> {
 /// Room the collapsed rail takes from the left edge; content is laid out against this.
 #[must_use]
 pub fn collapsed_width(ctx: &egui::Context) -> f32 {
-    platform::edge_inset(ctx).leftf() + WIDTH
+    platform::profile(ctx).edge_inset.leftf() + WIDTH
 }
 
 /// X of the rail's icon column for a rail whose left edge is `left`, so the title bar's
 /// Back button can line up with the rail icons.
 #[must_use]
 pub fn column_center(ctx: &egui::Context, left: f32) -> f32 {
-    left + platform::edge_inset(ctx).leftf() + WIDTH * 0.5
+    left + platform::profile(ctx).edge_inset.leftf() + WIDTH * 0.5
 }
 
 /// Paint the rail along the left edge of `body`, which starts at the title bar's bottom edge.
@@ -81,7 +81,7 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
         .is_some_and(|response| response.contains_pointer());
     let t = ctx.animate_bool_with_time(id.with("expand"), hovered || focused(ctx), EXPAND_SECS);
     // The background runs to the screen edge; the items keep clear of it.
-    let edge = platform::edge_inset(ctx).leftf();
+    let edge = platform::profile(ctx).edge_inset.leftf();
     let column_w = egui::lerp(WIDTH..=EXPANDED_W, t);
     let width = edge + column_w;
     let top = body.top() - BAR_RULE_TOP - BAR_RULE_BOTTOM;
@@ -143,6 +143,12 @@ pub fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Op
                 }
                 top += ITEM_H + ITEM_GAP;
             }
+
+            let active_index = ENTRIES.iter().position(|entry| Some(*entry) == active);
+            if let Some(index) = active_index {
+                let members = (0..ENTRIES.len()).map(item_id).collect();
+                focus::group(ctx, members, item_id(index));
+            }
         });
 
     clicked
@@ -174,7 +180,7 @@ fn item_ui(
     let response = pointing(ui.interact(rect, item_id(index), Sense::click()));
     response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, active, text.as_ref()));
 
-    let fill = if focus::lit(&response) {
+    let fill = if focus::own_mark(&response) {
         theme.widget_hover
     } else if active {
         theme.widget_active
