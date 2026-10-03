@@ -256,6 +256,9 @@ impl App {
         if matches!(self.nav.current(), Screen::Player { .. }) {
             self.player.stop(&mut self.services, ctx);
             self.nav.pop();
+            if matches!(self.nav.current(), Screen::Torrents { .. }) {
+                self.torrents.after_playback(&self.services);
+            }
             return;
         }
 
@@ -362,6 +365,7 @@ impl App {
         let kind = req.card.kind;
 
         self.player.start(req, &mut self.services, ctx);
+        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
         self.nav.push(Screen::Player { kind, id });
     }
 
@@ -596,7 +600,9 @@ impl eframe::App for App {
 }
 
 fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
-    if !matches!(screen, Screen::Torrents { .. }) {
+    // Under the player the page stays as it was, open file list included.
+    let keeps_torrents = matches!(screen, Screen::Torrents { .. } | Screen::Player { .. });
+    if !keeps_torrents {
         app.torrents.hide();
     }
 

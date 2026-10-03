@@ -12,7 +12,7 @@ use crate::jobs::{self, JobError};
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{self, button, poster, scroll};
+use crate::widgets::{self, button, focus, poster, scroll};
 
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum TrailersPhase {
@@ -32,6 +32,8 @@ pub struct TrailersModal {
     pending_title: String,
     error: Option<UserError>,
     pending_play: Option<PlayRequest>,
+    /// The trailer last started; focus goes back to it after the player.
+    picked: Option<usize>,
 }
 
 impl Default for TrailersModal {
@@ -50,6 +52,7 @@ impl Default for TrailersModal {
             pending_title: String::new(),
             error: None,
             pending_play: None,
+            picked: None,
         }
     }
 }
@@ -68,6 +71,7 @@ impl TrailersModal {
         self.pending_key = None;
         self.pending_title.clear();
         self.error = None;
+        self.picked = None;
         self.resolve.clear();
     }
 
@@ -131,6 +135,7 @@ impl TrailersModal {
             let mut pick = None;
             let mut retry = false;
             let items = &self.items;
+            let picked = self.picked;
             let card = self.card.as_ref();
             let phase = self.phase;
             let error = self.error.as_ref();
@@ -156,7 +161,7 @@ impl TrailersModal {
                     match phase {
                         TrailersPhase::List => {
                             if let Some(card) = card {
-                                trailer_list(ui, card, items, svc, theme, &mut pick);
+                                trailer_list(ui, card, items, svc, theme, picked, &mut pick);
                             }
                         }
                         TrailersPhase::Resolving => widgets::page_spinner(ui, theme),
@@ -193,6 +198,7 @@ impl TrailersModal {
 
         let key = trailer.youtube_key.clone();
         let title = trailer.name.clone();
+        self.picked = Some(index);
         self.start_resolve(svc, key, title);
     }
 
@@ -240,7 +246,9 @@ impl TrailersModal {
             },
         });
 
-        let _ = self.close();
+        // Still open under the player, so Back returns to the list.
+        self.phase = TrailersPhase::List;
+        self.pending_key = None;
     }
 }
 
@@ -250,6 +258,7 @@ fn trailer_list(
     items: &[Trailer],
     svc: &Services,
     theme: &Theme,
+    picked: Option<usize>,
     pick: &mut Option<usize>,
 ) {
     if items.is_empty() {
@@ -297,6 +306,9 @@ fn trailer_list(
                 });
 
             let response = button::click_rect(ui, row_id, shown.response.rect);
+            if picked == Some(index) {
+                focus::prefer(&response);
+            }
             if response.clicked() {
                 *pick = Some(index);
             }

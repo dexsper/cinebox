@@ -96,6 +96,11 @@ impl TorrentsScreen {
         self.filters.on_back(now)
     }
 
+    /// Back from the player: the release just played may have a new watch mark.
+    pub fn after_playback(&mut self, svc: &Services) {
+        self.retag_local_hits(svc);
+    }
+
     pub fn hide(&mut self) {
         self.on_screen = false;
         self.filters.snap_shut();
@@ -556,8 +561,6 @@ impl TorrentsScreen {
                 start: file.timecode,
             },
         });
-
-        state.files.close();
     }
 }
 
