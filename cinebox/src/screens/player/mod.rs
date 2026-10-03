@@ -136,6 +136,7 @@ pub struct PlayerScreen {
     activity: Activity,
     /// TV: the D-pad was on the transport controls, so Back hides them first.
     controls_focused: bool,
+    focus_play: bool,
     popup: Popup,
     playlist_scroll: bool,
     prefs: TorrentPlaybackPrefs,
@@ -158,6 +159,7 @@ impl Default for PlayerScreen {
             was_maximized: false,
             activity: Activity::new(),
             controls_focused: false,
+            focus_play: false,
             popup: Popup::None,
             playlist_scroll: false,
             prefs: TorrentPlaybackPrefs::default(),
@@ -249,7 +251,17 @@ impl PlayerScreen {
             MediaCommand::Previous => self.prev_file(svc, ctx),
         }
 
+        if pauses(command) {
+            self.focus_play_from_remote(ctx);
+        }
+
         self.activity.poke(ctx.input(|i| i.time));
+    }
+
+    fn focus_play_from_remote(&mut self, ctx: &egui::Context) {
+        if crate::platform::profile(ctx).is_directional() {
+            self.focus_play = true;
+        }
     }
 
     /// Video with nothing of the app's chrome around it. Where the OS owns the
@@ -271,7 +283,7 @@ impl PlayerScreen {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return;
             };
-            
+
             let Some(player) = &svc.player else {
                 return;
             };
@@ -430,6 +442,10 @@ impl PlayerScreen {
         let (rect, _) = ui.allocate_exact_size(video.size(), Sense::hover());
         let response = ui.interact(rect, input::video_id(), Sense::click());
         let show_controls = self.dpad_video_focus(ui, &response, popup_was_open, now);
+        if show_controls {
+            self.focus_play = true;
+        }
+
         if let Some(error) = view.error.as_deref() {
             ui.painter().rect_filled(rect, 0.0, theme.video_bg);
             ui.painter().text(
@@ -446,7 +462,14 @@ impl PlayerScreen {
                 subtitle: view.subtitle.as_deref(),
                 subtitle_scale: self.sub_scale,
             };
-            paint_video(ui, rect, svc.player.clone(), theme, &mut self.video_cb, &frame);
+            paint_video(
+                ui,
+                rect,
+                svc.player.clone(),
+                theme,
+                &mut self.video_cb,
+                &frame,
+            );
         }
 
         let mut seek_rel = None;
@@ -463,6 +486,7 @@ impl PlayerScreen {
         } else if video_clicked {
             // OK on the remote: no pointer, so no click zone.
             toggle = true;
+            self.focus_play_from_remote(&ctx);
         }
 
         if popup_was_open {
@@ -488,7 +512,7 @@ impl PlayerScreen {
             directional: profile.is_directional(),
         };
         let footer = overlay::footer(&ctx, theme, rect, &footer_view, alpha);
-        if show_controls {
+        if std::mem::take(&mut self.focus_play) {
             ctx.memory_mut(|mem| mem.request_focus(footer.play_id));
         }
 
@@ -1284,6 +1308,18 @@ impl PlayerScreen {
     }
 }
 
+fn pauses(command: MediaCommand) -> bool {
+    match command {
+        MediaCommand::Play | MediaCommand::Pause | MediaCommand::Stop | MediaCommand::PlayPause => {
+            true
+        }
+        MediaCommand::SeekTo(_)
+        | MediaCommand::SeekBy(_)
+        | MediaCommand::Next
+        | MediaCommand::Previous => false,
+    }
+}
+
 /// Log a player control failure instead of dropping it silently.
 fn log_player(op: &'static str, result: Result<(), cinebox_player::Error>) {
     if let Err(error) = result {
@@ -1424,8 +1460,14 @@ fn bars_around(outer: Rect, inner: Rect) -> Vec<Rect> {
 
     let top = Rect::from_min_max(outer.min, pos2(outer.right(), inner.top()));
     let bottom = Rect::from_min_max(pos2(outer.left(), inner.bottom()), outer.max);
-    let left = Rect::from_min_max(pos2(outer.left(), inner.top()), pos2(inner.left(), inner.bottom()));
-    let right = Rect::from_min_max(pos2(inner.right(), inner.top()), pos2(outer.right(), inner.bottom()));
+    let left = Rect::from_min_max(
+        pos2(outer.left(), inner.top()),
+        pos2(inner.left(), inner.bottom()),
+    );
+    let right = Rect::from_min_max(
+        pos2(inner.right(), inner.top()),
+        pos2(outer.right(), inner.bottom()),
+    );
 
     [top, bottom, left, right]
         .into_iter()
@@ -1459,7 +1501,11 @@ fn paint_subtitle(ui: &Ui, rect: Rect, text: &str, scale: f64) {
     for dx in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
         for dy in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
             let offset = egui::vec2(dx, dy);
-            painter.galley_with_override_text_color(anchor + offset, galley.clone(), Color32::BLACK);
+            painter.galley_with_override_text_color(
+                anchor + offset,
+                galley.clone(),
+                Color32::BLACK,
+            );
         }
     }
     painter.galley(anchor, galley, Color32::WHITE);

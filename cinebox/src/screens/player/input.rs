@@ -40,6 +40,7 @@ impl PlayerScreen {
 
         if ui.input(|i| i.key_pressed(egui::Key::Space)) {
             self.toggle(svc);
+            self.focus_play_from_remote(ui.ctx());
         }
 
         // With a D-pad the arrows also walk the controls; they seek only from the video.
