@@ -103,6 +103,12 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.6.0" date="2026-10-03">
+      <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.6.0</url>
+      <description>
+        <p>Android TV app, smoother torrent lists, and posters behind DNS blocks.</p>
+      </description>
+    </release>
     <release version="0.5.0" date="2026-09-30">
       <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.5.0</url>
       <description>

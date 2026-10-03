@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-03
+
 ### Added
 
 - Android TV app (Android 8.0+, ARM): remote control and voice search, with video through ExoPlayer, including 4K, HDR10, and Dolby Vision on the hardware decoder.
@@ -111,7 +113,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.5.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/dexsper/cinebox/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dexsper/cinebox/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dexsper/cinebox/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/dexsper/cinebox/compare/v0.2.0...v0.3.0
