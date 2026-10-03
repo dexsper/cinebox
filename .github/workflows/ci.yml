@@ -1,12 +1,10 @@
 name: CI
 
-# Every pull request and push to master: tests on both desktop platforms and an
-# APK build. Packaging (zip, deb, AppImage, Flatpak, signed APK) is release.yml.
+# Every pull request: tests on both desktop platforms and an APK build. master
+# takes only pull requests that passed it, so a merge is not tested again.
+# Packaging (zip, deb, AppImage, Flatpak, signed APK) is release.yml.
 on:
   pull_request:
-  push:
-    branches:
-      - master
   workflow_dispatch:
 
 concurrency:
@@ -42,16 +40,12 @@ jobs:
       - name: Look for changes outside the docs
         id: diff
         env:
-          BASE: ${{ github.event.pull_request.base.sha || github.event.before }}
+          BASE: ${{ github.event.pull_request.base.sha }}
         run: |
           set -euo pipefail
 
-          # A manual run, or the first push of a branch, checks everything.
+          # A manual run checks everything.
           if [[ -z "$BASE" ]]; then
-            echo "code=true" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          if [[ "$BASE" =~ ^0+$ ]]; then
             echo "code=true" >> "$GITHUB_OUTPUT"
             exit 0
           fi
