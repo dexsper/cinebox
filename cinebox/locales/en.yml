@@ -204,7 +204,8 @@ settings:
   tmdb_key_token: "This is an access token (eyJ…). Paste the short 32-character API key instead."
   tmdb_key_format: "The TMDB API key is 32 characters of 0–9 and a–f."
   doh_needs_https: "DoH works only over https://. The address is ignored."
-  run_wizard: "Run the setup wizard"
+  run_wizard: "Setup wizard"
+  run_wizard_hint: "Initial setup"
 home:
   recently_watched: "Recently watched"
   now_playing: "Now playing"

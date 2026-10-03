@@ -204,7 +204,8 @@ settings:
   tmdb_key_token: "Це access token (eyJ…). Вставте короткий API-ключ із 32 символів."
   tmdb_key_format: "API-ключ TMDB — це 32 символи з 0–9 та a–f."
   doh_needs_https: "DoH працює лише через https://. Адресу не використано."
-  run_wizard: "Запустити майстер налаштування"
+  run_wizard: "Майстер налаштування"
+  run_wizard_hint: "Початкове налаштування"
 home:
   recently_watched: "Нещодавно переглянуті"
   now_playing: "Зараз дивляться"

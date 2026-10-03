@@ -108,7 +108,6 @@ pub enum Field {
     ProbeTmdb,
     SpeedTest,
     ClearCache,
-    RunWizard,
 }
 
 /// Returns the i18n key of a warning shown under the committed value.
@@ -211,7 +210,6 @@ const GENERAL: &[Field] = &[
         get: |s| s.general.custom_doh_url.clone(),
         set: |s, v| s.general.custom_doh_url = v,
     },
-    Field::RunWizard,
 ];
 
 const PLAYER: &[Field] = &[

@@ -30,6 +30,21 @@ const ROW_PAD_Y: f32 = 4.0;
 const ACTION_H: f32 = 36.0;
 
 pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
+    let title = crate::i18n::tr(cat.title);
+    let subtitle = crate::i18n::tr(cat.subtitle);
+
+    nav_row(ui, theme, cat.icon, &title, &subtitle, cat.id.as_key())
+}
+
+/// The setup wizard, first in the list so it is not buried in a category.
+pub fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
+    let title = t!("settings.run_wizard");
+    let subtitle = t!("settings.run_wizard_hint");
+
+    nav_row(ui, theme, ICON_AUTO_FIX_HIGH, &title, &subtitle, "run-wizard")
+}
+
+fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle: &str, id: &str) -> bool {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), CATEGORY_H), Sense::hover());
     if ui.rect_contains_pointer(rect) {
         ui.painter()
@@ -44,20 +59,17 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     );
 
     row.style_mut().interaction.selectable_labels = false;
-    icon_well(&mut row, theme, cat);
-
-    let title = crate::i18n::tr(cat.title);
-    let subtitle = crate::i18n::tr(cat.subtitle);
+    icon_well(&mut row, theme, icon);
 
     row.add_space(12.0);
     row.vertical(|ui| {
         ui.label(
-            RichText::new(title.as_ref())
+            RichText::new(title)
                 .font(theme.title_font(theme.text_section))
                 .color(theme.title),
         );
         ui.label(
-            RichText::new(subtitle.as_ref())
+            RichText::new(subtitle)
                 .size(theme.text_small)
                 .color(theme.muted),
         );
@@ -73,10 +85,10 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, cat.id.as_key()).clicked()
+    hit_on_top(ui, rect, id).clicked()
 }
 
-fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
+fn icon_well(ui: &mut Ui, theme: &Theme, icon: MaterialIcon) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(ICON_WELL), Sense::hover());
     ui.painter()
         .rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
@@ -84,7 +96,7 @@ fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
     ui.new_child(UiBuilder::new().max_rect(rect))
         .centered_and_justified(|ui| {
             ui.label(
-                cat.icon
+                icon
                     .rich_text()
                     .size(theme.text_icon_lg)
                     .color(theme.title),
@@ -385,12 +397,6 @@ pub fn speed_test_row<F, Fut>(
     if meter.needs_repaint() {
         ui.ctx().request_repaint();
     }
-}
-
-pub fn run_wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
-    ui.add_space(4.0);
-    let label = t!("settings.run_wizard");
-    action_button(ui, theme, ICON_AUTO_FIX_HIGH, &label, false)
 }
 
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
