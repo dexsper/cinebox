@@ -1,16 +1,16 @@
-![cinebox - A movie theater for your desktop](docs/cinebox.png)
+![cinebox - A movie theater for your desktop and TV](docs/cinebox.png)
 
 **English** | [Русский](README.ru.md)
 
 [What and why](#what-and-why) | [Features](#features) | [How it works](#how-it-works) | [Install](#install) | [Architecture](#architecture) | [Roadmap](#roadmap) | [Contributing](#contributing) | [Disclaimer](#disclaimer)
 
-![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
+![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Android TV 8.0+](https://img.shields.io/badge/Android_TV-8.0+-3ddc84?style=flat-square&logo=android&logoColor=white) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
 
 ![Cinebox English UI](docs/screen-en.png)
 
 ## What and why
 
-Cinebox is a native desktop app for Windows and Linux. Movie and series catalog, torrent search, and playback in one window: no browser, no extra player.
+Cinebox is a native app for Windows, Linux, and Android TV. Movie and series catalog, torrent search, and playback in one window: no browser, no extra player.
 
 The stack is the same one people already use in **LAMPA MX**: TMDB, Jackett or Prowlarr, TorrServer. LAMPA is a website. It runs in a browser or a WebView, the built-in player handles few codecs and often stutters, so the stream almost always ends up in VLC or MPC-HC. The browser also eats RAM on its own.
 
@@ -34,6 +34,7 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 
 - Built-in libmpv: MKV, HEVC, and HDR play without an external player
 - Hardware video decoding on the GPU
+- On Android TV, ExoPlayer: 4K, HDR10, and Dolby Vision on the hardware decoder
 - Torrent search via Jackett or Prowlarr with quality, HDR, voice, and language filters
 - Streaming through TorrServer with preload and auto-play of the next file
 - Audio and subtitle tracks, subtitle delay, speed, scale, loudness normalization
@@ -49,6 +50,12 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - Built-in DNS-over-HTTPS to get around DNS blocks
 - Connection checks for TMDB, the parser, and TorrServer, plus a speed test
 
+**Android TV**
+
+- Remote control: D-pad, media keys, and Back the way Android TV apps work
+- Voice search and typing from the phone remote
+- Edge margin for TVs that crop the picture, set in the first-run wizard
+
 ## How it works
 
 ```mermaid
@@ -56,19 +63,19 @@ flowchart LR
   UI[Cinebox] --> TMDB[TMDB]
   UI --> Parser[Jackett / Prowlarr]
   Parser --> TS[TorrServer]
-  TS --> MPV[libmpv]
+  TS --> Player[libmpv / ExoPlayer]
   UI --> YT[YouTube trailers]
-  YT --> MPV
+  YT --> Player
   TMDB -.-> DoH[DoH if DNS is blocked]
   Parser -.-> DoH
 ```
 
 1. **Catalog.** Cinebox calls TMDB with your key: home, sections, discover, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
 2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
-3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the HTTP stream opens in libmpv. No browser in this path.
+3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the stream opens in the player. No browser in this path.
 4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. If "Track timecode on server" is on, the same time is sent to TorrServer. On open, local position is preferred; otherwise the server's timecode is used.
 5. **Player settings.** Open the same torrent again and the last audio track, subtitles, speed, and video scale come back. Subtitle size and delay last for the current playback only. Volume is app-wide.
-6. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same mpv.
+6. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same player.
 7. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
 
 ## Install
@@ -82,6 +89,7 @@ Get a build from **[GitHub Releases](https://github.com/dexsper/cinebox/releases
   - **AppImage** (Debian 12, Ubuntu 24.04, Fedora 37 or newer): `chmod +x` and run. libmpv is inside. For a menu entry and updates, open it with [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) or AppImageLauncher, like any other AppImage.
 
   Outside Flatpak, settings go to `~/.config/cinebox` and the database to `~/.local/share/cinebox`.
+- **Android TV** (Android 8.0+, ARM): install `cinebox-*-android.apk`.
 
 Cinebox does not ship TMDB, a parser, or TorrServer. You run those yourself:
 
@@ -90,6 +98,8 @@ Cinebox does not ship TMDB, a parser, or TorrServer. You run those yourself:
 | [TMDB](https://www.themoviedb.org/settings/api) API key | TMDB | - |
 | [Jackett](https://github.com/Jackett/Jackett) or [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Parser | `http://127.0.0.1:9117` |
 | [TorrServer](https://github.com/YouROK/TorrServer) | TorrServer | `http://127.0.0.1:8090` |
+
+On Android TV, `127.0.0.1` works only for what runs on the TV itself; for a server on another machine, use its LAN address.
 
 > [!IMPORTANT]
 > TMDB wants the short API key (32 hex characters). A JWT access token will not work here.
@@ -122,6 +132,14 @@ flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --f
   .flatpak-builder/build-dir packaging/flatpak/io.github.dexsper.cinebox.yml
 ```
 
+Android TV APK: JDK 17+, the Android SDK with NDK r28 (`ANDROID_HOME`), the Rust targets `aarch64-linux-android` and `armv7-linux-androideabi`, and `cargo install cargo-ndk --locked`.
+
+```bash
+./scripts/android-build.sh debug
+```
+
+Without `debug` it builds the release APK, signed when `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS`, and `ANDROID_KEY_PASSWORD` are set.
+
 ## Architecture
 
 The repo is split into crates. The window and screens live in `cinebox`, the rest are libraries.
@@ -134,10 +152,11 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 | `cinebox-net` | HTTP: proxy, DoH, retries |
 | `cinebox-indexer` | Jackett and Prowlarr, release-name parse, voices, filters |
 | `cinebox-torrserver` | TorrServer client, file/episode parse |
-| `cinebox-player` | libmpv over OpenGL |
-| `cinebox-youtube` | YouTube InnerTube and signature decipher for libmpv |
+| `cinebox-player` | libmpv over OpenGL; ExoPlayer on Android TV |
+| `cinebox-youtube` | YouTube InnerTube and signature decipher for the player |
 | `cinebox-skip` | Skip-segment data (TheIntroDB; extensible for other sources) |
 | `cinebox-typograf` | Title typography (ru / en-US) |
+| `cinebox-android` | Android TV entry point; the Java side (ExoPlayer, MediaSession, voice input, keyboard) is in `android/` |
 
 ## Roadmap
 
@@ -147,6 +166,7 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 - [x] Categories on the home screen, plus custom lists (Favorites, Watched)
 - [x] First-run wizard
 - [x] Linux build
+- [x] Android TV app
 - [ ] Playback sync between clients
 
 ## Contributing

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Android TV app (Android 8.0+, ARM): remote control and voice search, with video through ExoPlayer, including 4K, HDR10, and Dolby Vision on the hardware decoder.
+
+### Changed
+
+- The setup wizard opens from the top of Settings.
+- Back from the player returns to the torrent files or trailers list it was started from.
+- Going back from the torrents page animates the title page back instead of jumping.
+- Long torrent lists scroll without lag.
+- Interface texts use sentence case and plainer wording.
+
+### Fixed
+
+- Escape closes the torrent files and trailers windows without leaving the page.
+- Behind a DNS block, posters load even when one DNS-over-HTTPS provider points at an unreachable server: all providers are asked at once.
+- A home row that failed to load once no longer stays failed on later starts.
+
+### Security
+
+- Logs no longer contain the TMDB API key.
+
 ## [0.5.0] - 2026-09-30
 
 ### Added
