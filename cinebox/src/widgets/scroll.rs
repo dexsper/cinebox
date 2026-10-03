@@ -17,6 +17,7 @@ const MAX_SPEED: f32 = 4200.0;
 const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
 const REVEALED: &str = "cinebox-scroll-revealed";
 const BUILDING: &str = "cinebox-scroll-building";
+const JUMP_TOP: &str = "cinebox-scroll-jump-top";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: i32 = 12;
@@ -31,6 +32,9 @@ struct Coast {
     vel: Vec2,
     offset: Vec2,
     rect: Rect,
+    /// What the area shows of its content, on screen.
+    view: Rect,
+    vertical: bool,
     dragging: bool,
     max_offset: Vec2,
 }
@@ -41,6 +45,8 @@ impl Default for Coast {
             vel: Vec2::ZERO,
             offset: Vec2::ZERO,
             rect: Rect::NOTHING,
+            view: Rect::NOTHING,
+            vertical: false,
             dragging: false,
             max_offset: Vec2::splat(f32::INFINITY),
         }
@@ -170,6 +176,47 @@ pub fn reveal(response: &Response) {
     ctx.data_mut(|d| d.insert_temp(Id::new(REVEALED), revealed));
 }
 
+/// The innermost of `areas` (outermost first, as [`enclosing`] gives them)
+/// that scrolls up and down.
+#[must_use]
+pub fn innermost_page(ctx: &Context, areas: &[Id]) -> Option<Id> {
+    let coasts = areas.iter().rev().map(|area| (*area, coast_of(ctx, *area)));
+    let mut pages = coasts.filter(|(_, coast)| coast.vertical);
+
+    pages.next().map(|(area, _)| area)
+}
+
+/// `page` is scrolled down, and at its top `rect` (a widget in it) would still be in view.
+#[must_use]
+pub fn can_show_top(ctx: &Context, page: Id, rect: Rect) -> bool {
+    let coast = coast_of(ctx, page);
+    if coast.offset.y <= EDGE_EPS {
+        return false;
+    }
+
+    let content_top = coast.view.top() - coast.offset.y;
+    rect.bottom() - content_top <= coast.view.height()
+}
+
+/// Like [`reveal`], but `page`, an area around the widget, goes to its very top
+/// on the next frame instead of just far enough. A shelf around the widget
+/// still scrolls it into view sideways.
+pub fn reveal_page_top(response: &Response, page: Id) {
+    let ctx = &response.ctx;
+    // Apart from the area's own state, which it writes back when it is done.
+    ctx.data_mut(|d| d.insert_temp(page.with(JUMP_TOP), true));
+
+    // Not recorded as revealed: the page would scroll to the widget as well.
+    let in_page_itself = enclosing(ctx).last() == Some(&page);
+    if !in_page_itself {
+        response.scroll_to_me(None);
+    }
+}
+
+fn coast_of(ctx: &Context, area: Id) -> Coast {
+    ctx.data(|d| d.get_temp(area)).unwrap_or_default()
+}
+
 fn revealed_this_pass(ctx: &Context) -> Option<Rect> {
     let (pass, rect) = ctx.data(|d| d.get_temp::<(u64, Rect)>(Id::new(REVEALED)))?;
 
@@ -223,6 +270,13 @@ fn show(
         coast.stop();
     }
 
+    let jump_top = ui.ctx().data_mut(|d| d.remove_temp::<bool>(coast_id.with(JUMP_TOP)));
+    let jump_top = jump_top.unwrap_or(false);
+    if jump_top {
+        coast.offset.y = 0.0;
+        coast.stop();
+    }
+
     let pointer_down = ui.input(|i| i.pointer.primary_down());
     if coast.dragging || (pointer_down && pointer_over(ui, coast.rect)) {
         coast.stop();
@@ -246,21 +300,12 @@ fn show(
         area = area.max_height(height);
     }
 
-    if to_top {
-        if enabled[0] {
-            area = area.horizontal_scroll_offset(0.0);
-        }
-
-        if enabled[1] {
-            area = area.vertical_scroll_offset(0.0);
-        }
-    } else if coasting {
-        if enabled[0] {
-            area = area.horizontal_scroll_offset(coast.offset.x);
-        }
-        if enabled[1] {
-            area = area.vertical_scroll_offset(coast.offset.y);
-        }
+    let [forced_x, forced_y] = forced_offsets(to_top, jump_top, coasting, coast.offset);
+    if let Some(x) = forced_x.filter(|_| enabled[0]) {
+        area = area.horizontal_scroll_offset(x);
+    }
+    if let Some(y) = forced_y.filter(|_| enabled[1]) {
+        area = area.vertical_scroll_offset(y);
     }
 
     let origin = ui.cursor().min;
@@ -301,6 +346,8 @@ fn show(
 
     coast.dragging = dragging;
     coast.rect = hit;
+    coast.view = output.inner_rect;
+    coast.vertical = enabled[1];
     coast.offset = output.state.offset;
     coast.max_offset = vec2(
         (output.content_size.x - output.inner_rect.width()).max(0.0),
@@ -313,6 +360,23 @@ fn show(
     }
 
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
+}
+
+/// What this frame sets the offset to, per axis; `None` leaves it to egui.
+fn forced_offsets(to_top: bool, jump_top: bool, coasting: bool, offset: Vec2) -> [Option<f32>; 2] {
+    if to_top {
+        return [Some(0.0), Some(0.0)];
+    }
+
+    if jump_top {
+        return [None, Some(0.0)];
+    }
+
+    if coasting {
+        return [Some(offset.x), Some(offset.y)];
+    }
+
+    [None, None]
 }
 
 fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {

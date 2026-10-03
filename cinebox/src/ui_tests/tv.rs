@@ -749,6 +749,42 @@ fn up_under_settings_lands_on_the_search_bar() {
     assert!(focused(&harness, "Settings"), "inside the bar the arrows move as usual");
 }
 
+/// A details page: a heading with no stop of its own, the main action under
+/// it, and a long list further down, like Media.
+fn details_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    scroll::vertical(ui, "tv-details", |ui| {
+        ui.add_sized(vec2(600.0, 120.0), egui::Label::new("Heading"));
+        let _ = button::label(ui, &theme, "Watch", Opts::secondary(vec2(160.0, 40.0)));
+        for label in ROWS {
+            let _ = button::label(ui, &theme, label, Opts::secondary(vec2(160.0, 40.0)));
+        }
+    });
+}
+
+#[test]
+fn back_up_to_the_first_row_shows_the_heading_again() {
+    let mut harness = harness(details_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Watch"));
+    for _ in ROWS {
+        press(&mut harness, Key::ArrowDown);
+    }
+    assert!(!on_screen(&harness, "Heading"));
+
+    for _ in ROWS {
+        press(&mut harness, Key::ArrowUp);
+    }
+    settle(&mut harness);
+
+    assert!(focused(&harness, "Watch"));
+    assert!(on_screen(&harness, "Heading"), "the page is back at its top");
+}
+
 fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {
     let screen = Rect::from_min_size(egui::Pos2::ZERO, vec2(640.0, 360.0));
 

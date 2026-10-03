@@ -105,7 +105,7 @@ pub fn own_mark(response: &Response) -> bool {
 /// (inside its scroll area), so gaining focus can scroll it into view.
 pub fn track(response: &Response) {
     if needs_reveal(response) {
-        scroll::reveal(response);
+        reveal(response);
     }
 
     if !directional(&response.ctx) {
@@ -129,6 +129,37 @@ pub fn track(response: &Response) {
         areas: scroll::enclosing(&response.ctx),
     };
     with_state(&response.ctx, |state| state.candidates.push(candidate));
+}
+
+/// The first row of a page also brings back what sits above it there (a title,
+/// a poster), which has no stop of its own to reach it by.
+fn reveal(response: &Response) {
+    let Some(page) = first_row_of(response) else {
+        scroll::reveal(response);
+        return;
+    };
+
+    scroll::reveal_page_top(response, page);
+}
+
+/// The page `response` is on, if no stop on that page lies above it.
+fn first_row_of(response: &Response) -> Option<Id> {
+    let ctx = &response.ctx;
+    if !directional(ctx) {
+        return None;
+    }
+
+    let page = scroll::innermost_page(ctx, &scroll::enclosing(ctx))?;
+    // Stops above it were built earlier this frame.
+    let stop_above = with_state(ctx, |state| {
+        let mut on_page = state.candidates.iter().filter(|stop| stop.areas.contains(&page));
+        on_page.any(|stop| stop.rect.bottom() <= response.rect.top())
+    });
+    if stop_above {
+        return None;
+    }
+
+    scroll::can_show_top(ctx, page, response.rect).then_some(page)
 }
 
 /// The D-pad moves focus after the frame's widgets are built, so by the next
