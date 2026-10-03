@@ -8,6 +8,8 @@ on:
     paths:
       - ".github/workflows/release.yml"
       - "packaging/**"
+      - "android/**"
+      - "scripts/android-build.sh"
   workflow_dispatch:
 
 concurrency:
@@ -488,9 +490,162 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  android:
+    name: Android TV (APK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      NDK_VERSION: 28.2.13676358
+      CARGO_NDK_VERSION: 4.1.2
+    outputs:
+      apk: ${{ steps.meta.outputs.apk }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read workspace metadata
+        id: meta
+        run: |
+          set -euo pipefail
+
+          field() {
+            local value
+            value="$(sed -n "s/^$1 = \"\([^\"]*\)\"/\1/p" Cargo.toml | head -n1)"
+            if [[ -z "$value" ]]; then
+              echo "Cargo.toml is missing $1" >&2
+              exit 1
+            fi
+            printf '%s' "$value"
+          }
+
+          version="$(field version)"
+          msrv="$(field rust-version)"
+          {
+            echo "version=$version"
+            echo "msrv=$msrv"
+            echo "apk=cinebox-$version-android.apk"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            exit 0
+          fi
+
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+      # The runner image ships the SDK and JDK 17; only the NDK version is pinned here.
+      - name: Install Android NDK
+        run: |
+          set -euo pipefail
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          yes | "$sdkmanager" --licenses > /dev/null || true
+          "$sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-36"
+          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Install Rust ${{ steps.meta.outputs.msrv }}
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.meta.outputs.msrv }}
+          targets: aarch64-linux-android,armv7-linux-androideabi
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-targets: false
+          cache-on-failure: true
+
+      - name: Cache Gradle
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: |
+            ~/.gradle/caches
+            ~/.gradle/wrapper
+          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+      - name: Install cargo-ndk
+        run: cargo install --locked cargo-ndk --version "$CARGO_NDK_VERSION"
+
+      # Pull requests from forks get no secrets and build an unsigned APK, which
+      # still shows the build works; a release must be installable.
+      - name: Write signing keystore
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [[ -z "$KEYSTORE_BASE64" ]]; then
+            if [[ "$GITHUB_REF" == refs/tags/* ]]; then
+              echo "ANDROID_KEYSTORE_BASE64 is not set; a release APK must be signed" >&2
+              exit 1
+            fi
+            echo "No keystore: building an unsigned APK"
+            exit 0
+          fi
+
+          keystore="$RUNNER_TEMP/release.jks"
+          printf '%s' "$KEYSTORE_BASE64" | base64 --decode > "$keystore"
+          echo "ANDROID_KEYSTORE_PATH=$keystore" >> "$GITHUB_ENV"
+
+      - name: Build
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: ./scripts/android-build.sh release
+
+      - name: Package APK
+        env:
+          APK: ${{ steps.meta.outputs.apk }}
+        run: |
+          set -euo pipefail
+
+          outputs=android/app/build/outputs/apk/release
+          built="$outputs/app-release.apk"
+          if [[ -z "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+            built="$outputs/app-release-unsigned.apk"
+          fi
+
+          if [[ ! -s "$built" ]]; then
+            echo "Gradle did not produce $built" >&2
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "$built" "dist/$APK"
+
+          # Both ABIs, and nothing else native: build scripts once leaked host libraries in.
+          libs="$(unzip -Z1 "dist/$APK" 'lib/*')"
+          printf '%s\n' "$libs"
+          grep -qx 'lib/arm64-v8a/libcinebox_android.so' <<< "$libs"
+          grep -qx 'lib/armeabi-v7a/libcinebox_android.so' <<< "$libs"
+
+          if [[ -n "${ANDROID_KEYSTORE_PATH:-}" ]]; then
+            apksigner="$(ls -d "$ANDROID_HOME"/build-tools/*/ | sort -V | tail -n1)apksigner"
+            "$apksigner" verify --print-certs "dist/$APK"
+          fi
+
+          (cd dist && sha256sum "$APK" > "$APK.sha256" && cat "$APK.sha256")
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: cinebox-${{ steps.meta.outputs.version }}-android
+          path: |
+            dist/${{ steps.meta.outputs.apk }}
+            dist/${{ steps.meta.outputs.apk }}.sha256
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub Release
-    needs: [windows, linux, flatpak]
+    needs: [windows, linux, flatpak, android]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -516,6 +671,7 @@ jobs:
           APPIMAGE: ${{ needs.linux.outputs.appimage }}
           DEB: ${{ needs.linux.outputs.deb }}
           BUNDLE: ${{ needs.flatpak.outputs.bundle }}
+          APK: ${{ needs.android.outputs.apk }}
         run: |
           set -euo pipefail
           ls -la
@@ -536,6 +692,9 @@ jobs:
           dpkg-deb --field "${DEB}" Package | grep -qx cinebox
           test -s "${BUNDLE}"
           sha256sum --check --strict "${BUNDLE}.sha256"
+          test -s "${APK}"
+          sha256sum --check --strict "${APK}.sha256"
+          unzip -t "${APK}" > /dev/null
 
       - name: Append commit range
         working-directory: dist
@@ -586,6 +745,7 @@ jobs:
             dist/${{ needs.linux.outputs.appimage }}
             dist/${{ needs.linux.outputs.deb }}
             dist/${{ needs.flatpak.outputs.bundle }}
+            dist/${{ needs.android.outputs.apk }}
 
       - name: Publish GitHub Release
         working-directory: dist
@@ -595,6 +755,7 @@ jobs:
           APPIMAGE: ${{ needs.linux.outputs.appimage }}
           DEB: ${{ needs.linux.outputs.deb }}
           BUNDLE: ${{ needs.flatpak.outputs.bundle }}
+          APK: ${{ needs.android.outputs.apk }}
         run: |
           set -euo pipefail
           extras=(--title "Cinebox $TAG" --notes-file RELEASE_NOTES.md)
@@ -607,6 +768,7 @@ jobs:
             "${APPIMAGE}" "${APPIMAGE}.sha256" "${APPIMAGE}.zsync"
             "${DEB}" "${DEB}.sha256"
             "${BUNDLE}" "${BUNDLE}.sha256"
+            "${APK}" "${APK}.sha256"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then

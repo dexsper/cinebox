@@ -34,7 +34,7 @@ cd "$repo"
 cargo ndk \
   -t arm64-v8a -t armeabi-v7a \
   --platform 26 \
-  build -p cinebox-android --release
+  build -p cinebox-android --release --locked
 
 # Not cargo-ndk's -o: it also copies host cdylibs that build scripts depend on
 # (sevenz-rust2), which would ship x86-64 libraries inside the ARM folders.
