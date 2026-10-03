@@ -620,6 +620,7 @@ mod tests {
             pending_add: None,
             view_key: None,
             visible: Vec::new(),
+            rows: crate::widgets::lazy_rows::LazyRows::default(),
         }
     }
 

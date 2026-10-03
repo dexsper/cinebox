@@ -46,6 +46,7 @@ pub(super) fn list_pane(
         }
         TorrentHits::Ready(hits) => {
             let visible = &state.visible;
+            let rows = &mut state.rows;
 
             ui.label(
                 RichText::new(format!("{} / {}", visible.len(), hits.len()))
@@ -68,9 +69,13 @@ pub(super) fn list_pane(
 
                 Frame::new().inner_margin(ring_room).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
-                    for &index in visible {
+                    let focused = ui.memory(|mem| mem.focused());
+                    let keep = visible.iter().position(|&index| Some(hit_id(ui, index)) == focused);
+
+                    rows.show(ui, visible.len(), keep, |ui, row| {
+                        let index = visible[row];
                         let Some(hit) = hits.get(index) else {
-                            continue;
+                            return;
                         };
 
                         hit_row(
@@ -82,7 +87,7 @@ pub(super) fn list_pane(
                             pick,
                             index,
                         );
-                    }
+                    });
                 });
 
                 ui.add_space(LIST_BOTTOM_PAD);
@@ -331,7 +336,7 @@ fn hit_row(
     pick: &mut Option<usize>,
     index: usize,
 ) {
-    let id = ui.id().with(("torrent-hit", index));
+    let id = hit_id(ui, index);
     let shown = Frame::new()
         .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
@@ -400,6 +405,10 @@ fn hit_row(
     if response.clicked() && !hit.magnet.is_empty() {
         *pick = Some(index);
     }
+}
+
+fn hit_id(ui: &Ui, index: usize) -> egui::Id {
+    ui.id().with(("torrent-hit", index))
 }
 
 /// Same ring as the poster hover, with a tighter gap to the row.

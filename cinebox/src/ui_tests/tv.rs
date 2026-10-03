@@ -21,6 +21,7 @@ use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::search::{self, SearchBar};
+use crate::widgets::lazy_rows::LazyRows;
 use crate::widgets::{field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
@@ -187,6 +188,10 @@ struct TvState {
     value: String,
     search: SearchBar,
     searched: Option<NavAction>,
+    rows: LazyRows,
+    focused_row: Option<usize>,
+    /// Rows the lazy list built in the last frame.
+    built: usize,
 }
 
 impl OnTv for TvState {
@@ -208,6 +213,9 @@ fn harness_on(device: TvDevice, add: fn(&mut egui::Ui, &mut TvState)) -> Harness
         value: String::new(),
         search: SearchBar::default(),
         searched: None,
+        rows: LazyRows::default(),
+        focused_row: None,
+        built: 0,
     };
 
     let mut harness = Harness::builder()
@@ -621,6 +629,60 @@ fn long_list_ui(ui: &mut egui::Ui, state: &mut TvState) {
             let _ = button::label(ui, &theme, label, Opts::secondary(vec2(160.0, 40.0)));
         }
     });
+}
+
+const LAZY_ROWS: usize = 120;
+
+/// As long as a torrent search, with rows of two heights, built lazily.
+fn lazy_list_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    if state.theme.is_none() {
+        return;
+    }
+
+    state.built = 0;
+    let keep = state.focused_row;
+    let mut rows = std::mem::take(&mut state.rows);
+    scroll::vertical(ui, "tv-lazy", |ui| {
+        rows.show(ui, LAZY_ROWS, keep, |ui, row| {
+            let height = if row % 3 == 0 { 64.0 } else { 40.0 };
+            let (rect, _) = ui.allocate_exact_size(vec2(160.0, height), egui::Sense::hover());
+            let response = button::click_rect(ui, ui.id().with(("tv-lazy-row", row)), rect);
+            let label = lazy_label(row);
+            response.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, true, &label));
+            if response.has_focus() {
+                state.focused_row = Some(row);
+            }
+            state.built += 1;
+        });
+    });
+    state.rows = rows;
+}
+
+fn lazy_label(row: usize) -> String {
+    format!("Item {}", row + 1)
+}
+
+#[test]
+fn a_lazy_list_walks_down_and_back_up() {
+    let mut harness = harness(lazy_list_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    for row in 0..40 {
+        let label = lazy_label(row);
+        settle(&mut harness);
+        assert!(focused(&harness, &label), "Down should land on {label}");
+        assert!(on_screen(&harness, &label), "{label} should be scrolled into view");
+        press(&mut harness, Key::ArrowDown);
+    }
+    assert!(harness.state().built < LAZY_ROWS / 3, "only rows near the view are built");
+
+    for row in (0..40).rev() {
+        press(&mut harness, Key::ArrowUp);
+        settle(&mut harness);
+        let label = lazy_label(row);
+        assert!(focused(&harness, &label), "Up should land on {label}");
+        assert!(on_screen(&harness, &label), "{label} should be scrolled into view");
+    }
 }
 
 fn shelves_ui(ui: &mut egui::Ui, state: &mut TvState) {

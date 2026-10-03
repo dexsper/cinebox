@@ -8,6 +8,7 @@ pub mod field;
 pub mod flyout;
 pub mod focus;
 pub mod intro;
+pub mod lazy_rows;
 pub mod lists;
 pub mod multiselect;
 pub mod overscan;
