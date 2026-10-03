@@ -7,6 +7,7 @@ on:
   pull_request:
     paths:
       - ".github/workflows/release.yml"
+      - ".github/actions/**"
       - "packaging/**"
       - "android/**"
       - "scripts/android-build.sh"
@@ -497,9 +498,6 @@ jobs:
     defaults:
       run:
         shell: bash
-    env:
-      NDK_VERSION: 28.2.13676358
-      CARGO_NDK_VERSION: 4.1.2
     outputs:
       apk: ${{ steps.meta.outputs.apk }}
     steps:
@@ -540,38 +538,10 @@ jobs:
             exit 1
           fi
 
-      # The runner image ships the SDK and JDK 17; only the NDK version is pinned here.
-      - name: Install Android NDK
-        run: |
-          set -euo pipefail
-          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
-          sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
-          yes | "$sdkmanager" --licenses > /dev/null || true
-          "$sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-36"
-          echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
-
-      - name: Install Rust ${{ steps.meta.outputs.msrv }}
-        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+      - name: Set up the Android build
+        uses: ./.github/actions/setup-android
         with:
-          toolchain: ${{ steps.meta.outputs.msrv }}
-          targets: aarch64-linux-android,armv7-linux-androideabi
-
-      - name: Cache cargo registry
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          cache-targets: false
-          cache-on-failure: true
-
-      - name: Cache Gradle
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: |
-            ~/.gradle/caches
-            ~/.gradle/wrapper
-          key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
-
-      - name: Install cargo-ndk
-        run: cargo install --locked cargo-ndk --version "$CARGO_NDK_VERSION"
+          rust-version: ${{ steps.meta.outputs.msrv }}
 
       # Pull requests from forks get no secrets and build an unsigned APK, which
       # still shows the build works; a release must be installable.

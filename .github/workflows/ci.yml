@@ -1,0 +1,120 @@
+name: CI
+
+# Every pull request and push to master: tests on both desktop platforms and an
+# APK build. Packaging (zip, deb, AppImage, Flatpak, signed APK) is release.yml.
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  linux:
+    name: Test (Linux)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install system packages
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends pkg-config libmpv-dev
+
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read MSRV
+        id: meta
+        run: echo "msrv=$(sed -n 's/^rust-version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust ${{ steps.meta.outputs.msrv }}
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.meta.outputs.msrv }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  windows:
+    name: Test (Windows)
+    runs-on: windows-latest
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read MSRV
+        id: meta
+        run: echo "msrv=$(sed -n 's/^rust-version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Install Rust ${{ steps.meta.outputs.msrv }}
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.meta.outputs.msrv }}
+
+      - name: Cache bundled libmpv
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: crates/cinebox-player/mpv-src
+          key: libmpv-${{ runner.os }}-${{ hashFiles('crates/cinebox-player/build.rs') }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          cache-on-failure: true
+
+      - name: Test
+        run: cargo test --workspace --locked
+
+  android:
+    name: Build (Android APK)
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read MSRV
+        id: meta
+        run: echo "msrv=$(sed -n 's/^rust-version = "\([^"]*\)"/\1/p' Cargo.toml | head -n1)" >> "$GITHUB_OUTPUT"
+
+      - name: Set up the Android build
+        uses: ./.github/actions/setup-android
+        with:
+          rust-version: ${{ steps.meta.outputs.msrv }}
+
+      # Debug-signed, so it needs no secrets and runs for forks too.
+      - name: Build
+        run: ./scripts/android-build.sh debug
