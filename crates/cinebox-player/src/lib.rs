@@ -9,7 +9,7 @@ mod mpv;
 mod player;
 
 pub use error::Error;
-pub use fit::{Area, PixelRect, fit_video};
+pub use fit::{Area, PixelRect, Placement, fit_video, place_in};
 pub use layout::{ClickZone, SEEK_SECS, click_zone, format_clock};
 #[cfg(not(target_os = "android"))]
 pub use mpv::{GlLoader, MpvPlayer, NativeDisplay};

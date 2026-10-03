@@ -3,7 +3,7 @@
 use cinebox_core::VideoScale;
 
 use crate::error::Error;
-use crate::fit::PixelRect;
+use crate::fit::Placement;
 
 /// One stream to play. Never log `headers`: they may carry a password.
 #[derive(Clone, Copy)]
@@ -24,9 +24,9 @@ pub struct Media<'a> {
 pub enum VideoOutput {
     /// The app draws every frame into its GL framebuffer through [`Player::render`].
     Rendered,
-    /// The platform shows the picture in a layer below the window, at the rect
-    /// given to [`Player::place_video`]. The app fits the picture itself
-    /// ([`crate::fit_video`]) and keeps the window clear over it.
+    /// The platform shows the picture in a layer below the window, where
+    /// [`Player::place_video`] puts it. The app fits the picture itself
+    /// ([`crate::fit_video`], [`crate::place_in`]) and keeps the window clear over it.
     Underlay,
 }
 
@@ -188,6 +188,6 @@ pub trait Player: Send + Sync {
         Ok(())
     }
 
-    /// [`VideoOutput::Underlay`]: where the picture goes, in window pixels.
-    fn place_video(&self, _rect: PixelRect) {}
+    /// [`VideoOutput::Underlay`]: where the picture goes.
+    fn place_video(&self, _placement: Placement) {}
 }

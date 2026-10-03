@@ -18,6 +18,7 @@ use std::time::{Duration, Instant};
 use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs, VideoScale};
 use cinebox_player::{
     Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video,
+    place_in,
 };
 use egui::{Align, Align2, Color32, Rect, RichText, Sense, Ui, pos2};
 use egui_async::Bind;
@@ -1425,7 +1426,7 @@ fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, theme: &Theme, frame
 
     let Some(size) = frame.size else {
         ui.painter().rect_filled(rect, 0.0, theme.video_bg);
-        player.place_video(area.to_pixels(pixels_per_point));
+        player.place_video(place_in(area, area, pixels_per_point));
         return;
     };
 
@@ -1434,7 +1435,7 @@ fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, theme: &Theme, frame
         ui.painter().rect_filled(bar, 0.0, theme.video_bg);
     }
 
-    player.place_video(picture.to_pixels(pixels_per_point));
+    player.place_video(place_in(area, picture, pixels_per_point));
 }
 
 fn to_area(rect: Rect) -> Area {

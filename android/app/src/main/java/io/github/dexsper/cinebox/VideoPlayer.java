@@ -68,6 +68,7 @@ final class VideoPlayer {
     private ExoPlayer player;
     private int pendingAudio = NO_CHOICE;
     private int pendingSubtitle = NO_CHOICE;
+    private int scalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
 
     private volatile long positionMs;
     private volatile long durationMs;
@@ -179,13 +180,20 @@ final class VideoPlayer {
         });
     }
 
-    /** Where the picture goes, in window pixels; it may reach past the window. */
-    void place(int x, int y, int width, int height) {
+    /** Where the picture goes, in window pixels; {@code crop} fills that rect by cropping the picture. */
+    void place(int x, int y, int width, int height, boolean crop) {
         main.post(() -> {
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
             params.leftMargin = x;
             params.topMargin = y;
             view.setLayoutParams(params);
+
+            scalingMode = crop
+                    ? C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
+                    : C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
+            if (player != null) {
+                player.setVideoScalingMode(scalingMode);
+            }
         });
     }
 
@@ -267,6 +275,7 @@ final class VideoPlayer {
                 .build();
 
         player.setVideoSurfaceView(view);
+        player.setVideoScalingMode(scalingMode);
         player.addListener(new Listener());
         player.addAnalyticsListener(new Decoders());
 
