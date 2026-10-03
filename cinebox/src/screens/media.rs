@@ -409,17 +409,26 @@ fn ready(
                 ui.add_space(gap_after);
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
-                    if watch_button(ui, theme) {
+                    let watch = watch_button(ui, theme);
+                    if watch.clicked() {
                         action = Some(NavAction::WatchTorrents);
                     }
-                    if has_trailers && trailers_button(ui, theme) {
-                        hero_out.open_trailers = true;
+                    let mut members = vec![watch.id];
+
+                    if has_trailers {
+                        let trailers = trailers_button(ui, theme);
+                        hero_out.open_trailers = trailers.clicked();
+                        members.push(trailers.id);
                     }
 
                     let mark = svc.library_mark(details.kind, details.id);
                     let lists = lists_button(ui, theme, mark);
                     hero_out.toggle_lists = lists.clicked();
                     hero_out.lists_button = Some(lists.rect);
+                    members.push(lists.id);
+
+                    // Coming from the bar above or the page below, the D-pad lands on Watch.
+                    focus::group(ui.ctx(), members, watch.id);
                 });
             },
         );
@@ -658,7 +667,7 @@ fn hero(
     });
 }
 
-fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
+fn watch_button(ui: &mut Ui, theme: &Theme) -> egui::Response {
     crate::widgets::button::add_named(
         ui,
         theme,
@@ -676,10 +685,9 @@ fn watch_button(ui: &mut Ui, theme: &Theme) -> bool {
         crate::widgets::button::Opts::primary(WATCH_BTN_SIZE),
         Some(t!("media.watch").as_ref()),
     )
-    .clicked()
 }
 
-fn trailers_button(ui: &mut Ui, theme: &Theme) -> bool {
+fn trailers_button(ui: &mut Ui, theme: &Theme) -> egui::Response {
     let label = t!("media.trailers");
     let button = ExpandingIcon {
         id_salt: "media-trailers",
@@ -690,7 +698,7 @@ fn trailers_button(ui: &mut Ui, theme: &Theme) -> bool {
         selected: false,
     };
 
-    crate::widgets::button::expanding_icon(ui, theme, button).clicked()
+    crate::widgets::button::expanding_icon(ui, theme, button)
 }
 
 fn lists_button(ui: &mut Ui, theme: &Theme, mark: LibraryMark) -> egui::Response {
