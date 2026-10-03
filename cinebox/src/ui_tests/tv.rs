@@ -11,7 +11,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::nav::NavAction;
+use crate::nav::{NavAction, RailEntry, Screen};
 use crate::platform::{
     self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest,
     TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
@@ -21,7 +21,7 @@ use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::search::{self, SearchBar};
-use crate::widgets::{field, focus, scroll};
+use crate::widgets::{field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
 #[derive(Default)]
@@ -783,6 +783,43 @@ fn back_up_to_the_first_row_shows_the_heading_again() {
 
     assert!(focused(&harness, "Watch"));
     assert!(on_screen(&harness, "Heading"), "the page is back at its top");
+}
+
+/// The side menu on Movies beside a page with one tile.
+fn rail_and_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let body = Rect::from_min_max(pos2(0.0, 40.0), pos2(640.0, 360.0));
+    let movies = RailEntry::Section(cinebox_core::Section::Movies);
+    let _ = rail::show(ui, body, &theme, Some(movies));
+
+    let tile = Rect::from_min_size(pos2(260.0, 120.0), vec2(120.0, 80.0));
+    ui.put(tile, |ui: &mut egui::Ui| {
+        button::add(ui, &theme, "Tile", Opts::secondary(vec2(120.0, 80.0)))
+    });
+
+    let page = Rect::from_min_max(pos2(200.0, 40.0), pos2(640.0, 360.0));
+    focus::set_content(ui.ctx(), page);
+}
+
+#[test]
+fn back_from_a_menu_page_goes_to_the_menu_before_leaving() {
+    let mut harness = harness(rail_and_page_ui);
+    let movies = Screen::Section {
+        section: cinebox_core::Section::Movies,
+    };
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Tile"));
+
+    let ctx = harness.ctx.clone();
+    assert!(crate::app::back_to_rail(&ctx, movies), "the first Back stays in the app");
+    settle(&mut harness);
+    assert!(rail::focused(&ctx));
+
+    assert!(!crate::app::back_to_rail(&ctx, movies), "from the menu Back goes on");
 }
 
 fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {

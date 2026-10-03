@@ -273,6 +273,10 @@ impl App {
             return;
         }
 
+        if back_to_rail(ctx, self.nav.current()) {
+            return;
+        }
+
         let system_back = platform::profile(ctx).has_system_back();
         if self.nav.is_root() && system_back {
             ctx.send_viewport_cmd(egui::ViewportCommand::Close);
@@ -614,6 +618,29 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
         }
         Screen::Player { .. } => app.player.ui(ui, &mut app.services, theme),
     }
+}
+
+/// On a page opened from the side menu, Back first returns the D-pad to the
+/// menu's current item, as Android TV asks of apps with side navigation.
+pub(crate) fn back_to_rail(ctx: &egui::Context, screen: Screen) -> bool {
+    if !platform::profile(ctx).is_directional() {
+        return false;
+    }
+
+    if !screen.is_rail_destination() {
+        return false;
+    }
+
+    if rail::focused(ctx) {
+        return false;
+    }
+
+    let Some(entry) = screen.rail_entry() else {
+        return false;
+    };
+
+    rail::focus(ctx, entry);
+    true
 }
 
 fn video_underlay(svc: &Services) -> bool {

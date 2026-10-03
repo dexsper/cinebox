@@ -159,12 +159,21 @@ fn item_id(index: usize) -> Id {
 }
 
 /// The D-pad is on the rail: it opens with labels, as under the pointer.
-fn focused(ctx: &egui::Context) -> bool {
+#[must_use]
+pub fn focused(ctx: &egui::Context) -> bool {
     let Some(id) = ctx.memory(|mem| mem.focused()) else {
         return false;
     };
 
     (0..ENTRIES.len()).any(|index| item_id(index) == id)
+}
+
+pub fn focus(ctx: &egui::Context, entry: RailEntry) {
+    let Some(index) = ENTRIES.iter().position(|item| *item == entry) else {
+        return;
+    };
+
+    ctx.memory_mut(|mem| mem.request_focus(item_id(index)));
 }
 
 fn item_ui(

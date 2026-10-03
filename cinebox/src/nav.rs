@@ -40,6 +40,12 @@ impl Screen {
         )
     }
 
+    /// Opened from the side menu itself rather than from another screen.
+    #[must_use]
+    pub const fn is_rail_destination(self) -> bool {
+        matches!(self, Self::Home | Self::Section { .. } | Self::Library)
+    }
+
     /// Rail entry highlighted while this screen is shown.
     #[must_use]
     pub const fn rail_entry(self) -> Option<RailEntry> {
