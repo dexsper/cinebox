@@ -1,16 +1,16 @@
-![cinebox - кинотеатр на рабочем столе](docs/cinebox.png)
+![cinebox - кинотеатр на компьютере и телевизоре](docs/cinebox.png)
 
 [English](README.md) | **Русский**
 
 [Что и зачем](#что-это-и-зачем) | [Возможности](#возможности) | [Как это работает](#как-это-работает) | [Установка](#установка) | [Архитектура](#архитектура) | [Планы](#планы) | [Как помочь](#как-помочь) | [Отказ от ответственности](#отказ-от-ответственности)
 
-![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
+![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Android TV 8.0+](https://img.shields.io/badge/Android_TV-8.0+-3ddc84?style=flat-square&logo=android&logoColor=white) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
 
 ![Cinebox русский интерфейс](docs/screen-ru.png)
 
 ## Что это и зачем
 
-Cinebox - нативное приложение для Windows и Linux. Каталог фильмов и сериалов, поиск раздач и просмотр в одном окне, без браузера и без отдельного плеера.
+Cinebox - нативное приложение для Windows, Linux и Android TV. Каталог фильмов и сериалов, поиск раздач и просмотр в одном окне, без браузера и без отдельного плеера.
 
 По стеку это то же самое, к чему все привыкли в **LAMPA MX**: TMDB, Jackett или Prowlarr, TorrServer. Но LAMPA - сайт. Она открывается в браузере или в WebView, встроенный плеер мало какие кодеки умеет и часто тормозит, поэтому почти всегда поток уходит в VLC или MPC-HC. Плюс сам браузер отдельно ест память.
 
@@ -34,6 +34,7 @@ Cinebox - нативное приложение для Windows и Linux. Кат�
 
 - Встроенный libmpv: MKV, HEVC и HDR без внешнего плеера
 - Аппаратное декодирование видео на видеокарте
+- На Android TV - ExoPlayer: 4K, HDR10 и Dolby Vision на аппаратном декодере
 - Поиск раздач в Jackett или Prowlarr с фильтрами по качеству, HDR, озвучке и языку
 - Стрим через TorrServer с прелоадом и автопереходом к следующему файлу
 - Дорожки и субтитры, задержка субтитров, скорость, масштаб, нормализация звука
@@ -49,6 +50,12 @@ Cinebox - нативное приложение для Windows и Linux. Кат�
 - Встроенный DNS-over-HTTPS для обхода DNS-блокировок
 - Проверка подключения к TMDB, парсеру и TorrServer, спидтест
 
+**Android TV**
+
+- Управление с пульта: крестовина, медиакнопки и "Назад", как принято на Android TV
+- Голосовой поиск и ввод текста с пульта в телефоне
+- Отступ от краёв для телевизоров, которые обрезают картинку, настраивается в мастере первого запуска
+
 ## Как это работает
 
 ```mermaid
@@ -56,9 +63,9 @@ flowchart LR
   UI[Cinebox] --> TMDB[TMDB]
   UI --> Parser[Jackett / Prowlarr]
   Parser --> TS[TorrServer]
-  TS --> MPV[libmpv]
+  TS --> Player[libmpv / ExoPlayer]
   UI --> YT[Трейлеры YouTube]
-  YT --> MPV
+  YT --> Player
   TMDB -.-> DoH[DoH если DNS не пускает]
   Parser -.-> DoH
 ```
@@ -67,10 +74,10 @@ flowchart LR
 
 1. **Каталог.** Cinebox ходит в TMDB по вашему ключу: главная, разделы, подбор, поиск, карточки, сезоны, картинки. Ответы и постеры складываются в SQLite, чтобы при плохой сети не грузить все заново.
 2. **Раздачи.** По кнопке "Смотреть" название уходит в Jackett или Prowlarr. Из имен релизов вытаскиваются качество, HDR, озвучка, серии, и уже по этому фильтруется список.
-3. **Стрим.** Magnet отдается в TorrServer. Можно подождать прелоад, потом HTTP-поток открывается в libmpv. Браузер в этой схеме не участвует.
+3. **Стрим.** Magnet отдается в TorrServer. Можно подождать прелоад, потом поток открывается в плеере. Браузер в этой схеме не участвует.
 4. **История.** Позиция пишется в локальный SQLite по фильму или серии, не по торренту. Если в настройках включено "Вести таймкод на сервере", то же время уходит в TorrServer. При открытии локальная позиция важнее серверной.
 5. **Настройки плеера.** Откроете ту же раздачу снова - вернутся выбранные звуковая дорожка, субтитры, скорость и масштаб картинки. Размер и сдвиг субтитров действуют только в текущем просмотре. Громкость общая для приложения.
-6. **Трейлеры.** С TMDB приходит ключ ролика, Cinebox достает подписанные ссылки YouTube и открывает их в том же mpv.
+6. **Трейлеры.** С TMDB приходит ключ ролика, Cinebox достает подписанные ссылки YouTube и открывает их в том же плеере.
 7. **Сеть.** TMDB и парсер могут идти через системный прокси. Если этот путь не проходит и включен обход DNS, хост резолвится по DoH и запрос уходит напрямую. TorrServer без прокси.
 
 
@@ -86,6 +93,7 @@ flowchart LR
   - **AppImage** (Debian 12, Ubuntu 24.04, Fedora 37 или новее): `chmod +x` и запустить. libmpv внутри. Ярлык в меню и обновления дают [Gear Lever](https://flathub.org/apps/it.mijorus.gearlever) или AppImageLauncher, как для любого AppImage.
 
   Вне Flatpak настройки в `~/.config/cinebox`, база в `~/.local/share/cinebox`.
+- **Android TV** (Android 8.0+, ARM): поставьте `cinebox-*-android.apk`.
 
 Сам Cinebox не ставит TMDB, парсер и TorrServer, их нужно поднять отдельно:
 
@@ -96,6 +104,7 @@ flowchart LR
 | [Jackett](https://github.com/Jackett/Jackett) или [Prowlarr](https://github.com/Prowlarr/Prowlarr) | Парсер            | `http://127.0.0.1:9117` |
 | [TorrServer](https://github.com/YouROK/TorrServer)                                                 | TorrServer        | `http://127.0.0.1:8090` |
 
+На Android TV `127.0.0.1` подходит только для того, что запущено на самом телевизоре. Для сервера на другом компьютере укажите его адрес в локальной сети.
 
 > [!IMPORTANT]
 > В TMDB нужен короткий API-ключ (32 шестнадцатеричных символа). JWT-токен сюда не подходит.
@@ -128,6 +137,14 @@ flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --f
   .flatpak-builder/build-dir packaging/flatpak/io.github.dexsper.cinebox.yml
 ```
 
+APK для Android TV: JDK 17+, Android SDK с NDK r28 (`ANDROID_HOME`), Rust-таргеты `aarch64-linux-android` и `armv7-linux-androideabi` и `cargo install cargo-ndk --locked`.
+
+```bash
+./scripts/android-build.sh debug
+```
+
+Без `debug` собирается релизный APK. Он подписывается, если заданы `ANDROID_KEYSTORE_PATH`, `ANDROID_KEYSTORE_PASSWORD`, `ANDROID_KEY_ALIAS` и `ANDROID_KEY_PASSWORD`.
+
 
 
 ## Архитектура
@@ -143,10 +160,11 @@ flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --f
 | `cinebox-net`        | HTTP: прокси, DoH, повторы                      |
 | `cinebox-indexer`    | Jackett и Prowlarr, разбор названий раздач, озвучки, фильтры |
 | `cinebox-torrserver` | Клиент TorrServer, разбор файлов/серий          |
-| `cinebox-player`     | libmpv через OpenGL                             |
-| `cinebox-youtube`    | YouTube InnerTube и расшифровка подписи для libmpv |
+| `cinebox-player`     | libmpv через OpenGL; ExoPlayer на Android TV    |
+| `cinebox-youtube`    | YouTube InnerTube и расшифровка подписи для плеера |
 | `cinebox-skip`       | Данные о сегментах для пропуска (TheIntroDB; расширяемо) |
 | `cinebox-typograf`   | Типографика заголовков (ru / en-US)             |
+| `cinebox-android`    | Точка входа Android TV; Java-часть (ExoPlayer, MediaSession, голосовой ввод, клавиатура) лежит в `android/` |
 
 ## Планы
 
@@ -156,6 +174,7 @@ flatpak run org.flatpak.Builder --user --install --install-deps-from=flathub --f
 - [x] Категории на главной и свои списки (Избранное, Просмотрено)
 - [x] Мастер первого запуска
 - [x] Сборка под Linux
+- [x] Приложение для Android TV
 - [ ] Синхронизация воспроизведения между клиентами
 
 

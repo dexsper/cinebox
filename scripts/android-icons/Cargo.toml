@@ -1,0 +1,14 @@
+# Regenerates the APK launcher icons and the Android TV banner from
+# cinebox/assets/icon.svg:  cargo run --manifest-path scripts/android-icons/Cargo.toml
+[package]
+name = "android-icons"
+version = "0.0.0"
+edition = "2024"
+publish = false
+
+[dependencies]
+anyhow = "1"
+resvg = "0.48.1"
+
+# Not a member of the Cinebox workspace.
+[workspace]

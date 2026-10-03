@@ -6,6 +6,7 @@ use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 
 use crate::errors::UserError;
+use crate::widgets::lazy_rows::LazyRows;
 
 #[derive(Debug, Clone)]
 pub struct MovieBits {
@@ -182,6 +183,7 @@ pub struct TorrentState {
     pub view_key: Option<(SortMode, TorrentFilter)>,
     /// Indices into sorted `hits` that pass the current filter.
     pub visible: Vec<usize>,
+    pub rows: LazyRows,
 }
 
 impl TorrentState {
@@ -203,6 +205,7 @@ impl TorrentState {
             pending_add: None,
             view_key: None,
             visible: Vec::new(),
+            rows: LazyRows::default(),
         }
     }
 
@@ -253,10 +256,11 @@ impl TorrentState {
         }
 
         sort_hits(hits, self.kind, self.sort);
-
         self.visible = filtered_hits(hits, &self.filter)
             .map(|(index, _)| index)
             .collect();
+
         self.view_key = Some((self.sort, self.filter.clone()));
+        self.rows.reset();
     }
 }

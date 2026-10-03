@@ -10,9 +10,9 @@ homepage.workspace = true
 description = "Unified outgoing-HTTP layer: proxy toggle, DoH bypass resolver, resilient send"
 
 [dependencies]
-hickory-resolver = { version = "0.26.2", features = ["https-aws-lc-rs", "webpki-roots", "rustls-platform-verifier"] }
+hickory-resolver = { version = "0.26.2", features = ["https-aws-lc-rs", "webpki-roots"] }
 reqwest.workspace = true
-tokio = { version = "1", features = ["net", "time"] }
+tokio = { version = "1", features = ["net", "rt", "time"] }
 tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]

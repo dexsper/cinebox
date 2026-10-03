@@ -2,7 +2,7 @@
 
 use cinebox_core::SecretString;
 use egui::{
-    Align, Atom, CornerRadius, CursorIcon, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
+    Align, Atom, CornerRadius, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
     pos2, vec2,
 };
 use egui_async::Bind;
@@ -16,6 +16,7 @@ use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
 use crate::errors::UserError;
 use crate::jobs::JobError;
+use crate::platform::TextPurpose;
 use crate::theme::Theme;
 use crate::widgets::field;
 
@@ -29,6 +30,20 @@ const ROW_PAD_Y: f32 = 4.0;
 const ACTION_H: f32 = 36.0;
 
 pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
+    let title = crate::i18n::tr(cat.title);
+    let subtitle = crate::i18n::tr(cat.subtitle);
+
+    nav_row(ui, theme, cat.icon, &title, &subtitle, cat.id.as_key())
+}
+
+pub fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
+    let title = t!("settings.run_wizard");
+    let subtitle = t!("settings.run_wizard_hint");
+
+    nav_row(ui, theme, ICON_AUTO_FIX_HIGH, &title, &subtitle, "run-wizard")
+}
+
+fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle: &str, id: &str) -> bool {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), CATEGORY_H), Sense::hover());
     if ui.rect_contains_pointer(rect) {
         ui.painter()
@@ -43,20 +58,17 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     );
 
     row.style_mut().interaction.selectable_labels = false;
-    icon_well(&mut row, theme, cat);
-
-    let title = crate::i18n::tr(cat.title);
-    let subtitle = crate::i18n::tr(cat.subtitle);
+    icon_well(&mut row, theme, icon);
 
     row.add_space(12.0);
     row.vertical(|ui| {
         ui.label(
-            RichText::new(title.as_ref())
+            RichText::new(title)
                 .font(theme.title_font(theme.text_section))
                 .color(theme.title),
         );
         ui.label(
-            RichText::new(subtitle.as_ref())
+            RichText::new(subtitle)
                 .size(theme.text_small)
                 .color(theme.muted),
         );
@@ -72,10 +84,10 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, cat.id.as_key()).clicked()
+    hit_on_top(ui, rect, id).clicked()
 }
 
-fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
+fn icon_well(ui: &mut Ui, theme: &Theme, icon: MaterialIcon) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(ICON_WELL), Sense::hover());
     ui.painter()
         .rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
@@ -83,7 +95,7 @@ fn icon_well(ui: &mut Ui, theme: &Theme, cat: &Category) {
     ui.new_child(UiBuilder::new().max_rect(rect))
         .centered_and_justified(|ui| {
             ui.label(
-                cat.icon
+                icon
                     .rich_text()
                     .size(theme.text_icon_lg)
                     .color(theme.title),
@@ -242,10 +254,11 @@ pub fn text_row(
     hint: Option<&str>,
     placeholder: &str,
     value: &str,
+    purpose: TextPurpose,
 ) -> Option<String> {
     field_label(ui, theme, label, hint);
     let id = ui.make_persistent_id(("settings-text", label));
-    field::committed_edit(ui, theme, id, value, placeholder, false)
+    field::committed_edit(ui, theme, id, value, placeholder, purpose)
 }
 
 /// Returns the raw draft once it commits (see [`field::committed_edit`]).
@@ -258,7 +271,7 @@ pub fn secret_row(
 ) -> Option<String> {
     field_label(ui, theme, label, hint);
     let id = ui.make_persistent_id(("settings-secret", label));
-    field::committed_edit(ui, theme, id, secret.expose(), "", true)
+    field::committed_edit(ui, theme, id, secret.expose(), "", TextPurpose::Secret)
 }
 
 /// Inline validation message under a field.
@@ -385,12 +398,6 @@ pub fn speed_test_row<F, Fut>(
     }
 }
 
-pub fn run_wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
-    ui.add_space(4.0);
-    let label = t!("settings.run_wizard");
-    action_button(ui, theme, ICON_AUTO_FIX_HIGH, &label, false)
-}
-
 pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
     action_button(ui, theme, ICON_DELETE_SWEEP, t!("settings.clear_cache").as_ref(), false)
@@ -461,8 +468,7 @@ fn action_fg(theme: &Theme, primary: bool) -> egui::Color32 {
 }
 
 fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {
-    ui.interact(rect, ui.id().with(id), Sense::click())
-        .on_hover_cursor(CursorIcon::PointingHand)
+    crate::widgets::button::pointing(ui.interact(rect, ui.id().with(id), Sense::click()))
 }
 
 fn show_probe(ui: &mut Ui, bind: &mut Bind<String, JobError>, theme: &Theme) {

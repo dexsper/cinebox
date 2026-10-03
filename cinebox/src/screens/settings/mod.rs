@@ -21,8 +21,8 @@ use crate::widgets::scroll;
 use catalog::{CategoryId, Check, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
     Labeled, category_row, clear_cache_row, drawer_title, error_line, field_warning,
-    multiselect_chip_row, nav_header, probe_row, run_wizard_row, secret_row, select_row, select_row_with,
-    speed_test_row, text_row, toggle_row, visibility_chip_row,
+    multiselect_chip_row, nav_header, probe_row, secret_row, select_row, select_row_with,
+    speed_test_row, text_row, toggle_row, visibility_chip_row, wizard_row,
 };
 use speed::SpeedMeter;
 
@@ -128,6 +128,10 @@ impl SettingsScreen {
 
         scroll::vertical(ui, "settings-categories", |ui| {
             ui.spacing_mut().item_spacing.y = 4.0;
+            if wizard_row(ui, theme) {
+                self.wizard_requested = true;
+            }
+
             for cat in catalog() {
                 if category_row(ui, theme, cat) {
                     self.category = Some(cat.id);
@@ -214,6 +218,7 @@ impl SettingsScreen {
                     hint_text.as_deref(),
                     placeholder,
                     &value,
+                    kind.text_purpose(),
                 );
                 show_check(ui, theme, *check, &value);
 
@@ -285,6 +290,13 @@ impl SettingsScreen {
                     which,
                 )
             }
+            Field::PlayerOnly { needs, field } => {
+                if !needs(&svc.player_features()) {
+                    return false;
+                }
+
+                self.paint_field(ui, svc, theme, field)
+            }
             Field::ProbeParser => {
                 let parser = crate::jobs::ParserCtx::from(&svc.settings);
                 let label = t!("settings.test_parser");
@@ -317,12 +329,6 @@ impl SettingsScreen {
                 speed_test_row(ui, theme, &self.speed_meter, &mut self.speed, move || {
                     speed::run(torr, meter, ctx)
                 });
-                false
-            }
-            Field::RunWizard => {
-                if run_wizard_row(ui, theme) {
-                    self.wizard_requested = true;
-                }
                 false
             }
             Field::ClearCache => {

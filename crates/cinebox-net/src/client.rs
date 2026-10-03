@@ -1,6 +1,8 @@
 //! Client cache and resilient send: system proxy first, direct DoH second.
 
 use std::collections::HashMap;
+use std::error::Error;
+use std::fmt;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::Duration;
 
@@ -172,10 +174,32 @@ where
         return Err(error);
     }
 
-    warn!(%error, "proxy request failed; retrying directly via DoH");
+    let error = error.without_url();
+    warn!(error = %Causes(&error), "proxy request failed; retrying directly via DoH");
     let fallback = doh_client(net, connect_timeout, user_agent).await?;
 
-    build(&fallback).send().await
+    build(&fallback).send().await.map_err(|error| {
+        let error = error.without_url();
+        warn!(error = %Causes(&error), "direct request via DoH failed");
+        error
+    })
+}
+
+/// An error with every cause behind it. Logged errors go without their URL:
+/// request URLs carry API keys.
+struct Causes<'a>(&'a dyn Error);
+
+impl fmt::Display for Causes<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)?;
+        let mut source = self.0.source();
+        while let Some(cause) = source {
+            write!(f, ": {cause}")?;
+            source = cause.source();
+        }
+
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -186,14 +210,13 @@ mod tests {
 
     const TIMEOUT: Duration = Duration::from_secs(2);
 
-    fn dead_proxy_client() -> reqwest::Client {
-        let proxy = reqwest::Proxy::all("http://127.0.0.1:1").expect("proxy url");
+    fn dead_proxy_client() -> Result<reqwest::Client, reqwest::Error> {
+        let proxy = reqwest::Proxy::all("http://127.0.0.1:1")?;
 
         reqwest::Client::builder()
             .proxy(proxy)
             .connect_timeout(TIMEOUT)
             .build()
-            .expect("client")
     }
 
     fn proxy_net(dns_bypass: bool) -> NetConfig {
@@ -205,9 +228,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transport_failure_retries_directly_when_bypass_is_on() {
+    async fn transport_failure_retries_directly_when_bypass_is_on() -> Result<(), reqwest::Error> {
         let calls = AtomicUsize::new(0);
-        let primary = dead_proxy_client();
+        let primary = dead_proxy_client()?;
         let net = proxy_net(true);
 
         let result = send_primary_then_doh(&net, TIMEOUT, None, &primary, |client| {
@@ -222,12 +245,13 @@ mod tests {
             2,
             "expected a second attempt through the direct DoH client"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn transport_failure_is_not_retried_without_bypass() {
+    async fn transport_failure_is_not_retried_without_bypass() -> Result<(), reqwest::Error> {
         let calls = AtomicUsize::new(0);
-        let primary = dead_proxy_client();
+        let primary = dead_proxy_client()?;
         let net = proxy_net(false);
 
         let result = send_primary_then_doh(&net, TIMEOUT, None, &primary, |client| {
@@ -238,5 +262,6 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no retry with bypass off");
+        Ok(())
     }
 }

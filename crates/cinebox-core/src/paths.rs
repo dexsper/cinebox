@@ -41,16 +41,47 @@ impl AppDirs {
         )
     }
 
+    /// The app's internal storage, handed over by the Android entry point
+    /// through [`set_android_root`].
+    ///
+    /// # Errors
+    ///
+    /// [`set_android_root`] was not called.
+    #[cfg(target_os = "android")]
+    pub fn system() -> io::Result<Self> {
+        let Some(root) = ANDROID_ROOT.get() else {
+            return Err(io::Error::new(
+                io::ErrorKind::NotFound,
+                "the Android internal storage path was not set",
+            ));
+        };
+
+        Ok(Self {
+            config: root.join("config"),
+            data: root.join("data"),
+        })
+    }
+
     /// # Errors
     ///
     /// Always: no storage location is defined for this platform.
-    #[cfg(not(any(target_os = "windows", target_os = "linux")))]
+    #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "android")))]
     pub fn system() -> io::Result<Self> {
         Err(io::Error::new(
             io::ErrorKind::Unsupported,
             "no settings or data location is defined for this platform",
         ))
     }
+}
+
+#[cfg(target_os = "android")]
+static ANDROID_ROOT: std::sync::OnceLock<PathBuf> = std::sync::OnceLock::new();
+
+/// Android has no fixed per-user directory; the activity knows its internal
+/// storage path and passes it here before anything reads settings.
+#[cfg(target_os = "android")]
+pub fn set_android_root(root: PathBuf) {
+    let _ = ANDROID_ROOT.set(root);
 }
 
 /// Directory that contains the running executable (or the test binary).

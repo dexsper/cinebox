@@ -1,0 +1,49 @@
+name: Set up the Android build
+description: JDK 17, the pinned NDK, Rust with the Android targets, cargo-ndk, and the Gradle cache
+
+inputs:
+  rust-version:
+    description: Rust toolchain to install
+    required: true
+
+runs:
+  using: composite
+  steps:
+    # The runner image ships the SDK and JDK 17; only the NDK version is pinned here.
+    - name: Install Android NDK
+      shell: bash
+      env:
+        NDK_VERSION: 28.2.13676358
+      run: |
+        set -euo pipefail
+        echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+        sdkmanager="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+        yes | "$sdkmanager" --licenses > /dev/null || true
+        "$sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-36"
+        echo "ANDROID_NDK_HOME=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+    - name: Install Rust ${{ inputs.rust-version }}
+      uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+      with:
+        toolchain: ${{ inputs.rust-version }}
+        targets: aarch64-linux-android,armv7-linux-androideabi
+
+    - name: Cache cargo registry
+      uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+      with:
+        cache-targets: false
+        cache-on-failure: true
+
+    - name: Cache Gradle
+      uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+        key: gradle-${{ hashFiles('android/**/*.gradle.kts', 'android/gradle/libs.versions.toml', 'android/gradle/wrapper/gradle-wrapper.properties') }}
+
+    - name: Install cargo-ndk
+      shell: bash
+      env:
+        CARGO_NDK_VERSION: 4.1.2
+      run: cargo install --locked cargo-ndk --version "$CARGO_NDK_VERSION"

@@ -2,13 +2,13 @@
 
 use cinebox_core::TorrentPlaybackPrefs;
 use cinebox_core::VideoScale;
-use cinebox_player::{Track, TrackKind};
-use egui::{Align, CursorIcon, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
+use cinebox_player::{Features, Track, TrackKind};
+use egui::{Align, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
 use rust_i18n::t;
 
 use crate::theme::Theme;
-use crate::widgets::poster;
+use crate::widgets::{button, focus, poster};
 
 const ROW_H: f32 = 36.0;
 const ROW_GAP: f32 = 8.0;
@@ -37,6 +37,7 @@ pub enum Page {
 /// Read-only inputs for one popup frame.
 pub struct View<'a> {
     pub page: Page,
+    pub features: Features,
     pub tracks: &'a [Track],
     pub prefs: TorrentPlaybackPrefs,
     pub sub_scale: f64,
@@ -75,8 +76,11 @@ fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         out.page = Some(Page::VideoSize);
     }
 
-    if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed_label(view.prefs.speed)) {
-        out.page = Some(Page::Speed);
+    if view.features.speed {
+        let speed = speed_label(view.prefs.speed);
+        if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed) {
+            out.page = Some(Page::Speed);
+        }
     }
 
     if submenu_row(ui, theme, t!("player.subtitle_track").as_ref(), &selected_sub_label(view.tracks)) {
@@ -154,6 +158,10 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     if scale_step != 0.0 {
         let next = view.sub_scale + f64::from(scale_step) * SUB_SCALE_STEP;
         out.sub_scale = Some(next.clamp(SUB_SCALE_MIN, SUB_SCALE_MAX));
+    }
+
+    if !view.features.subtitle_delay {
+        return;
     }
 
     let delay_text = format!("{:+.1}s", view.sub_delay);
@@ -238,9 +246,7 @@ fn selected_sub_label(tracks: &[Track]) -> String {
 
 fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
-    let response = ui
-        .interact(rect, ui.id().with(id_salt), Sense::click())
-        .on_hover_cursor(CursorIcon::PointingHand);
+    let response = button::pointing(ui.interact(rect, ui.id().with(id_salt), Sense::click()));
 
     (rect, response)
 }
@@ -275,7 +281,7 @@ fn galley_y(rect: egui::Rect, height: f32) -> f32 {
 
 fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
     let (rect, mut response) = hover_row(ui, label);
-    if response.hovered() {
+    if focus::lit(&response) {
         ui.painter()
             .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
@@ -346,7 +352,7 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
 
 fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let (rect, response) = hover_row(ui, "back");
-    if response.hovered() {
+    if focus::lit(&response) {
         ui.painter()
             .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
@@ -383,7 +389,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
         egui::Color32::TRANSPARENT
     };
 
-    let fill = if response.hovered() {
+    let fill = if focus::lit(&response) {
         theme.widget_hover
     } else {
         idle

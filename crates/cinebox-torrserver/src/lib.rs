@@ -14,7 +14,7 @@ mod stream;
 mod torrents;
 mod viewed;
 
-pub use auth::mpv_http_header_fields;
+pub use auth::basic_auth_header;
 pub use cache::{CacheState, PieceState, ReaderState, ResumeProgress, cache_state, resume_window_progress};
 pub use discover::{FoundServer, discover};
 pub use episode::{FileEpisode, file_display_name, parse_file_episode};

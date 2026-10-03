@@ -40,6 +40,12 @@ impl Screen {
         )
     }
 
+    /// Opened from the side menu itself rather than from another screen.
+    #[must_use]
+    pub const fn is_rail_destination(self) -> bool {
+        matches!(self, Self::Home | Self::Section { .. } | Self::Library)
+    }
+
     /// Rail entry highlighted while this screen is shown.
     #[must_use]
     pub const fn rail_entry(self) -> Option<RailEntry> {
@@ -101,12 +107,16 @@ pub enum NavAction {
 #[derive(Debug, Clone)]
 pub struct Nav {
     stack: Vec<Screen>,
+    /// Widget focused on each stacked screen when the next one opened, so Back
+    /// on a remote lands where the user left off.
+    focus: Vec<Option<egui::Id>>,
 }
 
 impl Nav {
     pub fn new() -> Self {
         Self {
             stack: vec![Screen::Home],
+            focus: vec![None],
         }
     }
 
@@ -114,22 +124,42 @@ impl Nav {
         self.stack.last().copied().unwrap_or(Screen::Home)
     }
 
+    /// Nothing to go back to.
+    pub fn is_root(&self) -> bool {
+        self.stack.len() <= 1
+    }
+
     pub fn push(&mut self, screen: Screen) {
         if self.current() != screen {
             self.stack.push(screen);
+            self.focus.push(None);
         }
     }
 
     pub fn pop(&mut self) {
         if self.stack.len() > 1 {
             self.stack.pop();
+            self.focus.pop();
         }
     }
 
     /// Jump to a top-level screen: the stack becomes `[Home, screen]`, so Back returns Home.
     pub fn switch_top(&mut self, screen: Screen) {
         self.stack.truncate(1);
+        self.focus.truncate(1);
         self.push(screen);
+    }
+
+    /// Remember the focused widget of the current screen.
+    pub fn mark_focus(&mut self, id: Option<egui::Id>) {
+        if let Some(slot) = self.focus.last_mut() {
+            *slot = id;
+        }
+    }
+
+    /// Focus remembered for the current screen.
+    pub fn focus_mark(&self) -> Option<egui::Id> {
+        self.focus.last().copied().flatten()
     }
 }
 
@@ -236,6 +266,20 @@ mod tests {
 
         nav.pop();
         assert_eq!(nav.current(), torrents);
+    }
+
+    #[test]
+    fn focus_mark_returns_with_its_screen() {
+        let mut nav = Nav::new();
+        let poster = egui::Id::new("poster");
+
+        nav.mark_focus(Some(poster));
+        nav.push(Screen::Library);
+        assert_eq!(nav.focus_mark(), None);
+
+        nav.pop();
+        assert_eq!(nav.focus_mark(), Some(poster));
+        assert!(nav.is_root());
     }
 
     #[test]

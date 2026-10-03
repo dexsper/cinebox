@@ -3759,6 +3759,19 @@
     {
         "type": "archive",
         "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/ndk-sys/ndk-sys-0.5.0+25.2.9519653.crate",
+        "sha256": "8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691",
+        "dest": "cargo/vendor/ndk-sys-0.5.0+25.2.9519653"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"8c196769dd60fd4f363e11d948139556a344e79d451aeb2fa2fd040738ef7691\", \"files\": {}}",
+        "dest": "cargo/vendor/ndk-sys-0.5.0+25.2.9519653",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
         "url": "https://static.crates.io/crates/ndk-sys/ndk-sys-0.6.0+11769913.crate",
         "sha256": "ee6cda3051665f1fb8d9e08fc35c96d5a244fb1be711a03b71118828afc9a873",
         "dest": "cargo/vendor/ndk-sys-0.6.0+11769913"
@@ -4209,6 +4222,19 @@
         "type": "inline",
         "contents": "{\"package\": \"9aa2b01e1d916879f73a53d01d1d6cee68adbb31d6d9177a8cfce093cced1d50\", \"files\": {}}",
         "dest": "cargo/vendor/ordered-stream-0.2.0",
+        "dest-filename": ".cargo-checksum.json"
+    },
+    {
+        "type": "archive",
+        "archive-type": "tar-gzip",
+        "url": "https://static.crates.io/crates/paranoid-android/paranoid-android-0.2.2.crate",
+        "sha256": "101795d63d371b43e38d6e7254677657be82f17022f7f7893c268f33ac0caadc",
+        "dest": "cargo/vendor/paranoid-android-0.2.2"
+    },
+    {
+        "type": "inline",
+        "contents": "{\"package\": \"101795d63d371b43e38d6e7254677657be82f17022f7f7893c268f33ac0caadc\", \"files\": {}}",
+        "dest": "cargo/vendor/paranoid-android-0.2.2",
         "dest-filename": ".cargo-checksum.json"
     },
     {

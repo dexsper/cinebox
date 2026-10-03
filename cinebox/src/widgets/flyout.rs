@@ -5,6 +5,7 @@
 use egui::{Align2, Area, Frame, Id, Margin, Order, Pos2, Rect, Stroke, Ui, pos2};
 
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 const ANCHOR_GAP: f32 = 10.0;
 
@@ -94,6 +95,7 @@ fn show_at(ctx: &egui::Context, spec: Spec<'_>, content: impl FnOnce(&mut Ui, &T
         .fixed_pos(pos)
         .constrain_to(ctx.content_rect().shrink(8.0))
         .show(ctx, |ui| {
+            focus::trap(ui);
             Frame::new()
                 .fill(theme.panel_elevated)
                 .stroke(Stroke::new(1.0, theme.window_edge))

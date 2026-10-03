@@ -14,6 +14,7 @@ use egui_material_icons::icons::{
 use rust_i18n::t;
 
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 /// Seconds the overlay stays fully visible after the last input.
 pub const HOLD: f64 = 3.0;
@@ -42,6 +43,11 @@ impl Activity {
         self.last_at = now;
     }
 
+    /// Fade out right away.
+    pub fn hide(&mut self) {
+        self.last_at = f64::NEG_INFINITY;
+    }
+
     /// Overlay alpha: `1.0` while held, easing to `0.0` during the fade.
     #[must_use]
     pub fn visual_t(&self, now: f64) -> f32 {
@@ -61,10 +67,15 @@ pub struct FooterView {
     pub paused: bool,
     pub muted: bool,
     pub volume: f64,
+    /// The player has its own volume; otherwise the OS or the receiver sets it.
+    pub volume_control: bool,
     pub file_count: usize,
     pub file_index: usize,
     pub has_next: bool,
     pub fullscreen: bool,
+    pub can_fullscreen: bool,
+    /// The arrows scrub the seek bar while it has focus.
+    pub directional: bool,
 }
 
 /// Clicks and rects reported by one footer frame.
@@ -84,6 +95,8 @@ pub struct FooterOut {
     pub playlist_rect: Rect,
     pub settings_rect: Rect,
     pub volume_rect: Rect,
+    /// Play/pause, where the D-pad lands when the controls are called up.
+    pub play_id: Id,
 }
 
 impl FooterOut {
@@ -104,6 +117,7 @@ impl FooterOut {
             playlist_rect: Rect::NOTHING,
             settings_rect: Rect::NOTHING,
             volume_rect: Rect::NOTHING,
+            play_id: Id::NULL,
         }
     }
 }
@@ -120,10 +134,11 @@ pub fn header(
         return None;
     }
 
-    let max_w = (video.width() - 48.0).max(280.0);
+    let safe = video - crate::platform::edge_inset(ctx);
+    let max_w = (safe.width() - 48.0).max(280.0);
     let response = Area::new(Id::new("player-header"))
         .order(Order::Foreground)
-        .fixed_pos(video.left_top() + vec2(16.0, 16.0))
+        .fixed_pos(safe.left_top() + vec2(16.0, 16.0))
         .constrain(false)
         .show(ctx, |ui| {
             ui.set_opacity(alpha);
@@ -156,7 +171,11 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
         return out;
     }
 
-    let rect = Rect::from_min_max(pos2(video.left(), video.bottom() - FOOTER_H), video.right_bottom());
+    // The scrim runs to the screen edges; the controls keep clear of them.
+    let safe = video - crate::platform::edge_inset(ctx);
+    let top = safe.bottom() - FOOTER_H;
+    let rect = Rect::from_min_max(pos2(video.left(), top), video.right_bottom());
+    let controls = Rect::from_x_y_ranges(safe.x_range(), top..=safe.bottom());
     out.rect = rect;
 
     Area::new(Id::new("player-footer"))
@@ -167,7 +186,7 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
             ui.set_opacity(alpha);
             scrim(ui, rect, theme);
 
-            let inner = rect.shrink2(vec2(20.0, 0.0));
+            let inner = controls.shrink2(vec2(20.0, 0.0));
             let mut body = ui.new_child(
                 UiBuilder::new()
                     .max_rect(inner)
@@ -177,9 +196,7 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
             body.add_space(14.0);
             clock_row(&mut body, theme, view);
 
-            let (seek_to, seek_rect) = seek_bar(&mut body, theme, view);
-            out.seek_to = seek_to;
-            out.seek_rect = seek_rect;
+            seek_bar(&mut body, theme, view, &mut out);
 
             body.add_space(6.0);
             buttons_row(&mut body, theme, view, &mut out);
@@ -205,10 +222,16 @@ fn clock_row(ui: &mut Ui, theme: &Theme, view: &FooterView) {
     });
 }
 
-fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> (Option<f64>, Rect) {
+fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView, out: &mut FooterOut) {
     let width = ui.available_width();
     let (rect, response) = ui.allocate_exact_size(vec2(width, SEEK_H), Sense::click_and_drag());
     let response = crate::widgets::button::pointing(response);
+    out.seek_rect = rect;
+
+    if view.directional && response.has_focus() {
+        focus::hold_arrows(ui, response.id, true, false);
+        out.seek_rel = arrow_seek(ui);
+    }
 
     let fraction = if view.duration > 0.0 {
         (view.time / view.duration).clamp(0.0, 1.0) as f32
@@ -225,7 +248,7 @@ fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> (Option<f64>, Rect
     ui.painter()
         .rect_filled(fill, CornerRadius::same(2), theme.progress_fill);
 
-    let engaged = response.hovered() || response.dragged();
+    let engaged = response.hovered() || response.dragged() || response.has_focus();
     if engaged {
         let thumb = pos2(fill.max.x, track.center().y);
         ui.painter().circle_filled(thumb, 6.0, theme.progress_fill);
@@ -233,15 +256,28 @@ fn seek_bar(ui: &mut Ui, theme: &Theme, view: &FooterView) -> (Option<f64>, Rect
 
     let scrubbing = response.clicked() || response.dragged();
     if !scrubbing || view.duration <= 0.0 {
-        return (None, rect);
+        return;
     }
 
     let Some(pos) = response.interact_pointer_pos() else {
-        return (None, rect);
+        return;
     };
 
     let fraction = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-    (Some(f64::from(fraction) * view.duration), rect)
+    out.seek_to = Some(f64::from(fraction) * view.duration);
+}
+
+/// Left/Right on the focused seek bar.
+fn arrow_seek(ui: &Ui) -> Option<f64> {
+    if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+        return Some(-SEEK_SECS);
+    }
+
+    if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+        return Some(SEEK_SECS);
+    }
+
+    None
 }
 
 fn buttons_row(ui: &mut Ui, theme: &Theme, view: &FooterView, out: &mut FooterOut) {
@@ -286,7 +322,9 @@ fn center_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out:
     } else {
         (ICON_PAUSE, t!("player.pause"))
     };
-    out.toggle_pause = icon_btn(&mut center, theme, icon, hint.as_ref(), true).clicked();
+    let play = icon_btn(&mut center, theme, icon, hint.as_ref(), true);
+    out.toggle_pause = play.clicked();
+    out.play_id = play.id;
 
     let forward = icon_btn(&mut center, theme, ICON_FORWARD_10, "+10s", true);
     if forward.clicked() {
@@ -313,17 +351,22 @@ fn right_cluster(ui: &mut Ui, theme: &Theme, view: &FooterView, row: Rect, out: 
     );
     right.spacing_mut().item_spacing.x = BTN_GAP;
 
-    let (fs_icon, fs_hint) = if view.fullscreen {
-        (ICON_FULLSCREEN_EXIT, t!("player.exit_fullscreen"))
-    } else {
-        (ICON_FULLSCREEN, t!("player.fullscreen"))
-    };
-    out.fullscreen_clicked = icon_btn(&mut right, theme, fs_icon, fs_hint.as_ref(), true).clicked();
+    if view.can_fullscreen {
+        let (fs_icon, fs_hint) = if view.fullscreen {
+            (ICON_FULLSCREEN_EXIT, t!("player.exit_fullscreen"))
+        } else {
+            (ICON_FULLSCREEN, t!("player.fullscreen"))
+        };
+        out.fullscreen_clicked =
+            icon_btn(&mut right, theme, fs_icon, fs_hint.as_ref(), true).clicked();
+    }
 
-    let volume = icon_btn(&mut right, theme, volume_icon(view), t!("player.volume").as_ref(), true);
-    out.volume_clicked = volume.clicked();
-    out.volume_hovered = volume.hovered();
-    out.volume_rect = volume.rect;
+    if view.volume_control {
+        let volume = icon_btn(&mut right, theme, volume_icon(view), t!("player.volume").as_ref(), true);
+        out.volume_clicked = volume.clicked();
+        out.volume_hovered = volume.hovered();
+        out.volume_rect = volume.rect;
+    }
 
     let settings = icon_btn(&mut right, theme, ICON_SETTINGS, t!("nav.settings").as_ref(), true);
     out.settings_clicked = settings.clicked();

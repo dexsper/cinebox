@@ -1,21 +1,30 @@
-//! DoH resolver on hickory-resolver: custom URL → Quad9 → DNS.SB → AliDNS.
+//! DoH resolver on hickory-resolver: a custom URL, Quad9, DNS.SB and AliDNS,
+//! asked together.
 //!
 //! Built-in providers carry pinned bootstrap IPs, so reaching the DoH server
-//! itself never depends on (possibly poisoned) system DNS. TLS still verifies
-//! the real provider hostname. Answer caching and TTL handling live inside
-//! hickory-resolver and follow the TTL from the DNS response.
+//! itself never depends on (possibly poisoned) system DNS. TLS verifies the
+//! real provider hostname against the bundled Mozilla roots: on Android the
+//! platform verifier made the first lookup take seconds. Answer caching and
+//! TTL handling live inside hickory-resolver and follow the DNS response.
 
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::sync::Arc;
 use std::time::Duration;
 
+use tokio::task::JoinSet;
+use tokio::time::Instant;
+
 use hickory_resolver::TokioResolver;
 use hickory_resolver::config::{LookupIpStrategy, NameServerConfig, ResolveHosts, ResolverConfig};
+use hickory_resolver::lookup_ip::LookupIp;
+use hickory_resolver::net::NetError;
 use hickory_resolver::net::runtime::TokioRuntimeProvider;
 use reqwest::dns::{Addrs, Name, Resolve, Resolving};
 use tracing::warn;
 
 const DOH_PATH: &str = "/dns-query";
+/// After the first answer, how long the other providers may still add theirs.
+const MORE_ANSWERS: Duration = Duration::from_millis(300);
 
 struct DohProvider {
     host: &'static str,
@@ -41,49 +50,163 @@ const PROVIDERS: [DohProvider; 3] = [
     },
 ];
 
-/// `reqwest` DNS hook that resolves through the DoH provider pool and falls
-/// back to the OS resolver when every provider is unreachable.
+/// `reqwest` DNS hook that resolves through every DoH provider and falls
+/// back to the OS resolver when none of them answers.
+///
+/// A CDN answers each provider with a different edge, and an edge can be
+/// blocked where another is not (TMDB's images were). Each provider has a
+/// resolver of its own and their answers are merged; the connector then
+/// tries the addresses in turn.
 pub(crate) struct DohResolve {
-    resolver: Arc<TokioResolver>,
+    providers: Arc<[Arc<TokioResolver>]>,
 }
 
 impl DohResolve {
-    /// Build the resolver. A custom DoH URL is bootstrapped through system
-    /// DNS once (its IP is unknown); failures there are logged and skipped so
-    /// the built-in providers always remain available. `None` only when the
-    /// TLS stack itself cannot be initialized.
+    /// A custom DoH URL is bootstrapped through system DNS once (its IP is
+    /// unknown); failures there are logged and skipped so the built-in
+    /// providers always remain available. `None` only when no resolver could
+    /// be built at all.
     pub(crate) async fn new(custom_doh_url: &str) -> Option<Self> {
-        let mut servers = custom_name_servers(custom_doh_url).await;
-
+        let mut pools = vec![custom_name_servers(custom_doh_url).await];
         for provider in &PROVIDERS {
-            for ip in provider.ips {
-                servers.push(name_server(IpAddr::V4(ip), provider.host, DOH_PATH));
+            pools.push(provider_name_servers(provider));
+        }
+
+        let mut providers = Vec::new();
+        for servers in pools {
+            if servers.is_empty() {
+                continue;
+            }
+
+            if let Some(resolver) = build_resolver(servers) {
+                providers.push(Arc::new(resolver));
             }
         }
 
-        let concurrent = servers.len().max(2);
-        let config = ResolverConfig::from_name_servers(servers);
-        let runtime = TokioRuntimeProvider::default();
-        let mut builder = TokioResolver::builder_with_config(config, runtime);
-
-        let opts = builder.options_mut();
-        opts.timeout = Duration::from_secs(3);
-        opts.attempts = 2;
-        opts.ip_strategy = LookupIpStrategy::Ipv4Only;
-        opts.use_hosts_file = ResolveHosts::Never;
-        opts.num_concurrent_reqs = concurrent;
-
-        let resolver = match builder.build() {
-            Ok(resolver) => resolver,
-            Err(error) => {
-                warn!(%error, "doh resolver failed to build; dns bypass disabled");
-                return None;
-            }
-        };
+        if providers.is_empty() {
+            warn!("no doh resolver could be built; dns bypass disabled");
+            return None;
+        }
 
         Some(Self {
-            resolver: Arc::new(resolver),
+            providers: providers.into(),
         })
+    }
+}
+
+impl Resolve for DohResolve {
+    fn resolve(&self, name: Name) -> Resolving {
+        let providers = Arc::clone(&self.providers);
+
+        Box::pin(async move {
+            let host = name.as_str().to_owned();
+
+            let addrs = lookup_all(&providers, &host).await;
+            if !addrs.is_empty() {
+                return Ok(boxed_addrs(addrs));
+            }
+
+            warn!(host, "no doh provider gave a public ip");
+
+            // System DNS only if it yields a public IP. Poisoned answers like
+            // 127.0.0.1 / ::1 are ignored so bypass cannot silently hit localhost.
+            let system = match tokio::net::lookup_host((host.as_str(), 0)).await {
+                Ok(system) => system,
+                Err(error) => return Err(error.into()),
+            };
+
+            let addrs = public_addrs(system.map(|addr| addr.ip()));
+            if addrs.is_empty() {
+                return Err("dns bypass: no public ip (system dns looks poisoned)".into());
+            }
+
+            warn!(host, "using system dns after doh miss");
+            Ok(boxed_addrs(addrs))
+        })
+    }
+}
+
+fn provider_name_servers(provider: &DohProvider) -> Vec<NameServerConfig> {
+    let mut servers = Vec::new();
+    for ip in provider.ips {
+        servers.push(name_server(IpAddr::V4(ip), provider.host, DOH_PATH));
+    }
+
+    servers
+}
+
+fn build_resolver(servers: Vec<NameServerConfig>) -> Option<TokioResolver> {
+    let concurrent = servers.len().max(1);
+    let config = ResolverConfig::from_name_servers(servers);
+    let runtime = TokioRuntimeProvider::default();
+    let mut builder = TokioResolver::builder_with_config(config, runtime);
+
+    let opts = builder.options_mut();
+    opts.timeout = Duration::from_secs(3);
+    opts.attempts = 2;
+    opts.ip_strategy = LookupIpStrategy::Ipv4Only;
+    opts.use_hosts_file = ResolveHosts::Never;
+    opts.num_concurrent_reqs = concurrent;
+
+    match builder.build() {
+        Ok(resolver) => Some(resolver),
+        Err(error) => {
+            warn!(%error, "doh resolver failed to build");
+            None
+        }
+    }
+}
+
+/// Asks every provider at once and waits for the first answer, then
+/// [`MORE_ANSWERS`] for the rest. Lookups still running finish in the
+/// background, so the next resolve has every provider's answer cached.
+async fn lookup_all(providers: &[Arc<TokioResolver>], host: &str) -> Vec<SocketAddr> {
+    let mut lookups = JoinSet::new();
+    for provider in providers {
+        let provider = Arc::clone(provider);
+        let host = host.to_owned();
+        lookups.spawn(async move { provider.lookup_ip(host.as_str()).await });
+    }
+
+    let mut addrs = Vec::new();
+    let mut until = None;
+    while let Some(lookup) = next_lookup(&mut lookups, until).await {
+        match lookup {
+            Ok(found) => merge(&mut addrs, public_addrs(found)),
+            Err(error) => warn!(%error, host, "doh lookup failed"),
+        }
+
+        if until.is_none() && !addrs.is_empty() {
+            until = Some(Instant::now() + MORE_ANSWERS);
+        }
+    }
+
+    lookups.detach_all();
+    addrs
+}
+
+type Lookup = Result<LookupIp, NetError>;
+
+/// `None` once every lookup is done or `until` has passed.
+async fn next_lookup(lookups: &mut JoinSet<Lookup>, until: Option<Instant>) -> Option<Lookup> {
+    loop {
+        let joined = match until {
+            Some(until) => tokio::time::timeout_at(until, lookups.join_next()).await.ok()?,
+            None => lookups.join_next().await,
+        };
+
+        match joined? {
+            Ok(lookup) => return Some(lookup),
+            Err(error) => warn!(%error, "doh lookup task ended early"),
+        }
+    }
+}
+
+fn merge(addrs: &mut Vec<SocketAddr>, found: Vec<SocketAddr>) {
+    for addr in found {
+        if !addrs.contains(&addr) {
+            addrs.push(addr);
+        }
     }
 }
 
@@ -120,11 +243,9 @@ async fn custom_name_servers(url: &str) -> Vec<NameServerConfig> {
     };
 
     let path = parsed.path().to_owned();
-    let servers = addrs
+    addrs
         .map(|addr| name_server(addr.ip(), &host, &path))
-        .collect();
-
-    servers
+        .collect()
 }
 
 /// ISP sinkholes often map blocked names to loopback. Connecting there looks
@@ -171,14 +292,12 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits live DoH providers"]
     async fn resolves_tmdb_via_builtin_providers() {
-        let resolve = DohResolve::new("").await.expect("resolver builds");
-        let lookup = resolve
-            .resolver
-            .lookup_ip("api.themoviedb.org.")
-            .await
-            .expect("at least one of Quad9 / DNS.SB / AliDNS answers");
+        let Some(resolve) = DohResolve::new("").await else {
+            panic!("no DoH resolver could be built");
+        };
+        let addrs = lookup_all(&resolve.providers, "api.themoviedb.org.").await;
 
-        assert!(lookup.iter().next().is_some(), "lookup returned no ips");
+        assert!(!addrs.is_empty(), "at least one of Quad9 / DNS.SB / AliDNS answers");
     }
 
     #[tokio::test]
@@ -213,6 +332,36 @@ mod tests {
     }
 
     #[tokio::test]
+    #[ignore = "hits live TMDB images over DoH"]
+    async fn tmdb_images_load_via_doh_client() {
+        let net = crate::NetConfig {
+            use_system_proxy: false,
+            dns_bypass: true,
+            custom_doh_url: String::new(),
+        };
+
+        let poster = "https://image.tmdb.org/t/p/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png";
+        let response = crate::send_resilient(&net, Duration::from_secs(8), None, |client| {
+            client.get(poster)
+        })
+        .await;
+
+        let status = response.map(|response| response.status().as_u16());
+        assert_eq!(status.ok(), Some(200), "an image edge some provider names must answer");
+    }
+
+    #[test]
+    fn merged_answers_keep_the_first_order_without_repeats() {
+        let a = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(1, 1, 1, 1)), 0);
+        let b = SocketAddr::new(IpAddr::V4(Ipv4Addr::new(2, 2, 2, 2)), 0);
+        let mut addrs = vec![a];
+
+        merge(&mut addrs, vec![b, a]);
+
+        assert_eq!(addrs, vec![a, b]);
+    }
+
+    #[tokio::test]
     async fn bad_custom_url_is_ignored() {
         let servers = custom_name_servers("not a url").await;
         assert!(servers.is_empty());
@@ -238,44 +387,5 @@ mod tests {
 
         assert_eq!(addrs.len(), 1);
         assert_eq!(addrs[0].ip(), IpAddr::V4(Ipv4Addr::new(104, 16, 1, 1)));
-    }
-}
-
-impl Resolve for DohResolve {
-    fn resolve(&self, name: Name) -> Resolving {
-        let resolver = self.resolver.clone();
-
-        Box::pin(async move {
-            let host = name.as_str().to_owned();
-
-            match resolver.lookup_ip(host.as_str()).await {
-                Ok(lookup) => {
-                    let addrs = public_addrs(lookup);
-                    if !addrs.is_empty() {
-                        return Ok(boxed_addrs(addrs));
-                    }
-
-                    warn!(host, "doh returned only loopback/sinkhole ips");
-                }
-                Err(error) => {
-                    warn!(%error, host, "doh lookup failed");
-                }
-            }
-
-            // System DNS only if it yields a public IP. Poisoned answers like
-            // 127.0.0.1 / ::1 are ignored so bypass cannot silently hit localhost.
-            let system = match tokio::net::lookup_host((host.as_str(), 0)).await {
-                Ok(system) => system,
-                Err(error) => return Err(error.into()),
-            };
-
-            let addrs = public_addrs(system.map(|addr| addr.ip()));
-            if addrs.is_empty() {
-                return Err("dns bypass: no public ip (system dns looks poisoned)".into());
-            }
-
-            warn!(host, "using system dns after doh miss");
-            Ok(boxed_addrs(addrs))
-        })
     }
 }

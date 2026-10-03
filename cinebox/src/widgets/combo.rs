@@ -3,9 +3,10 @@
 use egui::style::StyleModifier;
 use egui::{Color32, ComboBox, CursorIcon, Margin, RichText, Stroke, TextStyle, Ui, vec2};
 
-use super::button::{PAD_X, PAD_Y};
+use super::button::{self, PAD_X, PAD_Y};
 
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 pub const HEIGHT: f32 = super::button::CONTROL_H;
 
@@ -92,18 +93,24 @@ pub fn show_with<T: Copy + PartialEq>(
 
     ui.scope(|ui| {
         apply_visuals(ui, theme);
-        ComboBox::from_id_salt(id)
+        let combo = ComboBox::from_id_salt(id)
             .width(width)
             .selected_text(selected)
             .popup_style(popup_style(theme))
             .show_ui(ui, |ui| {
+                focus::trap(ui);
+                let opening = focus::focused_layer(ui.ctx()) != Some(ui.layer_id());
                 for opt in options {
+                    let current = *value == *opt;
                     let clicked = ui.selectable_value(value, *opt, label(*opt));
+                    focus::track(&clicked);
+                    if opening && current {
+                        focus::enter_popup(&clicked);
+                    }
                     changed |= clicked.changed();
                 }
-            })
-            .response
-            .on_hover_cursor(CursorIcon::PointingHand);
+            });
+        button::pointing(combo.response);
     });
 
     changed

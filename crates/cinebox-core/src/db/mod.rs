@@ -204,6 +204,11 @@ impl Store {
             let value: HomeRow =
                 serde_json::from_str(&payload).map_err(StoreError::Deserialize)?;
 
+            // Failures were cached by older versions; they are not a loaded row.
+            if value.error.is_some() {
+                continue;
+            }
+
             out.insert(id, CacheHit { value, fetched_at });
         }
 
@@ -377,6 +382,25 @@ mod tests {
             assert!(fresh);
             assert_eq!(catalog.rows.len(), HomeRowId::ALL.len());
         }
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_cached_failure_is_not_a_fresh_row() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        for id in HomeRowId::REMOTE {
+            let row = HomeRow {
+                id,
+                items: Vec::new(),
+                error: Some(String::from("connect timed out")),
+            };
+            store.put_json("", KIND_HOME, id.as_key(), &row, &[]).await?;
+        }
+
+        let got = store.home_catalog("").await?;
+        let fresh = got.is_some_and(|(_, fresh)| fresh);
+        assert!(!fresh, "failed rows must be fetched again");
 
         Ok(())
     }

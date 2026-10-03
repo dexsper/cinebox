@@ -55,7 +55,8 @@ pub(super) fn files_modal(
                 }
             }
         });
-    if modal.should_close() {
+    // Not `should_close`: Escape is the app's Back, which closes this itself.
+    if modal.backdrop_response.clicked() {
         *close_files = true;
     }
 }

@@ -5,6 +5,7 @@ use rust_i18n::t;
 
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
+use crate::widgets::focus;
 
 use super::skip::{ActiveSegment, SkipState};
 use cinebox_skip::SegmentType;
@@ -52,19 +53,24 @@ pub fn show(
         return SkipBannerOut::none();
     }
 
+    let safe = video - crate::platform::edge_inset(ctx);
     let footer_visible = seek_rect != Rect::NOTHING;
     let anchor_bottom = if footer_visible {
         seek_rect.top() - BOTTOM_GAP
     } else {
-        video.bottom() - BOTTOM_GAP
+        safe.bottom() - BOTTOM_GAP
     };
 
-    let anchor = pos2(video.right() - RIGHT_MARGIN, anchor_bottom);
+    let anchor = pos2(safe.right() - RIGHT_MARGIN, anchor_bottom);
     let area_id = Id::new("player-skip-banner");
 
-    let hovered = ctx
-        .read_response(area_id)
-        .is_some_and(|r| r.contains_pointer());
+    let directional = crate::platform::profile(ctx).is_directional();
+    let banner = ctx.read_response(area_id);
+    let appeared = banner.is_none();
+    let pointed = banner.as_ref().is_some_and(|r| r.contains_pointer());
+    let focused_layer = focus::focused_layer(ctx);
+    let focused = directional && banner.is_some_and(|r| focused_layer == Some(r.layer_id));
+    let hovered = pointed || focused;
 
     let opacity = if hovered { 1.0 } else { IDLE_OPACITY };
 
@@ -93,7 +99,9 @@ pub fn show(
 
                     let frac = active.countdown_frac(now);
                     let is_counting = active.countdown_started_at.is_some();
-                    skip_clicked = skip_btn(ui, theme, active, btn_size, frac, is_counting);
+                    // On TV only when it appears: grabbing every frame would trap the D-pad.
+                    let grab = if directional { appeared } else { !is_counting };
+                    skip_clicked = skip_btn(ui, theme, active, btn_size, frac, grab);
                 });
             });
         });
@@ -114,7 +122,7 @@ fn skip_btn(
     active: &ActiveSegment,
     btn_size: Vec2,
     frac: f32,
-    is_counting: bool,
+    grab_focus: bool,
 ) -> bool {
     let caption: std::borrow::Cow<str> = match active.ty {
         SegmentType::Intro => t!("player.skip_intro"),
@@ -145,10 +153,12 @@ fn skip_btn(
         ui.painter().rect_filled(fill_rect, radius, COUNTDOWN_TINT);
     }
 
-    if !is_counting {
+    if grab_focus {
         response.request_focus();
     }
 
-    let enter = ui.input(|i| i.key_pressed(egui::Key::Enter));
+    // A remote's OK clicks whatever is focused, Cancel included.
+    let directional = crate::platform::profile(ui.ctx()).is_directional();
+    let enter = !directional && ui.input(|i| i.key_pressed(egui::Key::Enter));
     response.clicked() || enter
 }

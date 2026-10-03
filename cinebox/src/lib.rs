@@ -1,4 +1,4 @@
-//! Cinebox desktop application (egui / eframe glow).
+//! Cinebox application (egui / eframe glow) for desktop and Android TV.
 
 #![forbid(unsafe_code)]
 
@@ -13,6 +13,7 @@ mod images;
 mod jobs;
 mod library;
 mod nav;
+pub mod platform;
 mod screens;
 mod services;
 mod settings_input;
@@ -37,8 +38,16 @@ const APP_ID: &str = "io.github.dexsper.cinebox";
 ///
 /// Returns an [`eframe::Error`] if the window or renderer fails to start.
 pub fn run() -> eframe::Result {
+    let creator = app_creator(platform::Host::desktop());
+    eframe::run_native(&app_name(), native_options(), creator)
+}
+
+/// Window setup shared by every platform; Android adds its `android_app`.
+#[must_use]
+pub fn native_options() -> eframe::NativeOptions {
     let title = t!("app.title");
-    let native_options = eframe::NativeOptions {
+
+    eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_inner_size([1280.0, 800.0])
             .with_min_inner_size([800.0, 600.0])
@@ -47,13 +56,19 @@ pub fn run() -> eframe::Result {
             .with_app_id(APP_ID)
             .with_icon(app_icon()),
         ..Default::default()
-    };
+    }
+}
 
-    eframe::run_native(
-        title.as_ref(),
-        native_options,
-        Box::new(|cc| Ok(Box::new(app::App::new(cc)))),
-    )
+/// What eframe identifies the app by (window title, storage).
+#[must_use]
+pub fn app_name() -> String {
+    t!("app.title").into_owned()
+}
+
+/// The app for an entry point that runs eframe itself.
+#[must_use]
+pub fn app_creator(host: platform::Host) -> eframe::AppCreator<'static> {
+    Box::new(move |cc| Ok(Box::new(app::App::new(cc, host))))
 }
 
 fn app_icon() -> egui::IconData {

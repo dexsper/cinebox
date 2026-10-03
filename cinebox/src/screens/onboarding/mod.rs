@@ -1,5 +1,6 @@
-//! First-run wizard: language, TMDB key, parser, TorrServer. Every step can
-//! be skipped; the settings drawer can start the wizard again.
+//! First-run wizard: language, fitting a TV's screen, TMDB key, parser,
+//! TorrServer. Every step can be skipped; the settings drawer can start the
+//! wizard again.
 
 mod card;
 mod steps;
@@ -13,10 +14,11 @@ use rust_i18n::t;
 
 use crate::discovery::{Discovery, DiscoveryCtx, discover_services};
 use crate::jobs::JobError;
+use crate::platform;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::intro;
+use crate::widgets::{focus, intro};
 
 const FOOTER_BUTTON: egui::Vec2 = vec2(132.0, 36.0);
 /// Header, title, and footer around the scrolling step body.
@@ -25,36 +27,64 @@ const CARD_CHROME_H: f32 = 220.0;
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Step {
     Language,
+    Screen,
     Tmdb,
     Parser,
     TorrServer,
     Done,
 }
 
-impl Step {
-    const ALL: [Self; 5] = [
-        Self::Language,
-        Self::Tmdb,
-        Self::Parser,
-        Self::TorrServer,
-        Self::Done,
+/// The steps this device walks through. Where the screen may crop the
+/// picture, it is fitted right after the language, before anything else is
+/// laid out against its edges.
+#[derive(Clone, Copy)]
+struct Route(&'static [Step]);
+
+impl Route {
+    const CROPPING_SCREEN: [Step; 6] = [
+        Step::Language,
+        Step::Screen,
+        Step::Tmdb,
+        Step::Parser,
+        Step::TorrServer,
+        Step::Done,
     ];
 
-    fn index(self) -> usize {
-        Self::ALL.iter().position(|step| *step == self).unwrap_or(0)
+    const WHOLE_SCREEN: [Step; 5] = [
+        Step::Language,
+        Step::Tmdb,
+        Step::Parser,
+        Step::TorrServer,
+        Step::Done,
+    ];
+
+    fn of(ctx: &Context) -> Self {
+        if platform::profile(ctx).overscan {
+            return Self(&Self::CROPPING_SCREEN);
+        }
+
+        Self(&Self::WHOLE_SCREEN)
     }
 
-    fn next(self) -> Self {
-        let next = Self::ALL.get(self.index() + 1);
-        next.copied().unwrap_or(self)
+    fn len(self) -> usize {
+        self.0.len()
     }
 
-    fn prev(self) -> Self {
-        let Some(index) = self.index().checked_sub(1) else {
-            return self;
+    fn index(self, step: Step) -> usize {
+        self.0.iter().position(|item| *item == step).unwrap_or(0)
+    }
+
+    fn next(self, step: Step) -> Step {
+        let next = self.0.get(self.index(step) + 1);
+        next.copied().unwrap_or(step)
+    }
+
+    fn prev(self, step: Step) -> Step {
+        let Some(index) = self.index(step).checked_sub(1) else {
+            return step;
         };
 
-        Self::ALL[index]
+        self.0[index]
     }
 }
 
@@ -89,6 +119,8 @@ pub struct OnboardingScreen {
     discovery: Bind<Discovery, JobError>,
     probes: Probes,
     show_torr_auth: bool,
+    /// The step changed since the last frame.
+    arrived: bool,
 }
 
 impl Default for OnboardingScreen {
@@ -100,6 +132,7 @@ impl Default for OnboardingScreen {
             discovery: Bind::new(true),
             probes: Probes::default(),
             show_torr_auth: false,
+            arrived: false,
         }
     }
 }
@@ -151,8 +184,12 @@ impl OnboardingScreen {
             nav = self.card_contents(ui, svc, theme, max_body_h);
         });
 
+        if self.step == Step::Screen {
+            crate::widgets::overscan::corner_marks(ctx, theme);
+        }
+
         if let Some(nav) = nav {
-            self.apply(nav, svc);
+            self.apply(nav, svc, Route::of(ctx));
         }
     }
 
@@ -179,8 +216,10 @@ impl OnboardingScreen {
     }
 
     fn step_body(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
+        let arrived = std::mem::take(&mut self.arrived);
         match self.step {
             Step::Language => steps::language(ui, svc, theme),
+            Step::Screen => steps::screen(ui, svc, theme, arrived),
             Step::Tmdb => self.tmdb_step(ui, svc, theme),
             Step::Parser => self.parser_step(ui, svc, theme),
             Step::TorrServer => self.torr_step(ui, svc, theme),
@@ -190,8 +229,9 @@ impl OnboardingScreen {
 
     /// Step counter on the left, "Set up later" on the right.
     fn header(&self, ui: &mut Ui, theme: &Theme) -> Option<WizardNav> {
-        let number = (self.step.index() + 1).to_string();
-        let total = Step::ALL.len().to_string();
+        let route = Route::of(ui.ctx());
+        let number = (route.index(self.step) + 1).to_string();
+        let total = route.len().to_string();
         let counter = t!("wizard.step_of", number = number, total = total);
 
         let mut later = false;
@@ -229,7 +269,10 @@ impl OnboardingScreen {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 let label = self.next_label(svc);
                 let opts = Opts::primary(FOOTER_BUTTON);
-                if button::icon_label(ui, theme, ICON_ARROW_FORWARD, &label, opts) {
+                let next = button::icon_label_response(ui, theme, ICON_ARROW_FORWARD, &label, opts);
+                // Unless the step marked its current choice, OK keeps moving forward.
+                focus::prefer(&next);
+                if next.clicked() {
                     nav = Some(self.forward());
                 }
             });
@@ -260,12 +303,17 @@ impl OnboardingScreen {
         t!("wizard.skip")
     }
 
-    fn apply(&mut self, nav: WizardNav, svc: &mut Services) {
+    fn apply(&mut self, nav: WizardNav, svc: &mut Services, route: Route) {
         match nav {
-            WizardNav::Back => self.step = self.step.prev(),
-            WizardNav::Next => self.step = self.step.next(),
+            WizardNav::Back => self.go_to(route.prev(self.step)),
+            WizardNav::Next => self.go_to(route.next(self.step)),
             WizardNav::Finish => self.finish(svc),
         }
+    }
+
+    fn go_to(&mut self, step: Step) {
+        self.arrived = step != self.step;
+        self.step = step;
     }
 
     /// Closing at any step counts: the wizard does not come back on its own.
@@ -279,6 +327,7 @@ impl OnboardingScreen {
 fn step_copy(step: Step) -> (Cow<'static, str>, Cow<'static, str>) {
     match step {
         Step::Language => (t!("wizard.language_title"), t!("wizard.language_body")),
+        Step::Screen => (t!("wizard.screen_title"), t!("wizard.screen_body")),
         Step::Tmdb => (t!("wizard.tmdb_title"), t!("wizard.tmdb_body")),
         Step::Parser => (t!("wizard.parser_title"), t!("wizard.parser_body")),
         Step::TorrServer => (t!("wizard.torr_title"), t!("wizard.torr_body")),
@@ -303,10 +352,19 @@ mod tests {
 
     #[test]
     fn steps_walk_forward_and_back_within_bounds() {
-        assert_eq!(Step::Language.prev(), Step::Language);
-        assert_eq!(Step::Language.next(), Step::Tmdb);
-        assert_eq!(Step::TorrServer.next(), Step::Done);
-        assert_eq!(Step::Done.next(), Step::Done);
-        assert_eq!(Step::Done.prev(), Step::TorrServer);
+        let route = Route(&Route::WHOLE_SCREEN);
+        assert_eq!(route.prev(Step::Language), Step::Language);
+        assert_eq!(route.next(Step::Language), Step::Tmdb);
+        assert_eq!(route.next(Step::TorrServer), Step::Done);
+        assert_eq!(route.next(Step::Done), Step::Done);
+        assert_eq!(route.prev(Step::Done), Step::TorrServer);
+    }
+
+    #[test]
+    fn a_cropping_screen_is_fitted_right_after_the_language() {
+        let route = Route(&Route::CROPPING_SCREEN);
+        assert_eq!(route.next(Step::Language), Step::Screen);
+        assert_eq!(route.next(Step::Screen), Step::Tmdb);
+        assert_eq!(route.prev(Step::Tmdb), Step::Screen);
     }
 }

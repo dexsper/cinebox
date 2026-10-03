@@ -5,8 +5,8 @@
 
 use egui::containers::scroll_area::{DragScroll, ScrollSource};
 use egui::{
-    AsIdSalt, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect, ScrollArea,
-    Shape, Ui, Vec2, Vec2b, pos2, vec2,
+    Align, AsIdSalt, Context, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect,
+    Response, ScrollArea, Shape, Ui, UiKind, Vec2, Vec2b, pos2, vec2,
 };
 
 const FRICTION: f32 = 4.2;
@@ -15,6 +15,9 @@ const WHEEL_GAIN: f32 = 10.0;
 const PIXEL_GAIN: f32 = 6.0;
 const MAX_SPEED: f32 = 4200.0;
 const WHEEL_TAKEN: &str = "cinebox-wheel-taken";
+const REVEALED: &str = "cinebox-scroll-revealed";
+const BUILDING: &str = "cinebox-scroll-building";
+const GLIDE_TOP: &str = "cinebox-scroll-glide-top";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: i32 = 12;
@@ -29,6 +32,14 @@ struct Coast {
     vel: Vec2,
     offset: Vec2,
     rect: Rect,
+    /// What the area shows of its content, on screen.
+    view: Rect,
+    vertical: bool,
+    /// On its way to the top after [`reveal_page_top`].
+    gliding: bool,
+    /// How far down the content was laid out. While egui animates a scroll,
+    /// `offset` is already a frame ahead of it.
+    shown_y: f32,
     dragging: bool,
     max_offset: Vec2,
 }
@@ -39,6 +50,10 @@ impl Default for Coast {
             vel: Vec2::ZERO,
             offset: Vec2::ZERO,
             rect: Rect::NOTHING,
+            view: Rect::NOTHING,
+            vertical: false,
+            gliding: false,
+            shown_y: 0.0,
             dragging: false,
             max_offset: Vec2::splat(f32::INFINITY),
         }
@@ -127,19 +142,154 @@ fn source() -> ScrollSource {
 
 /// Vertical page scroll with overlay bar, drag, and inertia.
 pub fn vertical(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, false, add);
+    show(
+        ui,
+        id,
+        Vec2b::new(false, true),
+        Vec2b::FALSE,
+        None,
+        false,
+        add,
+    );
 }
 
 /// Like [`vertical`], but this frame starts at the top (new title, re-entry).
 pub fn vertical_to_top(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, true, add);
+    show(
+        ui,
+        id,
+        Vec2b::new(false, true),
+        Vec2b::FALSE,
+        None,
+        true,
+        add,
+    );
 }
 
 /// Like [`vertical`], but capped: grows with content up to `max_height` (popups).
 pub fn vertical_capped(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: impl FnOnce(&mut Ui)) {
     let auto_shrink = Vec2b::new(false, true);
 
-    show(ui, id, Vec2b::new(false, true), auto_shrink, Some(max_height), false, add);
+    show(
+        ui,
+        id,
+        Vec2b::new(false, true),
+        auto_shrink,
+        Some(max_height),
+        false,
+        add,
+    );
+}
+
+/// The scroll areas whose content is being built right now, outermost first.
+#[must_use]
+pub fn enclosing(ctx: &Context) -> Vec<Id> {
+    let building = ctx.data(|d| d.get_temp::<Vec<Id>>(Id::new(BUILDING)));
+    building.unwrap_or_default()
+}
+
+/// Builds an area's content with the area on the stack [`enclosing`] reads.
+fn inside_area<R>(ctx: &Context, area: Id, build: impl FnOnce() -> R) -> R {
+    let key = Id::new(BUILDING);
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<Id>>(key).push(area));
+    let built = build();
+    ctx.data_mut(|d| d.get_temp_mut_or_default::<Vec<Id>>(key).pop());
+
+    built
+}
+
+/// Scroll every area around the widget until it is in view.
+pub fn reveal(response: &Response) {
+    response.scroll_to_me(None);
+
+    let ctx = &response.ctx;
+    let revealed = (ctx.cumulative_pass_nr(), response.rect);
+    ctx.data_mut(|d| d.insert_temp(Id::new(REVEALED), revealed));
+}
+
+/// The innermost of `areas` (outermost first, as [`enclosing`] gives them)
+/// that scrolls up and down.
+#[must_use]
+pub fn innermost_page(ctx: &Context, areas: &[Id]) -> Option<Id> {
+    let coasts = areas.iter().rev().map(|area| (*area, coast_of(ctx, *area)));
+    let mut pages = coasts.filter(|(_, coast)| coast.vertical);
+
+    pages.next().map(|(area, _)| area)
+}
+
+/// `page` is scrolled down, and at its top `rect` (a widget in it) would still be in view.
+#[must_use]
+pub fn can_show_top(ctx: &Context, page: Id, rect: Rect) -> bool {
+    let coast = coast_of(ctx, page);
+    if coast.offset.y <= EDGE_EPS {
+        return false;
+    }
+
+    let content_top = coast.view.top() - coast.offset.y;
+    rect.bottom() - content_top <= coast.view.height()
+}
+
+/// Like [`reveal`], but `page`, an area around the widget, scrolls to its very
+/// top instead of just far enough. A shelf around the widget still scrolls it
+/// into view sideways.
+pub fn reveal_page_top(response: &Response, page: Id) {
+    let ctx = &response.ctx;
+    // Apart from the area's own state, which it writes back when it is done.
+    ctx.data_mut(|d| d.insert_temp(page.with(GLIDE_TOP), true));
+    ctx.request_repaint();
+
+    // Not recorded as revealed: the page would scroll to the widget as well.
+    let in_page_itself = enclosing(ctx).last() == Some(&page);
+    if !in_page_itself {
+        response.scroll_to_me(None);
+    }
+}
+
+/// How far a widget in `areas` (as [`enclosing`] gives them) has yet to move
+/// while a page around it glides to its top.
+#[must_use]
+pub fn glide_left(ctx: &Context, areas: &[Id]) -> Vec2 {
+    let gliding = areas.iter().filter(|area| glides(ctx, **area));
+    let left: f32 = gliding.map(|area| coast_of(ctx, *area).shown_y).sum();
+
+    vec2(0.0, left)
+}
+
+/// Also before the page has picked up the request: the D-pad can come first.
+fn glides(ctx: &Context, area: Id) -> bool {
+    let requested = ctx.data(|d| d.get_temp::<bool>(area.with(GLIDE_TOP)));
+    if requested.is_some() {
+        return true;
+    }
+
+    coast_of(ctx, area).gliding
+}
+
+fn coast_of(ctx: &Context, area: Id) -> Coast {
+    ctx.data(|d| d.get_temp(area)).unwrap_or_default()
+}
+
+fn revealed_this_pass(ctx: &Context) -> Option<Rect> {
+    let (pass, rect) = ctx.data(|d| d.get_temp::<(u64, Rect)>(Id::new(REVEALED)))?;
+
+    (pass == ctx.cumulative_pass_nr()).then_some(rect)
+}
+
+/// egui hands a scroll target to the innermost area only, and that area drops
+/// the axis it does not scroll: a shelf would move sideways while the page
+/// around it stays put. Passes that axis on to the enclosing area.
+fn pass_reveal_out(ui: &Ui, enabled: Vec2b) {
+    if enabled.all() {
+        return;
+    }
+
+    if !ui.stack().contained_in(UiKind::ScrollArea) {
+        return;
+    }
+
+    if let Some(rect) = revealed_this_pass(ui.ctx()) {
+        ui.scroll_to_rect(rect, None);
+    }
 }
 
 /// Horizontal shelf: height follows content.
@@ -172,6 +322,14 @@ fn show(
         coast.stop();
     }
 
+    let glide_top = ui
+        .ctx()
+        .data_mut(|d| d.remove_temp::<bool>(coast_id.with(GLIDE_TOP)));
+    let glide_top = glide_top.unwrap_or(false);
+    if glide_top {
+        coast.stop();
+    }
+
     let pointer_down = ui.input(|i| i.pointer.primary_down());
     if coast.dragging || (pointer_down && pointer_over(ui, coast.rect)) {
         coast.stop();
@@ -195,25 +353,33 @@ fn show(
         area = area.max_height(height);
     }
 
-    if to_top {
-        if enabled[0] {
-            area = area.horizontal_scroll_offset(0.0);
-        }
-
-        if enabled[1] {
-            area = area.vertical_scroll_offset(0.0);
-        }
-    } else if coasting {
-        if enabled[0] {
-            area = area.horizontal_scroll_offset(coast.offset.x);
-        }
-        if enabled[1] {
-            area = area.vertical_scroll_offset(coast.offset.y);
-        }
+    let [forced_x, forced_y] = forced_offsets(to_top, coasting, coast.offset);
+    if let Some(x) = forced_x.filter(|_| enabled[0]) {
+        area = area.horizontal_scroll_offset(x);
+    }
+    if let Some(y) = forced_y.filter(|_| enabled[1]) {
+        area = area.vertical_scroll_offset(y);
     }
 
     let origin = ui.cursor().min;
-    let output = area.show(ui, add);
+    let revealed_outside = revealed_this_pass(ui.ctx()).is_some();
+    let ctx = ui.ctx().clone();
+    let output = inside_area(&ctx, coast_id, || {
+        area.show(ui, |ui| {
+            add(ui);
+            if glide_top {
+                scroll_to_content_top(ui);
+            }
+            ui.min_rect().top()
+        })
+    });
+
+    let content_top = output.inner;
+    let revealed_inside = !revealed_outside && revealed_this_pass(ui.ctx()).is_some();
+    if !revealed_outside {
+        pass_reveal_out(ui, enabled);
+    }
+
     let hit = hover_rect(
         origin,
         ui.cursor().min,
@@ -244,18 +410,60 @@ fn show(
 
     coast.dragging = dragging;
     coast.rect = hit;
+    coast.view = output.inner_rect;
+    coast.vertical = enabled[1];
     coast.offset = output.state.offset;
+    coast.shown_y = output.inner_rect.top() - content_top;
     coast.max_offset = vec2(
         (output.content_size.x - output.inner_rect.width()).max(0.0),
         (output.content_size.y - output.inner_rect.height()).max(0.0),
     );
 
     coast.clamp_edges(enabled);
+    let gliding = glide_top || coast.gliding;
+    coast.gliding = gliding && glides_on(&coast, revealed_inside);
     if coast.moving() {
         ui.ctx().request_repaint();
     }
 
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
+}
+
+/// A glide to the top lasts until the page gets there, unless something else
+/// takes over its scrolling.
+fn glides_on(coast: &Coast, revealed_inside: bool) -> bool {
+    if revealed_inside {
+        return false;
+    }
+
+    if coast.dragging || coast.moving() {
+        return false;
+    }
+
+    coast.shown_y > EDGE_EPS
+}
+
+/// What this frame sets the offset to, per axis; `None` leaves it to egui.
+fn forced_offsets(to_top: bool, coasting: bool, offset: Vec2) -> [Option<f32>; 2] {
+    if to_top {
+        return [Some(0.0), Some(0.0)];
+    }
+
+    if coasting {
+        return [Some(offset.x), Some(offset.y)];
+    }
+
+    [None, None]
+}
+
+/// Animated like egui's own reveals. Called after the content, so no area
+/// nested in it takes the target first.
+fn scroll_to_content_top(ui: &Ui) {
+    // egui lands an `Align::TOP` target one item spacing above the rect.
+    let top = ui.min_rect().top() + ui.spacing().item_spacing.y;
+    let rect = Rect::from_x_y_ranges(ui.min_rect().x_range(), top..=top);
+
+    ui.scroll_to_rect(rect, Some(Align::TOP));
 }
 
 fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
@@ -281,7 +489,7 @@ fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
         let y0 = fade.top() + fade.height() * a0;
         let y1 = fade.top() + fade.height() * a1;
         let band = Rect::from_min_max(pos2(fade.left(), y0), pos2(fade.right(), y1));
-        
+
         ui.painter()
             .add(Shape::gradient_rect(band, Direction::TopDown, [c0, c1]));
     }
@@ -408,7 +616,7 @@ fn wheel_impulse(
 fn mark_wheel_taken(ui: &Ui) -> bool {
     let key = Id::new(WHEEL_TAKEN);
     let pass = ui.ctx().cumulative_pass_nr();
-    
+
     ui.ctx().data_mut(|d| {
         if d.get_temp::<u64>(key) == Some(pass) {
             true

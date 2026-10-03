@@ -13,12 +13,13 @@ use super::{OnboardingScreen, Step, card};
 use crate::discovery::{Discovery, FoundParser};
 use crate::errors::UserError;
 use crate::jobs::{self, JobError};
+use crate::platform::TextPurpose;
 use crate::screens::gate::{self, TmdbKeyProblem};
 use crate::services::Services;
 use crate::settings_input::{InputKind, changed_value};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::field;
+use crate::widgets::{field, focus, overscan};
 
 const LANGUAGES: [(UiLanguage, &str); 3] = [
     (UiLanguage::English, "English"),
@@ -31,7 +32,7 @@ const LINK_H: f32 = 30.0;
 /// Whether the step's service has a value, so "Next" does not read as "Skip".
 pub(super) fn is_set(step: Step, settings: &Settings) -> bool {
     match step {
-        Step::Language | Step::Done => true,
+        Step::Language | Step::Screen | Step::Done => true,
         Step::Tmdb => !settings.tmdb.api_key.is_empty(),
         Step::Parser => !settings.parser.url.is_empty(),
         Step::TorrServer => !settings.torrserver.url.is_empty(),
@@ -53,6 +54,20 @@ pub(super) fn language(ui: &mut Ui, svc: &mut Services, theme: &Theme) {
     }
 }
 
+/// Applied at once: the whole interface moves with the corner marks.
+pub(super) fn screen(ui: &mut Ui, svc: &mut Services, theme: &Theme, arrived: bool) {
+    let label = t!("wizard.screen_margin");
+    let overscan = &mut svc.settings.general.overscan;
+    let stepper = overscan::stepper(ui, theme, overscan, &label);
+    if arrived {
+        focus::enter_popup(&stepper);
+    }
+
+    if stepper.changed() {
+        svc.persist();
+    }
+}
+
 impl OnboardingScreen {
     pub(super) fn tmdb_step(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
         if link(ui, theme, ICON_OPEN_IN_NEW, &t!("gate.tmdb_get_key")) {
@@ -62,7 +77,7 @@ impl OnboardingScreen {
         ui.add_space(12.0);
         let current = svc.settings.tmdb.api_key.expose().to_owned();
         let label = t!("settings.api_key");
-        let spec = Input::plain(&label, "tmdb-key");
+        let spec = Input::verbatim(&label, "tmdb-key");
         let draft = edit(ui, theme, &spec, &current);
         if let Some(key) = changed_value(draft, InputKind::Key, &current) {
             svc.settings.tmdb.api_key = SecretString::from(key);
@@ -102,7 +117,7 @@ impl OnboardingScreen {
 
         let key = svc.settings.parser.api_key.expose().to_owned();
         let label = t!("settings.api_key");
-        let spec = Input::plain(&label, "parser-key");
+        let spec = Input::verbatim(&label, "parser-key");
         let draft = edit(ui, theme, &spec, &key);
         if let Some(key) = changed_value(draft, InputKind::Key, &key) {
             svc.settings.parser.api_key = SecretString::from(key);
@@ -149,7 +164,7 @@ impl OnboardingScreen {
     fn torr_auth(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
         let user = svc.settings.torrserver.username.clone();
         let label = t!("settings.username");
-        let spec = Input::plain(&label, "torr-user");
+        let spec = Input::verbatim(&label, "torr-user");
         let draft = edit(ui, theme, &spec, &user);
         if let Some(user) = changed_value(draft, InputKind::Plain, &user) {
             svc.settings.torrserver.username = user;
@@ -436,30 +451,31 @@ struct Input<'a> {
     label: &'a str,
     id: &'static str,
     placeholder: &'static str,
-    password: bool,
+    purpose: TextPurpose,
 }
 
 impl<'a> Input<'a> {
-    fn plain(label: &'a str, id: &'static str) -> Self {
+    fn verbatim(label: &'a str, id: &'static str) -> Self {
         Self {
             label,
             id,
             placeholder: "",
-            password: false,
+            purpose: TextPurpose::Verbatim,
         }
     }
 
     fn url(label: &'a str, id: &'static str, placeholder: &'static str) -> Self {
         Self {
             placeholder,
-            ..Self::plain(label, id)
+            purpose: TextPurpose::Url,
+            ..Self::verbatim(label, id)
         }
     }
 
     fn password(label: &'a str, id: &'static str) -> Self {
         Self {
-            password: true,
-            ..Self::plain(label, id)
+            purpose: TextPurpose::Secret,
+            ..Self::verbatim(label, id)
         }
     }
 }
@@ -470,7 +486,7 @@ fn edit(ui: &mut Ui, theme: &Theme, input: &Input<'_>, value: &str) -> Option<St
     let id = Id::new(("wizard", input.id));
     let placeholder = input.placeholder;
 
-    field::committed_edit(ui, theme, id, value, placeholder, input.password)
+    field::committed_edit(ui, theme, id, value, placeholder, input.purpose)
 }
 
 fn section(ui: &mut Ui, theme: &Theme, text: &str) {

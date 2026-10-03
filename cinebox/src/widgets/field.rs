@@ -4,7 +4,9 @@ use std::time::Duration;
 
 use egui::{Align, Frame, Id, Layout, Margin, Sense, Stroke, TextEdit, Ui, UiBuilder, vec2};
 
+use crate::platform::{self, TextAction, TextInputSpec, TextPurpose};
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 pub const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
 pub const COMMIT_IDLE: f64 = 0.8;
@@ -45,13 +47,14 @@ pub fn committed_edit(
     id: Id,
     value: &str,
     placeholder: &str,
-    password: bool,
+    purpose: TextPurpose,
 ) -> Option<String> {
     let now = ui.input(|i| i.time);
     let stored = ui.data(|d| d.get_temp::<Draft>(id));
     let mut draft = stored.unwrap_or_else(|| Draft::clean(value));
 
-    let response = styled_edit(ui, theme, &mut draft.text, placeholder, password);
+    let edit_id = id.with("edit");
+    let response = styled_edit(ui, theme, edit_id, &mut draft.text, placeholder, purpose);
     if response.changed() {
         draft.edited_at = Some(now);
     }
@@ -83,12 +86,13 @@ fn store_draft(ui: &Ui, id: Id, draft: Draft, focused: bool) {
     ui.data_mut(|d| d.remove::<Draft>(id));
 }
 
-pub fn styled_edit(
+fn styled_edit(
     ui: &mut Ui,
     theme: &Theme,
+    edit_id: Id,
     value: &mut String,
     placeholder: &str,
-    password: bool,
+    purpose: TextPurpose,
 ) -> egui::Response {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), INPUT_H), Sense::hover());
     ui.painter().rect(
@@ -98,6 +102,7 @@ pub fn styled_edit(
         Stroke::new(1.0, theme.window_edge),
         egui::StrokeKind::Inside,
     );
+    let gate = focus::edit_gate(ui, rect, edit_id);
 
     let inner = rect.shrink2(vec2(10.0, 0.0));
     let mut row = ui.new_child(
@@ -108,15 +113,24 @@ pub fn styled_edit(
 
     row.spacing_mut().interact_size.y = INPUT_H;
     let mut edit = TextEdit::singleline(value)
+        .id(edit_id)
+        .interactive(gate.interactive)
         .desired_width(f32::INFINITY)
         .vertical_align(Align::Center)
         .margin(Margin::ZERO)
         .hint_text(placeholder)
         .frame(Frame::NONE);
 
-    if password {
+    if purpose == TextPurpose::Secret {
         edit = edit.password(true);
     }
 
-    row.add(edit)
+    let mut response = row.add(edit);
+    let spec = TextInputSpec {
+        purpose,
+        action: TextAction::Done,
+    };
+    platform::text_input::field(&mut response, spec, value);
+    focus::edit_done(ui, &response);
+    response
 }

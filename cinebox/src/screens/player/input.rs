@@ -1,9 +1,11 @@
 //! Keyboard shortcuts, escape handling, and OS fullscreen bookkeeping.
 
 use cinebox_player::SEEK_SECS;
-use egui::{Ui, Vec2, ViewportCommand};
+use egui::{Id, Key, Response, Ui, Vec2, ViewportCommand};
 
+use crate::platform;
 use crate::services::Services;
+use crate::widgets::focus;
 
 use super::{PlayerPhase, PlayerScreen, Popup};
 
@@ -21,6 +23,13 @@ impl PlayerScreen {
             return true;
         }
 
+        // Back from the controls returns the D-pad to the video before leaving.
+        if self.controls_focused && platform::profile(ctx).is_directional() {
+            self.controls_focused = false;
+            self.activity.hide();
+            return true;
+        }
+
         false
     }
 
@@ -31,6 +40,14 @@ impl PlayerScreen {
 
         if ui.input(|i| i.key_pressed(egui::Key::Space)) {
             self.toggle(svc);
+            self.focus_play_from_remote(ui.ctx());
+        }
+
+        // With a D-pad the arrows also walk the controls; they seek only from the video.
+        let directional = platform::profile(ui.ctx()).is_directional();
+        let on_video = ui.ctx().memory(|mem| mem.has_focus(video_id()));
+        if directional && !on_video {
+            return;
         }
 
         if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
@@ -42,14 +59,45 @@ impl PlayerScreen {
         }
     }
 
+    /// The video holds D-pad focus while nothing else does, so the arrows seek
+    /// and OK pauses. `true` when Up/Down asked for the controls.
+    pub(super) fn dpad_video_focus(
+        &mut self,
+        ui: &Ui,
+        video: &Response,
+        popup_open: bool,
+        now: f64,
+    ) -> bool {
+        if !platform::profile(ui.ctx()).is_directional() {
+            return false;
+        }
+
+        focus::hold_arrows(ui, video.id, true, true);
+
+        let unfocused = ui.ctx().memory(|mem| mem.focused()).is_none();
+        if unfocused && !popup_open {
+            video.request_focus();
+            return false;
+        }
+
+        if !video.has_focus() {
+            return false;
+        }
+
+        let vertical = ui.input(|i| i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::ArrowDown));
+        if vertical {
+            self.activity.poke(now);
+        }
+
+        vertical
+    }
+
     pub(super) fn update_activity(&mut self, ui: &Ui, now: f64) {
         let interacted = ui.input(|i| {
             i.pointer.delta() != Vec2::ZERO
                 || i.pointer.any_down()
                 || i.smooth_scroll_delta != Vec2::ZERO
-                || i.events
-                    .iter()
-                    .any(|event| matches!(event, egui::Event::Key { .. }))
+                || i.events.iter().any(is_activity_key)
         });
 
         if interacted {
@@ -59,6 +107,11 @@ impl PlayerScreen {
 
     pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
         if self.fullscreen == on {
+            return;
+        }
+
+        // A window the OS owns is always full screen.
+        if !platform::profile(ctx).is_desktop_window() {
             return;
         }
 
@@ -101,6 +154,20 @@ impl PlayerScreen {
     }
 }
 
+/// Any key shows the controls, except Back, which may be hiding them.
+fn is_activity_key(event: &egui::Event) -> bool {
+    let egui::Event::Key { key, .. } = event else {
+        return false;
+    };
+
+    *key != Key::Escape
+}
+
+/// The video surface; on TV it is the D-pad's resting place.
+pub(super) fn video_id() -> Id {
+    Id::new("player-video")
+}
+
 #[cfg(test)]
 mod tests {
     use super::super::{PlayerScreen, Popup};
@@ -116,10 +183,10 @@ mod tests {
 
         assert!(screen.consume_escape(&ctx));
         assert!(screen.popup == Popup::None);
-        assert!(screen.is_fullscreen());
+        assert!(screen.fullscreen);
 
         assert!(screen.consume_escape(&ctx));
-        assert!(!screen.is_fullscreen());
+        assert!(!screen.fullscreen);
 
         assert!(!screen.consume_escape(&ctx));
     }

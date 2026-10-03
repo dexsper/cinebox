@@ -5,7 +5,8 @@ Rust crate licenses live in each crate's own package metadata, not in this
 repository's Cargo.toml. They can be collected from Cargo.lock.
 
 This file lists third-party material that Cargo does not see: IBM Plex and
-typograf are in the repository; libmpv is fetched at Windows build time.
+typograf are in the repository; libmpv is fetched at Windows build time;
+the Android app's Java libraries are fetched by Gradle.
 
 IBM Plex Sans
 ----------------
@@ -29,3 +30,18 @@ mpv:      GPL-2.0-or-later
 Build:    shinchiro mpv-dev 20260829 (git e8673660ab)
           https://github.com/shinchiro/mpv-winbuild-cmake
           This binary links GPL FFmpeg, so the shipped DLL is GPL.
+
+AndroidX Media3 (ExoPlayer)
+----------------
+Location: not in git; Gradle fetches androidx.media3:media3-exoplayer
+          (android/gradle/libs.versions.toml) from Google's Maven
+          repository into the APK
+License:  Apache License 2.0
+          https://www.apache.org/licenses/LICENSE-2.0
+Copyright © The Android Open Source Project
+https://github.com/androidx/media
+
+Libraries the APK gets along with Media3, all under the Apache License 2.0:
+          AndroidX Annotation and ExifInterface (The Android Open Source
+          Project), Guava (The Guava Authors), Kotlin standard library and
+          JetBrains annotations (JetBrains s.r.o.)

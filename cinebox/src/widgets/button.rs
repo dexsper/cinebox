@@ -9,6 +9,7 @@ use egui::{
 use egui_material_icons::MaterialIcon;
 
 use crate::theme::Theme;
+use crate::widgets::focus;
 
 pub const PAD_X: f32 = 14.0;
 pub const PAD_Y: f32 = 8.0;
@@ -78,7 +79,9 @@ impl Opts {
     }
 }
 
+/// Every clickable passes through here, so it also joins D-pad focus handling.
 pub fn pointing(response: Response) -> Response {
+    crate::widgets::focus::track(&response);
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -114,7 +117,7 @@ pub fn fill_for_hover(ui: &Ui, id: Id, idle: Color32, hover: Color32) -> Color32
     let hovered = ui
         .ctx()
         .read_response(id)
-        .is_some_and(|response| response.hovered() || response.contains_pointer());
+        .is_some_and(|response| focus::lit(&response) || response.contains_pointer());
 
     if hovered {
         return hover;
@@ -170,6 +173,16 @@ fn announce(response: Response, label: &str) -> Response {
 }
 
 pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> bool {
+    icon_label_response(ui, theme, icon, label, opts).clicked()
+}
+
+pub fn icon_label_response(
+    ui: &mut Ui,
+    theme: &Theme,
+    icon: MaterialIcon,
+    label: &str,
+    opts: Opts,
+) -> Response {
     let fg = foreground(theme, opts.tone);
     let atoms = (
         Atom::grow(),
@@ -178,7 +191,7 @@ pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, o
         Atom::grow(),
     );
 
-    add_named(ui, theme, atoms, opts, Some(label)).clicked()
+    add_named(ui, theme, atoms, opts, Some(label))
 }
 
 /// How long [`expanding_icon`] takes to open or close.
@@ -204,11 +217,13 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
         tint,
         selected,
     } = button;
+
     let id = ui.id().with(("expanding-icon", id_salt));
     let hovered = ui
         .ctx()
         .read_response(id)
-        .is_some_and(|response| response.contains_pointer());
+        .is_some_and(|response| response.contains_pointer() || focus::lit(&response));
+
     let t = ui
         .ctx()
         .animate_bool_with_time(id.with("expand"), hovered, EXPAND_SECS);
@@ -217,6 +232,7 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
     let galley = ui
         .painter()
         .layout_no_wrap(label.to_owned(), label_font, theme.title);
+
     let expanded_w = height + galley.size().x + PAD_X;
     let width = egui::lerp(height..=expanded_w, t);
 
@@ -229,7 +245,7 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
     let (idle, hover, active, stroke) = palette(theme, &opts);
     let fill = if response.is_pointer_button_down_on() {
         active
-    } else if response.hovered() {
+    } else if focus::lit(&response) {
         hover
     } else {
         idle
@@ -251,9 +267,11 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
             rect.left() + height - PAD_X * 0.25,
             rect.center().y - galley.size().y * 0.5,
         );
-        painter
-            .with_clip_rect(rect.shrink(1.0))
-            .galley(text_pos, galley, theme.title.gamma_multiply(t));
+        painter.with_clip_rect(rect.shrink(1.0)).galley(
+            text_pos,
+            galley,
+            theme.title.gamma_multiply(t),
+        );
     }
 
     response

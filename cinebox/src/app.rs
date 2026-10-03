@@ -1,16 +1,18 @@
 //! Thin dispatcher: navigation + shared services. Screens own their state.
 
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::Duration;
 
 use cinebox_core::{
     PosterSize, SEARCH_HISTORY_LIMIT, Settings, UiLanguage, allowed_image_sizes, tmdb_image_url,
 };
+use cinebox_player::VideoOutput;
 use egui::{CentralPanel, Frame};
 use tracing::error;
 
 use crate::images::ImageSlot;
 use crate::nav::{Nav, NavAction, RailEntry, Screen};
+use crate::platform::{self, DeviceEvent, Host, MediaCommand, SpeechEvent};
 use crate::screens::{
     CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, LiveTmdb, MediaScreen,
     OnboardingScreen, PersonScreen, PlayerScreen, SearchScreen, SectionScreen, SettingsScreen,
@@ -20,7 +22,7 @@ use crate::services::{Services, db_block_on};
 use crate::settings_input::tmdb_key_hint;
 use crate::theme::Theme;
 use crate::widgets::search::SearchBar;
-use crate::widgets::{backdrop, chrome, rail};
+use crate::widgets::{backdrop, chrome, focus, rail};
 
 struct TmdbView {
     api_key: String,
@@ -100,19 +102,33 @@ pub struct App {
     person: PersonScreen,
     torrents: TorrentsScreen,
     player: PlayerScreen,
+    /// The window had focus last frame (see `pause_in_background`).
+    foreground: bool,
+    /// Taken from the device before the frame, acted on in `logic`.
+    device_events: Vec<DeviceEvent>,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
-        let theme = Theme::dark();
+    pub fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
+        let theme = Theme::dark().for_profile(host.profile);
+        let platform_player = host.player.clone();
+
+        platform::install(&cc.egui_ctx, host);
         theme.apply(&cc.egui_ctx);
+
         crate::fonts::install(&cc.egui_ctx);
         egui_material_icons::initialize(&cc.egui_ctx);
+
         cc.egui_ctx
             .plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
-        let engine = attach_engine(cc);
-        let mut services = Services::boot(engine);
+        let player = platform_player.or_else(|| attach_mpv(cc));
+        if let Some(player) = &player {
+            let ctx = cc.egui_ctx.clone();
+            player.on_change(Box::new(move || ctx.request_repaint()));
+        }
+
+        let mut services = Services::boot(player);
         let first_run = !services.settings.general.onboarded;
         if first_run {
             adopt_system_language(&mut services);
@@ -148,10 +164,23 @@ impl App {
             person: PersonScreen::default(),
             torrents: TorrentsScreen::default(),
             player: PlayerScreen::default(),
+            foreground: true,
+            device_events: Vec::new(),
         }
     }
 
     fn apply_nav(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
+        let before = self.nav.current();
+        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
+        self.apply_nav_action(action, now, ctx);
+
+        let returned = self.nav.current() != before;
+        if let Some(id) = self.nav.focus_mark().filter(|_| returned) {
+            ctx.memory_mut(|mem| mem.request_focus(id));
+        }
+    }
+
+    fn apply_nav_action(&mut self, action: NavAction, now: f64, ctx: &egui::Context) {
         match action {
             NavAction::OpenSettings => self.settings_screen.toggle(now),
             NavAction::OpenSettingsAt(page) => self.settings_screen.open_at(page, now),
@@ -227,6 +256,9 @@ impl App {
         if matches!(self.nav.current(), Screen::Player { .. }) {
             self.player.stop(&mut self.services, ctx);
             self.nav.pop();
+            if matches!(self.nav.current(), Screen::Torrents { .. }) {
+                self.torrents.after_playback(&self.services);
+            }
             return;
         }
 
@@ -244,7 +276,21 @@ impl App {
             return;
         }
 
+        if back_to_rail(ctx, self.nav.current()) {
+            return;
+        }
+
+        let system_back = platform::profile(ctx).has_system_back();
+        if self.nav.is_root() && system_back {
+            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            return;
+        }
+
+        let leaving_torrents = matches!(self.nav.current(), Screen::Torrents { .. });
         self.nav.pop();
+        if leaving_torrents {
+            self.media.back_from_torrents();
+        }
     }
 
     /// `true` when none of the TMDB-relevant settings changed since the last
@@ -323,7 +369,47 @@ impl App {
         let kind = req.card.kind;
 
         self.player.start(req, &mut self.services, ctx);
+        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
         self.nav.push(Screen::Player { kind, id });
+    }
+
+    /// Home button or another app on top: the film should not keep playing unseen.
+    fn pause_in_background(&mut self, ctx: &egui::Context) {
+        let focused = ctx.input(|i| i.viewport().focused);
+        let backgrounded = focused == Some(false) && self.foreground;
+        self.foreground = focused != Some(false);
+
+        let on_player = matches!(self.nav.current(), Screen::Player { .. });
+        if backgrounded && on_player {
+            self.player.pause(&self.services);
+        }
+    }
+
+    fn handle_device_events(&mut self, ctx: &egui::Context) {
+        for event in std::mem::take(&mut self.device_events) {
+            match event {
+                DeviceEvent::Media(command) => self.media_command(command, ctx),
+                DeviceEvent::Speech(speech) => self.voice_search(speech, ctx),
+                DeviceEvent::SearchKey => self.search_bar.start_search(ctx),
+                // Already turned into input for the focused field by `take_input`.
+                DeviceEvent::Text(_) => {}
+            }
+        }
+    }
+
+    fn media_command(&mut self, command: MediaCommand, ctx: &egui::Context) {
+        let on_player = matches!(self.nav.current(), Screen::Player { .. });
+        if on_player {
+            self.player.apply(command, &mut self.services, ctx);
+        }
+    }
+
+    fn voice_search(&mut self, speech: SpeechEvent, ctx: &egui::Context) {
+        let Some(action) = self.search_bar.on_speech(speech) else {
+            return;
+        };
+
+        self.apply_nav(action, ctx.input(|i| i.time), ctx);
     }
 
     fn paint_backdrop(&mut self, ui: &mut egui::Ui) {
@@ -343,11 +429,27 @@ impl App {
 }
 
 impl eframe::App for App {
+    /// Clear wherever nothing is painted, so a video layer below the window shows there.
+    fn clear_color(&self, _visuals: &egui::Visuals) -> [f32; 4] {
+        [0.0; 4]
+    }
+
     fn raw_input_hook(&mut self, ctx: &egui::Context, raw_input: &mut egui::RawInput) {
         chrome::release_after_os_grab(ctx, raw_input);
+        let events = platform::take_input(ctx, raw_input);
+        self.device_events.extend(events);
+        focus::begin_frame(ctx, raw_input);
     }
 
     fn logic(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        platform::begin_frame(ctx);
+        platform::set_overscan(ctx, self.services.settings.general.overscan);
+        if !platform::profile(ctx).is_desktop_window() {
+            self.pause_in_background(ctx);
+        }
+
+        self.handle_device_events(ctx);
+
         let language = self.services.settings.general.language;
         if self.last_tmdb.language != language {
             crate::i18n::apply(language);
@@ -374,23 +476,38 @@ impl eframe::App for App {
         let screen = self.nav.current();
         let theme = self.theme.clone();
         let on_player = matches!(screen, Screen::Player { .. });
+        let profile = platform::profile(ui.ctx());
 
         // The wizard is dismissed with its own "Set up later" button only.
         let escape = ui.input(|i| i.key_pressed(egui::Key::Escape));
         if escape && !self.onboarding.is_open() {
+            // Escape closes an open dropdown; on TV, Back while typing only leaves the field.
+            let popup_consumed = egui::Popup::is_any_open(ui.ctx());
+            let field_consumed = profile.is_directional() && focus::was_editing(ui.ctx());
             let search_consumed = self.search_bar.consume_escape(ui.ctx());
             let player_consumed = on_player && self.player.consume_escape(ui.ctx());
+            let consumed = popup_consumed || field_consumed || search_consumed || player_consumed;
 
-            if !search_consumed && !player_consumed {
+            if !consumed {
                 action = Some(NavAction::GoBack);
             }
         }
 
-        let player_fullscreen = on_player && self.player.is_fullscreen();
-        let fill = if matches!(screen, Screen::Player { .. }) {
-            theme.video_bg
-        } else {
+        let player_fullscreen = on_player && self.player.fills_screen(profile);
+
+        // Over a video layer the player paints its own background around the picture.
+        let fill = if !on_player {
             theme.page_bg
+        } else if video_underlay(&self.services) {
+            egui::Color32::TRANSPARENT
+        } else {
+            theme.video_bg
+        };
+
+        let outline = if profile.is_desktop_window() {
+            1.0
+        } else {
+            0.0
         };
 
         CentralPanel::default()
@@ -398,13 +515,15 @@ impl eframe::App for App {
             .show(ui, |ui| {
                 self.paint_backdrop(ui);
                 let with_rail = screen.shows_rail() && !player_fullscreen;
-                // Inside the 1px window outline, starting at the title bar's bottom edge.
+                // Inside the window outline, starting at the title bar's bottom edge.
                 let window = ui.max_rect();
+                let bar_h = chrome::bar_height(ui.ctx(), &theme);
                 let rail_body = egui::Rect::from_min_max(
-                    egui::pos2(window.left() + 1.0, window.top() + theme.title_bar_h),
-                    egui::pos2(window.right(), window.bottom() - 1.0),
+                    egui::pos2(window.left() + outline, window.top() + bar_h),
+                    egui::pos2(window.right(), window.bottom() - outline),
                 );
-                let back_x = with_rail.then(|| rail::column_center(rail_body.left()));
+                let rail_column = rail::column_center(ui.ctx(), rail_body.left());
+                let back_x = with_rail.then_some(rail_column);
 
                 if !player_fullscreen
                     && let Some(nav) = chrome::header(
@@ -420,24 +539,26 @@ impl eframe::App for App {
                 }
 
                 let pad = theme.pad.round() as i8;
+                let edge = platform::edge_inset(ui.ctx());
                 let left = if with_rail {
-                    (rail::WIDTH + theme.pad).round() as i8
+                    (rail::collapsed_width(ui.ctx()) + theme.pad).round() as i8
                 } else {
-                    pad
+                    pad + edge.left
                 };
+                let right = pad + edge.right;
                 let content_margin = match screen {
                     Screen::Player { .. } => egui::Margin::ZERO,
                     Screen::Home => egui::Margin {
                         left,
-                        right: pad,
+                        right,
                         top: 0,
-                        bottom: pad,
+                        bottom: pad + edge.bottom,
                     },
                     _ => egui::Margin {
                         left,
-                        right: pad,
+                        right,
                         top: 0,
-                        bottom: 0,
+                        bottom: edge.bottom,
                     },
                 };
 
@@ -447,12 +568,13 @@ impl eframe::App for App {
                     }
                 }
 
-                let screen_action = Frame::new()
+                let content = Frame::new()
                     .inner_margin(content_margin)
-                    .show(ui, |ui| screen_ui(self, ui, screen, &theme))
-                    .inner;
+                    .show(ui, |ui| screen_ui(self, ui, screen, &theme));
+                focus::set_content(ui.ctx(), content.response.rect - content_margin);
+                let screen_action = content.inner;
 
-                if !player_fullscreen {
+                if !player_fullscreen && profile.is_desktop_window() {
                     chrome::resize_edges(ui, &theme);
                     chrome::window_outline(ui, &theme);
                 }
@@ -470,6 +592,8 @@ impl eframe::App for App {
         self.onboarding.ui(&ctx, &mut self.services, &theme);
 
         self.services.toasts.show(&ctx, &theme);
+        focus::end_frame(&ctx, &theme);
+        platform::end_frame(&ctx);
         self.take_pending_play(&ctx);
         if let Some(action) = action {
             self.apply_nav(action, ui.input(|i| i.time), &ctx);
@@ -480,7 +604,9 @@ impl eframe::App for App {
 }
 
 fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) -> Option<NavAction> {
-    if !matches!(screen, Screen::Torrents { .. }) {
+    // Under the player the page stays as it was, open file list included.
+    let keeps_torrents = matches!(screen, Screen::Torrents { .. } | Screen::Player { .. });
+    if !keeps_torrents {
         app.torrents.hide();
     }
 
@@ -504,19 +630,50 @@ fn screen_ui(app: &mut App, ui: &mut egui::Ui, screen: Screen, theme: &Theme) ->
     }
 }
 
-fn attach_engine(cc: &eframe::CreationContext<'_>) -> Option<Arc<Mutex<cinebox_player::Engine>>> {
+/// On a page opened from the side menu, Back first returns the D-pad to the
+/// menu's current item, as Android TV asks of apps with side navigation.
+pub(crate) fn back_to_rail(ctx: &egui::Context, screen: Screen) -> bool {
+    if !platform::profile(ctx).is_directional() {
+        return false;
+    }
+
+    if !screen.is_rail_destination() {
+        return false;
+    }
+
+    if rail::had_focus(ctx) {
+        return false;
+    }
+
+    let Some(entry) = screen.rail_entry() else {
+        return false;
+    };
+
+    rail::focus(ctx, entry);
+    true
+}
+
+fn video_underlay(svc: &Services) -> bool {
+    let output = svc.player.as_ref().map(|player| player.output());
+    output == Some(VideoOutput::Underlay)
+}
+
+#[cfg(not(target_os = "android"))]
+fn attach_mpv(cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
     let loader = cc.get_proc_address.clone()?;
-    match cinebox_player::Engine::attach(loader, native_display(cc)) {
-        Ok(mut engine) => {
-            let ctx = cc.egui_ctx.clone();
-            engine.set_update_callback(move || ctx.request_repaint());
-            Some(Arc::new(Mutex::new(engine)))
-        }
+    match cinebox_player::MpvPlayer::attach(loader, native_display(cc)) {
+        Ok(player) => Some(Arc::new(player)),
         Err(error) => {
             error!(%error, "mpv render attach failed");
             None
         }
     }
+}
+
+/// There is no libmpv on Android; the entry point always brings a player.
+#[cfg(target_os = "android")]
+fn attach_mpv(_cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
+    None
 }
 
 /// VAAPI shares decoded frames with GL only through the window's display.
@@ -540,7 +697,7 @@ fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDis
 }
 
 /// Windows decoders (NVDEC, D3D11VA copy-back) need no display.
-#[cfg(not(target_os = "linux"))]
+#[cfg(target_os = "windows")]
 fn native_display(_cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDisplay {
     cinebox_player::NativeDisplay::None
 }

@@ -7,7 +7,7 @@ license.workspace = true
 authors.workspace = true
 repository.workspace = true
 homepage.workspace = true
-description = "libmpv2 playback via the OpenGL render API"
+description = "Video playback: libmpv in the window's GL context, or a platform player"
 
 [dependencies]
 cinebox-core.workspace = true

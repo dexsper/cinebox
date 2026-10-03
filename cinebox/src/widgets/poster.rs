@@ -11,6 +11,7 @@ use crate::images::{ImageCache, ImageSlot};
 use crate::nav::NavAction;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;
+use crate::widgets::focus;
 
 const CAPTION_GAP: f32 = 4.0;
 const LINE_GAP: f32 = 2.0;
@@ -141,7 +142,7 @@ pub fn catalog_tile(
         vote_badge(ui, poster_rect, vote, theme, scale);
     }
 
-    if response.hovered() {
+    if focus::own_mark(&response) {
         hover_ring(ui, poster_rect, theme);
     }
 

@@ -1,0 +1,32 @@
+[package]
+name = "cinebox-android"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+repository.workspace = true
+homepage.workspace = true
+description = "Android TV entry point for Cinebox (NativeActivity)"
+publish = false
+
+# Loaded by NativeActivity through `android.app.lib_name` in AndroidManifest.xml.
+[lib]
+crate-type = ["cdylib"]
+
+[target.'cfg(target_os = "android")'.dependencies]
+cinebox = { path = "../../cinebox" }
+cinebox-core.workspace = true
+cinebox-player.workspace = true
+eframe.workspace = true
+jni = { version = "0.22", default-features = false }
+paranoid-android = "0.2"
+# Same version reqwest pulls in, so this initializes its verifier.
+rustls-platform-verifier = "0.7"
+tracing.workspace = true
+tracing-subscriber.workspace = true
+# eframe does not re-export winit; this must stay the version eframe runs on
+winit = { version = "0.30", default-features = false, features = ["android-native-activity"] }
+
+[lints]
+workspace = true

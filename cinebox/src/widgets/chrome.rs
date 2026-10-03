@@ -1,7 +1,8 @@
 //! Custom title bar: drag, window controls, back, settings, and search.
 
 use egui::{
-    CursorIcon, Id, Rect, Sense, Ui, Vec2, ViewportCommand, pos2, vec2, viewport::ResizeDirection,
+    CursorIcon, Id, Margin, Rect, Response, Sense, Ui, Vec2, ViewportCommand, pos2, vec2,
+    viewport::ResizeDirection,
 };
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
@@ -11,6 +12,7 @@ use egui_material_icons::icons::{
 use crate::nav::{NavAction, Screen};
 use crate::theme::Theme;
 use crate::widgets::search::{self, SearchBar};
+use crate::widgets::{button, focus};
 use rust_i18n::t;
 
 const RESIZE_GRIP: f32 = 6.0;
@@ -26,8 +28,11 @@ pub fn header(
     back_x: Option<f32>,
 ) -> Option<NavAction> {
     let mut action = None;
-    let height = theme.title_bar_h;
+    let profile = crate::platform::profile(ui.ctx());
+    let height = bar_height(ui.ctx(), theme);
     let (bar, _) = ui.allocate_exact_size(vec2(ui.available_width(), height), Sense::hover());
+    let edge = crate::platform::edge_inset(ui.ctx());
+    let controls = bar - Margin::symmetric(edge.left, 0);
 
     ui.painter().rect_filled(bar, 0.0, theme.chrome_bg);
     ui.painter().hline(
@@ -36,38 +41,51 @@ pub fn header(
         egui::Stroke::new(1.0, theme.window_edge),
     );
 
-    ui.scope_builder(egui::UiBuilder::new().max_rect(bar), |ui| {
+    ui.scope_builder(egui::UiBuilder::new().max_rect(controls), |ui| {
         ui.spacing_mut().item_spacing.x = 2.0;
         ui.horizontal_centered(|ui| {
-            let show_back = settings_open || !matches!(screen, Screen::Home);
-            if back_slot(ui, theme, bar, show_back, back_x) {
+            let away_from_home = settings_open || !matches!(screen, Screen::Home);
+            let show_back = away_from_home && !profile.has_system_back();
+            if back_slot(ui, theme, controls, show_back, back_x) {
                 action = Some(NavAction::GoBack);
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(4.0);
-                window_buttons(ui, theme);
-                if chrome_btn(
+                if profile.is_desktop_window() {
+                    window_buttons(ui, theme);
+                }
+                let settings = chrome_btn(
                     ui,
                     theme,
                     ICON_SETTINGS,
                     t!("nav.settings").as_ref(),
                     false,
                     settings_open,
-                ) {
+                );
+                if settings.clicked() {
                     action = Some(NavAction::OpenSettings);
                 }
 
                 let remaining = ui.available_size();
                 let (middle, _) = ui.allocate_exact_size(remaining, Sense::hover());
-                if let Some(nav) = search_and_drag(ui, theme, search, bar, middle) {
+                if let Some(nav) = search_and_drag(ui, theme, search, controls, middle) {
                     action = Some(nav);
                 }
+
+                let [field, mic] = search::stop_ids();
+                focus::group(ui.ctx(), vec![field, mic, settings.id], field);
             });
         });
     });
 
     action
+}
+
+/// Height of the bar [`header`] draws; the rail and drawers start below it.
+#[must_use]
+pub fn bar_height(ctx: &egui::Context, theme: &Theme) -> f32 {
+    theme.title_bar_h + crate::platform::edge_inset(ctx).topf()
 }
 
 /// Back button at the leading edge, or centered on `center_x` when a rail sits below.
@@ -76,7 +94,11 @@ fn back_slot(ui: &mut Ui, theme: &Theme, bar: Rect, show: bool, center_x: Option
     let label = t!("nav.back");
     let Some(center_x) = center_x else {
         ui.add_space(6.0);
-        return show && chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false);
+        if !show {
+            return false;
+        }
+
+        return chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false).clicked();
     };
 
     let size = Vec2::splat(theme.title_bar_h - 8.0);
@@ -88,7 +110,7 @@ fn back_slot(ui: &mut Ui, theme: &Theme, bar: Rect, show: bool, center_x: Option
 
     let rect = Rect::from_center_size(pos2(center_x, slot.center().y), size);
     ui.scope_builder(egui::UiBuilder::new().max_rect(rect), |ui| {
-        chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false)
+        chrome_btn(ui, theme, ICON_ARROW_BACK, label.as_ref(), false, false).clicked()
     })
     .inner
 }
@@ -178,14 +200,8 @@ fn hit_resize(ui: &Ui, rect: Rect, dir: ResizeDirection, cursor: CursorIcon, id:
 
 fn window_buttons(ui: &mut Ui, theme: &Theme) {
     let maximized = ui.input(|i| i.viewport().maximized).unwrap_or(false);
-    if chrome_btn(
-        ui,
-        theme,
-        ICON_CLOSE,
-        t!("window.close").as_ref(),
-        true,
-        false,
-    ) {
+    let close = chrome_btn(ui, theme, ICON_CLOSE, t!("window.close").as_ref(), true, false);
+    if close.clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Close);
     }
 
@@ -195,18 +211,12 @@ fn window_buttons(ui: &mut Ui, theme: &Theme) {
         (ICON_FULLSCREEN, t!("window.maximize"))
     };
 
-    if chrome_btn(ui, theme, max_icon, max_hint.as_ref(), false, false) {
+    if chrome_btn(ui, theme, max_icon, max_hint.as_ref(), false, false).clicked() {
         toggle_maximized(ui);
     }
 
-    if chrome_btn(
-        ui,
-        theme,
-        ICON_REMOVE,
-        t!("window.minimize").as_ref(),
-        false,
-        false,
-    ) {
+    let minimize = chrome_btn(ui, theme, ICON_REMOVE, t!("window.minimize").as_ref(), false, false);
+    if minimize.clicked() {
         ui.ctx().send_viewport_cmd(ViewportCommand::Minimized(true));
     }
 }
@@ -224,23 +234,24 @@ fn search_and_drag(
     bar: Rect,
     middle: Rect,
 ) -> Option<NavAction> {
-    let search_rect = centered_search_rect(bar, middle);
+    let search_rect = centered_search_rect(bar, middle, theme.search_h);
 
-    let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
-    let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
+    if crate::platform::profile(ui.ctx()).is_desktop_window() {
+        let left_drag = Rect::from_min_max(middle.min, pos2(search_rect.left(), middle.bottom()));
+        let right_drag = Rect::from_min_max(pos2(search_rect.right(), middle.top()), middle.max);
 
-    title_drag(ui, left_drag, "left");
-    title_drag(ui, right_drag, "right");
+        title_drag(ui, left_drag, "left");
+        title_drag(ui, right_drag, "right");
+    }
 
     search.show(ui, theme, search_rect)
 }
 
-fn centered_search_rect(bar: Rect, middle: Rect) -> Rect {
+fn centered_search_rect(bar: Rect, middle: Rect, height: f32) -> Rect {
     let max_w = (middle.width() - SEARCH_INSET * 2.0).max(0.0);
     let search_w = search::SEARCH_W.min(max_w);
-    let search_h = search::SEARCH_H
-        .min(middle.height() - SEARCH_INSET)
-        .max(0.0);
+    let max_h = (middle.height() - SEARCH_INSET).max(0.0);
+    let search_h = height.min(max_h);
 
     let desired = Rect::from_center_size(
         pos2(bar.center().x, middle.center().y),
@@ -327,7 +338,7 @@ fn chrome_btn(
     hint: &str,
     is_close: bool,
     active: bool,
-) -> bool {
+) -> Response {
     let size = Vec2::splat(theme.title_bar_h - 8.0);
     let idle = if active {
         theme.chrome_btn_hover
@@ -362,8 +373,5 @@ fn chrome_btn(
 
     let enabled = clicked.enabled();
     clicked.widget_info(|| egui::WidgetInfo::labeled(egui::WidgetType::Button, enabled, hint));
-    clicked
-        .on_hover_cursor(CursorIcon::PointingHand)
-        .on_hover_text(hint)
-        .clicked()
+    button::pointing(clicked).on_hover_text(hint)
 }

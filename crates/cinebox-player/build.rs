@@ -3,6 +3,7 @@
 //! Windows: bundle a prebuilt libmpv so `libmpv2` + `build_libmpv` link without a system
 //! install. Artifacts land in `$MPV_SOURCE/64` (see `.cargo/config.toml`).
 //! Linux: link the system libmpv found through pkg-config.
+//! Android: nothing; the app plays through the platform's player there.
 
 use std::env;
 use std::fs::{self, File};
@@ -23,6 +24,7 @@ fn main() {
     match need(env::var("CARGO_CFG_TARGET_OS"), "target OS").as_str() {
         "windows" => bundle_windows_libmpv(),
         "linux" => link_system_libmpv(),
+        "android" => {}
         other => panic!("Cinebox has no libmpv setup for target OS {other}"),
     }
 }
@@ -212,7 +214,7 @@ fn profile_dir() -> PathBuf {
 }
 
 fn download(url: &str, dest: &Path) {
-    println!("cargo:warning=downloading bundled libmpv (~30MB)");
+    println!("cargo:warning=downloading bundled libmpv (30-50MB)");
     let agent: ureq::Agent = ureq::Agent::config_builder()
         .timeout_global(Some(Duration::from_secs(300)))
         .build()
