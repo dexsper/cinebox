@@ -94,6 +94,38 @@ impl DohResolve {
     }
 }
 
+impl Resolve for DohResolve {
+    fn resolve(&self, name: Name) -> Resolving {
+        let providers = Arc::clone(&self.providers);
+
+        Box::pin(async move {
+            let host = name.as_str().to_owned();
+
+            let addrs = lookup_all(&providers, &host).await;
+            if !addrs.is_empty() {
+                return Ok(boxed_addrs(addrs));
+            }
+
+            warn!(host, "no doh provider gave a public ip");
+
+            // System DNS only if it yields a public IP. Poisoned answers like
+            // 127.0.0.1 / ::1 are ignored so bypass cannot silently hit localhost.
+            let system = match tokio::net::lookup_host((host.as_str(), 0)).await {
+                Ok(system) => system,
+                Err(error) => return Err(error.into()),
+            };
+
+            let addrs = public_addrs(system.map(|addr| addr.ip()));
+            if addrs.is_empty() {
+                return Err("dns bypass: no public ip (system dns looks poisoned)".into());
+            }
+
+            warn!(host, "using system dns after doh miss");
+            Ok(boxed_addrs(addrs))
+        })
+    }
+}
+
 fn provider_name_servers(provider: &DohProvider) -> Vec<NameServerConfig> {
     let mut servers = Vec::new();
     for ip in provider.ips {
@@ -211,11 +243,9 @@ async fn custom_name_servers(url: &str) -> Vec<NameServerConfig> {
     };
 
     let path = parsed.path().to_owned();
-    let servers = addrs
+    addrs
         .map(|addr| name_server(addr.ip(), &host, &path))
-        .collect();
-
-    servers
+        .collect()
 }
 
 /// ISP sinkholes often map blocked names to loopback. Connecting there looks
@@ -262,7 +292,9 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits live DoH providers"]
     async fn resolves_tmdb_via_builtin_providers() {
-        let resolve = DohResolve::new("").await.expect("resolver builds");
+        let Some(resolve) = DohResolve::new("").await else {
+            panic!("no DoH resolver could be built");
+        };
         let addrs = lookup_all(&resolve.providers, "api.themoviedb.org.").await;
 
         assert!(!addrs.is_empty(), "at least one of Quad9 / DNS.SB / AliDNS answers");
@@ -355,37 +387,5 @@ mod tests {
 
         assert_eq!(addrs.len(), 1);
         assert_eq!(addrs[0].ip(), IpAddr::V4(Ipv4Addr::new(104, 16, 1, 1)));
-    }
-}
-
-impl Resolve for DohResolve {
-    fn resolve(&self, name: Name) -> Resolving {
-        let providers = Arc::clone(&self.providers);
-
-        Box::pin(async move {
-            let host = name.as_str().to_owned();
-
-            let addrs = lookup_all(&providers, &host).await;
-            if !addrs.is_empty() {
-                return Ok(boxed_addrs(addrs));
-            }
-
-            warn!(host, "no doh provider gave a public ip");
-
-            // System DNS only if it yields a public IP. Poisoned answers like
-            // 127.0.0.1 / ::1 are ignored so bypass cannot silently hit localhost.
-            let system = match tokio::net::lookup_host((host.as_str(), 0)).await {
-                Ok(system) => system,
-                Err(error) => return Err(error.into()),
-            };
-
-            let addrs = public_addrs(system.map(|addr| addr.ip()));
-            if addrs.is_empty() {
-                return Err("dns bypass: no public ip (system dns looks poisoned)".into());
-            }
-
-            warn!(host, "using system dns after doh miss");
-            Ok(boxed_addrs(addrs))
-        })
     }
 }

@@ -210,14 +210,13 @@ mod tests {
 
     const TIMEOUT: Duration = Duration::from_secs(2);
 
-    fn dead_proxy_client() -> reqwest::Client {
-        let proxy = reqwest::Proxy::all("http://127.0.0.1:1").expect("proxy url");
+    fn dead_proxy_client() -> Result<reqwest::Client, reqwest::Error> {
+        let proxy = reqwest::Proxy::all("http://127.0.0.1:1")?;
 
         reqwest::Client::builder()
             .proxy(proxy)
             .connect_timeout(TIMEOUT)
             .build()
-            .expect("client")
     }
 
     fn proxy_net(dns_bypass: bool) -> NetConfig {
@@ -229,9 +228,9 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn transport_failure_retries_directly_when_bypass_is_on() {
+    async fn transport_failure_retries_directly_when_bypass_is_on() -> Result<(), reqwest::Error> {
         let calls = AtomicUsize::new(0);
-        let primary = dead_proxy_client();
+        let primary = dead_proxy_client()?;
         let net = proxy_net(true);
 
         let result = send_primary_then_doh(&net, TIMEOUT, None, &primary, |client| {
@@ -246,12 +245,13 @@ mod tests {
             2,
             "expected a second attempt through the direct DoH client"
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn transport_failure_is_not_retried_without_bypass() {
+    async fn transport_failure_is_not_retried_without_bypass() -> Result<(), reqwest::Error> {
         let calls = AtomicUsize::new(0);
-        let primary = dead_proxy_client();
+        let primary = dead_proxy_client()?;
         let net = proxy_net(false);
 
         let result = send_primary_then_doh(&net, TIMEOUT, None, &primary, |client| {
@@ -262,5 +262,6 @@ mod tests {
 
         assert!(result.is_err());
         assert_eq!(calls.load(Ordering::SeqCst), 1, "no retry with bypass off");
+        Ok(())
     }
 }

@@ -20,7 +20,7 @@ fn proxy_net(dns_bypass: bool) -> NetConfig {
 }
 
 #[tokio::test]
-async fn direct_request_reaches_server() {
+async fn direct_request_reaches_server() -> Result<(), reqwest::Error> {
     let server = MockServer::start_async().await;
     let mock = server
         .mock_async(|when, then| {
@@ -33,15 +33,15 @@ async fn direct_request_reaches_server() {
     let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| {
         client.get(server.url("/ping"))
     })
-    .await
-    .expect("direct send");
+    .await?;
 
     assert_eq!(response.status().as_u16(), 200);
     mock.assert_async().await;
+    Ok(())
 }
 
 #[tokio::test]
-async fn doh_client_serves_direct_path_when_bypass_is_on() {
+async fn doh_client_serves_direct_path_when_bypass_is_on() -> Result<(), reqwest::Error> {
     let server = MockServer::start_async().await;
     let mock = server
         .mock_async(|when, then| {
@@ -60,15 +60,15 @@ async fn doh_client_serves_direct_path_when_bypass_is_on() {
     let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| {
         client.get(server.url("/doh-direct"))
     })
-    .await
-    .expect("doh-direct send");
+    .await?;
 
     assert_eq!(response.status().as_u16(), 200);
     mock.assert_async().await;
+    Ok(())
 }
 
 #[tokio::test]
-async fn http_error_status_is_returned_without_retry() {
+async fn http_error_status_is_returned_without_retry() -> Result<(), reqwest::Error> {
     let server = MockServer::start_async().await;
     let mock = server
         .mock_async(|when, then| {
@@ -82,20 +82,21 @@ async fn http_error_status_is_returned_without_retry() {
         calls.fetch_add(1, Ordering::SeqCst);
         client.get(server.url("/fail"))
     })
-    .await
-    .expect("HTTP 500 is a response, not a transport error");
+    .await?;
 
     assert_eq!(response.status().as_u16(), 500);
     assert_eq!(calls.load(Ordering::SeqCst), 1);
     mock.assert_async().await;
+    Ok(())
 }
 
 #[test]
-fn plain_client_is_cached_per_config() {
+fn plain_client_is_cached_per_config() -> Result<(), reqwest::Error> {
     let net = NetConfig::direct();
-    let first = plain_client(&net, CONNECT_TIMEOUT, Some("test/1")).expect("client");
-    let second = plain_client(&net, CONNECT_TIMEOUT, Some("test/1")).expect("client");
+    let first = plain_client(&net, CONNECT_TIMEOUT, Some("test/1"))?;
+    let second = plain_client(&net, CONNECT_TIMEOUT, Some("test/1"))?;
 
     // reqwest::Client is an Arc internally; the factory must reuse it.
     let _ = (first, second);
+    Ok(())
 }

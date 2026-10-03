@@ -88,7 +88,6 @@ mod tests {
     use httpmock::prelude::*;
 
     use super::*;
-    use crate::SegmentProvider;
 
     fn net() -> NetConfig {
         NetConfig::direct()
