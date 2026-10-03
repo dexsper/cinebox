@@ -45,11 +45,61 @@ pub struct MediaScreen {
     preview: Option<CatalogItem>,
     cache: super::swr::Cached<Box<MediaDetails>, CacheHit<Box<MediaDetails>>>,
     intro_at: Option<f64>,
+    intro_from: IntroFrom,
     pending_intro: bool,
     reset_scroll: bool,
     trailers: TrailersModal,
     /// List popover anchor while it is open; follows the button as the page scrolls.
     lists_anchor: Option<Rect>,
+}
+
+/// What the hero grows from as the page opens.
+#[derive(Clone, Copy, Default)]
+enum IntroFrom {
+    /// The catalog tile that was opened.
+    #[default]
+    Tile,
+    /// The torrents page's smaller hero, on Back from it.
+    Torrents,
+}
+
+/// Poster and text sizes of the hero at a point of its intro.
+#[derive(Clone, Copy)]
+struct HeroSizes {
+    poster: Vec2,
+    title: f32,
+    head: f32,
+}
+
+impl HeroSizes {
+    fn at(theme: &Theme, from: IntroFrom, t: f32) -> Self {
+        let start = Self::start(theme, from);
+        let poster = vec2(
+            intro::lerp(start.poster.x, theme.poster_w, t),
+            intro::lerp(start.poster.y, theme.poster_h, t),
+        );
+
+        Self {
+            poster,
+            title: intro::lerp(start.title, theme.text_hero, t),
+            head: intro::lerp(start.head, HERO_LABEL_SIZE, t),
+        }
+    }
+
+    fn start(theme: &Theme, from: IntroFrom) -> Self {
+        match from {
+            IntroFrom::Tile => Self {
+                poster: vec2(theme.tile_w, theme.tile_h),
+                title: theme.text_small,
+                head: theme.text_caption,
+            },
+            IntroFrom::Torrents => Self {
+                poster: vec2(theme.explorer_poster_w, theme.explorer_poster_h),
+                title: theme.text_display,
+                head: theme.text_section,
+            },
+        }
+    }
 }
 
 /// Hero button clicks for this frame.
@@ -76,10 +126,17 @@ impl MediaScreen {
         self.kind = Some(item.kind);
         self.id = Some(item.id);
         self.preview = Some(item);
+        self.intro_from = IntroFrom::Tile;
         self.pending_intro = true;
         self.reset_scroll = true;
         self.lists_anchor = None;
         let _ = self.trailers.close();
+    }
+
+    /// The hero grows back from the torrents page's, the reverse of its intro.
+    pub fn back_from_torrents(&mut self) {
+        self.intro_from = IntroFrom::Torrents;
+        self.pending_intro = true;
     }
 
     pub fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
@@ -148,7 +205,7 @@ impl MediaScreen {
         });
         self.start_intro_if_pending(now);
 
-        let t = intro::t(self.intro_at, now);
+        let sizes = HeroSizes::at(theme, self.intro_from, intro::t(self.intro_at, now));
         if intro::running(self.intro_at, now) {
             ui.ctx().request_repaint();
         }
@@ -157,7 +214,7 @@ impl MediaScreen {
         if !hydrated {
             if let Some(item) = self.preview.as_ref() {
                 self.reset_scroll = false;
-                loading(ui, svc, theme, t, item, to_top);
+                loading(ui, svc, theme, sizes, item, to_top);
             } else {
                 widgets::page_spinner(ui, theme);
             }
@@ -183,14 +240,14 @@ impl MediaScreen {
             super::swr::Swr::Live => match self.cache.bind.read() {
                 Some(Ok(details)) => {
                     self.reset_scroll = false;
-                    ready(ui, details, svc, theme, t, to_top, &mut hero_out)
+                    ready(ui, details, svc, theme, sizes, to_top, &mut hero_out)
                 }
                 _ => None,
             },
             super::swr::Swr::Disk => match self.cache.disk.as_ref() {
                 Some(hit) => {
                     self.reset_scroll = false;
-                    ready(ui, &hit.value, svc, theme, t, to_top, &mut hero_out)
+                    ready(ui, &hit.value, svc, theme, sizes, to_top, &mut hero_out)
                 }
                 None => None,
             },
@@ -203,7 +260,7 @@ impl MediaScreen {
             super::swr::Swr::Pending => {
                 if let Some(item) = self.preview.as_ref() {
                     self.reset_scroll = false;
-                    loading(ui, svc, theme, t, item, to_top);
+                    loading(ui, svc, theme, sizes, item, to_top);
                 } else {
                     widgets::page_spinner(ui, theme);
                 }
@@ -313,18 +370,11 @@ fn ready(
     details: &MediaDetails,
     svc: &Services,
     theme: &Theme,
-    t: f32,
+    sizes: HeroSizes,
     to_top: bool,
     hero_out: &mut HeroOut,
 ) -> Option<NavAction> {
     let mut action = None;
-    let poster_size = Vec2::new(
-        intro::lerp(theme.tile_w, theme.poster_w, t),
-        intro::lerp(theme.tile_h, theme.poster_h, t),
-    );
-
-    let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
-    let year_size = intro::lerp(theme.text_caption, HERO_LABEL_SIZE, t);
     let head = details.head_line();
 
     scroll_page(ui, details.kind, details.id, to_top, |ui| {
@@ -339,9 +389,7 @@ fn ready(
                 poster_path: details.poster_path.as_deref(),
                 title: &details.title,
                 head: &head,
-                poster_size,
-                title_size,
-                year_size,
+                sizes,
             },
             |ui, col_top| {
                 if let Some(tagline) = details.tagline.as_deref() {
@@ -382,7 +430,7 @@ fn ready(
 
                     let group_h = rating_h + inner_gap + bits_h;
                     let above_group = ui.cursor().top() - col_top;
-                    let remaining = poster_size.y - above_group - WATCH_BTN_SIZE.y - group_h;
+                    let remaining = sizes.poster.y - above_group - WATCH_BTN_SIZE.y - group_h;
                     ui.add_space((remaining / 2.0).max(MIN_META_GAP));
 
                     if has_rating {
@@ -403,7 +451,7 @@ fn ready(
                 }
 
                 let used = ui.cursor().top() - col_top;
-                let gap_after = (poster_size.y - used - WATCH_BTN_SIZE.y).max(MIN_META_GAP);
+                let gap_after = (sizes.poster.y - used - WATCH_BTN_SIZE.y).max(MIN_META_GAP);
                 let has_trailers = !details.trailers.is_empty();
 
                 ui.add_space(gap_after);
@@ -509,14 +557,14 @@ fn ready(
     action
 }
 
-fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogItem, to_top: bool) {
-    let poster_size = Vec2::new(
-        intro::lerp(theme.tile_w, theme.poster_w, t),
-        intro::lerp(theme.tile_h, theme.poster_h, t),
-    );
-
-    let title_size = intro::lerp(theme.text_small, theme.text_hero, t);
-    let year_size = intro::lerp(theme.text_caption, HERO_LABEL_SIZE, t);
+fn loading(
+    ui: &mut Ui,
+    svc: &Services,
+    theme: &Theme,
+    sizes: HeroSizes,
+    item: &CatalogItem,
+    to_top: bool,
+) {
     let year = item
         .year
         .map(|year| year.to_string())
@@ -535,9 +583,7 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
                 poster_path: item.poster_path.as_deref(),
                 title: &item.title,
                 head: &year,
-                poster_size,
-                title_size,
-                year_size,
+                sizes,
             },
             |ui, col_top| {
                 ui.add_space(8.0);
@@ -552,7 +598,7 @@ fn loading(ui: &mut Ui, svc: &Services, theme: &Theme, t: f32, item: &CatalogIte
                 skeleton::bar(ui, theme, 220.0, 14.0, pulse);
 
                 let used = ui.cursor().top() - col_top;
-                let gap = (poster_size.y - used - WATCH_BTN_SIZE.y).max(12.0);
+                let gap = (sizes.poster.y - used - WATCH_BTN_SIZE.y).max(12.0);
 
                 ui.add_space(gap);
                 skeleton::bar(ui, theme, WATCH_BTN_SIZE.x, WATCH_BTN_SIZE.y, pulse);
@@ -618,9 +664,7 @@ struct Hero<'a> {
     poster_path: Option<&'a str>,
     title: &'a str,
     head: &'a str,
-    poster_size: Vec2,
-    title_size: f32,
-    year_size: f32,
+    sizes: HeroSizes,
 }
 
 fn hero(
@@ -631,7 +675,7 @@ fn hero(
     meta: impl FnOnce(&mut Ui, f32),
 ) {
     ui.horizontal(|ui| {
-        let poster = poster::rounded_image(ui, hero.poster_size, theme, || {
+        let poster = poster::rounded_image(ui, hero.sizes.poster, theme, || {
             svc.images.poster_key(
                 hero.kind,
                 hero.id,
@@ -651,7 +695,7 @@ fn hero(
             if !hero.head.is_empty() {
                 ui.label(
                     RichText::new(hero.head)
-                        .size(hero.year_size)
+                        .size(hero.sizes.head)
                         .color(theme.title),
                 );
                 ui.add_space(6.0);
@@ -659,7 +703,7 @@ fn hero(
 
             ui.label(
                 RichText::new(hero.title)
-                    .font(theme.title_font(hero.title_size))
+                    .font(theme.title_font(hero.sizes.title))
                     .color(theme.title),
             );
             meta(ui, col_top);

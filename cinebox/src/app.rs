@@ -286,7 +286,11 @@ impl App {
             return;
         }
 
+        let leaving_torrents = matches!(self.nav.current(), Screen::Torrents { .. });
         self.nav.pop();
+        if leaving_torrents {
+            self.media.back_from_torrents();
+        }
     }
 
     /// `true` when none of the TMDB-relevant settings changed since the last
