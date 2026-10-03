@@ -48,6 +48,9 @@ final class VideoPlayer {
     private static final String TAG = "CineboxPlayer";
     /** How often the position is refreshed while a stream is loaded. */
     private static final long TICK_MS = 250;
+    /** TorrServer can hold a response while it fetches the pieces a read needs. */
+    private static final int CONNECT_TIMEOUT_MS = 30_000;
+    private static final int READ_TIMEOUT_MS = 60_000;
 
     /** Bits of {@link #flags()} and codes of {@link #failure()}, mirrored in player.rs. */
     static final int FLAG_PAUSED = 1;
@@ -66,6 +69,7 @@ final class VideoPlayer {
     private final Handler main = new Handler(Looper.getMainLooper());
     private final Runnable tick = this::tick;
     private ExoPlayer player;
+    private boolean released;
     private int pendingAudio = NO_CHOICE;
     private int pendingSubtitle = NO_CHOICE;
     private int scalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
@@ -97,6 +101,11 @@ final class VideoPlayer {
     /** {@code headers} holds {@code Name: value} lines; {@code audioUrl} may be null. */
     void load(String url, String headers, String audioUrl, long startMs) {
         main.post(() -> {
+            // Commands queued before the activity went away.
+            if (released) {
+                return;
+            }
+
             ExoPlayer exo = player();
             clearState();
             view.setVisibility(View.VISIBLE);
@@ -198,6 +207,7 @@ final class VideoPlayer {
     }
 
     void release() {
+        released = true;
         main.removeCallbacks(tick);
         if (player == null) {
             return;
@@ -285,6 +295,8 @@ final class VideoPlayer {
     private MediaSource source(String url, String headers, String audioUrl) {
         Map<String, String> properties = new HashMap<>();
         DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
+                .setReadTimeoutMs(READ_TIMEOUT_MS)
                 .setAllowCrossProtocolRedirects(true);
 
         for (String line : headers.split("\n")) {
@@ -307,7 +319,7 @@ final class VideoPlayer {
         http.setDefaultRequestProperties(properties);
         DefaultExtractorsFactory extractors = new DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true);
-                
+
         DefaultMediaSourceFactory sources = new DefaultMediaSourceFactory(http, extractors);
         MediaSource video = sources.createMediaSource(MediaItem.fromUri(url));
         if (audioUrl == null) {
@@ -389,7 +401,7 @@ final class VideoPlayer {
             params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
             override(params, nth(all, C.TRACK_TYPE_TEXT, pendingSubtitle));
         }
-        
+
         pendingSubtitle = NO_CHOICE;
         player.setTrackSelectionParameters(params.build());
     }
