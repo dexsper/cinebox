@@ -64,6 +64,7 @@ struct State {
     had_modal: bool,
     last_allowed: Option<Id>,
     was_editing: bool,
+    focused_before_input: Option<Id>,
     /// The focused widget last scrolled into view.
     revealed: Option<Id>,
 }
@@ -261,4 +262,11 @@ pub fn set_content(ctx: &Context, rect: Rect) {
 #[must_use]
 pub fn was_editing(ctx: &Context) -> bool {
     with_state(ctx, |state| state.was_editing)
+}
+
+/// The widget focused when this frame's input arrived. egui drops the focus
+/// on Escape (the remote's Back) before the app sees the key.
+#[must_use]
+pub fn focused_before_input(ctx: &Context) -> Option<Id> {
+    with_state(ctx, |state| state.focused_before_input)
 }

@@ -161,10 +161,17 @@ fn item_id(index: usize) -> Id {
 /// The D-pad is on the rail: it opens with labels, as under the pointer.
 #[must_use]
 pub fn focused(ctx: &egui::Context) -> bool {
-    let Some(id) = ctx.memory(|mem| mem.focused()) else {
-        return false;
-    };
+    let focused = ctx.memory(|mem| mem.focused());
+    focused.is_some_and(is_item)
+}
 
+/// The D-pad was on the rail when this frame's keys arrived.
+#[must_use]
+pub fn had_focus(ctx: &egui::Context) -> bool {
+    focus::focused_before_input(ctx).is_some_and(is_item)
+}
+
+fn is_item(id: Id) -> bool {
     (0..ENTRIES.len()).any(|index| item_id(index) == id)
 }
 

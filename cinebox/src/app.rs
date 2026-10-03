@@ -631,7 +631,7 @@ pub(crate) fn back_to_rail(ctx: &egui::Context, screen: Screen) -> bool {
         return false;
     }
 
-    if rail::focused(ctx) {
+    if rail::had_focus(ctx) {
         return false;
     }
 

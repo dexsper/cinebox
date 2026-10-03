@@ -804,22 +804,38 @@ fn rail_and_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     focus::set_content(ui.ctx(), page);
 }
 
-#[test]
-fn back_from_a_menu_page_goes_to_the_menu_before_leaving() {
-    let mut harness = harness(rail_and_page_ui);
+/// [`rail_and_page_ui`] with the app's handling of Back on Movies.
+fn rail_page_with_back(ui: &mut egui::Ui, state: &mut TvState) {
+    rail_and_page_ui(ui, state);
+
+    let back = ui.input(|i| i.key_pressed(Key::Escape));
+    if !back {
+        return;
+    }
+
     let movies = Screen::Section {
         section: cinebox_core::Section::Movies,
     };
+    if !crate::app::back_to_rail(ui.ctx(), movies) {
+        state.clicked.push("left the page");
+    }
+}
+
+#[test]
+fn back_from_a_menu_page_goes_to_the_menu_before_leaving() {
+    let mut harness = harness(rail_page_with_back);
 
     press(&mut harness, Key::ArrowDown);
     assert!(focused(&harness, "Tile"));
 
-    let ctx = harness.ctx.clone();
-    assert!(crate::app::back_to_rail(&ctx, movies), "the first Back stays in the app");
-    settle(&mut harness);
-    assert!(rail::focused(&ctx));
+    press(&mut harness, Key::BrowserBack);
+    let on_menu = rail::focused(&harness.ctx);
+    assert!(on_menu, "the first Back puts the D-pad on the menu");
+    assert!(harness.state().clicked.is_empty());
 
-    assert!(!crate::app::back_to_rail(&ctx, movies), "from the menu Back goes on");
+    press(&mut harness, Key::BrowserBack);
+    let clicked = harness.state().clicked.clone();
+    assert_eq!(clicked, ["left the page"], "the second Back leaves");
 }
 
 fn on_screen<S>(harness: &Harness<'_, S>, label: &str) -> bool {
