@@ -1,6 +1,8 @@
 package io.github.dexsper.cinebox;
 
 import android.app.Activity;
+import android.content.Context;
+import android.graphics.Region;
 import android.os.Handler;
 import android.os.Looper;
 import android.util.Log;
@@ -71,7 +73,6 @@ final class VideoPlayer {
     private final Runnable tick = this::tick;
     private ExoPlayer player;
     private boolean released;
-    private int scalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
     /** Track ids chosen before the file's tracks were known; applied once they are. */
     private int pendingAudio = NO_CHOICE;
     private int pendingSubtitle = NO_CHOICE;
@@ -90,7 +91,7 @@ final class VideoPlayer {
 
     VideoPlayer(Activity activity) {
         this.activity = activity;
-        view = new SurfaceView(activity);
+        view = new UnderlayView(activity);
         view.setVisibility(View.GONE);
     }
 
@@ -165,23 +166,13 @@ final class VideoPlayer {
         });
     }
 
-    /**
-     * Where the picture goes, in window pixels; {@code crop} fills that rect
-     * by cropping the picture.
-     */
-    void place(int x, int y, int width, int height, boolean crop) {
+    /** Where the picture goes, in window pixels; it may reach past the window. */
+    void place(int x, int y, int width, int height) {
         post(() -> {
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
             params.leftMargin = x;
             params.topMargin = y;
             view.setLayoutParams(params);
-
-            scalingMode = crop
-                    ? C.VIDEO_SCALING_MODE_SCALE_TO_FIT_WITH_CROPPING
-                    : C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
-            if (player != null) {
-                player.setVideoScalingMode(scalingMode);
-            }
         });
     }
 
@@ -291,7 +282,6 @@ final class VideoPlayer {
                 .build();
 
         player.setVideoSurfaceView(view);
-        player.setVideoScalingMode(scalingMode);
         player.addListener(new StateListener());
         player.addAnalyticsListener(new DecoderListener());
 
@@ -497,6 +487,23 @@ final class VideoPlayer {
             Log.w(TAG, "playback failed: " + error.getErrorCodeName(), error);
             failureMessage = error.getErrorCodeName() + ": " + error.getMessage();
             failure = failureCode(error.errorCode);
+        }
+    }
+
+    /**
+     * SurfaceView marks its area of the window transparent, and the compositor
+     * then skips the window there. The app draws controls and subtitles over
+     * the picture in the window's own surface, so the window has to be
+     * composited there too.
+     */
+    private static final class UnderlayView extends SurfaceView {
+        UnderlayView(Context context) {
+            super(context);
+        }
+
+        @Override
+        public boolean gatherTransparentRegion(Region region) {
+            return true;
         }
     }
 

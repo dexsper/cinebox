@@ -5,7 +5,7 @@ use std::sync::{Mutex, PoisonError};
 
 use cinebox_core::VideoScale;
 use cinebox_player::{
-    Error, Failure, Features, Media, Placement, Player, Snapshot, Track, TrackKind, VideoDecoder,
+    Error, Failure, Features, Media, PixelRect, Player, Snapshot, Track, TrackKind, VideoDecoder,
     VideoOutput,
 };
 use jni::objects::{JObject, JString, JValue};
@@ -37,7 +37,7 @@ pub struct ExoPlayer {
     vm: JavaVM,
     player: Global<JObject<'static>>,
     /// The app places the picture every frame; Java hears only of changes.
-    placed: Mutex<Option<Placement>>,
+    placed: Mutex<Option<PixelRect>>,
 }
 
 impl ExoPlayer {
@@ -261,27 +261,25 @@ impl Player for ExoPlayer {
         })
     }
 
-    fn place_video(&self, placement: Placement) {
+    fn place_video(&self, rect: PixelRect) {
         let mut placed = self.placed.lock().unwrap_or_else(PoisonError::into_inner);
-        if *placed == Some(placement) {
+        if *placed == Some(rect) {
             return;
         }
 
-        let rect = placement.rect;
         let result = self.call("place", |env, player| {
             let args = [
                 JValue::Int(rect.x),
                 JValue::Int(rect.y),
                 JValue::Int(rect.width),
                 JValue::Int(rect.height),
-                JValue::Bool(placement.crop),
             ];
-            env.call_method(player, jni_str!("place"), jni_sig!("(IIIIZ)V"), &args)?
+            env.call_method(player, jni_str!("place"), jni_sig!("(IIII)V"), &args)?
                 .v()
         });
 
         match result {
-            Ok(()) => *placed = Some(placement),
+            Ok(()) => *placed = Some(rect),
             Err(error) => tracing::warn!(%error, "placing the video failed"),
         }
     }

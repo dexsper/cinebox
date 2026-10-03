@@ -27,24 +27,6 @@ impl Area {
             height: bottom - top,
         }
     }
-
-    fn intersect(self, other: Self) -> Self {
-        let left = self.x.max(other.x);
-        let top = self.y.max(other.y);
-        let right = (self.x + self.width).min(other.x + other.width);
-        let bottom = (self.y + self.height).min(other.y + other.height);
-
-        Self {
-            x: left,
-            y: top,
-            width: (right - left).max(0.0),
-            height: (bottom - top).max(0.0),
-        }
-    }
-
-    fn size(self) -> f32 {
-        self.width * self.height
-    }
 }
 
 /// Window pixels, top-left origin.
@@ -54,27 +36,6 @@ pub struct PixelRect {
     pub y: i32,
     pub width: i32,
     pub height: i32,
-}
-
-/// Where a platform video layer goes: the part of the picture inside the area,
-/// filled by cropping the picture when `crop` is set. On an Amlogic TV box a
-/// layer reaching past the screen covered the window above it.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub struct Placement {
-    pub rect: PixelRect,
-    pub crop: bool,
-}
-
-/// `picture` comes from [`fit_video`] for the same `area`, in points.
-#[must_use]
-pub fn place_in(area: Area, picture: Area, pixels_per_point: f32) -> Placement {
-    let visible = picture.intersect(area);
-    let crop = visible.size() < picture.size() - 1.0;
-
-    Placement {
-        rect: visible.to_pixels(pixels_per_point),
-        crop,
-    }
 }
 
 /// The picture's place in `area` under `scale`, matching what mpv does with
@@ -184,33 +145,6 @@ mod tests {
     #[test]
     fn unknown_size_keeps_the_whole_area() {
         assert_eq!(fit_video(SCREEN, [0, 0], VideoScale::Default), SCREEN);
-    }
-
-    #[test]
-    fn a_letterboxed_picture_is_placed_whole() {
-        let picture = fit_video(SCREEN, [3840, 1606], VideoScale::Default);
-        let placement = place_in(SCREEN, picture, 1.0);
-
-        assert!(!placement.crop);
-        assert_eq!(placement.rect, picture.to_pixels(1.0));
-    }
-
-    #[test]
-    fn an_expanded_picture_is_cropped_to_the_screen() {
-        let picture = fit_video(SCREEN, [3840, 1606], VideoScale::Expand);
-        let placement = place_in(SCREEN, picture, 1.0);
-
-        assert!(placement.crop);
-        assert_eq!(placement.rect, SCREEN.to_pixels(1.0));
-    }
-
-    #[test]
-    fn a_stretched_picture_fills_the_screen_uncropped() {
-        let picture = fit_video(SCREEN, [3840, 1606], VideoScale::Fill);
-        let placement = place_in(SCREEN, picture, 1.0);
-
-        assert!(!placement.crop);
-        assert_eq!(placement.rect, SCREEN.to_pixels(1.0));
     }
 
     #[test]
