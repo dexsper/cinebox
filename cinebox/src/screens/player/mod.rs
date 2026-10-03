@@ -1351,7 +1351,6 @@ fn failure_message(failure: &Failure) -> String {
     message.into_owned()
 }
 
-/// What one frame of video needs beyond the player itself.
 struct VideoFrame<'a> {
     scale: VideoScale,
     size: Option<[u32; 2]>,
@@ -1482,7 +1481,6 @@ const SUBTITLE_MARGIN_SHARE: f32 = 0.05;
 /// Outline width in points, drawn as offset copies (egui text has no stroke).
 const SUBTITLE_OUTLINE: f32 = 2.0;
 
-/// White text with a dark outline, centred above the bottom of the video.
 fn paint_subtitle(ui: &Ui, rect: Rect, text: &str, scale: f64) {
     let size = rect.height() * SUBTITLE_SHARE * scale as f32;
     let font = egui::FontId::proportional(size);

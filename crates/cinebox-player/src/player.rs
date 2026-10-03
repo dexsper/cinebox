@@ -145,69 +145,31 @@ pub trait Player: Send + Sync {
 
     fn stop(&self);
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_paused(&self, paused: bool) -> Result<(), Error>;
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn seek_by(&self, seconds: f64) -> Result<(), Error>;
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn seek_to(&self, seconds: f64) -> Result<(), Error>;
 
     /// Only [`VideoOutput::Rendered`] players scale the picture themselves.
-    ///
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_scale(&self, scale: VideoScale) -> Result<(), Error>;
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_speed(&self, speed: f64) -> Result<(), Error>;
 
     /// `0.0..=100.0`.
-    ///
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_volume(&self, volume: f64) -> Result<(), Error>;
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_muted(&self, muted: bool) -> Result<(), Error>;
 
     /// Takes effect once the file's tracks are known, if they are not yet.
-    ///
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn select_audio(&self, id: i64) -> Result<(), Error>;
 
     /// `None` turns subtitles off. Takes effect once the tracks are known.
-    ///
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn select_subtitle(&self, id: Option<i64>) -> Result<(), Error>;
 
     /// `1.0` is the normal size.
-    ///
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_subtitle_scale(&self, scale: f64) -> Result<(), Error>;
 
-    /// # Errors
-    ///
-    /// The player refused the command.
     fn set_subtitle_delay(&self, seconds: f64) -> Result<(), Error>;
 
     fn tracks(&self) -> Vec<Track>;

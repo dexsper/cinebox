@@ -55,8 +55,7 @@ pub(super) fn files_modal(
                 }
             }
         });
-    // Not `should_close`: that also takes Escape, which the app's Back already
-    // turns into closing this, and the page would then go back as well.
+    // Not `should_close`: Escape is the app's Back, which closes this itself.
     if modal.backdrop_response.clicked() {
         *close_files = true;
     }

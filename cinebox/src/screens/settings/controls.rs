@@ -36,7 +36,6 @@ pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
     nav_row(ui, theme, cat.icon, &title, &subtitle, cat.id.as_key())
 }
 
-/// The setup wizard, first in the list so it is not buried in a category.
 pub fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
     let title = t!("settings.run_wizard");
     let subtitle = t!("settings.run_wizard_hint");

@@ -73,8 +73,6 @@ pub fn header(
                     action = Some(nav);
                 }
 
-                // Coming from the page below, the D-pad lands on the search field,
-                // whichever control of the bar is nearest.
                 let [field, mic] = search::stop_ids();
                 focus::group(ui.ctx(), vec![field, mic, settings.id], field);
             });
