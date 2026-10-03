@@ -9,6 +9,8 @@ import android.os.Bundle;
 import android.view.ViewGroup;
 import android.view.WindowManager;
 
+import androidx.annotation.Nullable;
+
 /**
  * The app's only activity. The Rust library draws and runs the app; the
  * public methods here are what it calls for things only Java can reach, from
@@ -51,51 +53,6 @@ public final class CineboxActivity extends NativeActivity {
         super.onDestroy();
     }
 
-    public VideoPlayer videoPlayer() {
-        return videoPlayer;
-    }
-
-    public void keepScreenOn(boolean on) {
-        int flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
-        runOnUiThread(() -> {
-            if (on) {
-                getWindow().addFlags(flag);
-                return;
-            }
-
-            getWindow().clearFlags(flag);
-        });
-    }
-
-    public void playUiSound(int sound, boolean repeat) {
-        runOnUiThread(() -> UiSounds.play(getWindow().getDecorView(), sound, repeat));
-    }
-
-    public void setMediaMetadata(String title, String subtitle, long durationMs, byte[] artwork) {
-        Bitmap art = decode(artwork);
-        runOnUiThread(() -> mediaSession.setMetadata(title, subtitle, durationMs, art));
-    }
-
-    public void setMediaPlayback(boolean playing, long positionMs, boolean canNext, boolean canPrevious) {
-        runOnUiThread(() -> mediaSession.setPlayback(playing, positionMs, canNext, canPrevious));
-    }
-
-    public void clearMediaSession() {
-        runOnUiThread(() -> mediaSession.clear());
-    }
-
-    public boolean isSpeechInputAvailable() {
-        return SpeechInput.isAvailable(this);
-    }
-
-    public void startSpeechInput(String language) {
-        runOnUiThread(() -> speech.start(language));
-    }
-
-    public void stopSpeechInput() {
-        runOnUiThread(() -> speech.stop());
-    }
-
     @Override
     public void onRequestPermissionsResult(int requestCode, String[] permissions, int[] results) {
         super.onRequestPermissionsResult(requestCode, permissions, results);
@@ -103,23 +60,99 @@ public final class CineboxActivity extends NativeActivity {
             return;
         }
 
-        boolean granted = results.length > 0 && results[0] == PackageManager.PERMISSION_GRANTED;
-        speech.onPermissionResult(granted);
+        speech.onPermissionResult(isGranted(results));
+    }
+
+    public VideoPlayer videoPlayer() {
+        return videoPlayer;
+    }
+
+    public void keepScreenOn(boolean on) {
+        int flag = WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON;
+        onUiThread(() -> {
+            if (on) {
+                getWindow().addFlags(flag);
+            } else {
+                getWindow().clearFlags(flag);
+            }
+        });
+    }
+
+    public void playUiSound(int sound, boolean repeat) {
+        onUiThread(() -> UiSounds.play(getWindow().getDecorView(), sound, repeat));
+    }
+
+    public void setMediaMetadata(
+            String title,
+            @Nullable String subtitle,
+            long durationMs,
+            @Nullable byte[] artwork
+    ) {
+        Bitmap art = decode(artwork);
+        onUiThread(() -> mediaSession.setMetadata(title, subtitle, durationMs, art));
+    }
+
+    public void setMediaPlayback(
+            boolean playing,
+            long positionMs,
+            boolean canNext,
+            boolean canPrevious
+    ) {
+        onUiThread(() -> mediaSession.setPlayback(playing, positionMs, canNext, canPrevious));
+    }
+
+    public void clearMediaSession() {
+        onUiThread(mediaSession::clear);
+    }
+
+    public boolean isSpeechInputAvailable() {
+        return SpeechInput.isAvailable(this);
+    }
+
+    public void startSpeechInput(String language) {
+        onUiThread(() -> speech.start(language));
+    }
+
+    public void stopSpeechInput() {
+        onUiThread(speech::stop);
     }
 
     public void startTextInput(int purpose, int action, String text, int start, int end) {
-        runOnUiThread(() -> textInput.start(purpose, action, text, start, end));
+        onUiThread(() -> textInput.start(purpose, action, text, start, end));
     }
 
     public void updateTextInput(String text, int start, int end) {
-        runOnUiThread(() -> textInput.update(text, start, end));
+        onUiThread(() -> textInput.update(text, start, end));
     }
 
     public void stopTextInput() {
-        runOnUiThread(() -> textInput.stop());
+        onUiThread(textInput::stop);
     }
 
-    private static Bitmap decode(byte[] image) {
+    /**
+     * Calls from the Rust side that reach the UI thread after onDestroy would
+     * act on released objects, so they are dropped.
+     */
+    private void onUiThread(Runnable action) {
+        runOnUiThread(() -> {
+            if (isDestroyed()) {
+                return;
+            }
+
+            action.run();
+        });
+    }
+
+    private static boolean isGranted(int[] results) {
+        if (results.length == 0) {
+            return false;
+        }
+
+        return results[0] == PackageManager.PERMISSION_GRANTED;
+    }
+
+    @Nullable
+    private static Bitmap decode(@Nullable byte[] image) {
         if (image == null) {
             return null;
         }

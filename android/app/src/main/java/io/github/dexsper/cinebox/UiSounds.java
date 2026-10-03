@@ -13,6 +13,8 @@ final class UiSounds {
     static final int LEFT = 3;
     static final int RIGHT = 4;
 
+    private static final int NO_DIRECTION = 0;
+
     private UiSounds() {}
 
     /** On the UI thread; the system setting for interface sounds is honored downstream. */
@@ -23,15 +25,15 @@ final class UiSounds {
         }
 
         int direction = focusDirection(sound);
-        if (direction == 0) {
+        if (direction == NO_DIRECTION) {
             return;
         }
 
-        view.playSoundEffect(navigation(direction, repeat));
+        view.playSoundEffect(navigationSound(direction, repeat));
     }
 
     @SuppressWarnings("deprecation")
-    private static int navigation(int direction, boolean repeat) {
+    private static int navigationSound(int direction, boolean repeat) {
         // API 33 varies the sound while a key is held.
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             return SoundEffectConstants.getConstantForFocusDirection(direction, repeat);
@@ -51,7 +53,7 @@ final class UiSounds {
             case RIGHT:
                 return View.FOCUS_RIGHT;
             default:
-                return 0;
+                return NO_DIRECTION;
         }
     }
 }

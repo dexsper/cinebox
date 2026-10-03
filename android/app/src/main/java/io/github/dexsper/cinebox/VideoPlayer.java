@@ -8,13 +8,13 @@ import android.view.SurfaceView;
 import android.view.View;
 import android.widget.FrameLayout;
 
+import androidx.annotation.Nullable;
 import androidx.annotation.OptIn;
 import androidx.media3.common.AudioAttributes;
 import androidx.media3.common.C;
 import androidx.media3.common.ColorInfo;
 import androidx.media3.common.Format;
 import androidx.media3.common.MediaItem;
-import androidx.media3.common.MimeTypes;
 import androidx.media3.common.PlaybackException;
 import androidx.media3.common.Player;
 import androidx.media3.common.TrackSelectionOverride;
@@ -35,7 +35,10 @@ import androidx.media3.exoplayer.source.MergingMediaSource;
 import androidx.media3.extractor.DefaultExtractorsFactory;
 
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
+import java.util.Objects;
+import java.util.function.Consumer;
 
 /**
  * The app's video player: Media3 ExoPlayer showing the picture in a SurfaceView
@@ -45,13 +48,6 @@ import java.util.Map;
  */
 @OptIn(markerClass = UnstableApi.class)
 final class VideoPlayer {
-    private static final String TAG = "CineboxPlayer";
-    /** How often the position is refreshed while a stream is loaded. */
-    private static final long TICK_MS = 250;
-    /** TorrServer can hold a response while it fetches the pieces a read needs. */
-    private static final int CONNECT_TIMEOUT_MS = 30_000;
-    private static final int READ_TIMEOUT_MS = 60_000;
-
     /** Bits of {@link #flags()} and codes of {@link #failure()}, mirrored in player.rs. */
     static final int FLAG_PAUSED = 1;
     static final int FLAG_ENDED = 2;
@@ -60,7 +56,12 @@ final class VideoPlayer {
     static final int FAILURE_NETWORK = 2;
     static final int FAILURE_OTHER = 3;
 
-    /** A track id to apply once the file's tracks are known. */
+    private static final String TAG = "CineboxPlayer";
+    /** How often the position is refreshed while a stream is loaded. */
+    private static final long TICK_MS = 250;
+    /** TorrServer can hold a response while it fetches the pieces a read needs. */
+    private static final int CONNECT_TIMEOUT_MS = 30_000;
+    private static final int READ_TIMEOUT_MS = 60_000;
     private static final int NO_CHOICE = -1;
     private static final int SUBTITLES_OFF = 0;
 
@@ -70,9 +71,10 @@ final class VideoPlayer {
     private final Runnable tick = this::tick;
     private ExoPlayer player;
     private boolean released;
+    private int scalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
+    /** Track ids chosen before the file's tracks were known; applied once they are. */
     private int pendingAudio = NO_CHOICE;
     private int pendingSubtitle = NO_CHOICE;
-    private int scalingMode = C.VIDEO_SCALING_MODE_SCALE_TO_FIT;
 
     private volatile long positionMs;
     private volatile long durationMs;
@@ -98,15 +100,10 @@ final class VideoPlayer {
         activity.addContentView(view, new FrameLayout.LayoutParams(match, match));
     }
 
-    /** {@code headers} holds {@code Name: value} lines; {@code audioUrl} may be null. */
-    void load(String url, String headers, String audioUrl, long startMs) {
-        main.post(() -> {
-            // Commands queued before the activity went away.
-            if (released) {
-                return;
-            }
-
-            ExoPlayer exo = player();
+    /** {@code headers} holds {@code Name: value} lines. */
+    void load(String url, String headers, @Nullable String audioUrl, long startMs) {
+        post(() -> {
+            ExoPlayer exo = getOrCreatePlayer();
             clearState();
             view.setVisibility(View.VISIBLE);
 
@@ -127,7 +124,7 @@ final class VideoPlayer {
     }
 
     void stop() {
-        main.post(() -> {
+        post(() -> {
             main.removeCallbacks(tick);
             if (player != null) {
                 player.stop();
@@ -141,41 +138,20 @@ final class VideoPlayer {
     }
 
     void setPaused(boolean paused) {
-        main.post(() -> {
-            if (player == null) {
-                return;
-            }
-
-            player.setPlayWhenReady(!paused);
-            publish();
-        });
+        withPlayer(exo -> exo.setPlayWhenReady(!paused));
     }
 
     void seekTo(long positionMs) {
-        main.post(() -> {
-            if (player == null) {
-                return;
-            }
-
-            player.seekTo(Math.max(0, positionMs));
-            publish();
-        });
+        withPlayer(exo -> exo.seekTo(Math.max(0, positionMs)));
     }
 
     void seekBy(long deltaMs) {
-        main.post(() -> {
-            if (player == null) {
-                return;
-            }
-
-            player.seekTo(Math.max(0, player.getCurrentPosition() + deltaMs));
-            publish();
-        });
+        withPlayer(exo -> exo.seekTo(Math.max(0, exo.getCurrentPosition() + deltaMs)));
     }
 
     /** {@code id} counts from 1 among the file's audio tracks. */
     void selectAudio(int id) {
-        main.post(() -> {
+        post(() -> {
             pendingAudio = id;
             applyChoices();
         });
@@ -183,15 +159,18 @@ final class VideoPlayer {
 
     /** {@code id} counts from 1 among the file's subtitle tracks; 0 turns them off. */
     void selectSubtitle(int id) {
-        main.post(() -> {
+        post(() -> {
             pendingSubtitle = id;
             applyChoices();
         });
     }
 
-    /** Where the picture goes, in window pixels; {@code crop} fills that rect by cropping the picture. */
+    /**
+     * Where the picture goes, in window pixels; {@code crop} fills that rect
+     * by cropping the picture.
+     */
     void place(int x, int y, int width, int height, boolean crop) {
-        main.post(() -> {
+        post(() -> {
             FrameLayout.LayoutParams params = new FrameLayout.LayoutParams(width, height);
             params.leftMargin = x;
             params.topMargin = y;
@@ -238,21 +217,24 @@ final class VideoPlayer {
         return videoHeight;
     }
 
-    /** The text on screen now, lines joined with newlines; null when there is none. */
+    /** The text on screen now, lines joined with newlines. */
+    @Nullable
     String subtitle() {
         return subtitle;
     }
 
-    /** One line per playable track: kind, id, selected (0 or 1), language, label; tab-separated. */
+    /** See {@link TrackList#describe}. */
     String tracks() {
         return tracks;
     }
 
+    @Nullable
     String decoderName() {
         return decoderName;
     }
 
     /** Codecs string and colour description of the video, tab-separated. */
+    @Nullable
     String decoderFormat() {
         return decoderFormat;
     }
@@ -261,11 +243,35 @@ final class VideoPlayer {
         return failure;
     }
 
+    @Nullable
     String failureMessage() {
         return failureMessage;
     }
 
-    private ExoPlayer player() {
+    /** Commands still queued when the activity goes away are dropped. */
+    private void post(Runnable command) {
+        main.post(() -> {
+            if (released) {
+                return;
+            }
+
+            command.run();
+        });
+    }
+
+    /** A command that needs the player, dropped before the first load creates one. */
+    private void withPlayer(Consumer<ExoPlayer> command) {
+        post(() -> {
+            if (player == null) {
+                return;
+            }
+
+            command.accept(player);
+            publish(player);
+        });
+    }
+
+    private ExoPlayer getOrCreatePlayer() {
         if (player != null) {
             return player;
         }
@@ -286,40 +292,17 @@ final class VideoPlayer {
 
         player.setVideoSurfaceView(view);
         player.setVideoScalingMode(scalingMode);
-        player.addListener(new Listener());
-        player.addAnalyticsListener(new Decoders());
+        player.addListener(new StateListener());
+        player.addAnalyticsListener(new DecoderListener());
 
         return player;
     }
 
-    private MediaSource source(String url, String headers, String audioUrl) {
-        Map<String, String> properties = new HashMap<>();
-        DefaultHttpDataSource.Factory http = new DefaultHttpDataSource.Factory()
-                .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
-                .setReadTimeoutMs(READ_TIMEOUT_MS)
-                .setAllowCrossProtocolRedirects(true);
-
-        for (String line : headers.split("\n")) {
-            int colon = line.indexOf(':');
-            if (colon <= 0) {
-                continue;
-            }
-
-            String name = line.substring(0, colon).trim();
-            String value = line.substring(colon + 1).trim();
-            // The factory sends its own User-Agent over a request property of that name.
-            if (name.equalsIgnoreCase("User-Agent")) {
-                http.setUserAgent(value);
-                continue;
-            }
-
-            properties.put(name, value);
-        }
-
-        http.setDefaultRequestProperties(properties);
+    private static MediaSource source(String url, String headers, @Nullable String audioUrl) {
         DefaultExtractorsFactory extractors = new DefaultExtractorsFactory()
                 .setConstantBitrateSeekingEnabled(true);
 
+        DefaultHttpDataSource.Factory http = httpDataSource(headers);
         DefaultMediaSourceFactory sources = new DefaultMediaSourceFactory(http, extractors);
         MediaSource video = sources.createMediaSource(MediaItem.fromUri(url));
         if (audioUrl == null) {
@@ -328,6 +311,30 @@ final class VideoPlayer {
 
         MediaSource audio = sources.createMediaSource(MediaItem.fromUri(audioUrl));
         return new MergingMediaSource(video, audio);
+    }
+
+    private static DefaultHttpDataSource.Factory httpDataSource(String headers) {
+        return new DefaultHttpDataSource.Factory()
+                .setConnectTimeoutMs(CONNECT_TIMEOUT_MS)
+                .setReadTimeoutMs(READ_TIMEOUT_MS)
+                .setAllowCrossProtocolRedirects(true)
+                .setDefaultRequestProperties(requestProperties(headers));
+    }
+
+    private static Map<String, String> requestProperties(String headers) {
+        Map<String, String> properties = new HashMap<>();
+        for (String line : headers.split("\n")) {
+            int colon = line.indexOf(':');
+            if (colon <= 0) {
+                continue;
+            }
+
+            String name = line.substring(0, colon).trim();
+            String value = line.substring(colon + 1).trim();
+            properties.put(name, value);
+        }
+
+        return properties;
     }
 
     private void clearState() {
@@ -351,35 +358,26 @@ final class VideoPlayer {
             return;
         }
 
-        publish();
+        publish(player);
         main.postDelayed(tick, TICK_MS);
     }
 
-    private void publish() {
-        positionMs = player.getCurrentPosition();
-        long duration = player.getDuration();
+    private void publish(Player exo) {
+        long duration = exo.getDuration();
+        VideoSize size = exo.getVideoSize();
+
+        positionMs = exo.getCurrentPosition();
         durationMs = duration == C.TIME_UNSET ? 0 : duration;
-
-        int next = 0;
-        if (!player.getPlayWhenReady()) {
-            next |= FLAG_PAUSED;
-        }
-        if (player.getPlaybackState() == Player.STATE_ENDED) {
-            next |= FLAG_ENDED;
-        }
-
-        VideoSize size = player.getVideoSize();
+        flags = flagsOf(exo);
         videoWidth = Math.round(size.width * size.pixelWidthHeightRatio);
-
-        flags = next;
         videoHeight = size.height;
     }
 
-    /** Track choices made before the tracks were known wait here until they are. */
     private void applyChoices() {
         if (player == null) {
             return;
         }
+
         if (!choicePending()) {
             return;
         }
@@ -391,7 +389,7 @@ final class VideoPlayer {
 
         TrackSelectionParameters.Builder params = player.getTrackSelectionParameters().buildUpon();
         if (pendingAudio != NO_CHOICE) {
-            override(params, nth(all, C.TRACK_TYPE_AUDIO, pendingAudio));
+            override(params, TrackList.find(all, C.TRACK_TYPE_AUDIO, pendingAudio));
             pendingAudio = NO_CHOICE;
         }
 
@@ -399,7 +397,7 @@ final class VideoPlayer {
             params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true);
         } else if (pendingSubtitle != NO_CHOICE) {
             params.setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false);
-            override(params, nth(all, C.TRACK_TYPE_TEXT, pendingSubtitle));
+            override(params, TrackList.find(all, C.TRACK_TYPE_TEXT, pendingSubtitle));
         }
 
         pendingSubtitle = NO_CHOICE;
@@ -414,7 +412,10 @@ final class VideoPlayer {
         return pendingSubtitle != NO_CHOICE;
     }
 
-    private static void override(TrackSelectionParameters.Builder params, Tracks.Group group) {
+    private static void override(
+            TrackSelectionParameters.Builder params,
+            @Nullable Tracks.Group group
+    ) {
         if (group == null) {
             return;
         }
@@ -422,90 +423,39 @@ final class VideoPlayer {
         params.setOverrideForType(new TrackSelectionOverride(group.getMediaTrackGroup(), 0));
     }
 
-    /** The {@code id}-th group of {@code type}, counting from 1 in file order. */
-    private static Tracks.Group nth(Tracks all, int type, int id) {
-        int seen = 0;
-        for (Tracks.Group group : all.getGroups()) {
-            if (group.getType() != type) {
-                continue;
-            }
-
-            seen++;
-            if (seen == id) {
-                return group;
-            }
+    private static int flagsOf(Player exo) {
+        int flags = 0;
+        if (!exo.getPlayWhenReady()) {
+            flags |= FLAG_PAUSED;
         }
 
-        return null;
+        if (exo.getPlaybackState() == Player.STATE_ENDED) {
+            flags |= FLAG_ENDED;
+        }
+
+        return flags;
     }
 
-    private void publishTracks(Tracks all) {
-        StringBuilder lines = new StringBuilder();
-        int audio = 0;
-        int text = 0;
-        int video = 0;
-
-        for (Tracks.Group group : all.getGroups()) {
-            int type = group.getType();
-            String kind;
-            int id;
-            if (type == C.TRACK_TYPE_AUDIO) {
-                kind = "audio";
-                id = ++audio;
-            } else if (type == C.TRACK_TYPE_TEXT) {
-                kind = "sub";
-                id = ++text;
-            } else if (type == C.TRACK_TYPE_VIDEO) {
-                kind = "video";
-                id = ++video;
-            } else {
+    @Nullable
+    private static String joinCues(List<Cue> cues) {
+        StringBuilder text = new StringBuilder();
+        for (Cue cue : cues) {
+            if (cue.text == null) {
                 continue;
             }
 
-            // Ids keep counting over the tracks left out, so they still match nth().
-            if (!group.isSupported()) {
-                continue;
+            if (text.length() > 0) {
+                text.append('\n');
             }
 
-            Format format = group.getTrackFormat(0);
-            if (isPictureSubtitle(format)) {
-                continue;
-            }
-
-            lines.append(kind).append('\t')
-                    .append(id).append('\t')
-                    .append(group.isSelected() ? 1 : 0).append('\t')
-                    .append(field(format.language)).append('\t')
-                    .append(field(format.label)).append('\n');
+            text.append(cue.text);
         }
 
-        tracks = lines.toString();
-    }
-
-    /** Subtitles drawn as pictures; only text is passed to the app. */
-    private static boolean isPictureSubtitle(Format format) {
-        // Parsed during extraction, the original format moves to `codecs`.
-        String original = format.codecs != null ? format.codecs : format.sampleMimeType;
-        if (original == null) {
-            return false;
+        if (text.length() == 0) {
+            return null;
         }
 
-        switch (original) {
-            case MimeTypes.APPLICATION_PGS:
-            case MimeTypes.APPLICATION_VOBSUB:
-            case MimeTypes.APPLICATION_DVBSUBS:
-                return true;
-            default:
-                return false;
-        }
-    }
-
-    private static String field(String value) {
-        if (value == null) {
-            return "";
-        }
-
-        return value.replace('\t', ' ').replace('\n', ' ');
+        return text.toString();
     }
 
     private static int failureCode(int errorCode) {
@@ -524,33 +474,22 @@ final class VideoPlayer {
         }
     }
 
-    private final class Listener implements Player.Listener {
+    private final class StateListener implements Player.Listener {
         @Override
         public void onEvents(Player changed, Player.Events events) {
-            publish();
+            publish(changed);
             Natives.onPlayerChanged();
         }
 
         @Override
         public void onTracksChanged(Tracks all) {
-            publishTracks(all);
+            tracks = TrackList.describe(all);
             applyChoices();
         }
 
         @Override
         public void onCues(CueGroup group) {
-            StringBuilder text = new StringBuilder();
-            for (Cue cue : group.cues) {
-                if (cue.text == null) {
-                    continue;
-                }
-                if (text.length() > 0) {
-                    text.append('\n');
-                }
-                text.append(cue.text);
-            }
-
-            subtitle = text.length() == 0 ? null : text.toString();
+            subtitle = joinCues(group.cues);
         }
 
         @Override
@@ -561,20 +500,27 @@ final class VideoPlayer {
         }
     }
 
-    private final class Decoders implements AnalyticsListener {
+    private final class DecoderListener implements AnalyticsListener {
         @Override
         public void onVideoDecoderInitialized(
-                EventTime eventTime, String name, long initializedTimestampMs, long initializationDurationMs) {
+                EventTime eventTime,
+                String name,
+                long initializedTimestampMs,
+                long initializationDurationMs
+        ) {
             decoderName = name;
         }
 
         @Override
         public void onVideoInputFormatChanged(
-                EventTime eventTime, Format format, DecoderReuseEvaluation reuse) {
+                EventTime eventTime,
+                Format format,
+                DecoderReuseEvaluation reuse
+        ) {
             String codecs = format.codecs != null ? format.codecs : format.sampleMimeType;
             ColorInfo color = format.colorInfo;
             String colorText = color != null ? color.toLogString() : "";
-            decoderFormat = field(codecs) + '\t' + field(colorText);
+            decoderFormat = Objects.toString(codecs, "") + '\t' + colorText;
         }
     }
 }

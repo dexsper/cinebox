@@ -11,6 +11,8 @@ import android.media.MediaMetadata;
 import android.media.session.MediaSession;
 import android.media.session.PlaybackState;
 
+import androidx.annotation.Nullable;
+
 /**
  * The system media session for the player: remote and assistant transport
  * controls, the "now playing" card, and audio focus. UI thread only.
@@ -40,29 +42,27 @@ final class MediaSessionController {
     private final AudioFocusRequest focusRequest;
     private boolean playing;
     private boolean hasFocus;
+    /** Playback was paused by a short focus loss and resumes when the focus comes back. */
     private boolean resumeOnFocus;
 
     MediaSessionController(Activity activity) {
         session = new MediaSession(activity, "Cinebox");
         session.setCallback(new Callback());
-
-        Intent open = new Intent(activity, activity.getClass())
-                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
-        int flags = PendingIntent.FLAG_IMMUTABLE;
-        session.setSessionActivity(PendingIntent.getActivity(activity, 0, open, flags));
+        session.setSessionActivity(openApp(activity));
 
         audio = activity.getSystemService(AudioManager.class);
-        AudioAttributes attributes = new AudioAttributes.Builder()
-                .setUsage(AudioAttributes.USAGE_MEDIA)
-                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
-                .build();
         focusRequest = new AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
-                .setAudioAttributes(attributes)
+                .setAudioAttributes(movieAudio())
                 .setOnAudioFocusChangeListener(this::onFocusChange)
                 .build();
     }
 
-    void setMetadata(String title, String subtitle, long durationMs, Bitmap artwork) {
+    void setMetadata(
+            String title,
+            @Nullable String subtitle,
+            long durationMs,
+            @Nullable Bitmap artwork
+    ) {
         MediaMetadata.Builder metadata = new MediaMetadata.Builder()
                 .putString(MediaMetadata.METADATA_KEY_TITLE, title)
                 .putString(MediaMetadata.METADATA_KEY_DISPLAY_TITLE, title)
@@ -82,25 +82,15 @@ final class MediaSessionController {
 
     void setPlayback(boolean playing, long positionMs, boolean canNext, boolean canPrevious) {
         this.playing = playing;
-        long actions = ALWAYS_ALLOWED;
-        
-        if (canNext) {
-            actions |= PlaybackState.ACTION_SKIP_TO_NEXT;
-        }
-
-        if (canPrevious) {
-            actions |= PlaybackState.ACTION_SKIP_TO_PREVIOUS;
-        }
-
         int state = playing ? PlaybackState.STATE_PLAYING : PlaybackState.STATE_PAUSED;
         float speed = playing ? 1f : 0f;
-        session.setPlaybackState(new PlaybackState.Builder()
-                .setActions(actions)
+        PlaybackState playback = new PlaybackState.Builder()
+                .setActions(actions(canNext, canPrevious))
                 .setState(state, positionMs, speed)
-                .build());
+                .build();
 
+        session.setPlaybackState(playback);
         session.setActive(true);
-
         if (playing) {
             requestFocus();
         }
@@ -130,7 +120,7 @@ final class MediaSessionController {
 
         hasFocus = audio.requestAudioFocus(focusRequest) == AudioManager.AUDIOFOCUS_REQUEST_GRANTED;
         if (!hasFocus) {
-            Natives.onMediaCommand(COMMAND_PAUSE, 0);
+            send(COMMAND_PAUSE);
         }
     }
 
@@ -148,17 +138,17 @@ final class MediaSessionController {
             case AudioManager.AUDIOFOCUS_GAIN:
                 if (resumeOnFocus) {
                     resumeOnFocus = false;
-                    Natives.onMediaCommand(COMMAND_PLAY, 0);
+                    send(COMMAND_PLAY);
                 }
                 break;
             case AudioManager.AUDIOFOCUS_LOSS_TRANSIENT:
                 resumeOnFocus = playing;
-                Natives.onMediaCommand(COMMAND_PAUSE, 0);
+                send(COMMAND_PAUSE);
                 break;
             case AudioManager.AUDIOFOCUS_LOSS:
                 resumeOnFocus = false;
                 abandonFocus();
-                Natives.onMediaCommand(COMMAND_PAUSE, 0);
+                send(COMMAND_PAUSE);
                 break;
             default:
                 // Ducking for a transient loss is done by the system.
@@ -166,20 +156,52 @@ final class MediaSessionController {
         }
     }
 
+    private static long actions(boolean canNext, boolean canPrevious) {
+        long actions = ALWAYS_ALLOWED;
+        if (canNext) {
+            actions |= PlaybackState.ACTION_SKIP_TO_NEXT;
+        }
+
+        if (canPrevious) {
+            actions |= PlaybackState.ACTION_SKIP_TO_PREVIOUS;
+        }
+
+        return actions;
+    }
+
+    /** What the "now playing" card opens. */
+    private static PendingIntent openApp(Activity activity) {
+        Intent open = new Intent(activity, activity.getClass())
+                .addFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+        int flags = PendingIntent.FLAG_IMMUTABLE;
+        return PendingIntent.getActivity(activity, 0, open, flags);
+    }
+
+    private static AudioAttributes movieAudio() {
+        return new AudioAttributes.Builder()
+                .setUsage(AudioAttributes.USAGE_MEDIA)
+                .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
+                .build();
+    }
+
+    private static void send(int command) {
+        Natives.onMediaCommand(command, 0);
+    }
+
     private static final class Callback extends MediaSession.Callback {
         @Override
         public void onPlay() {
-            Natives.onMediaCommand(COMMAND_PLAY, 0);
+            send(COMMAND_PLAY);
         }
 
         @Override
         public void onPause() {
-            Natives.onMediaCommand(COMMAND_PAUSE, 0);
+            send(COMMAND_PAUSE);
         }
 
         @Override
         public void onStop() {
-            Natives.onMediaCommand(COMMAND_STOP, 0);
+            send(COMMAND_STOP);
         }
 
         @Override
@@ -189,22 +211,22 @@ final class MediaSessionController {
 
         @Override
         public void onFastForward() {
-            Natives.onMediaCommand(COMMAND_FAST_FORWARD, 0);
+            send(COMMAND_FAST_FORWARD);
         }
 
         @Override
         public void onRewind() {
-            Natives.onMediaCommand(COMMAND_REWIND, 0);
+            send(COMMAND_REWIND);
         }
 
         @Override
         public void onSkipToNext() {
-            Natives.onMediaCommand(COMMAND_NEXT, 0);
+            send(COMMAND_NEXT);
         }
 
         @Override
         public void onSkipToPrevious() {
-            Natives.onMediaCommand(COMMAND_PREVIOUS, 0);
+            send(COMMAND_PREVIOUS);
         }
     }
 }

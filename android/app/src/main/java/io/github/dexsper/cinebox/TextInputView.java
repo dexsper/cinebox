@@ -54,7 +54,7 @@ final class TextInputView extends View {
     /** {@code start} and {@code end} count code points. */
     void start(int purpose, int action, String value, int start, int end) {
         inputType = inputType(purpose);
-        imeAction = action == ACTION_SEARCH ? EditorInfo.IME_ACTION_SEARCH : EditorInfo.IME_ACTION_DONE;
+        imeAction = imeAction(action);
         editing = true;
         monitor = null;
         replace(value, start, end);
@@ -119,8 +119,8 @@ final class TextInputView extends View {
      */
     @Override
     public boolean onKeyPreIme(int keyCode, KeyEvent event) {
-        boolean back = keyCode == KeyEvent.KEYCODE_BACK;
-        if (!back || !editing) {
+        boolean endsTyping = editing && keyCode == KeyEvent.KEYCODE_BACK;
+        if (!endsTyping) {
             return super.onKeyPreIme(keyCode, event);
         }
 
@@ -135,7 +135,7 @@ final class TextInputView extends View {
     private void replace(String value, int start, int end) {
         BaseInputConnection.removeComposingSpans(text);
         text.replace(0, text.length(), value);
-        Selection.setSelection(text, offset(value, start), offset(value, end));
+        Selection.setSelection(text, charIndex(value, start), charIndex(value, end));
         remember(value, start, end);
     }
 
@@ -154,8 +154,8 @@ final class TextInputView extends View {
         tellKeyboard();
 
         String value = text.toString();
-        int start = codePoints(value, Selection.getSelectionStart(text));
-        int end = codePoints(value, Selection.getSelectionEnd(text));
+        int start = codePointIndex(value, Selection.getSelectionStart(text));
+        int end = codePointIndex(value, Selection.getSelectionEnd(text));
         if (isReported(value, start, end)) {
             return;
         }
@@ -172,11 +172,11 @@ final class TextInputView extends View {
         inputMethods.updateSelection(this, start, end, composingStart, composingEnd);
 
         if (monitor != null) {
-            inputMethods.updateExtractedText(this, monitor.token, extracted());
+            inputMethods.updateExtractedText(this, monitor.token, extractedText());
         }
     }
 
-    private ExtractedText extracted() {
+    private ExtractedText extractedText() {
         ExtractedText out = new ExtractedText();
         out.text = text.toString();
         out.startOffset = 0;
@@ -204,8 +204,11 @@ final class TextInputView extends View {
             return true;
         }
 
-        int start = Selection.getSelectionStart(text);
-        int end = Selection.getSelectionEnd(text);
+        // A selection made backwards has its start after its end.
+        int anchor = Selection.getSelectionStart(text);
+        int cursor = Selection.getSelectionEnd(text);
+        int start = Math.min(anchor, cursor);
+        int end = Math.max(anchor, cursor);
         if (start == end) {
             if (backward) {
                 start = previousCodePoint(start);
@@ -236,12 +239,12 @@ final class TextInputView extends View {
         return Character.offsetByCodePoints(text, index, 1);
     }
 
-    private static int codePoints(String value, int index) {
-        int clamped = Math.max(0, Math.min(index, value.length()));
+    private static int codePointIndex(String value, int charIndex) {
+        int clamped = Math.max(0, Math.min(charIndex, value.length()));
         return value.codePointCount(0, clamped);
     }
 
-    private static int offset(String value, int codePoints) {
+    private static int charIndex(String value, int codePoints) {
         int total = value.codePointCount(0, value.length());
         int clamped = Math.max(0, Math.min(codePoints, total));
         return value.offsetByCodePoints(0, clamped);
@@ -254,17 +257,25 @@ final class TextInputView extends View {
             case PURPOSE_SECRET:
                 return InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD;
             case PURPOSE_VERBATIM:
-                // The variation keyboards honor to turn off suggestions and autocorrect.
+                // Keyboards honor this variation by turning off suggestions and autocorrect.
                 return InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD;
             default:
                 return InputType.TYPE_CLASS_TEXT;
         }
     }
 
+    private static int imeAction(int action) {
+        if (action == ACTION_SEARCH) {
+            return EditorInfo.IME_ACTION_SEARCH;
+        }
+
+        return EditorInfo.IME_ACTION_DONE;
+    }
+
     /**
      * BaseInputConnection edits {@link #text} itself and wraps each edit in a
      * batch, so the end of the outermost batch is when an edit has settled.
-     * Keys other than Backspace and Delete (Enter) reach the app as usual input.
+     * Other keys, such as Enter, reach the app as usual input.
      */
     private final class Relay extends BaseInputConnection {
         private int batches;
@@ -311,7 +322,7 @@ final class TextInputView extends View {
                 monitor = request;
             }
 
-            return extracted();
+            return extractedText();
         }
 
         @Override

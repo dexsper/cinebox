@@ -58,6 +58,7 @@ android {
 }
 
 dependencies {
+    implementation(libs.androidx.annotation)
     implementation(libs.media3.exoplayer)
     implementation(libs.rustls.platform.verifier)
 }

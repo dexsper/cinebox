@@ -3,6 +3,8 @@ agp = "9.4.1"
 media3 = "1.11.1"
 
 [libraries]
+# Already in the APK through Media3; declared to compile against @Nullable.
+androidx-annotation = { group = "androidx.annotation", name = "annotation", version = "1.6.0" }
 media3-exoplayer = { group = "androidx.media3", name = "media3-exoplayer", version.ref = "media3" }
 # cargo keeps the bundled Maven repo at the version matching the Rust crate.
 rustls-platform-verifier = { group = "rustls", name = "rustls-platform-verifier", version = "latest.release" }
