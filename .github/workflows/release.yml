@@ -159,9 +159,6 @@ jobs:
           cache-targets: false
           cache-on-failure: true
 
-      - name: Test
-        run: cargo test --workspace --locked --target ${{ env.TARGET }}
-
       - name: Build
         run: cargo build --locked --release -p cinebox --target ${{ env.TARGET }}
 
@@ -337,9 +334,6 @@ jobs:
 
       - name: Install cargo-deb
         run: cargo install --locked cargo-deb --version "$CARGO_DEB_VERSION"
-
-      - name: Test
-        run: cargo test --workspace --locked --target ${{ env.TARGET }}
 
       - name: Build
         run: cargo build --locked --release -p cinebox --target ${{ env.TARGET }}
@@ -627,6 +621,19 @@ jobs:
       GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       GH_REPO: ${{ github.repository }}
     steps:
+      # Tests run in ci.yml, and master takes only commits that passed it.
+      - name: Check the tag is on master
+        run: |
+          set -euo pipefail
+          status="$(gh api "repos/${GH_REPO}/compare/master...${GITHUB_SHA}" --jq .status)"
+          case "$status" in
+            identical | behind) ;;
+            *)
+              echo "The tagged commit is not on master ($status): CI has not checked it" >&2
+              exit 1
+              ;;
+          esac
+
       - name: Download artifacts
         uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
         with:
