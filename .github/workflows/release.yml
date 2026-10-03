@@ -13,9 +13,10 @@ on:
       - "scripts/android-build.sh"
   workflow_dispatch:
 
+# A tag run is never cut off mid-publish; a pull request only needs its latest commit.
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: false
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
