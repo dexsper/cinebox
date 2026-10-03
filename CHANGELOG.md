@@ -22,7 +22,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ### Fixed
 
 - Escape closes the torrent files and trailers windows without leaving the page.
-- Behind a DNS block, posters load even when one DNS-over-HTTPS provider points at an unreachable server: all providers are asked at once.
+- Behind a DNS block, posters load even when one DNS-over-HTTPS provider points at an unreachable server: the answers of all providers are combined.
 - A home row that failed to load once no longer stays failed on later starts.
 
 ### Security
