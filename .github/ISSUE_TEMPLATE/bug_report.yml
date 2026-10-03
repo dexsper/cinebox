@@ -1,0 +1,113 @@
+name: Bug report
+description: Something in Cinebox does not work
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Setup questions (TMDB key, parser, TorrServer) are answered faster in the [Telegram group](https://t.me/cinebox_community).
+
+  - type: input
+    id: version
+    attributes:
+      label: Cinebox version
+      placeholder: "0.6.0"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform and package
+      options:
+        - Windows (zip)
+        - Linux (Flatpak)
+        - Linux (.deb)
+        - Linux (AppImage)
+        - Android TV (APK)
+    validations:
+      required: true
+
+  - type: input
+    id: device
+    attributes:
+      label: Device
+      description: For Android TV, the TV or box model. For playback problems on a computer, the GPU.
+      placeholder: "Xiaomi Mi Box S / NVIDIA GTX 1060"
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Where it breaks
+      options:
+        - Catalog or posters do not load
+        - No torrents found
+        - Video does not start
+        - Video stutters, has no sound, or shows artifacts
+        - Trailers
+        - Remote control or navigation (Android TV)
+        - Settings or the setup wizard
+        - Something else
+    validations:
+      required: true
+
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: Steps to get there, what you expected, and what you got instead.
+      placeholder: |
+        1. Open a movie
+        2. Press Watch
+        3. ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: error
+    attributes:
+      label: Error message
+      description: Cinebox says what went wrong and what to check. Paste that text or attach a screenshot.
+
+  - type: dropdown
+    id: torrserver
+    attributes:
+      label: TorrServer
+      options:
+        - On the same device
+        - On another device in the network
+        - Not related to the problem
+
+  - type: input
+    id: parser
+    attributes:
+      label: Parser
+      description: A public one (which address) or your own Jackett / Prowlarr.
+
+  - type: input
+    id: network
+    attributes:
+      label: VPN or proxy
+      description: Is a VPN or proxy on? Is "Use system proxy" checked in Settings?
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Log
+      description: |
+        Run Cinebox from a terminal and paste what it prints:
+
+        - Flatpak: `flatpak run --env=RUST_LOG=cinebox=debug io.github.dexsper.cinebox`
+        - .deb: `RUST_LOG=cinebox=debug cinebox`
+        - AppImage: `RUST_LOG=cinebox=debug ./cinebox-*.AppImage`
+        - Windows (PowerShell, in the cinebox.exe folder): `$env:RUST_LOG="cinebox=debug"; .\cinebox.exe`
+        - Android TV (a computer with adb, network debugging on the TV): `adb connect <TV IP>`, then `adb logcat -s cinebox CineboxPlayer`
+      render: shell
+
+  - type: checkboxes
+    id: secrets
+    attributes:
+      label: Before you send
+      options:
+        - label: Screenshots and the log show no API keys or TorrServer password
+          required: true

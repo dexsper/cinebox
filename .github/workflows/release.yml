@@ -1,22 +1,17 @@
 name: Release
 
+# Pull requests are checked by ci.yml. Run this by hand to try packaging changes
+# before a release; only a tag publishes.
 on:
   push:
     tags:
       - "v*"
-  pull_request:
-    paths:
-      - ".github/workflows/release.yml"
-      - ".github/actions/**"
-      - "packaging/**"
-      - "android/**"
-      - "scripts/android-build.sh"
   workflow_dispatch:
 
-# A tag run is never cut off mid-publish; a pull request only needs its latest commit.
+# A tag run is never cut off mid-publish.
 concurrency:
   group: release-${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -538,8 +533,8 @@ jobs:
         with:
           rust-version: ${{ steps.meta.outputs.msrv }}
 
-      # Pull requests from forks get no secrets and build an unsigned APK, which
-      # still shows the build works; a release must be installable.
+      # Without the secrets (a fork) the APK comes out unsigned, which still shows
+      # the build works; a release must be installable.
       - name: Write signing keystore
         env:
           KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}

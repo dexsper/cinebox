@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Setup help and questions
+    url: https://t.me/cinebox_community
+    about: TMDB key, parser, TorrServer, and other setup questions go to the Telegram group.
