@@ -15,6 +15,17 @@ impl State {
         candidate.map_or(&[], |candidate| &candidate.areas)
     }
 
+    /// While a page glides to its top, what is on it counts where it will be:
+    /// the focused widget can still be up under the bar it is moving away from.
+    fn settled_candidates(&self, ctx: &Context) -> Vec<Candidate> {
+        let settled = self.candidates.iter().map(|candidate| Candidate {
+            rect: candidate.rect.translate(scroll::glide_left(ctx, &candidate.areas)),
+            ..candidate.clone()
+        });
+
+        settled.collect()
+    }
+
     fn arrival(&self, target: Id, from: Id) -> Id {
         let group = self.groups.iter().find(|group| group.members.contains(&target));
         let Some(group) = group else {
@@ -29,6 +40,7 @@ impl State {
     }
 }
 use crate::platform::{self, Direction, UiSound};
+use crate::widgets::scroll;
 
 struct ArrowPress {
     direction: Direction,
@@ -76,9 +88,10 @@ pub(super) fn step(ctx: &Context, state: &State) {
 
     let toward = toward(press.direction);
     let areas = state.areas_of(focused);
-    let candidates = &state.candidates;
-    let in_cone = nearest_staying_in(ctx, from.rect, toward, candidates, areas);
-    let found = in_cone.or_else(|| nearest_past(ctx, from.rect, press.direction, candidates));
+    let from = from.rect.translate(scroll::glide_left(ctx, areas));
+    let candidates = &state.settled_candidates(ctx);
+    let in_cone = nearest_staying_in(ctx, from, toward, candidates, areas);
+    let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
     let Some(nearest) = found else {
         return;
     };
