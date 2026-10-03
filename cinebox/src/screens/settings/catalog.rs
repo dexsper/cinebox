@@ -186,7 +186,7 @@ const GENERAL: &[Field] = &[
     Field::MultiSelect {
         id: "home-rows",
         label: "settings.home_shelves",
-        hint: Some("settings.home_shelves_hint"),
+        hint: None,
         which: MultiSelectId::HomeRows,
     },
     Field::Toggle {

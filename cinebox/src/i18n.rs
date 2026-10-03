@@ -410,7 +410,7 @@ mod tests {
         let _guard = lock_locale();
         rust_i18n::set_locale("en");
 
-        assert_eq!(format_runtime(125), "2h 5m");
+        assert_eq!(format_runtime(125), "2h\u{a0}5m");
         assert_eq!(format_runtime(60), "1h");
         assert_eq!(format_runtime(9), "9m");
         assert_eq!(format_release_date("2021-10-22"), "22 Oct 2021");
@@ -423,16 +423,16 @@ mod tests {
         let _guard = lock_locale();
         rust_i18n::set_locale("ru");
 
-        assert_eq!(format_runtime(125), "2 ч 5 мин");
-        assert_eq!(format_runtime(60), "1 ч");
-        assert_eq!(format_runtime(9), "9 мин");
+        assert_eq!(format_runtime(125), "2\u{a0}ч\u{a0}5\u{a0}мин");
+        assert_eq!(format_runtime(60), "1\u{a0}ч");
+        assert_eq!(format_runtime(9), "9\u{a0}мин");
         assert_eq!(format_release_date("2021-10-22"), "22 окт 2021");
-        assert_eq!(format_seasons(1), "1 сезон");
-        assert_eq!(format_seasons(2), "2 сезона");
-        assert_eq!(format_seasons(5), "5 сезонов");
-        assert_eq!(format_episodes(21), "21 серия");
-        assert_eq!(format_episodes(22), "22 серии");
-        assert_eq!(format_episodes(11), "11 серий");
+        assert_eq!(format_seasons(1), "1\u{a0}сезон");
+        assert_eq!(format_seasons(2), "2\u{a0}сезона");
+        assert_eq!(format_seasons(5), "5\u{a0}сезонов");
+        assert_eq!(format_episodes(21), "21\u{a0}серия");
+        assert_eq!(format_episodes(22), "22\u{a0}серии");
+        assert_eq!(format_episodes(11), "11\u{a0}серий");
 
         restore_en();
     }
@@ -443,16 +443,16 @@ mod tests {
         rust_i18n::set_locale("uk");
 
         assert_eq!(t!("nav.settings").as_ref(), "Налаштування");
-        assert_eq!(format_runtime(125), "2 год 5 хв");
-        assert_eq!(format_runtime(60), "1 год");
-        assert_eq!(format_runtime(9), "9 хв");
+        assert_eq!(format_runtime(125), "2\u{a0}год\u{a0}5\u{a0}хв");
+        assert_eq!(format_runtime(60), "1\u{a0}год");
+        assert_eq!(format_runtime(9), "9\u{a0}хв");
         assert_eq!(format_release_date("2021-10-22"), "22 жов 2021");
-        assert_eq!(format_seasons(1), "1 сезон");
-        assert_eq!(format_seasons(2), "2 сезони");
-        assert_eq!(format_seasons(5), "5 сезонів");
-        assert_eq!(format_episodes(21), "21 серія");
-        assert_eq!(format_episodes(22), "22 серії");
-        assert_eq!(format_episodes(11), "11 серій");
+        assert_eq!(format_seasons(1), "1\u{a0}сезон");
+        assert_eq!(format_seasons(2), "2\u{a0}сезони");
+        assert_eq!(format_seasons(5), "5\u{a0}сезонів");
+        assert_eq!(format_episodes(21), "21\u{a0}серія");
+        assert_eq!(format_episodes(22), "22\u{a0}серії");
+        assert_eq!(format_episodes(11), "11\u{a0}серій");
 
         restore_en();
     }
@@ -492,7 +492,7 @@ mod tests {
             trailers: Vec::new(),
         };
 
-        assert_eq!(detail_bits(&details), vec!["2h 35m", "Sci-Fi", "Adventure"]);
+        assert_eq!(detail_bits(&details), vec!["2h\u{a0}35m", "Sci-Fi", "Adventure"]);
 
         let tv = MediaDetails {
             kind: MediaKind::Tv,
@@ -504,7 +504,7 @@ mod tests {
 
         assert_eq!(
             detail_bits(&tv),
-            vec!["5 seasons", "62 episodes", "Sci-Fi", "Adventure"]
+            vec!["5\u{a0}seasons", "62\u{a0}episodes", "Sci-Fi", "Adventure"]
         );
 
         restore_en();
@@ -564,11 +564,11 @@ mod tests {
 
         assert_eq!(
             status_label(&details("Released")).as_deref(),
-            Some("Выпущенный")
+            Some("Вышел")
         );
         assert_eq!(
             status_label(&details("Returning Series")).as_deref(),
-            Some("Онгоинг")
+            Some("Выходит")
         );
 
         restore_en();

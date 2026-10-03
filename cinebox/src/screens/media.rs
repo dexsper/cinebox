@@ -22,7 +22,7 @@ use super::trailers::TrailersModal;
 
 const WATCH_BTN_SIZE: Vec2 = vec2(176.0, 46.0);
 
-/// Year/country header and the "In Detail" heading share this size; both are
+/// Year/country header and the "Details" heading share this size; both are
 /// local to the hero so `theme.text_section` stays untouched for every other
 /// screen (home shelf titles, person credits, settings, torrents, trailers).
 const HERO_LABEL_SIZE: f32 = 19.0;
