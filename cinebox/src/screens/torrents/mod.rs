@@ -9,16 +9,22 @@ pub use state::{
     season_episode_line,
 };
 
-use cinebox_core::{MediaDetails, MediaKind, QualityBand, TmdbId, tmdb_image_url};
+use cinebox_core::{
+    MediaDetails, MediaKind, QualityBand, Store, StoreError, TmdbId, tmdb_image_url,
+};
 use cinebox_torrserver::AddSpec;
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
+use futures_util::future::OptionFuture;
 use rust_i18n::t;
+use tokio::task::JoinHandle;
+use tracing::warn;
 
 use crate::errors::UserError;
 use crate::jobs::{self, JobError};
 use crate::nav::{NavAction, SettingsPage};
 use crate::screens::play::PlaySource;
+use crate::screens::player::Played;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
@@ -99,13 +105,14 @@ impl TorrentsScreen {
 
     /// Back from the player: the files take its progress, and the release just
     /// played may have a new watch mark.
-    pub fn after_playback(&mut self, svc: &Services, played: Option<&PlaySource>) {
+    pub fn after_playback(&mut self, svc: &Services, played: Option<Played>) {
         // Not read back from the database: the player saves in the background.
-        if let Some(PlaySource::Torrent { hash, files, .. }) = played {
+        let source = played.as_ref().map(|played| &played.source);
+        if let Some(PlaySource::Torrent { hash, files, .. }) = source {
             self.take_progress(hash, files);
         }
 
-        self.retag_local_hits(svc);
+        self.retag_local_hits(svc, played.and_then(|played| played.saved));
     }
 
     fn take_progress(&mut self, hash: &str, played: &[TorrentFileRow]) {
@@ -154,7 +161,7 @@ impl TorrentsScreen {
 
         if arriving {
             self.intro_at = Some(now);
-            self.retag_local_hits(svc);
+            self.retag_local_hits(svc, None);
         }
         self.apply_local_hits();
 
@@ -338,7 +345,7 @@ impl TorrentsScreen {
 impl TorrentsScreen {
     /// Kick off the async watch-hash lookup; `apply_local_hits` picks up the
     /// result on a later frame.
-    fn retag_local_hits(&mut self, svc: &Services) {
+    fn retag_local_hits(&mut self, svc: &Services, saved: Option<JoinHandle<()>>) {
         let Some(state) = &self.state else {
             return;
         };
@@ -350,8 +357,7 @@ impl TorrentsScreen {
         let kind = state.kind;
         let id = state.id;
         self.local_hashes.refresh(async move {
-            let hashes = db
-                .watch_release_hashes(kind, id)
+            let hashes = watched_releases(&db, kind, id, saved)
                 .await
                 .map_err(|error| error.to_string())?;
 
@@ -585,6 +591,20 @@ impl TorrentsScreen {
     }
 }
 
+/// Releases of the title watched before, read once `saved` has written the last one.
+async fn watched_releases(
+    db: &Store,
+    kind: MediaKind,
+    id: TmdbId,
+    saved: Option<JoinHandle<()>>,
+) -> Result<Vec<String>, StoreError> {
+    if let Some(Err(error)) = OptionFuture::from(saved).await {
+        warn!(%error, "saving watch progress failed");
+    }
+
+    db.watch_release_hashes(kind, id).await
+}
+
 fn needs_parser() -> UserError {
     UserError::new(t!("torrents.need_parser")).fix(SettingsPage::Parser)
 }
@@ -596,6 +616,7 @@ fn needs_torrserver() -> UserError {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::services::db_block_on;
 
     #[test]
     fn intro_finishes_and_restarts_after_hide() {
@@ -687,5 +708,40 @@ mod tests {
             panic!("hits should stay ready");
         };
         assert_eq!(hits[0].local_rank, Some(0));
+    }
+
+    #[test]
+    fn watched_releases_waits_for_the_progress_being_saved() -> Result<(), StoreError> {
+        let db = std::sync::Arc::new(db_block_on(Store::memory())?);
+        let hash = String::from("eeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee");
+        let entry = cinebox_core::WatchHistoryEntry {
+            kind: MediaKind::Movie,
+            id: TmdbId::new(1),
+            section: cinebox_core::Section::Movies,
+            title: String::from("Dune"),
+            poster_path: None,
+            year: Some(2021),
+            vote: None,
+            season: None,
+            episode: None,
+            episode_title: None,
+            time: 60.0,
+            duration: 9000.0,
+        };
+
+        let writer = db.clone();
+        let history_hash = hash.clone();
+        let saved = egui_async::bind::ASYNC_RUNTIME.spawn(async move {
+            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            let written = writer
+                .upsert_watch_history(&entry, Some(&history_hash))
+                .await;
+            assert!(written.is_ok(), "{written:?}");
+        });
+
+        let watched = watched_releases(&db, MediaKind::Movie, TmdbId::new(1), Some(saved));
+
+        assert_eq!(db_block_on(watched)?, vec![hash]);
+        Ok(())
     }
 }

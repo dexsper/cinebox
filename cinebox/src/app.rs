@@ -256,7 +256,7 @@ impl App {
             let played = self.player.stop(&mut self.services, ctx);
             self.nav.pop();
             if matches!(self.nav.current(), Screen::Torrents { .. }) {
-                self.torrents.after_playback(&self.services, played.as_ref());
+                self.torrents.after_playback(&self.services, played);
             }
             return;
         }

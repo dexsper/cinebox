@@ -101,6 +101,13 @@ impl PlayerState {
     }
 }
 
+/// What [`PlayerScreen::stop`] leaves behind.
+pub struct Played {
+    pub source: PlaySource,
+    /// The database write of the progress, still running in the background.
+    pub saved: Option<tokio::task::JoinHandle<()>>,
+}
+
 enum PlayerPhase {
     Buffering(Buffering),
     Playing(PlayerState),
@@ -221,13 +228,16 @@ impl PlayerScreen {
 
     /// Saves progress and stops. Returns the source it stopped on, with the
     /// timecodes just saved.
-    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<PlaySource> {
-        self.save_progress(svc, true);
+    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<Played> {
+        let saved = self.save_progress(svc, true);
         stop_player(svc);
 
         self.abort_buffering();
         self.skip_state.reset();
-        let played = self.phase.take().map(PlayerPhase::into_source);
+        let played = self.phase.take().map(|phase| Played {
+            source: phase.into_source(),
+            saved,
+        });
         self.popup = Popup::None;
 
         if self.volume_dirty {
