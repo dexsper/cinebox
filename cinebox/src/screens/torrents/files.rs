@@ -98,9 +98,13 @@ fn file_list(
         for file in &files.files {
             if show_headers && last_season != Some(file.season) {
                 ui.label(
-                    RichText::new(format!("{} {}", t!("media.season"), file.season.unwrap_or(1)))
-                        .size(theme.text_small)
-                        .color(theme.muted),
+                    RichText::new(format!(
+                        "{} {}",
+                        t!("media.season"),
+                        file.season.unwrap_or(1)
+                    ))
+                    .size(theme.text_small)
+                    .color(theme.muted),
                 );
                 last_season = Some(file.season);
             }
@@ -227,6 +231,7 @@ pub(super) fn files_modal_size(screen: Vec2) -> Vec2 {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::screens::torrents::state::{TorrentFileRow, test_row};
 
     #[test]
     fn files_modal_keeps_min_size_inside_window() {
@@ -245,11 +250,16 @@ mod tests {
 
     #[test]
     fn ready_files_scrolls_to_resume_once() {
-        let with_resume = ReadyFiles::from_rows(String::from("hash"), Some(7), Vec::new());
+        let started = TorrentFileRow {
+            timecode: 60.0,
+            ..test_row(7)
+        };
+
+        let with_resume = ReadyFiles::from_rows(String::from("hash"), vec![started]);
         assert!(with_resume.scroll_to_resume);
         assert_eq!(with_resume.selected_id, Some(7));
 
-        let fresh = ReadyFiles::from_rows(String::from("hash"), None, Vec::new());
+        let fresh = ReadyFiles::from_rows(String::from("hash"), Vec::new());
         assert!(!fresh.scroll_to_resume);
         assert!(fresh.selected_id.is_none());
     }

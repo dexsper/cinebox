@@ -18,6 +18,7 @@ use rust_i18n::t;
 use crate::errors::UserError;
 use crate::jobs::{self, JobError};
 use crate::nav::{NavAction, SettingsPage};
+use crate::screens::play::PlaySource;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
@@ -96,9 +97,29 @@ impl TorrentsScreen {
         self.filters.on_back(now)
     }
 
-    /// Back from the player: the release just played may have a new watch mark.
-    pub fn after_playback(&mut self, svc: &Services) {
+    /// Back from the player: the files take its progress, and the release just
+    /// played may have a new watch mark.
+    pub fn after_playback(&mut self, svc: &Services, played: Option<&PlaySource>) {
+        // Not read back from the database: the player saves in the background.
+        if let Some(PlaySource::Torrent { hash, files, .. }) = played {
+            self.take_progress(hash, files);
+        }
+
         self.retag_local_hits(svc);
+    }
+
+    fn take_progress(&mut self, hash: &str, played: &[TorrentFileRow]) {
+        let Some(state) = &mut self.state else {
+            return;
+        };
+
+        let FilesPane::Ready(ready) = &mut state.files else {
+            return;
+        };
+
+        if ready.hash == hash {
+            ready.take_progress(played);
+        }
     }
 
     pub fn hide(&mut self) {

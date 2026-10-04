@@ -128,7 +128,9 @@ pub struct ReadyFiles {
 }
 
 impl ReadyFiles {
-    pub fn from_rows(hash: String, resume_id: Option<i32>, files: Vec<TorrentFileRow>) -> Self {
+    pub fn from_rows(hash: String, files: Vec<TorrentFileRow>) -> Self {
+        let resume_id = resume_id(&files);
+
         Self {
             hash,
             files,
@@ -137,6 +139,25 @@ impl ReadyFiles {
             scroll_to_resume: resume_id.is_some(),
         }
     }
+
+    /// Takes the timecodes `played` reached, as if the list were opened again.
+    pub fn take_progress(&mut self, played: &[TorrentFileRow]) {
+        for file in &mut self.files {
+            if let Some(seen) = played.iter().find(|seen| seen.id == file.id) {
+                file.timecode = seen.timecode;
+            }
+        }
+
+        let files = std::mem::take(&mut self.files);
+        *self = Self::from_rows(std::mem::take(&mut self.hash), files);
+    }
+}
+
+/// The last file in list order that has progress.
+fn resume_id(files: &[TorrentFileRow]) -> Option<i32> {
+    let started = files.iter().rev().find(|file| file.timecode > 0.0);
+
+    started.map(|file| file.id)
 }
 
 #[derive(Debug, Clone)]
@@ -262,5 +283,52 @@ impl TorrentState {
 
         self.view_key = Some((self.sort, self.filter.clone()));
         self.rows.reset();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_row(id: i32) -> TorrentFileRow {
+    TorrentFileRow {
+        id,
+        path: format!("{id}.mkv"),
+        length: 1,
+        timecode: 0.0,
+        number: id.unsigned_abs(),
+        season: None,
+        episode: None,
+        title: id.to_string(),
+        still_url: None,
+        runtime_minutes: None,
+        air_date: None,
+    }
+}
+
+#[cfg(test)]
+mod ready_files {
+    use super::*;
+
+    fn row(id: i32, timecode: f64) -> TorrentFileRow {
+        TorrentFileRow {
+            timecode,
+            ..test_row(id)
+        }
+    }
+
+    #[test]
+    fn take_progress_resumes_a_pick_where_the_player_stopped() {
+        let mut ready = ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0)]);
+        ready.take_progress(&[row(1, 900.0)]);
+
+        assert_eq!(ready.files[0].timecode, 900.0);
+    }
+
+    #[test]
+    fn take_progress_moves_the_resume_point_to_the_next_started_file() {
+        let mut ready =
+            ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 0.0)]);
+
+        ready.take_progress(&[row(1, 100.0), row(2, 50.0)]);
+
+        assert_eq!(ready.selected_id, Some(2));
     }
 }

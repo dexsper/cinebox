@@ -106,6 +106,20 @@ enum PlayerPhase {
     Playing(PlayerState),
 }
 
+impl PlayerPhase {
+    fn into_source(self) -> PlaySource {
+        match self {
+            Self::Playing(state) => state.source,
+            Self::Buffering(state) => PlaySource::Torrent {
+                hash: state.hash,
+                files: state.files,
+                file_index: state.file_index,
+                start: state.resume_at,
+            },
+        }
+    }
+}
+
 #[derive(Clone, Copy, PartialEq, Eq)]
 enum Popup {
     None,
@@ -205,13 +219,15 @@ impl PlayerScreen {
         );
     }
 
-    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) {
+    /// Saves progress and stops. Returns the source it stopped on, with the
+    /// timecodes just saved.
+    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<PlaySource> {
         self.save_progress(svc, true);
         stop_player(svc);
 
         self.abort_buffering();
         self.skip_state.reset();
-        self.phase = None;
+        let played = self.phase.take().map(PlayerPhase::into_source);
         self.popup = Popup::None;
 
         if self.volume_dirty {
@@ -222,6 +238,8 @@ impl PlayerScreen {
         self.set_fullscreen(ctx, false);
         crate::platform::device(ctx).keep_screen_on(false);
         self.session.clear(ctx);
+
+        played
     }
 
     /// Pause without toggling (the app went to the background).

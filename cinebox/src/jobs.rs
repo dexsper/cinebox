@@ -661,13 +661,7 @@ async fn decorate_files(
         });
     }
 
-    let resume_id = rows
-        .iter()
-        .rev()
-        .find(|file| file.timecode > 0.0)
-        .map(|file| file.id);
-
-    ReadyFiles::from_rows(opened.hash, resume_id, rows)
+    ReadyFiles::from_rows(opened.hash, rows)
 }
 
 pub async fn wait_stream(

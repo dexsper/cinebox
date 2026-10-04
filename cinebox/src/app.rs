@@ -253,10 +253,10 @@ impl App {
         }
 
         if matches!(self.nav.current(), Screen::Player { .. }) {
-            self.player.stop(&mut self.services, ctx);
+            let played = self.player.stop(&mut self.services, ctx);
             self.nav.pop();
             if matches!(self.nav.current(), Screen::Torrents { .. }) {
-                self.torrents.after_playback(&self.services);
+                self.torrents.after_playback(&self.services, played.as_ref());
             }
             return;
         }
