@@ -3,7 +3,6 @@
 use std::sync::Arc;
 
 use cinebox_core::SEARCH_HISTORY_LIMIT;
-use tracing::error;
 
 use crate::services::{Services, db_block_on};
 
@@ -15,7 +14,7 @@ pub(super) fn attach_mpv(
     match cinebox_player::MpvPlayer::attach(loader, native_display(cc)) {
         Ok(player) => Some(Arc::new(player)),
         Err(error) => {
-            error!(%error, "mpv render attach failed");
+            tracing::error!(%error, "mpv render attach failed");
             None
         }
     }
