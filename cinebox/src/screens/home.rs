@@ -6,12 +6,12 @@ use egui::Ui;
 
 use super::gate;
 use super::shelf::shelf;
-use crate::errors::UserError;
-use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::jobs;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::services::Services;
+use crate::services::jobs;
 use crate::theme::Theme;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, scroll};
 
 #[derive(Default)]

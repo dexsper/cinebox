@@ -11,7 +11,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::nav::{NavAction, RailEntry, Screen};
+use crate::app::nav::{NavAction, RailEntry, Screen};
 use crate::platform::{
     self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest,
     TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
@@ -20,8 +20,8 @@ use crate::screens::OnboardingScreen;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::search::{self, SearchBar};
 use crate::widgets::lazy_rows::LazyRows;
+use crate::widgets::search::{self, SearchBar};
 use crate::widgets::{field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
@@ -224,7 +224,7 @@ fn harness_on(device: TvDevice, add: fn(&mut egui::Ui, &mut TvState)) -> Harness
             move |ui, state| {
                 install(ui, state.device());
                 let Some(theme) = state.theme.clone() else {
-                    crate::fonts::install(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     let theme = Theme::dark();
                     theme.apply(ui.ctx());
                     state.theme = Some(theme);
@@ -877,7 +877,7 @@ fn rail_page_with_back(ui: &mut egui::Ui, state: &mut TvState) {
     let movies = Screen::Section {
         section: cinebox_core::Section::Movies,
     };
-    if !crate::app::back_to_rail(ui.ctx(), movies) {
+    if !crate::app::routing::back_to_rail(ui.ctx(), movies) {
         state.clicked.push("left the page");
     }
 }
@@ -1020,7 +1020,7 @@ fn wizard_harness(language: UiLanguage) -> Harness<'static, WizardTv> {
 fn draw_wizard_over_screen(ui: &mut egui::Ui, state: &mut WizardTv) {
     install(ui, state.device());
     if !state.fonts {
-        crate::fonts::install(ui.ctx());
+        crate::theme::fonts::install(ui.ctx());
         state.theme.apply(ui.ctx());
         state.fonts = true;
         return;

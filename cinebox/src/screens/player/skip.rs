@@ -7,7 +7,8 @@ use cinebox_core::{MediaKind, Settings, Store, TmdbId};
 use cinebox_skip::{MediaSegments, SegmentType, TimeRange};
 use egui_async::Bind;
 
-use crate::jobs::JobError;
+use crate::services::Services;
+use crate::services::jobs::{self, JobError};
 
 pub const AUTOSKIP_SECS: f64 = 8.0;
 
@@ -36,8 +37,17 @@ impl ActiveSegment {
     }
 }
 
+/// The film or episode whose segments are skipped.
+#[derive(Clone, Copy, PartialEq, Eq)]
+pub struct SkipTarget {
+    pub kind: MediaKind,
+    pub tmdb_id: TmdbId,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+}
+
 pub struct SkipState {
-    requested_for: Option<(MediaKind, TmdbId, Option<u32>, Option<u32>)>,
+    requested_for: Option<SkipTarget>,
     pub segments: Bind<Option<MediaSegments>, JobError>,
     pub choices: Bind<HashMap<SegmentType, bool>, JobError>,
     pub armed: HashMap<SegmentType, bool>,
@@ -78,14 +88,11 @@ impl SkipState {
         time_secs: f64,
         duration_secs: f64,
         is_paused: bool,
-        kind: MediaKind,
-        tmdb_id: TmdbId,
-        season: Option<u32>,
-        episode: Option<u32>,
-        settings: &Settings,
-        db: &Option<Arc<Store>>,
+        target: SkipTarget,
+        svc: &Services,
     ) -> Option<f64> {
-        self.maybe_start_fetch(duration_secs, kind, tmdb_id, season, episode, settings, db);
+        let settings = &svc.settings;
+        self.maybe_start_fetch(duration_secs, target, settings, &svc.db);
         self.poll_results();
 
         if is_paused {
@@ -99,10 +106,7 @@ impl SkipState {
     fn maybe_start_fetch(
         &mut self,
         duration_secs: f64,
-        kind: MediaKind,
-        tmdb_id: TmdbId,
-        season: Option<u32>,
-        episode: Option<u32>,
+        target: SkipTarget,
         settings: &Settings,
         db: &Option<Arc<Store>>,
     ) {
@@ -110,15 +114,19 @@ impl SkipState {
             return;
         }
 
-        let key = (kind, tmdb_id, season, episode);
-
-        if self.requested_for.as_ref() == Some(&key) {
+        if self.requested_for == Some(target) {
             return;
         }
 
-        self.requested_for = Some(key);
+        self.requested_for = Some(target);
+        let SkipTarget {
+            kind,
+            tmdb_id,
+            season,
+            episode,
+        } = target;
 
-        let net = crate::jobs::net_config(settings);
+        let net = jobs::net_config(settings);
         let duration_ms = (duration_secs * 1000.0).round() as u64;
         let query = cinebox_skip::SegmentQuery {
             tmdb_id: u64::from(tmdb_id.get()),
@@ -129,11 +137,11 @@ impl SkipState {
         };
 
         self.segments
-            .request(crate::jobs::fetch_skip_segments(net, db.clone(), query));
+            .request(jobs::fetch_skip_segments(net, db.clone(), query));
 
         if let Some(db) = db.clone() {
             self.choices
-                .request(crate::jobs::fetch_skip_choices(db, kind, tmdb_id));
+                .request(jobs::fetch_skip_choices(db, kind, tmdb_id));
         }
     }
 

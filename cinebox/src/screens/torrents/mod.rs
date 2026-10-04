@@ -20,12 +20,12 @@ use rust_i18n::t;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::errors::UserError;
-use crate::jobs::{self, JobError};
-use crate::nav::{NavAction, SettingsPage};
+use crate::app::nav::{NavAction, SettingsPage};
+use crate::i18n::errors::UserError;
 use crate::screens::play::PlaySource;
 use crate::screens::player::Played;
 use crate::services::Services;
+use crate::services::jobs::{self, JobError};
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::page_state::ErrorChoice;

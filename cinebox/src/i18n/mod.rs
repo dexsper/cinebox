@@ -1,5 +1,7 @@
 //! UI copy via rust-i18n. Active locale is [`apply`].
 
+pub mod errors;
+
 use std::borrow::Cow;
 
 use cinebox_core::{

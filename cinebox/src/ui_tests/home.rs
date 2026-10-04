@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::nav::{NavAction, SettingsPage};
+use crate::app::nav::{NavAction, SettingsPage};
 use crate::screens::gate::{self, TmdbKeyProblem};
 use crate::theme::Theme;
 
@@ -21,7 +21,7 @@ fn shelf_heading_click_is_a_button() {
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;
@@ -62,7 +62,7 @@ fn missing_tmdb_key_gate_opens_tmdb_settings() {
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

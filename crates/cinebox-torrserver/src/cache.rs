@@ -6,10 +6,11 @@
 use std::collections::HashMap;
 use std::time::Duration;
 
-use cinebox_core::{join_url, normalize_base_url};
+use cinebox_core::join_url;
 
-use super::client::{apply_basic_auth, http_client, send_json};
+use super::client::{http_client, send_json};
 use super::error::Error;
+use super::server::Server;
 
 /// One reader window; every value is a piece index. `end` is exclusive.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, serde::Deserialize)]
@@ -66,21 +67,16 @@ const EMPTY_PROGRESS: ResumeProgress = ResumeProgress {
 /// # Errors
 ///
 /// Empty URL/hash, 404, or HTTP/JSON failures.
-pub async fn cache_state(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    hash: &str,
-) -> Result<CacheState, Error> {
+pub async fn cache_state(server: &Server, hash: &str) -> Result<CacheState, Error> {
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
 
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+    let base = server.base()?;
     let url = join_url(&base, "cache");
     let client = http_client()?;
     let post = client.post(&url).timeout(Duration::from_secs(10));
-    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+    let request = server.authorize(post).json(&serde_json::json!({
         "action": "get",
         "hash": hash,
     }));
@@ -162,7 +158,11 @@ mod tests {
         let progress = resume_window_progress(&state, 64 << 20);
         assert_eq!(progress.window_bytes, 8 * (8 << 20));
         assert_eq!(progress.completed_bytes, 2 * (8 << 20));
-        assert!((progress.percent - 25.0).abs() < 0.01, "{}", progress.percent);
+        assert!(
+            (progress.percent - 25.0).abs() < 0.01,
+            "{}",
+            progress.percent
+        );
     }
 
     #[test]
@@ -195,8 +195,8 @@ mod tests {
             "Readers": [ { "Start": 40, "End": 55, "Reader": 42 } ]
         }"#;
 
-        let state: CacheState = serde_json::from_str(fixture)
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let state: CacheState =
+            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(state.pieces_length, 4_194_304);
         assert_eq!(state.readers.len(), 1);
@@ -207,8 +207,8 @@ mod tests {
     #[test]
     fn empty_object_from_nil_cache_state_parses() {
         // TorrServer replies `{}` when the torrent has no cache yet.
-        let state: CacheState = serde_json::from_str("{}")
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let state: CacheState =
+            serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(state, CacheState::default());
     }

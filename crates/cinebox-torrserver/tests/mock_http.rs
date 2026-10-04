@@ -1,7 +1,15 @@
 //! HTTP-level tests against a mock TorrServer (httpmock) instead of a live one.
 
-use cinebox_torrserver::{AddSpec, Error, add, echo, get, list, viewed_list};
+use cinebox_torrserver::{AddSpec, Error, Server, add, echo, get, list, viewed_list};
 use httpmock::prelude::*;
+
+/// The mock as a TorrServer without auth.
+fn torr(mock: &MockServer) -> Server {
+    Server {
+        url: mock.base_url(),
+        ..Server::default()
+    }
+}
 
 #[tokio::test]
 async fn echo_returns_version() -> Result<(), Error> {
@@ -13,7 +21,7 @@ async fn echo_returns_version() -> Result<(), Error> {
         })
         .await;
 
-    let version = echo(&server.base_url(), "", "").await?;
+    let version = echo(&torr(&server)).await?;
     assert_eq!(version, "MatriX.134");
 
     Ok(())
@@ -29,7 +37,7 @@ async fn echo_maps_unauthorized_to_http_401() {
         })
         .await;
 
-    let result = echo(&server.base_url(), "", "").await;
+    let result = echo(&torr(&server)).await;
     assert!(matches!(result, Err(Error::Http(401))), "{result:?}");
 }
 
@@ -43,7 +51,7 @@ async fn get_maps_404_to_not_found() {
         })
         .await;
 
-    let result = get(&server.base_url(), "", "", "abc").await;
+    let result = get(&torr(&server), "abc").await;
     assert!(matches!(result, Err(Error::NotFound)), "{result:?}");
 }
 
@@ -63,7 +71,7 @@ async fn list_parses_rows_and_skips_hashless() -> Result<(), Error> {
         })
         .await;
 
-    let rows = list(&server.base_url(), "", "").await?;
+    let rows = list(&torr(&server)).await?;
 
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].hash, "aa");
@@ -98,7 +106,12 @@ async fn add_sends_basic_auth_and_parses_status() -> Result<(), Error> {
         save_to_db: false,
     };
 
-    let status = add(&server.base_url(), "user", "pass", &spec).await?;
+    let signed_in = Server {
+        url: server.base_url(),
+        username: String::from("user"),
+        password: String::from("pass"),
+    };
+    let status = add(&signed_in, &spec).await?;
 
     mock.assert_async().await;
     assert_eq!(status.hash, "aa");
@@ -117,6 +130,6 @@ async fn viewed_list_maps_bad_json_to_error() {
         })
         .await;
 
-    let result = viewed_list(&server.base_url(), "", "", "abc").await;
+    let result = viewed_list(&torr(&server), "abc").await;
     assert!(matches!(result, Err(Error::BadJson(_))), "{result:?}");
 }

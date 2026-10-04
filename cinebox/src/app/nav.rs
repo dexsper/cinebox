@@ -50,18 +50,22 @@ impl Screen {
     #[must_use]
     pub const fn rail_entry(self) -> Option<RailEntry> {
         match self {
-            Self::Home
-            | Self::Category {
-                id: ShelfId::Home(_),
-            } => Some(RailEntry::Home),
-            Self::Section { section }
-            | Self::Discover { section }
-            | Self::Category {
-                id: ShelfId::Section(section, _),
-            } => Some(RailEntry::Section(section)),
+            Self::Home => Some(RailEntry::Home),
+            Self::Section { section } | Self::Discover { section } => {
+                Some(RailEntry::Section(section))
+            }
+            Self::Category { id } => Some(shelf_rail_entry(id)),
             Self::Library => Some(RailEntry::Library),
             _ => None,
         }
+    }
+}
+
+/// A shelf opened in full stays under the menu entry it came from.
+const fn shelf_rail_entry(id: ShelfId) -> RailEntry {
+    match id {
+        ShelfId::Home(_) => RailEntry::Home,
+        ShelfId::Section(section, _) => RailEntry::Section(section),
     }
 }
 
@@ -329,7 +333,6 @@ mod tests {
             assert_eq!(nav.stack, vec![Screen::Home]);
         }
     }
-
 
     #[test]
     fn search_stacks_on_home_and_does_not_duplicate() {

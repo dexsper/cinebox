@@ -2,10 +2,11 @@
 
 use std::time::Duration;
 
-use cinebox_core::{join_url, normalize_base_url};
+use cinebox_core::join_url;
 
-use super::client::{apply_basic_auth, http_client, send_json};
+use super::client::{http_client, send_json};
 use super::error::Error;
+use super::server::Server;
 
 /// One row from `POST /viewed` action `list`. File index is 1-based.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
@@ -23,22 +24,17 @@ pub struct Viewed {
 /// # Errors
 ///
 /// Empty URL or HTTP/JSON failures.
-pub async fn viewed_list(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    hash: &str,
-) -> Result<Vec<Viewed>, Error> {
+pub async fn viewed_list(server: &Server, hash: &str) -> Result<Vec<Viewed>, Error> {
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
 
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+    let base = server.base()?;
     let url = join_url(&base, "viewed");
     let client = http_client()?;
 
     let post = client.post(&url).timeout(Duration::from_secs(10));
-    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+    let request = server.authorize(post).json(&serde_json::json!({
         "action": "list",
         "hash": hash,
     }));
@@ -52,9 +48,7 @@ pub async fn viewed_list(
 ///
 /// Empty URL/hash or HTTP failures.
 pub async fn viewed_set(
-    base_url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     hash: &str,
     file_index: i32,
     timecode: f64,
@@ -63,12 +57,12 @@ pub async fn viewed_set(
         return Err(Error::EmptyHash);
     }
 
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+    let base = server.base()?;
     let url = join_url(&base, "viewed");
     let client = http_client()?;
 
     let post = client.post(&url).timeout(Duration::from_secs(10));
-    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+    let request = server.authorize(post).json(&serde_json::json!({
         "action": "set",
         "hash": hash,
         "file_index": file_index,
@@ -91,8 +85,8 @@ mod tests {
             { "hash": "abc", "file_index": 3 }
         ]"#;
 
-        let rows: Vec<Viewed> = serde_json::from_str(fixture)
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let rows: Vec<Viewed> =
+            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].file_index, 1);

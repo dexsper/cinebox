@@ -7,10 +7,10 @@ use egui_material_icons::icons::{ICON_CLOSE, ICON_FILTER_LIST};
 use rust_i18n::t;
 
 use super::gate;
-use crate::jobs;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
 use crate::screens::paged::PagedGrid;
 use crate::services::Services;
+use crate::services::jobs;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::drawer::Overlay;

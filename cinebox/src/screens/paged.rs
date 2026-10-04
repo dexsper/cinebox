@@ -9,10 +9,10 @@ use egui::{AsIdSalt, RichText, Sense, Ui, vec2};
 use egui_async::Bind;
 use rust_i18n::t;
 
-use crate::errors::UserError;
-use crate::jobs::JobError;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::services::Services;
+use crate::services::jobs::JobError;
 use crate::theme::Theme;
 use crate::widgets::{self, poster, scroll};
 

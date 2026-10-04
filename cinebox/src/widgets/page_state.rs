@@ -6,8 +6,8 @@ use egui_material_icons::icons::{ICON_ERROR, ICON_REFRESH, ICON_SETTINGS};
 use rust_i18n::t;
 
 use super::button::{self, Opts, Tone};
-use crate::errors::UserError;
-use crate::nav::{NavAction, SettingsPage};
+use crate::app::nav::{NavAction, SettingsPage};
+use crate::i18n::errors::UserError;
 use crate::theme::Theme;
 
 const BADGE: f32 = 64.0;

@@ -8,10 +8,10 @@ use egui::{Align2, CornerRadius, Rect, Ui, UiBuilder, pos2, vec2};
 use egui_async::Bind;
 use rust_i18n::t;
 
-use crate::images::ImageSlot;
-use crate::jobs::JobError;
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::Services;
+use crate::services::images::ImageSlot;
+use crate::services::jobs::JobError;
 use crate::theme::Theme;
 use crate::widgets::backdrop;
 

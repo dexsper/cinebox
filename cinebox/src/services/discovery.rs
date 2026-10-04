@@ -10,7 +10,7 @@ use cinebox_torrserver::FoundServer;
 use futures_util::future::{join, join_all};
 use tracing::warn;
 
-use crate::jobs::JobError;
+use crate::services::jobs::JobError;
 
 const MDNS_WINDOW: Duration = Duration::from_secs(2);
 const PARSER_WAIT: Duration = Duration::from_secs(5);

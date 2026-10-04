@@ -11,7 +11,7 @@ use egui_material_icons::icons::{
 };
 use rust_i18n::t;
 
-use crate::nav::RailEntry;
+use crate::app::nav::RailEntry;
 use crate::platform;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;

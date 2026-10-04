@@ -14,9 +14,9 @@ use rust_i18n::t;
 
 use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
-use crate::errors::UserError;
-use crate::jobs::JobError;
+use crate::i18n::errors::UserError;
 use crate::platform::TextPurpose;
+use crate::services::jobs::JobError;
 use crate::theme::Theme;
 use crate::widgets::field;
 

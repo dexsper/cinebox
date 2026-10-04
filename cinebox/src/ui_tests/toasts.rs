@@ -2,8 +2,8 @@ use egui::vec2;
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 
+use crate::services::toasts::Toasts;
 use crate::theme::Theme;
-use crate::toasts::Toasts;
 
 #[test]
 fn error_toast_shows_and_dismisses_on_click() {

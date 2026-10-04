@@ -3,9 +3,9 @@
 use egui::epaint::text::{FontInsert, FontPriority, InsertFontFamily};
 use egui::{Context, FontData, FontFamily, FontId};
 
-const REGULAR: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Regular.ttf");
-const MEDIUM: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Medium.ttf");
-const BOLD: &[u8] = include_bytes!("../assets/fonts/IBMPlexSans-Bold.ttf");
+const REGULAR: &[u8] = include_bytes!("../../assets/fonts/IBMPlexSans-Regular.ttf");
+const MEDIUM: &[u8] = include_bytes!("../../assets/fonts/IBMPlexSans-Medium.ttf");
+const BOLD: &[u8] = include_bytes!("../../assets/fonts/IBMPlexSans-Bold.ttf");
 
 const FAMILY_REGULAR: &str = "ibm_plex_sans";
 const FAMILY_MEDIUM: &str = "ibm_plex_medium";
@@ -42,7 +42,7 @@ macro_rules! script {
         Script {
             name: concat!("ibm_plex_", $script, "_", $weight),
             data: include_bytes!(concat!(
-                "../assets/fonts/IBMPlexSans",
+                "../../assets/fonts/IBMPlexSans",
                 $script,
                 "-",
                 $weight,

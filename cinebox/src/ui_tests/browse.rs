@@ -6,7 +6,7 @@ use egui_kittest::kittest::Queryable;
 use egui_material_icons::icons::ICON_LOCAL_MOVIES;
 use rust_i18n::t;
 
-use crate::nav::RailEntry;
+use crate::app::nav::RailEntry;
 use crate::theme::Theme;
 use crate::widgets::button::{self, ExpandingIcon};
 use crate::widgets::lists::{self, MenuPick};
@@ -37,7 +37,7 @@ fn harness<T: 'static>(
         .build_ui_state(
             move |ui, state: &mut State<T>| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

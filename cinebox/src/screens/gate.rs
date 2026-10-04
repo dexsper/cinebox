@@ -5,9 +5,9 @@ use egui::{OpenUrl, Ui};
 use egui_material_icons::icons::{ICON_KEY, ICON_OPEN_IN_NEW, ICON_SETTINGS};
 use rust_i18n::t;
 
+use crate::app::nav::{NavAction, SettingsPage};
 use crate::i18n::tr;
-use crate::nav::{NavAction, SettingsPage};
-use crate::settings_input::{KeyHint, tmdb_key_hint};
+use crate::services::settings_input::{KeyHint, tmdb_key_hint};
 use crate::theme::Theme;
 use crate::widgets::button::Tone;
 use crate::widgets::page_state::{PageAction, PageState, page_state};

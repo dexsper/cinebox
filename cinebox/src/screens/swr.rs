@@ -6,7 +6,7 @@ use std::future::Future;
 use cinebox_core::UiLanguage;
 use egui_async::Bind;
 
-use crate::jobs::JobError;
+use crate::services::jobs::JobError;
 
 /// Screen-side SWR state: live bind, async disk snapshot, language tracking.
 ///

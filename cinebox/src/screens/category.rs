@@ -5,10 +5,10 @@ use cinebox_tmdb::ShelfId;
 use egui::{RichText, Ui};
 
 use super::gate;
-use crate::jobs;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
 use crate::screens::paged::PagedGrid;
 use crate::services::Services;
+use crate::services::jobs;
 use crate::theme::Theme;
 
 #[derive(Default)]

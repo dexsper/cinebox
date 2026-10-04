@@ -24,12 +24,12 @@ use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{info, warn};
 
-use crate::errors::UserError;
-use crate::jobs::JobError;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::platform::MediaCommand;
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
+use crate::services::jobs::{self, JobError};
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::flyout;
@@ -565,12 +565,13 @@ impl PlayerScreen {
             view.time,
             view.duration,
             view.paused,
-            view.kind,
-            view.tmdb_id,
-            view.season,
-            view.episode,
-            &svc.settings,
-            &svc.db,
+            skip::SkipTarget {
+                kind: view.kind,
+                tmdb_id: view.tmdb_id,
+                season: view.season,
+                episode: view.episode,
+            },
+            svc,
         );
 
         if let Some(target) = skip_seek {
@@ -584,7 +585,7 @@ impl PlayerScreen {
                 self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
 
                 if let Some(db) = svc.db.clone() {
-                    let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
+                    let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
                     self.skip_save_job.request(job);
                 }
             }
@@ -594,7 +595,7 @@ impl PlayerScreen {
             let disarmed_ty = self.skip_state.on_cancel();
 
             if let (Some(ty), Some(db)) = (disarmed_ty, svc.db.clone()) {
-                let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
+                let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
                 self.skip_save_job.request(job);
             }
         }
@@ -921,7 +922,7 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
             audio_url,
             http_header_fields,
         } => {
-            let net = crate::jobs::net_config(&svc.settings);
+            let net = jobs::net_config(&svc.settings);
             let proxy = cinebox_net::http_proxy_url(&net);
             if net.use_system_proxy && proxy.is_none() {
                 warn!("system proxy is on but no http proxy url was found for the player");
@@ -1020,12 +1021,12 @@ impl PlayerScreen {
         let mut job: Bind<(), JobError> = Bind::new(true);
         job.set_abort(true);
 
-        let torr = crate::jobs::TorrCtx::from(&svc.settings);
+        let torr = jobs::TorrCtx::from(&svc.settings);
         let live = meter.clone();
         let repaint = ctx.clone();
 
         job.request(async move {
-            crate::jobs::wait_stream(
+            jobs::wait_stream(
                 torr,
                 path,
                 hash_owned,

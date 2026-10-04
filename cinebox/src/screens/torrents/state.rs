@@ -5,7 +5,7 @@ use cinebox_indexer::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_h
 use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 
-use crate::errors::UserError;
+use crate::i18n::errors::UserError;
 use crate::widgets::lazy_rows::LazyRows;
 
 #[derive(Debug, Clone)]

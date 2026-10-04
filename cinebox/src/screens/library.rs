@@ -4,7 +4,7 @@ use cinebox_core::{LibraryList, ListStatus, Section};
 use egui::{RichText, Ui, vec2};
 use rust_i18n::t;
 
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};

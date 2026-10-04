@@ -6,12 +6,12 @@ use egui_async::Bind;
 use rust_i18n::t;
 use tracing::warn;
 
-use crate::errors::UserError;
-use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::jobs::{self, JobError};
+use crate::i18n::errors::UserError;
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::services::Services;
+use crate::services::jobs::{self, JobError};
 use crate::theme::Theme;
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, button, focus, poster, scroll};
 
 #[derive(Clone, Copy, PartialEq, Eq)]

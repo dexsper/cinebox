@@ -10,10 +10,10 @@ use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
 use rust_i18n::t;
 
-use crate::jobs::JobError;
-use crate::nav::{NavAction, SettingsPage};
+use crate::app::nav::{NavAction, SettingsPage};
 use crate::services::Services;
-use crate::settings_input::changed_value;
+use crate::services::jobs::{self, JobError};
+use crate::services::settings_input::changed_value;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::scroll;
@@ -298,32 +298,32 @@ impl SettingsScreen {
                 self.paint_field(ui, svc, theme, field)
             }
             Field::ProbeParser => {
-                let parser = crate::jobs::ParserCtx::from(&svc.settings);
+                let parser = jobs::ParserCtx::from(&svc.settings);
                 let label = t!("settings.test_parser");
                 probe_row(ui, theme, ICON_SEARCH, label.as_ref(), &mut self.parser, || {
-                    crate::jobs::ping_parser(parser)
+                    jobs::ping_parser(parser)
                 });
                 false
             }
             Field::ProbeTorr => {
-                let torr = crate::jobs::TorrCtx::from(&svc.settings);
+                let torr = jobs::TorrCtx::from(&svc.settings);
                 let label = t!("settings.ping");
                 probe_row(ui, theme, ICON_NETWORK_PING, label.as_ref(), &mut self.torr, || {
-                    crate::jobs::ping_torrserver(torr)
+                    jobs::ping_torrserver(torr)
                 });
                 false
             }
             Field::ProbeTmdb => {
-                let tmdb = crate::jobs::TmdbCtx::from(&svc.settings);
+                let tmdb = jobs::TmdbCtx::from(&svc.settings);
                 let db = svc.db.clone();
                 let label = t!("settings.check_api_key");
                 probe_row(ui, theme, ICON_KEY, label.as_ref(), &mut self.tmdb, || {
-                    crate::jobs::ping_tmdb(tmdb, db)
+                    jobs::ping_tmdb(tmdb, db)
                 });
                 false
             }
             Field::SpeedTest => {
-                let torr = crate::jobs::TorrCtx::from(&svc.settings);
+                let torr = jobs::TorrCtx::from(&svc.settings);
                 let meter = self.speed_meter.clone();
                 let ctx = ui.ctx().clone();
                 speed_test_row(ui, theme, &self.speed_meter, &mut self.speed, move || {

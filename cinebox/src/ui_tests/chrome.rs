@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::nav::{NavAction, Screen};
+use crate::app::nav::{NavAction, Screen};
 use crate::theme::Theme;
 use crate::widgets::chrome;
 use crate::widgets::search::{self, SearchBar};
@@ -34,7 +34,7 @@ fn header_harness_with(
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

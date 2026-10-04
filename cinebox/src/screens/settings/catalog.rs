@@ -3,8 +3,8 @@
 use cinebox_core::{SecretString, Settings};
 use cinebox_player::Features;
 
-use crate::nav::SettingsPage;
-use crate::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
+use crate::app::nav::SettingsPage;
+use crate::services::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
     ICON_CLOUD, ICON_MOVIE, ICON_PLAY_CIRCLE, ICON_SEARCH, ICON_TUNE,

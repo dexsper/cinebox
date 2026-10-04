@@ -7,15 +7,15 @@ use egui_material_icons::icons::{ICON_LOCAL_MOVIES, ICON_PLAY_CIRCLE};
 use rust_i18n::t;
 
 use super::gate;
-use crate::errors::UserError;
-use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::jobs;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::screens::play::WatchCard;
 use crate::services::Services;
+use crate::services::jobs;
 use crate::theme::Theme;
 use crate::widgets::button::ExpandingIcon;
 use crate::widgets::lists::{self, MenuPick};
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, flyout, focus, intro, poster, scroll, skeleton};
 
 use super::trailers::TrailersModal;

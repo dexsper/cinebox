@@ -9,7 +9,7 @@ use egui_material_icons::icons::{
     ICON_ARROW_BACK, ICON_CLOSE, ICON_FULLSCREEN, ICON_FULLSCREEN_EXIT, ICON_REMOVE, ICON_SETTINGS,
 };
 
-use crate::nav::{NavAction, Screen};
+use crate::app::nav::{NavAction, Screen};
 use crate::theme::Theme;
 use crate::widgets::search::{self, SearchBar};
 use crate::widgets::{button, focus};

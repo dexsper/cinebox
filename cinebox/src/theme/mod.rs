@@ -1,5 +1,7 @@
 //! Brand colors and sizes. The only place `Color32` literals live.
 
+pub mod fonts;
+
 use egui::{
     Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle,
 };
@@ -232,13 +234,13 @@ impl Theme {
     /// Movie titles, shelf labels, drawer headings.
     #[must_use]
     pub fn title_font(&self, size: f32) -> FontId {
-        crate::fonts::title(size)
+        crate::theme::fonts::title(size)
     }
 
     /// Primary action labels.
     #[must_use]
     pub fn emphasis_font(&self, size: f32) -> FontId {
-        crate::fonts::emphasis(size)
+        crate::theme::fonts::emphasis(size)
     }
 
     /// Apply visuals once at startup.
