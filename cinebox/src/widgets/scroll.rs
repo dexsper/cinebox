@@ -3,7 +3,7 @@
 //! A wheel notch becomes velocity; friction is exponential. Drag stays with
 //! egui so nested buttons still receive clicks.
 
-use egui::containers::scroll_area::{DragScroll, ScrollSource};
+use egui::containers::scroll_area::{DragScroll, ScrollBarVisibility, ScrollSource};
 use egui::{
     Align, AsIdSalt, Context, Direction, Event, Id, Margin, Modifiers, MouseWheelUnit, Pos2, Rect,
     Response, ScrollArea, Shape, Ui, UiKind, Vec2, Vec2b, pos2, vec2,
@@ -42,6 +42,8 @@ struct Coast {
     shown_y: f32,
     dragging: bool,
     max_offset: Vec2,
+    /// How tall the area came out last frame.
+    height: f32,
 }
 
 impl Default for Coast {
@@ -56,6 +58,7 @@ impl Default for Coast {
             shown_y: 0.0,
             dragging: false,
             max_offset: Vec2::splat(f32::INFINITY),
+            height: 0.0,
         }
     }
 }
@@ -343,10 +346,12 @@ fn show(
         coast.clamp_edges(enabled);
     }
 
+    let origin = ui.cursor().min;
     let mut area = ScrollArea::new(enabled)
         .id_salt(salt)
         .auto_shrink(auto_shrink)
         .scroll_source(source())
+        .scroll_bar_visibility(bar_visibility(ui, enabled, origin, coast.height))
         .content_margin(gutter_margin(enabled));
 
     if let Some(height) = max_height {
@@ -361,7 +366,6 @@ fn show(
         area = area.vertical_scroll_offset(y);
     }
 
-    let origin = ui.cursor().min;
     let revealed_outside = revealed_this_pass(ui.ctx()).is_some();
     let ctx = ui.ctx().clone();
     let output = inside_area(&ctx, coast_id, || {
@@ -414,6 +418,7 @@ fn show(
     coast.vertical = enabled[1];
     coast.offset = output.state.offset;
     coast.shown_y = output.inner_rect.top() - content_top;
+    coast.height = ui.cursor().min.y - ui.spacing().item_spacing.y - origin.y;
     coast.max_offset = vec2(
         (output.content_size.x - output.inner_rect.width()).max(0.0),
         (output.content_size.y - output.inner_rect.height()).max(0.0),
@@ -427,6 +432,18 @@ fn show(
     }
 
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
+}
+
+/// egui pulls the bar of a nested area up into view when the area ends below
+/// the page's viewport, so every shelf under the fold stacked its bar on the
+/// page's bottom edge. A shelf shows its bar only where it actually is.
+fn bar_visibility(ui: &Ui, enabled: Vec2b, origin: Pos2, height: f32) -> ScrollBarVisibility {
+    let below_view = origin.y + height > ui.clip_rect().bottom() + EDGE_EPS;
+    if !enabled[1] && below_view {
+        return ScrollBarVisibility::AlwaysHidden;
+    }
+
+    ScrollBarVisibility::VisibleWhenNeeded
 }
 
 /// A glide to the top lasts until the page gets there, unless something else
