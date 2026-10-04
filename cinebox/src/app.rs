@@ -117,7 +117,6 @@ impl App {
         theme.apply(&cc.egui_ctx);
 
         crate::fonts::install(&cc.egui_ctx);
-        egui_material_icons::initialize(&cc.egui_ctx);
 
         cc.egui_ctx
             .plugin_or_default::<egui_async::EguiAsyncPlugin>();

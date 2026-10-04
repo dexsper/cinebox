@@ -22,7 +22,6 @@ fn shelf_heading_click_is_a_button() {
             |ui, state| {
                 if !state.fonts {
                     crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;
@@ -64,7 +63,6 @@ fn missing_tmdb_key_gate_opens_tmdb_settings() {
             |ui, state| {
                 if !state.fonts {
                     crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

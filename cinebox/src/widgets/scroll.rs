@@ -434,9 +434,8 @@ fn show(
     ui.ctx().data_mut(|d| d.insert_temp(coast_id, coast));
 }
 
-/// egui pulls the bar of a nested area up into view when the area ends below
-/// the page's viewport, so every shelf under the fold stacked its bar on the
-/// page's bottom edge. A shelf shows its bar only where it actually is.
+/// egui pulls a nested area's bar up into view when the area ends below the
+/// page's viewport; a shelf there hides its bar instead.
 fn bar_visibility(ui: &Ui, enabled: Vec2b, origin: Pos2, height: f32) -> ScrollBarVisibility {
     let below_view = origin.y + height > ui.clip_rect().bottom() + EDGE_EPS;
     if !enabled[1] && below_view {

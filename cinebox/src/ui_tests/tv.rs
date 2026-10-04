@@ -225,7 +225,6 @@ fn harness_on(device: TvDevice, add: fn(&mut egui::Ui, &mut TvState)) -> Harness
                 install(ui, state.device());
                 let Some(theme) = state.theme.clone() else {
                     crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
                     let theme = Theme::dark();
                     theme.apply(ui.ctx());
                     state.theme = Some(theme);
@@ -1022,7 +1021,6 @@ fn draw_wizard_over_screen(ui: &mut egui::Ui, state: &mut WizardTv) {
     install(ui, state.device());
     if !state.fonts {
         crate::fonts::install(ui.ctx());
-        egui_material_icons::initialize(ui.ctx());
         state.theme.apply(ui.ctx());
         state.fonts = true;
         return;

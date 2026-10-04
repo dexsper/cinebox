@@ -33,7 +33,6 @@ fn interact_harness() -> Harness<'static, InteractState> {
             |ui, state| {
                 if !state.fonts {
                     crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

@@ -40,7 +40,6 @@ fn wizard_harness() -> Harness<'static, WizardState> {
 fn draw_wizard(ui: &mut egui::Ui, state: &mut WizardState) {
     if !state.fonts {
         crate::fonts::install(ui.ctx());
-        egui_material_icons::initialize(ui.ctx());
         state.theme.apply(ui.ctx());
         state.fonts = true;
         return;
