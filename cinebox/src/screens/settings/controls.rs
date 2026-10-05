@@ -14,9 +14,9 @@ use rust_i18n::t;
 
 use super::catalog::Category;
 use super::speed::{self, SpeedMeter};
-use crate::errors::UserError;
-use crate::jobs::JobError;
+use crate::i18n::errors::UserError;
 use crate::platform::TextPurpose;
+use crate::services::jobs::JobError;
 use crate::theme::Theme;
 use crate::widgets::field;
 
@@ -29,7 +29,7 @@ const HINT_GAP: f32 = 3.0;
 const ROW_PAD_Y: f32 = 4.0;
 const ACTION_H: f32 = 36.0;
 
-pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> bool {
+pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> egui::Response {
     let title = crate::i18n::tr(cat.title);
     let subtitle = crate::i18n::tr(cat.subtitle);
 
@@ -40,10 +40,10 @@ pub fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
     let title = t!("settings.run_wizard");
     let subtitle = t!("settings.run_wizard_hint");
 
-    nav_row(ui, theme, ICON_AUTO_FIX_HIGH, &title, &subtitle, "run-wizard")
+    nav_row(ui, theme, ICON_AUTO_FIX_HIGH, &title, &subtitle, "run-wizard").clicked()
 }
 
-fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle: &str, id: &str) -> bool {
+fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle: &str, id: &str) -> egui::Response {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), CATEGORY_H), Sense::hover());
     if ui.rect_contains_pointer(rect) {
         ui.painter()
@@ -84,7 +84,7 @@ fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, id).clicked()
+    hit_on_top(ui, rect, id)
 }
 
 fn icon_well(ui: &mut Ui, theme: &Theme, icon: MaterialIcon) {

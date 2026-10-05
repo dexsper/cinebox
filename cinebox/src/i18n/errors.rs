@@ -2,8 +2,8 @@
 
 use rust_i18n::t;
 
-use crate::jobs::JobError;
-use crate::nav::SettingsPage;
+use crate::app::nav::SettingsPage;
+use crate::services::jobs::JobError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct UserError {

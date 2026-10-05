@@ -24,12 +24,12 @@ use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{info, warn};
 
-use crate::errors::UserError;
-use crate::jobs::JobError;
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::platform::MediaCommand;
 use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
+use crate::services::jobs::{self, JobError};
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::flyout;
@@ -53,6 +53,11 @@ struct PlayerState {
     subtitle: Option<String>,
     loaded_at: Instant,
     decoder: Option<cinebox_player::VideoDecoder>,
+    /// The start point was compared with the duration (see [`Self::track_tail`]).
+    start_checked: bool,
+    /// Playback was seen before the file's tail since it loaded; only then
+    /// does its end move on to the next file.
+    played_before_tail: bool,
 }
 
 impl PlayerState {
@@ -72,7 +77,26 @@ impl PlayerState {
             subtitle: None,
             loaded_at: Instant::now(),
             decoder: None,
+            start_checked: false,
+            played_before_tail: false,
         }
+    }
+
+    /// Feeds a position once the duration is known. `true` when the file was
+    /// opened at its very end, watched before: it starts over rather than
+    /// ending at once and handing over to the next file.
+    fn track_tail(&mut self, time: f64, duration: f64) -> bool {
+        let tail = duration - FINISHED_TAIL_SECS.min(duration / 10.0);
+        if time < tail {
+            self.played_before_tail = true;
+        }
+
+        if self.start_checked {
+            return false;
+        }
+
+        self.start_checked = true;
+        self.source.start_seconds() >= tail
     }
 
     #[must_use]
@@ -101,9 +125,30 @@ impl PlayerState {
     }
 }
 
+/// What [`PlayerScreen::stop`] leaves behind.
+pub struct Played {
+    pub source: PlaySource,
+    /// The database write of the progress, still running in the background.
+    pub saved: Option<tokio::task::JoinHandle<()>>,
+}
+
 enum PlayerPhase {
     Buffering(Buffering),
     Playing(PlayerState),
+}
+
+impl PlayerPhase {
+    fn into_source(self) -> PlaySource {
+        match self {
+            Self::Playing(state) => state.source,
+            Self::Buffering(state) => PlaySource::Torrent {
+                hash: state.hash,
+                files: state.files,
+                file_index: state.file_index,
+                start: state.resume_at,
+            },
+        }
+    }
 }
 
 #[derive(Clone, Copy, PartialEq, Eq)]
@@ -138,6 +183,8 @@ pub struct PlayerScreen {
     controls_focused: bool,
     focus_play: bool,
     popup: Popup,
+    /// See [`settings_popup::View::left`].
+    settings_left: Option<settings_popup::Page>,
     playlist_scroll: bool,
     prefs: TorrentPlaybackPrefs,
     sub_scale: f64,
@@ -161,6 +208,7 @@ impl Default for PlayerScreen {
             controls_focused: false,
             focus_play: false,
             popup: Popup::None,
+            settings_left: None,
             playlist_scroll: false,
             prefs: TorrentPlaybackPrefs::default(),
             sub_scale: 1.0,
@@ -205,13 +253,18 @@ impl PlayerScreen {
         );
     }
 
-    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) {
-        self.save_progress(svc, true);
+    /// Saves progress and stops. Returns the source it stopped on, with the
+    /// timecodes just saved.
+    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<Played> {
+        let saved = self.save_progress(svc, true);
         stop_player(svc);
 
         self.abort_buffering();
         self.skip_state.reset();
-        self.phase = None;
+        let played = self.phase.take().map(|phase| Played {
+            source: phase.into_source(),
+            saved,
+        });
         self.popup = Popup::None;
 
         if self.volume_dirty {
@@ -222,6 +275,8 @@ impl PlayerScreen {
         self.set_fullscreen(ctx, false);
         crate::platform::device(ctx).keep_screen_on(false);
         self.session.clear(ctx);
+
+        played
     }
 
     /// Pause without toggling (the app went to the background).
@@ -279,7 +334,7 @@ impl PlayerScreen {
         self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
-        let (go_next, stall) = {
+        let (go_next, stall, restart) = {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return;
             };
@@ -322,14 +377,23 @@ impl PlayerScreen {
                 state.error = Some(t!("player.stream_stalled").into_owned());
             }
 
-            let eof_ready = snap.eof && snap.duration > 1.0;
-            let go_next = eof_ready && svc.settings.player.auto_next && state.has_next();
+            let mut restart = false;
+            if snap.duration > 1.0 {
+                restart = state.track_tail(snap.time, snap.duration);
+            }
 
-            (go_next, stall)
+            let finished = snap.eof && state.played_before_tail;
+            let go_next = finished && svc.settings.player.auto_next && state.has_next();
+
+            (go_next, stall, restart)
         };
 
         if stall {
             stop_player(svc);
+        }
+
+        if restart {
+            self.seek_abs(svc, 0.0);
         }
 
         let _ = self.viewed_job.read();
@@ -537,12 +601,13 @@ impl PlayerScreen {
             view.time,
             view.duration,
             view.paused,
-            view.kind,
-            view.tmdb_id,
-            view.season,
-            view.episode,
-            &svc.settings,
-            &svc.db,
+            skip::SkipTarget {
+                kind: view.kind,
+                tmdb_id: view.tmdb_id,
+                season: view.season,
+                episode: view.episode,
+            },
+            svc,
         );
 
         if let Some(target) = skip_seek {
@@ -556,7 +621,7 @@ impl PlayerScreen {
                 self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
 
                 if let Some(db) = svc.db.clone() {
-                    let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
+                    let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
                     self.skip_save_job.request(job);
                 }
             }
@@ -566,7 +631,7 @@ impl PlayerScreen {
             let disarmed_ty = self.skip_state.on_cancel();
 
             if let (Some(ty), Some(db)) = (disarmed_ty, svc.db.clone()) {
-                let job = crate::jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
+                let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
                 self.skip_save_job.request(job);
             }
         }
@@ -643,6 +708,7 @@ impl PlayerScreen {
             prefs: self.prefs,
             sub_scale: self.sub_scale,
             sub_delay: self.sub_delay,
+            left: self.settings_left,
         };
 
         let mut out = settings_popup::Out::default();
@@ -660,7 +726,7 @@ impl PlayerScreen {
         );
 
         if let Some(next) = out.page {
-            self.popup = Popup::Settings(next);
+            self.turn_settings_page(page, next);
         }
 
         let mut dirty = false;
@@ -737,14 +803,7 @@ impl PlayerScreen {
             let files = state.files();
             let current = state.file_index();
 
-            // Bottom margin 0: the list runs flush to the frame edge, covered
-            // by the flyout's own bottom-up shadow.
-            let pad = egui::Margin {
-                left: flyout::PAD,
-                right: flyout::PAD,
-                top: flyout::PAD,
-                bottom: 0,
-            };
+            let pad = egui::Margin::same(flyout::PAD);
             let fly = flyout::show(
                 ctx,
                 "player-playlist-flyout",
@@ -840,9 +899,18 @@ impl PlayerScreen {
             self.playlist_scroll = true;
         }
 
+        self.settings_left = None;
         self.popup = popup;
     }
+
+    fn turn_settings_page(&mut self, from: settings_popup::Page, to: settings_popup::Page) {
+        self.settings_left = Some(from);
+        self.popup = Popup::Settings(to);
+    }
 }
+
+/// A start point this close to the end means the file was watched to it.
+const FINISHED_TAIL_SECS: f64 = 30.0;
 
 /// Resumes this close to the start keep the stock head preload: its window
 /// usually reaches the seek target, and a dedicated mid-file wait isn't worth it.
@@ -893,7 +961,7 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
             audio_url,
             http_header_fields,
         } => {
-            let net = crate::jobs::net_config(&svc.settings);
+            let net = jobs::net_config(&svc.settings);
             let proxy = cinebox_net::http_proxy_url(&net);
             if net.use_system_proxy && proxy.is_none() {
                 warn!("system proxy is on but no http proxy url was found for the player");
@@ -992,12 +1060,12 @@ impl PlayerScreen {
         let mut job: Bind<(), JobError> = Bind::new(true);
         job.set_abort(true);
 
-        let torr = crate::jobs::TorrCtx::from(&svc.settings);
+        let torr = jobs::TorrCtx::from(&svc.settings);
         let live = meter.clone();
         let repaint = ctx.clone();
 
         job.request(async move {
-            crate::jobs::wait_stream(
+            jobs::wait_stream(
                 torr,
                 path,
                 hash_owned,
@@ -1659,6 +1727,43 @@ mod tests {
         assert!(!http_stream_started(0.0, 0.0));
         assert!(http_stream_started(0.4, 0.0));
         assert!(http_stream_started(0.0, 90.0));
+    }
+
+    fn state_starting_at(at: f64) -> PlayerState {
+        let mut spec = spec(0, 3);
+        if let PlaySource::Torrent { start, .. } = &mut spec.source {
+            *start = at;
+        }
+
+        PlayerState::from_spec(&spec)
+    }
+
+    #[test]
+    fn a_file_opened_at_its_end_starts_over_once() {
+        let mut state = state_starting_at(2690.0);
+
+        assert!(state.track_tail(2690.0, 2700.0));
+        assert!(!state.played_before_tail, "its end must not hand over to the next file");
+
+        assert!(!state.track_tail(2700.0, 2700.0));
+        assert!(!state.track_tail(0.0, 2700.0));
+        assert!(state.played_before_tail);
+    }
+
+    #[test]
+    fn a_resume_mid_file_plays_on() {
+        let mut state = state_starting_at(1200.0);
+
+        assert!(!state.track_tail(1200.0, 2700.0));
+        assert!(state.played_before_tail);
+    }
+
+    #[test]
+    fn a_short_file_from_its_start_plays_on() {
+        let mut state = state_starting_at(0.0);
+
+        assert!(!state.track_tail(0.0, 20.0));
+        assert!(state.played_before_tail);
     }
 
     #[test]

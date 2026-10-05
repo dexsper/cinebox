@@ -62,6 +62,10 @@ struct State {
     content: Option<Rect>,
     before_modal: Option<Id>,
     had_modal: bool,
+    /// The top modal layer last frame.
+    modal: Option<LayerId>,
+    /// Where focus was in each modal layer a popup opened over, outermost first.
+    outer_focus: Vec<(LayerId, Id)>,
     last_allowed: Option<Id>,
     was_editing: bool,
     focused_before_input: Option<Id>,
@@ -242,6 +246,14 @@ pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
         vertical,
     };
     with_state(ui.ctx(), |state| state.holds.push(hold));
+}
+
+/// A popup was open last frame. Once it closes, focus goes back to what
+/// opened it at the start of the next frame, so nothing should take the
+/// focus it left empty in the meantime.
+#[must_use]
+pub fn popup_was_open(ctx: &Context) -> bool {
+    with_state(ctx, |state| state.had_modal)
 }
 
 /// The focused widget's layer, from the previous frame.

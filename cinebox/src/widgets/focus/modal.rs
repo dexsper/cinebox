@@ -1,7 +1,7 @@
 //! Where focus belongs when it has nowhere sensible to be: inside an open
 //! popup, back where it was after the popup closes, or on a starting widget.
 
-use egui::{Context, Id, Key, RawInput, Rect};
+use egui::{Context, Id, Key, LayerId, RawInput, Rect};
 
 use super::{Candidate, State};
 
@@ -11,12 +11,21 @@ pub(super) fn keep_in_modal(ctx: &Context, last: &State, next: &mut State) {
     let modal = ctx.memory(|mem| mem.top_modal_layer());
     let focused = ctx.memory(|mem| mem.focused());
     next.had_modal = modal.is_some();
+    next.modal = modal;
 
-    if modal.is_none() {
+    let Some(layer) = modal else {
         next.last_allowed = None;
+        next.outer_focus.clear();
         next.before_modal = focused;
         restore_after_modal(ctx, last, next, focused);
         return;
+    };
+
+    if last.modal != modal {
+        let returned = return_to_outer(ctx, last, next, layer);
+        if returned {
+            return;
+        }
     }
 
     if let Some(id) = focused.filter(|id| allowed(ctx, *id)) {
@@ -31,6 +40,30 @@ pub(super) fn keep_in_modal(ctx: &Context, last: &State, next: &mut State) {
 
     next.last_allowed = Some(target);
     ctx.memory_mut(|mem| mem.request_focus(target));
+}
+
+/// A popup over a popup, like a dropdown in a drawer: opening it remembers
+/// where focus was in the one below, closing it puts focus back there rather
+/// than on the first widget of the one below.
+fn return_to_outer(ctx: &Context, last: &State, next: &mut State, layer: LayerId) -> bool {
+    let below = next.outer_focus.iter().position(|(outer, _)| *outer == layer);
+    let Some(below) = below else {
+        if let (Some(outer), Some(id)) = (last.modal, last.last_allowed) {
+            next.outer_focus.push((outer, id));
+        }
+
+        return false;
+    };
+
+    let (_, id) = next.outer_focus[below];
+    next.outer_focus.truncate(below);
+    if !allowed(ctx, id) {
+        return false;
+    }
+
+    next.last_allowed = Some(id);
+    ctx.memory_mut(|mem| mem.request_focus(id));
+    true
 }
 
 fn restore_after_modal(ctx: &Context, last: &State, next: &mut State, focused: Option<Id>) {

@@ -2,11 +2,12 @@
 
 use std::time::Duration;
 
-use cinebox_core::{join_url, normalize_base_url};
+use cinebox_core::join_url;
 use serde::Serialize;
 
-use super::client::{apply_basic_auth, http_client, send_json};
+use super::client::{http_client, send_json};
 use super::error::Error;
+use super::server::Server;
 use super::status::{TorrentStatus, files_for_list};
 use super::viewed::{Viewed, viewed_list};
 
@@ -66,9 +67,8 @@ pub struct OpenedTorrent {
     pub resume_id: Option<i32>,
 }
 
-fn torrents_url(base_url: &str) -> Result<String, Error> {
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
-    Ok(join_url(&base, "torrents"))
+fn torrents_url(server: &Server) -> Result<String, Error> {
+    Ok(join_url(&server.base()?, "torrents"))
 }
 
 /// `POST /torrents` with `action: list`. Failures here must not block indexer search.
@@ -76,16 +76,13 @@ fn torrents_url(base_url: &str) -> Result<String, Error> {
 /// # Errors
 ///
 /// Empty URL, HTTP failures, or JSON that is not an array of torrent objects.
-pub async fn list(
-    base_url: &str,
-    username: &str,
-    password: &str,
-) -> Result<Vec<ListedTorrent>, Error> {
-    let url = torrents_url(base_url)?;
+pub async fn list(server: &Server) -> Result<Vec<ListedTorrent>, Error> {
+    let url = torrents_url(server)?;
     let client = http_client()?;
     let post = client.post(&url).timeout(Duration::from_secs(15));
-    let request =
-        apply_basic_auth(post, username, password).json(&serde_json::json!({ "action": "list" }));
+    let request = server
+        .authorize(post)
+        .json(&serde_json::json!({ "action": "list" }));
 
     let parsed: Vec<ListedRaw> = send_json(request).await?;
     Ok(parsed
@@ -105,17 +102,12 @@ pub async fn list(
 /// # Errors
 ///
 /// Empty URL/link or HTTP/JSON failures.
-pub async fn add(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    spec: &AddSpec,
-) -> Result<TorrentStatus, Error> {
+pub async fn add(server: &Server, spec: &AddSpec) -> Result<TorrentStatus, Error> {
     if spec.link.trim().is_empty() {
         return Err(Error::EmptyLink);
     }
 
-    let url = torrents_url(base_url)?;
+    let url = torrents_url(server)?;
     let client = http_client()?;
     let body = AddBody {
         action: "add",
@@ -127,7 +119,7 @@ pub async fn add(
     };
 
     let post = client.post(&url).timeout(JSON_TIMEOUT);
-    let request = apply_basic_auth(post, username, password).json(&body);
+    let request = server.authorize(post).json(&body);
     send_json(request).await
 }
 
@@ -136,20 +128,15 @@ pub async fn add(
 /// # Errors
 ///
 /// Empty URL/hash, 404, or HTTP/JSON failures.
-pub async fn get(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    hash: &str,
-) -> Result<TorrentStatus, Error> {
+pub async fn get(server: &Server, hash: &str) -> Result<TorrentStatus, Error> {
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
 
-    let url = torrents_url(base_url)?;
+    let url = torrents_url(server)?;
     let client = http_client()?;
     let post = client.post(&url).timeout(JSON_TIMEOUT);
-    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+    let request = server.authorize(post).json(&serde_json::json!({
         "action": "get",
         "hash": hash,
     }));
@@ -162,14 +149,9 @@ pub async fn get(
 /// # Errors
 ///
 /// Empty URL/hash, HTTP failures, or timeout.
-pub async fn wait_files(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    hash: &str,
-) -> Result<TorrentStatus, Error> {
+pub async fn wait_files(server: &Server, hash: &str) -> Result<TorrentStatus, Error> {
     for attempt in 0..FILE_POLL_MAX {
-        match get(base_url, username, password, hash).await {
+        match get(server, hash).await {
             Ok(status) if !status.file_stats.is_empty() => return Ok(status),
             Ok(_) => {}
             Err(Error::NotFound) => {}
@@ -191,20 +173,15 @@ pub async fn wait_files(
 /// # Errors
 ///
 /// Empty URL/hash or HTTP failures.
-pub async fn drop_torrent(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    hash: &str,
-) -> Result<(), Error> {
+pub async fn drop_torrent(server: &Server, hash: &str) -> Result<(), Error> {
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
 
-    let url = torrents_url(base_url)?;
+    let url = torrents_url(server)?;
     let client = http_client()?;
     let post = client.post(&url).timeout(JSON_TIMEOUT);
-    let request = apply_basic_auth(post, username, password).json(&serde_json::json!({
+    let request = server.authorize(post).json(&serde_json::json!({
         "action": "drop",
         "hash": hash,
     }));
@@ -219,30 +196,26 @@ pub async fn drop_torrent(
 ///
 /// Empty URL/link, HTTP failures, missing hash, or file-list timeout.
 pub async fn open_magnet(
-    base_url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     spec: &AddSpec,
     track_timecode: bool,
 ) -> Result<OpenedTorrent, Error> {
-    let added = add(base_url, username, password, spec).await?;
+    let added = add(server, spec).await?;
     if added.hash.is_empty() {
         return Err(Error::EmptyHash);
     }
 
     let hash = added.hash.clone();
-    let status = match wait_or_use(base_url, username, password, added).await {
+    let status = match wait_or_use(server, added).await {
         Ok(status) => status,
         Err(error) => {
-            let _ = drop_torrent(base_url, username, password, &hash).await;
+            let _ = drop_torrent(server, &hash).await;
             return Err(error);
         }
     };
 
     let viewed = if track_timecode {
-        viewed_list(base_url, username, password, &hash)
-            .await
-            .unwrap_or_default()
+        viewed_list(server, &hash).await.unwrap_or_default()
     } else {
         Vec::new()
     };
@@ -250,17 +223,12 @@ pub async fn open_magnet(
     Ok(opened_from(status, &viewed))
 }
 
-async fn wait_or_use(
-    base_url: &str,
-    username: &str,
-    password: &str,
-    added: TorrentStatus,
-) -> Result<TorrentStatus, Error> {
+async fn wait_or_use(server: &Server, added: TorrentStatus) -> Result<TorrentStatus, Error> {
     if !added.file_stats.is_empty() {
         return Ok(added);
     }
 
-    wait_files(base_url, username, password, &added.hash).await
+    wait_files(server, &added.hash).await
 }
 
 fn opened_from(status: TorrentStatus, viewed: &[Viewed]) -> OpenedTorrent {

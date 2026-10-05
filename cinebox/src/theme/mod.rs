@@ -1,5 +1,7 @@
 //! Brand colors and sizes. The only place `Color32` literals live.
 
+pub mod fonts;
+
 use egui::{
     Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle,
 };
@@ -82,7 +84,6 @@ pub struct Theme {
     pub text_display: f32,
     pub text_hero: f32,
     pub text_person: f32,
-    pub text_explorer_from: f32,
     pub text_icon: f32,
     pub text_icon_md: f32,
     pub text_icon_lg: f32,
@@ -147,8 +148,8 @@ impl Theme {
             ring_gap: 4.0,
             poster_w: 200.0,
             poster_h: 300.0,
-            explorer_poster_w: 112.0,
-            explorer_poster_h: 168.0,
+            explorer_poster_w: 128.0,
+            explorer_poster_h: 192.0,
             explorer_left: 340.0,
             still_w: 168.0,
             still_h: 98.0,
@@ -167,7 +168,6 @@ impl Theme {
             text_display: 22.0,
             text_hero: 42.0,
             text_person: 26.0,
-            text_explorer_from: 32.0,
             text_icon: 16.0,
             text_icon_md: 18.0,
             text_icon_lg: 20.0,
@@ -232,13 +232,13 @@ impl Theme {
     /// Movie titles, shelf labels, drawer headings.
     #[must_use]
     pub fn title_font(&self, size: f32) -> FontId {
-        crate::fonts::title(size)
+        crate::theme::fonts::title(size)
     }
 
     /// Primary action labels.
     #[must_use]
     pub fn emphasis_font(&self, size: f32) -> FontId {
-        crate::fonts::emphasis(size)
+        crate::theme::fonts::emphasis(size)
     }
 
     /// Apply visuals once at startup.

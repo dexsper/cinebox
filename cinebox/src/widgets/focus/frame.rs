@@ -17,6 +17,7 @@ pub fn begin_frame(ctx: &Context, raw_input: &mut RawInput) {
         content: last.content,
         before_modal: last.before_modal,
         had_modal: last.had_modal,
+        outer_focus: last.outer_focus.clone(),
         last_allowed: last.last_allowed,
         was_editing: ctx.text_edit_focused(),
         focused_before_input: ctx.memory(|mem| mem.focused()),

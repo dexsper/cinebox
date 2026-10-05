@@ -11,6 +11,7 @@ pub struct Hit {
     pub seeders: u32,
     pub peers: u32,
     pub magnet: String,
+    /// `YYYY-MM-DD`, or empty.
     pub published: String,
 }
 
@@ -96,18 +97,16 @@ fn json_u32(value: &Value) -> u32 {
     u32::try_from(json_u64(value)).unwrap_or(u32::MAX)
 }
 
-const MONTHS: [&str; 12] = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-];
-
-fn format_publish_date(raw: &str) -> String {
-    let Some(y) = raw.get(0..4).and_then(|part| part.parse::<u16>().ok()) else {
+/// `YYYY-MM-DD` from the feed's timestamp, for the app to write in the
+/// interface language. Empty when it does not parse.
+fn publish_date(raw: &str) -> String {
+    let Some(year) = raw.get(0..4).and_then(|part| part.parse::<u16>().ok()) else {
         return String::new();
     };
 
     let Some(month) = raw
         .get(5..7)
-        .and_then(|part| part.parse::<usize>().ok())
+        .and_then(|part| part.parse::<u8>().ok())
         .filter(|month| (1..=12).contains(month))
     else {
         return String::new();
@@ -115,17 +114,13 @@ fn format_publish_date(raw: &str) -> String {
 
     let Some(day) = raw
         .get(8..10)
-        .and_then(|part| part.parse().ok())
-        .filter(|day: &u8| *day > 0)
+        .and_then(|part| part.parse::<u8>().ok())
+        .filter(|day| (1..=31).contains(day))
     else {
         return String::new();
     };
 
-    let Some(name) = MONTHS.get(month.saturating_sub(1)) else {
-        return String::new();
-    };
-
-    format!("{day} {name} {y}")
+    format!("{year:04}-{month:02}-{day:02}")
 }
 
 pub(crate) fn text_field(obj: &Value, keys: &[&str]) -> String {
@@ -163,7 +158,7 @@ pub(crate) fn hit_from_jackett(raw: &Value) -> Option<Hit> {
                 .unwrap_or(&Value::Null),
         ),
         magnet,
-        published: format_publish_date(&text_field(
+        published: publish_date(&text_field(
             raw,
             &["PublishDate", "publishDate", "Published"],
         )),
@@ -201,7 +196,7 @@ pub(crate) fn hit_from_prowlarr(raw: &Value) -> Option<Hit> {
                 .unwrap_or(&Value::Null),
         ),
         magnet,
-        published: format_publish_date(&text_field(
+        published: publish_date(&text_field(
             raw,
             &["publishDate", "PublishDate", "published"],
         )),
@@ -230,7 +225,7 @@ mod tests {
         assert_eq!(hit.title, "Dune 2021");
         assert_eq!(hit.size_bytes, 1234);
         assert_eq!(hit.peers, 3);
-        assert_eq!(hit.published, "22 Oct 2021");
+        assert_eq!(hit.published, "2021-10-22");
         assert!(hit.magnet.starts_with("magnet:"));
     }
 

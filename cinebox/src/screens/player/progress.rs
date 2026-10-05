@@ -6,6 +6,7 @@ use cinebox_core::WatchHistoryEntry;
 use tracing::warn;
 
 use crate::services::Services;
+use crate::services::jobs;
 
 use super::{PlayerPhase, PlayerScreen};
 
@@ -130,18 +131,11 @@ impl PlayerScreen {
             return db_job;
         }
 
-        let torr = crate::jobs::TorrCtx::from(&svc.settings);
+        let torr = jobs::TorrCtx::from(&svc.settings);
         self.viewed_job.request(async move {
-            cinebox_torrserver::viewed_set(
-                &torr.url,
-                &torr.username,
-                &torr.password,
-                &hash,
-                file_id,
-                time,
-            )
-            .await
-            .map_err(crate::jobs::JobError::from)
+            cinebox_torrserver::viewed_set(&torr.server, &hash, file_id, time)
+                .await
+                .map_err(jobs::JobError::from)
         });
 
         db_job

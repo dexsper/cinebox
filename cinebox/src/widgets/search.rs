@@ -9,7 +9,7 @@ use egui::{
 use egui_material_icons::icons::{ICON_MIC, ICON_SCHEDULE, ICON_SEARCH};
 use rust_i18n::t;
 
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
 use crate::platform::{self, SpeechEvent, SpeechRequest, TextAction, TextInputSpec, TextPurpose};
 use crate::theme::Theme;
 use crate::widgets::button::{self, pointing};

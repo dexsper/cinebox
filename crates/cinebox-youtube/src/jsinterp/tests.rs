@@ -25,7 +25,7 @@ fn num(n: f64) -> JsValue {
 }
 
 fn s(text: &str) -> JsValue {
-    JsValue::from_str(text)
+    JsValue::string(text)
 }
 
 fn arr(items: Vec<JsValue>) -> JsValue {
@@ -85,17 +85,10 @@ fn test_div() {
     let code = "function f(a, b){return a / b;}";
     assert_nan(&call(code, "f", &[num(0.0), num(0.0)]));
     assert_nan(&call(code, "f", &[JsValue::Undefined, num(1.0)]));
-    assert_call_args(
-        code,
-        JsValue::infinity(),
-        &[num(2.0), num(0.0)],
-    );
+    assert_call_args(code, JsValue::infinity(), &[num(2.0), num(0.0)]);
     assert_eq!(call(code, "f", &[num(0.0), num(3.0)]), num(0.0));
     assert_eq!(call(code, "f", &[num(42.0), num(7.0)]), num(6.0));
-    assert_eq!(
-        call(code, "f", &[num(42.0), JsValue::infinity()]),
-        num(0.0)
-    );
+    assert_eq!(call(code, "f", &[num(42.0), JsValue::infinity()]), num(0.0));
     assert_eq!(call(code, "f", &[s("42"), num(7.0)]), num(6.0));
     assert_nan(&call(code, "f", &[s("spam"), num(7.0)]));
 }
@@ -267,10 +260,7 @@ fn test_quotes() {
 
 #[test]
 fn test_assignments() {
-    assert_call(
-        "function f(){var x = 20; x = 30 + 1; return x;}",
-        num(31.0),
-    );
+    assert_call("function f(){var x = 20; x = 30 + 1; return x;}", num(31.0));
     assert_call(
         "function f(){var x = 20; x += 30 + 1; return x;}",
         num(51.0),
@@ -630,10 +620,7 @@ fn test_literal_list() {
 #[test]
 fn test_comma() {
     assert_call("function f() { a=5; a -= 1, a+=3; return a }", num(7.0));
-    assert_call(
-        "function f() { a=5; return (a -= 1, a+=3, a); }",
-        num(7.0),
-    );
+    assert_call("function f() { a=5; return (a -= 1, a+=3, a); }", num(7.0));
     assert_call(
         "function f() { return (l=[0,1,2,3], function(a, b){return a+b})((l[1], l[2]), l[3]) }",
         num(5.0),
@@ -646,10 +633,7 @@ fn test_not() {
     assert_call("function f() { return !0; }", JsValue::Bool(true));
     assert_call("function f() { return !!0; }", JsValue::Bool(false));
     assert_call("function f() { return ![]; }", JsValue::Bool(false));
-    assert_call(
-        "function f() { return !0 !== false; }",
-        JsValue::Bool(true),
-    );
+    assert_call("function f() { return !0 !== false; }", JsValue::Bool(true));
 }
 
 #[test]
@@ -659,18 +643,12 @@ fn test_void() {
 
 #[test]
 fn test_typeof() {
-    assert_call(
-        "function f() { return typeof undefined; }",
-        s("undefined"),
-    );
+    assert_call("function f() { return typeof undefined; }", s("undefined"));
     assert_call("function f() { return typeof NaN; }", s("number"));
     assert_call("function f() { return typeof Infinity; }", s("number"));
     assert_call("function f() { return typeof true; }", s("boolean"));
     assert_call("function f() { return typeof null; }", s("object"));
-    assert_call(
-        "function f() { return typeof \"a string\"; }",
-        s("string"),
-    );
+    assert_call("function f() { return typeof \"a string\"; }", s("string"));
     assert_call("function f() { return typeof 42; }", s("number"));
     assert_call("function f() { return typeof 42.42; }", s("number"));
     assert_call(
@@ -792,15 +770,15 @@ fn test_undefined() {
 
 #[test]
 fn test_object() {
-    assert_call("function f() { return {}; }", JsValue::object(Default::default()));
+    assert_call(
+        "function f() { return {}; }",
+        JsValue::object(Default::default()),
+    );
     assert_call(
         "function f() { let a = {m1: 42, m2: 0 }; return [a[\"m1\"], a.m2]; }",
         arr(vec![num(42.0), num(0.0)]),
     );
-    assert_call(
-        "function f() { let a; return a?.qq; }",
-        JsValue::Undefined,
-    );
+    assert_call("function f() { let a; return a?.qq; }", JsValue::Undefined);
     assert_call(
         "function f() { let a = {m1: 42, m2: 0 }; return a?.qq; }",
         JsValue::Undefined,
@@ -962,10 +940,7 @@ fn test_join() {
     ];
     for test in tests {
         assert_eq!(call(test, "f", &[test_input.clone(), s("")]), s("test"));
-        assert_eq!(
-            call(test, "f", &[test_input.clone(), s("-")]),
-            s("t-e-s-t")
-        );
+        assert_eq!(call(test, "f", &[test_input.clone(), s("-")]), s("t-e-s-t"));
         assert_eq!(call(test, "f", &[arr(Vec::new()), s("-")]), s(""));
     }
 
@@ -996,10 +971,7 @@ fn test_split() {
         assert_eq!(call(test, "f", &[s(""), s("")]), arr(Vec::new()));
     }
 
-    assert_call(
-        r#"function f(){return "test".split(/(?:)/)}"#,
-        expected,
-    );
+    assert_call(r#"function f(){return "test".split(/(?:)/)}"#, expected);
     assert_call(
         r#"function f(){return "t-e-s-t".split(/[es-]+/)}"#,
         arr(vec![s("t"), s("t")]),
@@ -1097,10 +1069,7 @@ fn test_slice() {
         s("1234567"),
     );
     assert_call(r#"function f(){return "012345678".slice(-1, 1)}"#, s(""));
-    assert_call(
-        r#"function f(){return "012345678".slice(-3, -1)}"#,
-        s("67"),
-    );
+    assert_call(r#"function f(){return "012345678".slice(-3, -1)}"#, s("67"));
 }
 
 #[test]

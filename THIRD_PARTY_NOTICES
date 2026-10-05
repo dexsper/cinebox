@@ -10,6 +10,8 @@ the Android app's Java libraries are fetched by Gradle.
 
 IBM Plex Sans
 ----------------
+Also IBM Plex Sans Arabic, Hebrew, Devanagari, Thai, SC, TC, JP and KR,
+unmodified.
 Path:    cinebox/assets/fonts
 License: SIL Open Font License 1.1 (cinebox/assets/fonts/license.txt)
 Copyright © 2017 IBM Corp. Reserved Font Name "Plex"

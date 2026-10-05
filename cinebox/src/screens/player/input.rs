@@ -7,15 +7,23 @@ use crate::platform;
 use crate::services::Services;
 use crate::widgets::focus;
 
+use super::settings_popup::Page;
 use super::{PlayerPhase, PlayerScreen, Popup};
 
 impl PlayerScreen {
-    /// Escape while the player is on screen: close a popup first, then exit
-    /// fullscreen. `true` when consumed (navigation must not pop).
+    /// Escape while the player is on screen: leave a settings submenu, close
+    /// a popup, then exit fullscreen. `true` when consumed (navigation must not pop).
     pub fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
-        if self.popup != Popup::None {
-            self.popup = Popup::None;
-            return true;
+        match self.popup {
+            Popup::None => {}
+            Popup::Settings(page) if page != Page::Root => {
+                self.turn_settings_page(page, Page::Root);
+                return true;
+            }
+            Popup::Settings(_) | Popup::Playlist | Popup::Volume => {
+                self.popup = Popup::None;
+                return true;
+            }
         }
 
         if self.fullscreen {
@@ -75,7 +83,8 @@ impl PlayerScreen {
         focus::hold_arrows(ui, video.id, true, true);
 
         let unfocused = ui.ctx().memory(|mem| mem.focused()).is_none();
-        if unfocused && !popup_open {
+        let returning = popup_open || focus::popup_was_open(ui.ctx());
+        if unfocused && !returning {
             video.request_focus();
             return false;
         }
@@ -170,7 +179,24 @@ pub(super) fn video_id() -> Id {
 
 #[cfg(test)]
 mod tests {
+    use super::super::settings_popup::Page;
     use super::super::{PlayerScreen, Popup};
+
+    #[test]
+    fn escape_leaves_a_settings_submenu_for_its_row() {
+        let ctx = egui::Context::default();
+        let mut screen = PlayerScreen {
+            popup: Popup::Settings(Page::Speed),
+            ..PlayerScreen::default()
+        };
+
+        assert!(screen.consume_escape(&ctx));
+        assert!(screen.popup == Popup::Settings(Page::Root));
+        assert_eq!(screen.settings_left, Some(Page::Speed));
+
+        assert!(screen.consume_escape(&ctx));
+        assert!(screen.popup == Popup::None);
+    }
 
     #[test]
     fn escape_closes_popup_before_leaving_fullscreen() {

@@ -6,8 +6,8 @@ use cinebox_torrserver::SpeedEvent;
 use egui::{Align2, Pos2, RichText, Sense, Shape, Stroke, Ui, pos2, vec2};
 use rust_i18n::t;
 
-use crate::errors::UserError;
-use crate::jobs::{self, JobError, TorrCtx};
+use crate::i18n::errors::UserError;
+use crate::services::jobs::{self, JobError, TorrCtx};
 use crate::theme::Theme;
 
 const MIN_SCALE: f64 = 20.0;

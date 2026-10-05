@@ -6,7 +6,7 @@ use egui::{FontId, RichText, Sense, Ui, WidgetInfo, WidgetType, pos2, vec2};
 use egui_material_icons::icons::ICON_CHEVRON_RIGHT;
 use rust_i18n::t;
 
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::button::pointing;

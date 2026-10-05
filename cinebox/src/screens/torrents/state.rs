@@ -5,7 +5,7 @@ use cinebox_indexer::{SortMode, TorrentFilter, TorrentHit, filtered_hits, sort_h
 use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 
-use crate::errors::UserError;
+use crate::i18n::errors::UserError;
 use crate::widgets::lazy_rows::LazyRows;
 
 #[derive(Debug, Clone)]
@@ -124,19 +124,49 @@ pub struct ReadyFiles {
     pub files: Vec<TorrentFileRow>,
     pub resume_id: Option<i32>,
     pub selected_id: Option<i32>,
-    pub scroll_to_resume: bool,
+    /// Scroll to the selected file once and, with a D-pad, focus it.
+    pub reveal_selected: bool,
 }
 
 impl ReadyFiles {
-    pub fn from_rows(hash: String, resume_id: Option<i32>, files: Vec<TorrentFileRow>) -> Self {
+    pub fn from_rows(hash: String, files: Vec<TorrentFileRow>) -> Self {
+        let resume_id = resume_id(&files);
+
         Self {
             hash,
             files,
             resume_id,
             selected_id: resume_id,
-            scroll_to_resume: resume_id.is_some(),
+            reveal_selected: resume_id.is_some(),
         }
     }
+
+    /// Takes the timecodes `played` reached, as if the list were opened again,
+    /// but on the file the player stopped on, `played[stopped]`.
+    pub fn take_progress(&mut self, played: &[TorrentFileRow], stopped: usize) {
+        for file in &mut self.files {
+            if let Some(seen) = played.iter().find(|seen| seen.id == file.id) {
+                file.timecode = seen.timecode;
+            }
+        }
+
+        let files = std::mem::take(&mut self.files);
+        *self = Self::from_rows(std::mem::take(&mut self.hash), files);
+
+        let Some(last) = played.get(stopped) else {
+            return;
+        };
+
+        self.selected_id = Some(last.id);
+        self.reveal_selected = true;
+    }
+}
+
+/// The last file in list order that has progress.
+fn resume_id(files: &[TorrentFileRow]) -> Option<i32> {
+    let started = files.iter().rev().find(|file| file.timecode > 0.0);
+
+    started.map(|file| file.id)
 }
 
 #[derive(Debug, Clone)]
@@ -262,5 +292,63 @@ impl TorrentState {
 
         self.view_key = Some((self.sort, self.filter.clone()));
         self.rows.reset();
+    }
+}
+
+#[cfg(test)]
+pub(crate) fn test_row(id: i32) -> TorrentFileRow {
+    TorrentFileRow {
+        id,
+        path: format!("{id}.mkv"),
+        length: 1,
+        timecode: 0.0,
+        number: id.unsigned_abs(),
+        season: None,
+        episode: None,
+        title: id.to_string(),
+        still_url: None,
+        runtime_minutes: None,
+        air_date: None,
+    }
+}
+
+#[cfg(test)]
+mod ready_files {
+    use super::*;
+
+    fn row(id: i32, timecode: f64) -> TorrentFileRow {
+        TorrentFileRow {
+            timecode,
+            ..test_row(id)
+        }
+    }
+
+    #[test]
+    fn take_progress_resumes_a_pick_where_the_player_stopped() {
+        let mut ready = ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0)]);
+        ready.take_progress(&[row(1, 900.0)], 0);
+
+        assert_eq!(ready.files[0].timecode, 900.0);
+    }
+
+    #[test]
+    fn take_progress_moves_the_resume_point_to_the_next_started_file() {
+        let mut ready =
+            ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 0.0)]);
+
+        ready.take_progress(&[row(1, 100.0), row(2, 50.0)], 1);
+
+        assert_eq!(ready.selected_id, Some(2));
+    }
+
+    #[test]
+    fn take_progress_selects_an_earlier_file_watched_again() {
+        let mut ready =
+            ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 50.0)]);
+
+        ready.take_progress(&[row(1, 300.0), row(2, 50.0)], 0);
+
+        assert_eq!(ready.selected_id, Some(1));
+        assert!(ready.reveal_selected);
     }
 }

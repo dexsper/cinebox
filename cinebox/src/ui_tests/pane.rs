@@ -4,7 +4,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::errors::UserError;
+use crate::i18n::errors::UserError;
 use crate::theme::Theme;
 use crate::widgets::page_state::{self, ErrorChoice};
 use crate::widgets;
@@ -27,8 +27,7 @@ fn pane_harness(show_error: bool) -> Harness<'static, PaneState> {
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

@@ -67,10 +67,19 @@ pub(super) fn list_pane(
                     bottom: 0,
                 };
 
+                let context = RowContext {
+                    kind: state.kind,
+                    runtime: state.runtime_minutes,
+                    year: state.year,
+                };
+
                 Frame::new().inner_margin(ring_room).show(ui, |ui| {
-                    ui.spacing_mut().item_spacing.y = 8.0;
+                    ui.spacing_mut().item_spacing.y = 10.0;
                     let focused = ui.memory(|mem| mem.focused());
-                    let keep = visible.iter().position(|&index| Some(hit_id(ui, index)) == focused);
+                    let keep = visible.iter().position(|&index| {
+                        let hit = hits.get(index);
+                        hit.is_some_and(|hit| Some(hit_id(ui, hit)) == focused)
+                    });
 
                     rows.show(ui, visible.len(), keep, |ui, row| {
                         let index = visible[row];
@@ -78,15 +87,7 @@ pub(super) fn list_pane(
                             return;
                         };
 
-                        hit_row(
-                            ui,
-                            hit,
-                            state.kind,
-                            state.runtime_minutes,
-                            theme,
-                            pick,
-                            index,
-                        );
+                        hit_row(ui, hit, context, theme, pick, index);
                     });
                 });
 
@@ -172,6 +173,11 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
     );
 
     ui.add_space(12.0);
+    if reset_button(ui, theme) {
+        state.filter = cinebox_indexer::TorrentFilter::default();
+    }
+
+    ui.add_space(8.0);
     scroll::vertical(ui, "torrent-filters", |ui| {
         ui.spacing_mut().item_spacing.y = 10.0;
         section_label(ui, theme, t!("filter.quality").as_ref());
@@ -239,14 +245,9 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
                     "torrent-season",
                     &mut state.filter.season,
                     &seasons,
-                    |season| format!("S{season}"),
+                    |season| format!("{} {season}", t!("media.season")),
                 );
             }
-        }
-
-        ui.add_space(8.0);
-        if reset_button(ui, theme) {
-            state.filter = cinebox_indexer::TorrentFilter::default();
         }
     });
 
@@ -327,74 +328,47 @@ fn reset_button(ui: &mut Ui, theme: &Theme) -> bool {
     )
 }
 
+/// What every row needs from the title the list is for.
+#[derive(Clone, Copy)]
+struct RowContext {
+    kind: MediaKind,
+    runtime: Option<u32>,
+    year: Option<u16>,
+}
+
+/// The names, then a line of tags read from the title, then where and how
+/// well it is shared.
 fn hit_row(
     ui: &mut Ui,
     hit: &cinebox_indexer::TorrentHit,
-    kind: MediaKind,
-    runtime: Option<u32>,
+    context: RowContext,
     theme: &Theme,
     pick: &mut Option<usize>,
     index: usize,
 ) {
-    let id = hit_id(ui, index);
+    let id = hit_id(ui, hit);
     let shown = Frame::new()
         .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
-        .inner_margin(egui::Margin::symmetric(12, 14))
+        .inner_margin(egui::Margin::symmetric(16, 16))
         .show(ui, |ui| {
-            ui.label(
-                RichText::new(&hit.display_title)
-                    .font(theme.title_font(theme.text_label))
-                    .color(theme.title),
-            );
+            ui.set_width(ui.available_width());
+            let name = name_galley(ui, &hit.name, theme);
+            ui.add(egui::Label::new(name).selectable(false));
 
-            ui.add_space(10.0);
-            let bitrate = format_bitrate(kind, hit_bitrate_mbps(hit, runtime));
-
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 8.0;
-                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                    let size_label = hit.size_label();
-                    pill(
-                        ui,
-                        theme,
-                        &size_label,
-                        theme.size_pill_bg,
-                        theme.size_pill_fg,
-                    );
-                    metrics_bar(
-                        ui,
-                        theme,
-                        bitrate.as_deref(),
-                        &hit.seeders.to_string(),
-                        &hit.peers.to_string(),
-                    );
-
-                    ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
-                        ui.spacing_mut().item_spacing.x = 10.0;
-                        let date = if hit.published.is_empty() {
-                            "—"
-                        } else {
-                            hit.published.as_str()
-                        };
-
-                        ui.label(
-                            RichText::new(date)
-                                .size(theme.text_caption)
-                                .color(theme.muted),
-                        );
-                        ui.label(
-                            RichText::new(&hit.tracker)
-                                .size(theme.text_caption)
-                                .color(theme.muted),
-                        );
-
-                        if hit.local_rank.is_some() || hit.started {
-                            ui.label(RichText::new(t!("torrents.started").as_ref()).color(theme.ok));
-                        }
-                    });
+            let tags = with_studios(ui, theme, row_tags(hit, context), &hit.voices);
+            if !tags.is_empty() {
+                ui.add_space(10.0);
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = vec2(TAG_GAP, TAG_GAP);
+                    for tag in &tags {
+                        paint_tag(ui, theme, tag);
+                    }
                 });
-            });
+            }
+
+            ui.add_space(12.0);
+            meta_line(ui, hit, context, theme);
         });
 
     let response = button::click_rect(ui, id, shown.response.rect);
@@ -402,13 +376,264 @@ fn hit_row(
         hit_ring(ui, shown.response.rect, theme);
     }
 
+    let response = response.on_hover_text(&hit.display_title);
     if response.clicked() && !hit.magnet.is_empty() {
         *pick = Some(index);
     }
 }
 
-fn hit_id(ui: &Ui, index: usize) -> egui::Id {
-    ui.id().with(("torrent-hit", index))
+/// Up to two lines; the full title has no place left that needs it.
+fn name_galley(ui: &Ui, name: &str, theme: &Theme) -> std::sync::Arc<egui::Galley> {
+    let font = theme.title_font(theme.text_subtitle);
+    let width = ui.available_width();
+    let mut job = egui::text::LayoutJob::simple(name.to_owned(), font, theme.title, width);
+    job.wrap.max_rows = 2;
+    job.wrap.overflow_character = Some('…');
+
+    ui.painter().layout_job(job)
+}
+
+/// Date, tracker and the started mark on the left; sharing and size on the right.
+fn meta_line(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext, theme: &Theme) {
+    let bitrate = format_bitrate(context.kind, hit_bitrate_mbps(hit, context.runtime));
+
+    ui.horizontal(|ui| {
+        ui.spacing_mut().item_spacing.x = 8.0;
+        ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
+            let size_label = hit.size_label();
+            pill(ui, theme, &size_label, theme.size_pill_bg, theme.size_pill_fg);
+            metrics_bar(
+                ui,
+                theme,
+                bitrate.as_deref(),
+                &hit.seeders.to_string(),
+                &hit.peers.to_string(),
+            );
+
+            ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
+                ui.spacing_mut().item_spacing.x = 12.0;
+                let date = crate::i18n::format_release_date(&hit.published);
+                let date = if date.is_empty() { String::from("—") } else { date };
+
+                ui.label(RichText::new(date).size(META_SIZE).color(theme.muted));
+
+                if hit.local_rank.is_some() || hit.started {
+                    let started = RichText::new(t!("torrents.started").as_ref())
+                        .size(META_SIZE)
+                        .color(theme.ok);
+                    ui.label(started);
+                }
+
+                // Aggregators list every tracker that has it; that list gives way first.
+                let trackers = RichText::new(&hit.tracker).size(META_SIZE).color(theme.muted);
+                ui.add(egui::Label::new(trackers).truncate());
+            });
+        });
+    });
+}
+
+/// How loud a tag is: what decides the picture first, then the sound, then who voiced it.
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum TagTone {
+    Picture,
+    Sound,
+    Studio,
+}
+
+struct Tag {
+    text: String,
+    tone: TagTone,
+}
+
+impl Tag {
+    fn new(text: impl Into<String>, tone: TagTone) -> Self {
+        Self {
+            text: text.into(),
+            tone,
+        }
+    }
+}
+
+/// Rows of tags a release gets before its studios fold into a `+N`.
+const TAG_LINES: usize = 2;
+const TAG_GAP: f32 = 6.0;
+
+fn row_tags(hit: &cinebox_indexer::TorrentHit, context: RowContext) -> Vec<Tag> {
+    let info = &hit.info;
+    let mut tags = Vec::new();
+
+    if context.kind == MediaKind::Tv {
+        if let Some(text) = season_tag(info) {
+            tags.push(Tag::new(text, TagTone::Picture));
+        }
+    }
+
+    let year = info.year.filter(|year| Some(*year) != context.year);
+    if let Some(year) = year {
+        tags.push(Tag::new(year.to_string(), TagTone::Picture));
+    }
+
+    let picture = [
+        info.resolution.map(|band| band.as_str()),
+        info.hdr.map(hdr_label),
+        info.quality.map(|quality| quality.as_str()),
+        info.codec.map(|codec| codec.as_str()),
+    ];
+    for text in picture.into_iter().flatten() {
+        tags.push(Tag::new(text, TagTone::Picture));
+    }
+
+    if let Some(edition) = info.edition {
+        tags.push(Tag::new(edition_label(edition), TagTone::Picture));
+    }
+
+    for (kind, count) in &hit.audio.tracks {
+        let label = voiceover_label(*kind);
+        let text = if *count > 1 { format!("{label} ×{count}") } else { label.into_owned() };
+        tags.push(Tag::new(text, TagTone::Sound));
+    }
+
+    if hit.audio.original {
+        tags.push(Tag::new(t!("torrents.original"), TagTone::Sound));
+    }
+
+    if hit.audio.subtitles {
+        tags.push(Tag::new(t!("torrents.subtitles"), TagTone::Sound));
+    }
+
+    tags
+}
+
+/// Every studio when the tags still fit in [`TAG_LINES`] rows; otherwise as
+/// many as fit with a `+N` for the rest.
+fn with_studios(ui: &Ui, theme: &Theme, mut tags: Vec<Tag>, studios: &[&'static str]) -> Vec<Tag> {
+    let measure = |text: &str| {
+        let galley = ui.painter().layout_no_wrap(text.to_owned(), theme.ui_font(TAG_SIZE), theme.title);
+        galley.size().x + 2.0 * TAG_PAD_X
+    };
+
+    let mut widths: Vec<f32> = tags.iter().map(|tag| measure(&tag.text)).collect();
+    widths.extend(studios.iter().map(|studio| measure(studio)));
+    let fixed = tags.len();
+    let shown = studios_that_fit(&widths, fixed, |more| measure(&format!("+{more}")), ui.available_width());
+
+    for studio in &studios[..shown] {
+        tags.push(Tag::new(*studio, TagTone::Studio));
+    }
+
+    let more = studios.len() - shown;
+    if more > 0 {
+        tags.push(Tag::new(format!("+{more}"), TagTone::Studio));
+    }
+
+    tags
+}
+
+/// How many of the studio widths after `fixed` fit in [`TAG_LINES`] rows of
+/// `width`, leaving room for the `+N` tag when some are left out.
+fn studios_that_fit(widths: &[f32], fixed: usize, more_width: impl Fn(usize) -> f32, width: f32) -> usize {
+    let studios = widths.len() - fixed;
+    for shown in (1..=studios).rev() {
+        let mut line: Vec<f32> = widths[..fixed + shown].to_vec();
+        if shown < studios {
+            line.push(more_width(studios - shown));
+        }
+
+        if rows(&line, width) <= TAG_LINES {
+            return shown;
+        }
+    }
+
+    0
+}
+
+fn rows(widths: &[f32], width: f32) -> usize {
+    let mut rows = 1;
+    let mut x = 0.0;
+    for w in widths {
+        let fits = x == 0.0 || x + TAG_GAP + w <= width;
+        if fits {
+            x += if x == 0.0 { *w } else { TAG_GAP + w };
+            continue;
+        }
+
+        rows += 1;
+        x = *w;
+    }
+
+    rows
+}
+
+/// `Season 2 · Episodes 1–8`, `Seasons 1–3`, or the episodes alone.
+fn season_tag(info: &cinebox_indexer::TitleInfo) -> Option<String> {
+    let seasons = info.seasons_named.then(|| {
+        let word = if info.seasons.len() > 1 { t!("torrents.seasons") } else { t!("media.season") };
+        format!("{word} {}", info.season_label().replace('-', "–"))
+    });
+
+    let episodes = info.episodes.map(|span| {
+        if span.from == span.to {
+            return format!("{} {}", t!("media.episode"), span.to);
+        }
+
+        format!("{} {}–{}", t!("torrents.episodes"), span.from, span.to)
+    });
+
+    match (seasons, episodes) {
+        (Some(seasons), Some(episodes)) => Some(format!("{seasons}  ·  {episodes}")),
+        (seasons, episodes) => seasons.or(episodes),
+    }
+}
+
+fn hdr_label(hdr: cinebox_indexer::Hdr) -> &'static str {
+    match hdr {
+        cinebox_indexer::Hdr::Hdr => "HDR",
+        cinebox_indexer::Hdr::DolbyVision => "Dolby Vision",
+    }
+}
+
+fn edition_label(edition: cinebox_indexer::Edition) -> std::borrow::Cow<'static, str> {
+    match edition {
+        cinebox_indexer::Edition::Imax => t!("torrents.edition.imax"),
+        cinebox_indexer::Edition::Extended => t!("torrents.edition.extended"),
+        cinebox_indexer::Edition::DirectorsCut => t!("torrents.edition.directors"),
+    }
+}
+
+fn voiceover_label(kind: cinebox_indexer::Voiceover) -> std::borrow::Cow<'static, str> {
+    match kind {
+        cinebox_indexer::Voiceover::Dubbing => t!("torrents.track.dubbing"),
+        cinebox_indexer::Voiceover::Polyphonic => t!("torrents.track.polyphonic"),
+        cinebox_indexer::Voiceover::TwoVoice => t!("torrents.track.two_voice"),
+        cinebox_indexer::Voiceover::Author => t!("torrents.track.author"),
+        cinebox_indexer::Voiceover::OneVoice => t!("torrents.track.one_voice"),
+    }
+}
+
+/// One allocation per tag, not a `Frame`: a child `Ui` cannot move to the
+/// next row, so a long line of tags would overflow the row instead of wrapping.
+fn paint_tag(ui: &mut Ui, theme: &Theme, tag: &Tag) {
+    let (fill, stroke, text) = match tag.tone {
+        TagTone::Picture => (theme.metric_bg, Stroke::NONE, theme.title),
+        TagTone::Sound => (theme.size_pill_bg, Stroke::NONE, theme.label),
+        TagTone::Studio => (Color32::TRANSPARENT, Stroke::new(1.0, theme.window_edge), theme.muted_bright),
+    };
+
+    let font = theme.ui_font(TAG_SIZE);
+    let galley = ui.painter().layout_no_wrap(tag.text.clone(), font, text);
+    let size = vec2(galley.size().x + 2.0 * TAG_PAD_X, TAG_H);
+    let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+
+    ui.painter()
+        .rect(rect, CornerRadius::same(4), fill, stroke, StrokeKind::Inside);
+    let pos = pos2(rect.left() + TAG_PAD_X, rect.center().y - galley.size().y * 0.5);
+    ui.painter().galley(pos, galley, text);
+}
+
+/// Not by position: a release just watched moves up the list, and focus
+/// coming back to it must follow.
+fn hit_id(ui: &Ui, hit: &cinebox_indexer::TorrentHit) -> egui::Id {
+    ui.id().with(("torrent-hit", &hit.tracker, &hit.title, hit.size_bytes))
 }
 
 /// Same ring as the poster hover, with a tighter gap to the row.
@@ -430,9 +655,14 @@ const HIT_RING_GAP: f32 = 2.0;
 const RING_INSET: i8 = 6;
 const LIST_BOTTOM_PAD: f32 = 24.0;
 
-const METRIC_VAL_H: f32 = 16.0;
-const METRIC_GAP: f32 = 12.0;
+const METRIC_VAL_H: f32 = 18.0;
+const METRIC_GAP: f32 = 14.0;
 const METRIC_LABEL_GAP: f32 = 6.0;
+/// Date, tracker and the metric labels.
+const META_SIZE: f32 = 14.0;
+const TAG_SIZE: f32 = 13.0;
+const TAG_H: f32 = 24.0;
+const TAG_PAD_X: f32 = 8.0;
 
 pub(super) fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<String> {
     if kind != MediaKind::Movie {
@@ -464,11 +694,7 @@ fn metric_pair(ui: &mut Ui, label: &str, value: &str, theme: &Theme) {
     pill(ui, theme, value, theme.metric_bg, theme.title);
 
     ui.spacing_mut().item_spacing.x = METRIC_GAP;
-    ui.label(
-        RichText::new(label)
-            .size(theme.text_caption)
-            .color(theme.muted),
-    );
+    ui.label(RichText::new(label).size(META_SIZE).color(theme.muted));
 }
 
 /// Fixed `METRIC_VAL_H` content height keeps every pill in the row the same height.
@@ -476,9 +702,9 @@ fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
     Frame::new()
         .fill(bg)
         .corner_radius(4)
-        .inner_margin(egui::Margin::symmetric(8, 3))
+        .inner_margin(egui::Margin::symmetric(9, 4))
         .show(ui, |ui| {
-            let font = theme.ui_font(theme.text_caption);
+            let font = theme.ui_font(META_SIZE);
             let galley = ui.painter().layout_no_wrap(text.to_owned(), font, fg);
             let size = Vec2::new(galley.size().x, METRIC_VAL_H);
             let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
@@ -491,6 +717,21 @@ fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn studios_all_show_when_they_fit_in_two_rows() {
+        let widths = [40.0, 40.0, 30.0, 30.0];
+
+        assert_eq!(studios_that_fit(&widths, 2, |_| 20.0, 100.0), 2);
+    }
+
+    #[test]
+    fn studios_fold_only_past_the_second_row() {
+        // Row one: two fixed tags. Row two: one studio and `+N`, not a third row.
+        let widths = [40.0, 40.0, 50.0, 50.0, 50.0];
+
+        assert_eq!(studios_that_fit(&widths, 2, |_| 20.0, 100.0), 1);
+    }
 
     #[test]
     fn bitrate_only_for_movies() {

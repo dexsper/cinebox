@@ -5,20 +5,11 @@
 rust_i18n::i18n!("locales", fallback = "en");
 
 mod app;
-mod discovery;
-mod errors;
-mod fonts;
 mod i18n;
-mod images;
-mod jobs;
-mod library;
-mod nav;
 pub mod platform;
 mod screens;
 mod services;
-mod settings_input;
 mod theme;
-mod toasts;
 mod widgets;
 
 #[cfg(test)]
@@ -66,7 +57,6 @@ pub fn app_name() -> String {
 }
 
 /// The app for an entry point that runs eframe itself.
-#[must_use]
 pub fn app_creator(host: platform::Host) -> eframe::AppCreator<'static> {
     Box::new(move |cc| Ok(Box::new(app::App::new(cc, host))))
 }

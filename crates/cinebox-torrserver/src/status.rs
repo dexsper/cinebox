@@ -191,8 +191,8 @@ mod tests {
             ]
         }"#;
 
-        let status: TorrentStatus = serde_json::from_str(fixture)
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let status: TorrentStatus =
+            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(status.hash, "abcdef0123456789abcdef0123456789abcdef01");
         assert_eq!(status.stat_kind(), TorrentStat::Working);
@@ -203,8 +203,8 @@ mod tests {
 
     #[test]
     fn missing_fields_default_and_unknown_stat_maps() {
-        let status: TorrentStatus = serde_json::from_str("{}")
-            .unwrap_or_else(|error| panic!("fixture: {error}"));
+        let status: TorrentStatus =
+            serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(status.hash, "");
         assert!(status.file_stats.is_empty());

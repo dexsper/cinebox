@@ -1,11 +1,12 @@
 use std::time::{Duration, Instant};
 
-use cinebox_core::{join_url, normalize_base_url};
+use cinebox_core::join_url;
 use futures_util::StreamExt;
 use reqwest::StatusCode;
 
-use super::client::{apply_basic_auth, http_client};
+use super::client::http_client;
 use super::error::Error;
+use super::server::Server;
 
 /// Stop reading after 10s even if the generated file is larger.
 const SPEED_TEST_MAX_SECS: u64 = 10;
@@ -60,15 +61,12 @@ pub enum SpeedEvent {
 /// # Errors
 ///
 /// Empty URL, HTTP failures, or an empty body.
-pub async fn echo(base_url: &str, username: &str, password: &str) -> Result<String, Error> {
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+pub async fn echo(server: &Server) -> Result<String, Error> {
+    let base = server.base()?;
     let url = join_url(&base, "echo");
     let client = http_client()?;
     let get = client.get(&url).timeout(Duration::from_secs(10));
-    let response = apply_basic_auth(get, username, password)
-        .send()
-        .await
-        .map_err(Error::Request)?;
+    let response = server.authorize(get).send().await.map_err(Error::Request)?;
 
     let status = response.status();
     if !status.is_success() {
@@ -90,25 +88,20 @@ pub async fn echo(base_url: &str, username: &str, password: &str) -> Result<Stri
 ///
 /// Empty URL, HTTP failures, or zero bytes read.
 pub async fn speed_test(
-    base_url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     mut on_event: impl FnMut(SpeedEvent) + Send,
 ) -> Result<SpeedReport, Error> {
-    let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
+    let base = server.base()?;
     let path = format!("download/{SPEED_TEST_FILE_MB}");
     let url = join_url(&base, &path);
     let client = http_client()?;
     let get = client.get(&url).timeout(Duration::from_secs(20));
-    let response = apply_basic_auth(get, username, password)
-        .send()
-        .await
-        .map_err(Error::Request)?;
+    let response = server.authorize(get).send().await.map_err(Error::Request)?;
 
     if response.status() == StatusCode::UNAUTHORIZED {
         return Err(Error::Http(401));
     }
-    
+
     if !response.status().is_success() {
         return Err(Error::Http(response.status().as_u16()));
     }

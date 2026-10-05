@@ -7,14 +7,14 @@ use egui_async::Bind;
 use rust_i18n::t;
 
 use super::gate;
-use crate::errors::UserError;
-use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::jobs::{self, JobError};
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::i18n::errors::UserError;
 use crate::screens::paged::apply_page;
 use crate::services::Services;
+use crate::services::jobs::{self, JobError};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
+use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, poster, scroll};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -86,17 +86,24 @@ pub(super) fn step(ctx: &Context, state: &State) {
     ctx.memory_mut(|mem| mem.move_focus(FocusDirection::None));
     ctx.request_repaint();
 
-    let toward = toward(press.direction);
     let areas = state.areas_of(focused);
     let from = from.rect.translate(scroll::glide_left(ctx, areas));
-    let candidates = &state.settled_candidates(ctx);
-    let in_cone = nearest_staying_in(ctx, from, toward, candidates, areas);
+    let settled = state.settled_candidates(ctx);
+    let reachable = settled.into_iter().filter(|candidate| {
+        !turns_into_another_row(candidate, from, areas, press.direction)
+    });
+    let candidates = &reachable.collect::<Vec<_>>();
+    let in_cone = nearest_staying_in(ctx, from, press.direction, candidates, areas);
     let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
     let Some(nearest) = found else {
         return;
     };
 
     let target = state.arrival(nearest, focused);
+    if press.repeat && leaves_scrolling(areas, state.areas_of(target)) {
+        return;
+    }
+
     ctx.memory_mut(|mem| mem.request_focus(target));
     let sound = UiSound::Navigate {
         direction: press.direction,
@@ -130,6 +137,40 @@ fn arrow_press(event: &egui::Event) -> Option<ArrowPress> {
     })
 }
 
+/// Sideways out of a shelf, the D-pad does not turn the corner into another
+/// row of the same page: past a shelf's end it stays, and from its start it
+/// still reaches what is beside the page, like the side menu.
+fn turns_into_another_row(candidate: &Candidate, from: Rect, areas: &[Id], direction: Direction) -> bool {
+    if matches!(direction, Direction::Up | Direction::Down) {
+        return false;
+    }
+
+    let Some(shelf) = areas.last() else {
+        return false;
+    };
+
+    if candidate.areas.contains(shelf) {
+        return false;
+    }
+
+    let same_page = areas.iter().any(|area| candidate.areas.contains(area));
+    if !same_page {
+        return false;
+    }
+
+    span_offset(candidate.rect.y_range(), from.y_range()) != 0.0
+}
+
+/// A held arrow scrolls: it stops at the edge of the lists the focus is in
+/// rather than running out into a bar or menu beside them. A new press leaves.
+fn leaves_scrolling(from: &[Id], to: &[Id]) -> bool {
+    if from.is_empty() {
+        return false;
+    }
+
+    !from.iter().any(|area| to.contains(area))
+}
+
 fn toward(direction: Direction) -> Vec2 {
     match direction {
         Direction::Up => Vec2::UP,
@@ -143,16 +184,24 @@ fn toward(direction: Direction) -> Vec2 {
 /// to go that way, even when a widget outside (a side menu, the search bar)
 /// is nearer on screen: scrolling brings the next item into view. Only then
 /// does it leave, one enclosing area at a time.
+///
+/// Up or Down counts anything wholly above (below) in the area, not just the
+/// cone: far along a long shelf, the shorter shelf above ends well to the left.
 fn nearest_staying_in(
     ctx: &Context,
     from: Rect,
-    toward: Vec2,
+    direction: Direction,
     candidates: &[Candidate],
     areas: &[Id],
 ) -> Option<Id> {
+    let toward = toward(direction);
     for area in areas.iter().rev() {
-        let inside = candidates.iter().filter(|candidate| candidate.areas.contains(area));
-        if let Some(found) = nearest(ctx, from, toward, inside) {
+        let inside = || candidates.iter().filter(|candidate| candidate.areas.contains(area));
+        if let Some(found) = nearest(ctx, from, toward, inside()) {
+            return Some(found);
+        }
+
+        if let Some(found) = nearest_past(ctx, from, direction, inside()) {
             return Some(found);
         }
     }
@@ -198,7 +247,12 @@ fn nearest<'a>(
 
 /// Up or Down with nothing inside the cone: the closest stop wholly above (below).
 /// Reaches a top bar from anywhere under it, however far to the side.
-fn nearest_past(ctx: &Context, from: Rect, direction: Direction, candidates: &[Candidate]) -> Option<Id> {
+fn nearest_past<'a>(
+    ctx: &Context,
+    from: Rect,
+    direction: Direction,
+    candidates: impl IntoIterator<Item = &'a Candidate>,
+) -> Option<Id> {
     let mut best: Option<(Id, f32)> = None;
 
     for candidate in candidates {

@@ -7,8 +7,8 @@ use egui::{
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_FAVORITE, ICON_HIDE_IMAGE, ICON_PLAY_ARROW};
 
-use crate::images::{ImageCache, ImageSlot};
-use crate::nav::NavAction;
+use crate::app::nav::NavAction;
+use crate::services::images::{ImageCache, ImageSlot};
 use crate::theme::Theme;
 use crate::widgets::button::pointing;
 use crate::widgets::focus;

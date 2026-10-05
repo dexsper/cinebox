@@ -1,4 +1,4 @@
-//! Shared HTTP client: no proxy, optional Basic auth.
+//! Shared HTTP client: no proxy.
 
 use std::time::Duration;
 
@@ -14,17 +14,6 @@ use super::error::Error;
 pub(crate) fn http_client() -> Result<reqwest::Client, Error> {
     cinebox_net::plain_client(&NetConfig::direct(), Duration::from_secs(5), None)
         .map_err(Error::Client)
-}
-
-pub(crate) fn apply_basic_auth(
-    request: reqwest::RequestBuilder,
-    username: &str,
-    password: &str,
-) -> reqwest::RequestBuilder {
-    if username.is_empty() {
-        return request;
-    }
-    request.basic_auth(username, Some(password))
 }
 
 pub(crate) fn check_status(status: StatusCode) -> Result<(), Error> {

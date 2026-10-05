@@ -8,6 +8,7 @@ use mdns_sd::{ResolvedService, ScopedIp, ServiceDaemon, ServiceEvent};
 use tokio::time::{Instant, timeout_at};
 
 use crate::probe::echo;
+use crate::server::Server;
 
 /// A TorrServer that answered `/echo`.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -88,6 +89,14 @@ async fn confirm(urls: Vec<String>) -> Vec<FoundServer> {
 }
 
 async fn check(url: String) -> Option<FoundServer> {
-    let version = echo(&url, "", "").await.ok()?;
-    Some(FoundServer { url, version })
+    let server = Server {
+        url,
+        ..Server::default()
+    };
+    let version = echo(&server).await.ok()?;
+
+    Some(FoundServer {
+        url: server.url,
+        version,
+    })
 }

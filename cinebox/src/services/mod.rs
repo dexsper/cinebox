@@ -1,5 +1,12 @@
 //! Shared services owned by the thin app dispatcher. Screens borrow this.
 
+pub mod discovery;
+pub mod images;
+pub mod jobs;
+pub mod library;
+pub mod settings_input;
+pub mod toasts;
+
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
@@ -12,10 +19,10 @@ use cinebox_player::{Features, Player};
 use rust_i18n::t;
 use tracing::{error, info, warn};
 
-use crate::images::ImageCache;
-use crate::library::Library;
 use crate::screens::play::WatchCard;
-use crate::toasts::Toasts;
+use crate::services::images::ImageCache;
+use crate::services::library::Library;
+use crate::services::toasts::Toasts;
 use crate::widgets::poster::TileMarks;
 
 pub struct Services {

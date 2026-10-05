@@ -10,13 +10,13 @@ use egui_material_icons::icons::{
 use rust_i18n::t;
 
 use super::{OnboardingScreen, Step, card};
-use crate::discovery::{Discovery, FoundParser};
-use crate::errors::UserError;
-use crate::jobs::{self, JobError};
+use crate::i18n::errors::UserError;
 use crate::platform::TextPurpose;
 use crate::screens::gate::{self, TmdbKeyProblem};
 use crate::services::Services;
-use crate::settings_input::{InputKind, changed_value};
+use crate::services::discovery::{Discovery, FoundParser};
+use crate::services::jobs::{self, JobError};
+use crate::services::settings_input::{InputKind, changed_value};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::{field, focus, overscan};

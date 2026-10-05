@@ -11,7 +11,7 @@ use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::nav::{NavAction, RailEntry, Screen};
+use crate::app::nav::{NavAction, RailEntry, Screen};
 use crate::platform::{
     self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest,
     TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
@@ -20,8 +20,8 @@ use crate::screens::OnboardingScreen;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
-use crate::widgets::search::{self, SearchBar};
 use crate::widgets::lazy_rows::LazyRows;
+use crate::widgets::search::{self, SearchBar};
 use crate::widgets::{field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
@@ -170,6 +170,31 @@ fn press<S>(harness: &mut Harness<'_, S>, key: Key) {
     }
 }
 
+/// A key held down: the first press, then `repeats` auto-repeats a frame
+/// apart, the way a remote sends them, then the release.
+fn hold<S>(harness: &mut Harness<'_, S>, key: Key, repeats: usize) {
+    for index in 0..=repeats {
+        harness.input_mut().events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: index > 0,
+            modifiers: egui::Modifiers::NONE,
+        });
+        frame(harness);
+        frame(harness);
+    }
+
+    harness.input_mut().events.push(egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: false,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(harness);
+}
+
 fn settle<S>(harness: &mut Harness<'_, S>) {
     for _ in 0..3 {
         frame(harness);
@@ -224,8 +249,7 @@ fn harness_on(device: TvDevice, add: fn(&mut egui::Ui, &mut TvState)) -> Harness
             move |ui, state| {
                 install(ui, state.device());
                 let Some(theme) = state.theme.clone() else {
-                    crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     let theme = Theme::dark();
                     theme.apply(ui.ctx());
                     state.theme = Some(theme);
@@ -523,6 +547,192 @@ fn popup_keeps_the_dpad_and_gives_it_back() {
     assert!(focused(&harness, "Open"), "focus returns to what opened the popup");
 }
 
+/// Like the player: a video that takes the focus whenever it is empty, and a
+/// button opening a popup.
+fn video_and_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    // The app takes Back before it builds the screen.
+    if ui.input(|i| i.key_pressed(Key::Escape)) {
+        state.popup = false;
+    }
+
+    let video = ui.add_sized(vec2(300.0, 120.0), egui::Button::new("Video"));
+    let empty = ui.memory(|mem| mem.focused()).is_none();
+    let returning = state.popup || focus::popup_was_open(ui.ctx());
+    if empty && !returning {
+        video.request_focus();
+    }
+
+    if button::label(ui, &theme, "Settings", Opts::secondary(vec2(80.0, 32.0))) {
+        state.popup = true;
+    }
+
+    if !state.popup {
+        return;
+    }
+
+    Area::new(Id::new("tv-video-popup"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(120.0, 200.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
+        });
+}
+
+#[test]
+fn closing_a_popup_returns_focus_past_a_video_that_takes_empty_focus() {
+    let mut harness = harness(video_and_popup_ui);
+    settle(&mut harness);
+    assert!(focused(&harness, "Video"));
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Inside"));
+
+    press(&mut harness, Key::BrowserBack);
+    settle(&mut harness);
+    assert!(!harness.state().popup);
+    assert!(focused(&harness, "Settings"), "focus returns to the button that opened the popup");
+}
+
+/// A drawer with a dropdown in it: a popup over a popup.
+fn dropdown_in_drawer_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    // The app takes Back before it builds the screen.
+    if ui.input(|i| i.key_pressed(Key::Escape)) {
+        state.popup = false;
+    }
+
+    let opts = Opts::secondary(vec2(120.0, 32.0));
+    if button::label(ui, &theme, "Open", opts) {
+        state.value = String::from("open");
+    }
+
+    if state.value.is_empty() {
+        return;
+    }
+
+    Area::new(Id::new("tv-drawer"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(300.0, 20.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "First", opts);
+            let _ = button::label(ui, &theme, "Middle", opts);
+            if button::label(ui, &theme, "Dropdown", opts) {
+                state.popup = true;
+            }
+        });
+
+    if !state.popup {
+        return;
+    }
+
+    Area::new(Id::new("tv-dropdown"))
+        .order(Order::Tooltip)
+        .fixed_pos(pos2(300.0, 160.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "Option", opts);
+        });
+}
+
+#[test]
+fn closing_a_dropdown_in_a_drawer_returns_to_its_button() {
+    let mut harness = harness(dropdown_in_drawer_ui);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "First"));
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Dropdown"));
+
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Option"));
+
+    press(&mut harness, Key::BrowserBack);
+    settle(&mut harness);
+    assert!(!harness.state().popup);
+    assert!(focused(&harness, "Dropdown"), "focus returns to the dropdown, not the top of the drawer");
+}
+
+/// A two-level popup menu like the player's settings: `state.value` is the
+/// page, "" for the root, "speed" for the submenu, "left-speed" for the root
+/// after leaving it.
+fn menu_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    if button::label(ui, &theme, "Open", Opts::secondary(vec2(80.0, 32.0))) {
+        state.popup = true;
+    }
+
+    if !state.popup {
+        return;
+    }
+
+    let opts = Opts::secondary(vec2(80.0, 32.0));
+    let page = state.value.clone();
+    Area::new(Id::new("tv-menu"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(120.0, 40.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            ui.push_id(page.as_str(), |ui| {
+                if page == "speed" {
+                    for (label, current) in [("Slow", false), ("Normal", true), ("Fast", false)] {
+                        let row = button::add_named(ui, &theme, label, opts, Some(label));
+                        if current {
+                            focus::prefer(&row);
+                        }
+                        if row.clicked() {
+                            state.value = String::from("left-speed");
+                        }
+                    }
+                    return;
+                }
+
+                let _ = button::label(ui, &theme, "Size", opts);
+                let speed = button::add_named(ui, &theme, "Speed", opts, Some("Speed"));
+                if page == "left-speed" {
+                    focus::prefer(&speed);
+                }
+                if speed.clicked() {
+                    state.value = String::from("speed");
+                }
+            });
+        });
+}
+
+#[test]
+fn a_popup_menu_starts_on_the_current_choice_and_returns_to_its_row() {
+    let mut harness = harness(menu_popup_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Size"), "the root starts on its first row");
+
+    // The row pressed is gone a frame later; only then does focus move.
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    settle(&mut harness);
+    assert!(focused(&harness, "Normal"), "a submenu starts on its current choice");
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    settle(&mut harness);
+    assert!(focused(&harness, "Speed"), "back on the root, the D-pad is on the row it left");
+}
+
 fn search_ui(ui: &mut egui::Ui, state: &mut TvState) {
     let Some(theme) = state.theme.clone() else {
         return;
@@ -779,6 +989,105 @@ fn header_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     focus::set_content(ui.ctx(), page);
 }
 
+/// Home-like: the search bar over a page of a short shelf above a long one.
+fn short_shelf_over_long_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let _ = button::label(ui, &theme, "Search", Opts::secondary(vec2(400.0, 32.0)));
+    let poster = Opts::secondary(vec2(100.0, 100.0));
+    scroll::vertical(ui, "tv-short-long", |ui| {
+        for (row, shelf) in [&SHELVES[0][..2], &SHELVES[1][..]].into_iter().enumerate() {
+            scroll::horizontal(ui, ("tv-short-long-shelf", row), |ui| {
+                ui.horizontal(|ui| {
+                    for label in shelf {
+                        let _ = button::label(ui, &theme, label, poster);
+                    }
+                });
+            });
+        }
+    });
+}
+
+#[test]
+fn holding_up_a_long_list_stops_at_its_top() {
+    let mut harness = harness(search_over_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    for _ in 1..TILES.len() {
+        press(&mut harness, Key::ArrowDown);
+    }
+    assert!(focused(&harness, "T5"));
+
+    hold(&mut harness, Key::ArrowUp, TILES.len() + 3);
+    assert!(focused(&harness, "T1"), "a held key stays in the list");
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "Search"), "a new press leaves it");
+}
+
+#[test]
+fn holding_left_along_a_shelf_stops_at_its_start() {
+    let mut harness = harness(menu_and_shelf_ui);
+
+    press(&mut harness, Key::ArrowRight);
+    press(&mut harness, Key::ArrowRight);
+    for _ in 1..SHELVES[0].len() {
+        press(&mut harness, Key::ArrowRight);
+    }
+    assert!(focused(&harness, "A8"));
+
+    hold(&mut harness, Key::ArrowLeft, SHELVES[0].len() + 3);
+    assert!(focused(&harness, "A1"), "a held key stays in the shelf");
+
+    press(&mut harness, Key::ArrowLeft);
+    assert!(focused(&harness, "Movies"), "a new press reaches the menu");
+}
+
+#[test]
+fn holding_down_goes_on_through_the_shelves_of_a_page() {
+    let mut harness = harness(shelves_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "A1"));
+
+    hold(&mut harness, Key::ArrowDown, SHELVES.len() + 3);
+    assert!(focused(&harness, "D1"), "shelves of one page are one list for a held key");
+}
+
+#[test]
+fn right_at_the_end_of_a_shelf_does_not_turn_into_the_next_row() {
+    let mut harness = harness(short_shelf_over_long_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "A2"));
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "A2"), "past its last item a shelf keeps the focus");
+}
+
+#[test]
+fn up_from_far_along_a_long_shelf_lands_on_the_shorter_one_above() {
+    let mut harness = harness(short_shelf_over_long_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "B1"));
+    for _ in 1..6 {
+        press(&mut harness, Key::ArrowRight);
+    }
+    settle(&mut harness);
+    assert!(focused(&harness, "B6"));
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "A2"), "the shelf above takes Up before the search bar");
+}
+
 fn search_focused<S>(harness: &Harness<'_, S>) -> bool {
     let [field, _] = search::stop_ids();
     harness.ctx.memory(|mem| mem.has_focus(field))
@@ -878,7 +1187,7 @@ fn rail_page_with_back(ui: &mut egui::Ui, state: &mut TvState) {
     let movies = Screen::Section {
         section: cinebox_core::Section::Movies,
     };
-    if !crate::app::back_to_rail(ui.ctx(), movies) {
+    if !crate::app::routing::back_to_rail(ui.ctx(), movies) {
         state.clicked.push("left the page");
     }
 }
@@ -1021,8 +1330,7 @@ fn wizard_harness(language: UiLanguage) -> Harness<'static, WizardTv> {
 fn draw_wizard_over_screen(ui: &mut egui::Ui, state: &mut WizardTv) {
     install(ui, state.device());
     if !state.fonts {
-        crate::fonts::install(ui.ctx());
-        egui_material_icons::initialize(ui.ctx());
+        crate::theme::fonts::install(ui.ctx());
         state.theme.apply(ui.ctx());
         state.fonts = true;
         return;

@@ -7,8 +7,9 @@ use cinebox_core::{join_url, normalize_base_url};
 use futures_util::future::Either;
 
 use super::cache::{cache_state, resume_window_progress};
-use super::client::{apply_basic_auth, check_status, http_client, send_json};
+use super::client::{check_status, http_client, send_json};
 use super::error::Error;
+use super::server::Server;
 use super::status::{TorrentStat, TorrentStatus};
 
 const PRELOAD_GET_SECS: u64 = 60;
@@ -141,17 +142,15 @@ impl PreloadTarget<'_> {
 ///
 /// Empty URL, HTTP failures, or timeout.
 pub async fn wait_preload(
-    base_url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     target: PreloadTarget<'_>,
     on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
-    let preload = target.url(base_url, StreamFlag::Preload)?;
-    let stat = target.url(base_url, StreamFlag::Stat)?;
+    let preload = target.url(&server.url, StreamFlag::Preload)?;
+    let stat = target.url(&server.url, StreamFlag::Stat)?;
 
-    let trigger = std::pin::pin!(start_preload(&preload, username, password));
-    let poll = std::pin::pin!(poll_stat_until_ready(&stat, username, password, on_event));
+    let trigger = std::pin::pin!(start_preload(&preload, server));
+    let poll = std::pin::pin!(poll_stat_until_ready(&stat, server, on_event));
 
     match futures_util::future::select(poll, trigger).await {
         Either::Left((result, _)) => result,
@@ -174,21 +173,19 @@ pub async fn wait_preload(
 ///
 /// Empty URL, HTTP failures, or no response headers within the GET budget.
 pub async fn wait_preload_at_bytes(
-    base_url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     target: PreloadTarget<'_>,
     offset_bytes: u64,
     mut on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
-    let play = target.url(base_url, StreamFlag::Play)?;
+    let play = target.url(&server.url, StreamFlag::Play)?;
     let client = http_client()?;
 
     // No request timeout: the body is never read and the connection must
     // stay open for the whole wait. Only the header wait is bounded.
     let range = format!("bytes={offset_bytes}-");
     let get = client.get(&play).header(reqwest::header::RANGE, range);
-    let send = apply_basic_auth(get, username, password).send();
+    let send = server.authorize(get).send();
     let headers_budget = Duration::from_secs(PRELOAD_GET_SECS);
     let response = tokio::time::timeout(headers_budget, send)
         .await
@@ -198,7 +195,7 @@ pub async fn wait_preload_at_bytes(
     check_status(response.status())?;
 
     for _attempt in 0..STAT_POLL_MAX {
-        let state = cache_state(base_url, username, password, target.hash).await?;
+        let state = cache_state(server, target.hash).await?;
         let progress = resume_window_progress(&state, RESUME_PRELOAD_BYTES);
 
         on_event(PreloadEvent::Progress {
@@ -221,18 +218,15 @@ pub async fn wait_preload_at_bytes(
     Ok(())
 }
 
-async fn start_preload(url: &str, username: &str, password: &str) -> Result<(), Error> {
+async fn start_preload(url: &str, server: &Server) -> Result<(), Error> {
     let client = http_client()?;
     let get = client
         .get(url)
         .timeout(Duration::from_secs(PRELOAD_GET_SECS));
 
-    let response = apply_basic_auth(get, username, password)
-        .send()
-        .await
-        .map_err(Error::Request)?;
-
+    let response = server.authorize(get).send().await.map_err(Error::Request)?;
     check_status(response.status())?;
+
     Ok(())
 }
 
@@ -249,15 +243,14 @@ async fn advance_or_timeout(attempt: u32) -> Result<(), Error> {
 
 async fn poll_stat_until_ready(
     url: &str,
-    username: &str,
-    password: &str,
+    server: &Server,
     mut on_event: impl FnMut(PreloadEvent) + Send,
 ) -> Result<(), Error> {
     let client = http_client()?;
 
     for attempt in 0..STAT_POLL_MAX {
         let get = client.get(url).timeout(Duration::from_secs(10));
-        let request = apply_basic_auth(get, username, password);
+        let request = server.authorize(get);
 
         let status: TorrentStatus = send_json(request).await?;
         let started = status.preload_size > 0 || status.stat_kind() == TorrentStat::Preload;

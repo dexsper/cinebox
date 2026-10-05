@@ -6,11 +6,11 @@ use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_PLAY_CIRCLE};
 
-use crate::errors::UserError;
+use crate::i18n::errors::UserError;
 use crate::theme::Theme;
 use crate::widgets::button::{self, CHIP_MIN_W, Opts};
-use crate::widgets::page_state::{self, ErrorChoice};
 use crate::widgets::combo;
+use crate::widgets::page_state::{self, ErrorChoice};
 
 struct InteractState {
     theme: Theme,
@@ -32,8 +32,7 @@ fn interact_harness() -> Harness<'static, InteractState> {
         .build_ui_state(
             |ui, state| {
                 if !state.fonts {
-                    crate::fonts::install(ui.ctx());
-                    egui_material_icons::initialize(ui.ctx());
+                    crate::theme::fonts::install(ui.ctx());
                     state.theme.apply(ui.ctx());
                     state.fonts = true;
                     return;

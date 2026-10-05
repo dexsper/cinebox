@@ -12,10 +12,10 @@ use egui_async::Bind;
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_ARROW_FORWARD, ICON_CLOSE};
 use rust_i18n::t;
 
-use crate::discovery::{Discovery, DiscoveryCtx, discover_services};
-use crate::jobs::JobError;
 use crate::platform;
 use crate::services::Services;
+use crate::services::discovery::{Discovery, DiscoveryCtx, discover_services};
+use crate::services::jobs::{self, JobError};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::{focus, intro};
@@ -340,7 +340,7 @@ fn discovery_ctx(svc: &Services) -> DiscoveryCtx {
     let config_dir = settings_file.and_then(std::path::Path::parent);
 
     DiscoveryCtx {
-        net: crate::jobs::net_config(&svc.settings),
+        net: jobs::net_config(&svc.settings),
         db: svc.db.clone(),
         config_dir: config_dir.map(std::path::Path::to_path_buf),
     }

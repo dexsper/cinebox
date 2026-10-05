@@ -7,6 +7,40 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-05
+
+### Added
+
+- Torrent rows show what the release title says as tags: season and episodes, resolution, HDR or Dolby Vision, source (WEB-DL, BDRip, Remux…), codec, IMAX or extended cut, voice-over kinds with how many tracks of each, original audio, subtitles, and the voice-over studios.
+
+### Changed
+
+- Torrent rows show the film or show name without the tags around it, in larger type; the full title stays in the tooltip. Search results come up faster.
+- Torrent publication dates are written in the interface language.
+- Seeders and leechers are called «Раздают» and «Качают» in Russian, «Роздають» and «Завантажують» in Ukrainian.
+- The torrents page puts the year, title, ratings, and genres beside a larger poster, in the order of the title page.
+- An episode opened at its very end starts over instead of skipping to the next one; the next one starts on its own only after the episode was actually watched.
+- Torrent filter dropdowns look like the other dropdowns and stay open while you pick several values; Reset sits at the top, and seasons are spelled out.
+- Back in a player settings submenu returns to the settings menu instead of closing it.
+- With a remote:
+  - back from the player, focus lands on the file it stopped on, even after switching episodes in the player;
+  - the playlist opens on the episode playing, and player settings submenus on the current value;
+  - closing the playlist or settings returns focus to its button, so the arrows no longer seek;
+  - back from a settings category or player submenu, focus returns to the row it came from;
+  - closing a dropdown in the torrent filters or Settings returns focus to it instead of the top of the panel;
+  - Up from far along a long shelf moves to the shelf above instead of the search bar;
+  - a held arrow stops at the edge of a list or shelf; a new press moves on to the bar or side menu beside it.
+
+### Fixed
+
+- Titles in Chinese, Japanese, Korean, Arabic, Hebrew, Devanagari, and Thai scripts show their letters instead of boxes.
+- The torrent files list shows the progress just watched when going back from the player, and the release gets its started mark right away.
+- After a release moves up the list once watched, focus stays on it instead of landing on another release.
+- With a remote, Right past the end of a shelf no longer jumps to another row, which made a held arrow swing the page up and down.
+- The translation filter no longer lists a studio whose name only appears inside a film's name.
+- Shelves further down a page no longer show their scroll bars on the page's bottom edge.
+- On Windows, the app opens without a console window.
+
 ## [0.6.0] - 2026-10-03
 
 ### Added
@@ -113,7 +147,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/dexsper/cinebox/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/dexsper/cinebox/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/dexsper/cinebox/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/dexsper/cinebox/compare/v0.3.0...v0.4.0
