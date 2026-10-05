@@ -53,6 +53,11 @@ struct PlayerState {
     subtitle: Option<String>,
     loaded_at: Instant,
     decoder: Option<cinebox_player::VideoDecoder>,
+    /// The start point was compared with the duration (see [`Self::track_tail`]).
+    start_checked: bool,
+    /// Playback was seen before the file's tail since it loaded; only then
+    /// does its end move on to the next file.
+    played_before_tail: bool,
 }
 
 impl PlayerState {
@@ -72,7 +77,26 @@ impl PlayerState {
             subtitle: None,
             loaded_at: Instant::now(),
             decoder: None,
+            start_checked: false,
+            played_before_tail: false,
         }
+    }
+
+    /// Feeds a position once the duration is known. `true` when the file was
+    /// opened at its very end, watched before: it starts over rather than
+    /// ending at once and handing over to the next file.
+    fn track_tail(&mut self, time: f64, duration: f64) -> bool {
+        let tail = duration - FINISHED_TAIL_SECS.min(duration / 10.0);
+        if time < tail {
+            self.played_before_tail = true;
+        }
+
+        if self.start_checked {
+            return false;
+        }
+
+        self.start_checked = true;
+        self.source.start_seconds() >= tail
     }
 
     #[must_use]
@@ -310,7 +334,7 @@ impl PlayerScreen {
         self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
-        let (go_next, stall) = {
+        let (go_next, stall, restart) = {
             let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
                 return;
             };
@@ -353,14 +377,23 @@ impl PlayerScreen {
                 state.error = Some(t!("player.stream_stalled").into_owned());
             }
 
-            let eof_ready = snap.eof && snap.duration > 1.0;
-            let go_next = eof_ready && svc.settings.player.auto_next && state.has_next();
+            let mut restart = false;
+            if snap.duration > 1.0 {
+                restart = state.track_tail(snap.time, snap.duration);
+            }
 
-            (go_next, stall)
+            let finished = snap.eof && state.played_before_tail;
+            let go_next = finished && svc.settings.player.auto_next && state.has_next();
+
+            (go_next, stall, restart)
         };
 
         if stall {
             stop_player(svc);
+        }
+
+        if restart {
+            self.seek_abs(svc, 0.0);
         }
 
         let _ = self.viewed_job.read();
@@ -875,6 +908,9 @@ impl PlayerScreen {
         self.popup = Popup::Settings(to);
     }
 }
+
+/// A start point this close to the end means the file was watched to it.
+const FINISHED_TAIL_SECS: f64 = 30.0;
 
 /// Resumes this close to the start keep the stock head preload: its window
 /// usually reaches the seek target, and a dedicated mid-file wait isn't worth it.
@@ -1691,6 +1727,43 @@ mod tests {
         assert!(!http_stream_started(0.0, 0.0));
         assert!(http_stream_started(0.4, 0.0));
         assert!(http_stream_started(0.0, 90.0));
+    }
+
+    fn state_starting_at(at: f64) -> PlayerState {
+        let mut spec = spec(0, 3);
+        if let PlaySource::Torrent { start, .. } = &mut spec.source {
+            *start = at;
+        }
+
+        PlayerState::from_spec(&spec)
+    }
+
+    #[test]
+    fn a_file_opened_at_its_end_starts_over_once() {
+        let mut state = state_starting_at(2690.0);
+
+        assert!(state.track_tail(2690.0, 2700.0));
+        assert!(!state.played_before_tail, "its end must not hand over to the next file");
+
+        assert!(!state.track_tail(2700.0, 2700.0));
+        assert!(!state.track_tail(0.0, 2700.0));
+        assert!(state.played_before_tail);
+    }
+
+    #[test]
+    fn a_resume_mid_file_plays_on() {
+        let mut state = state_starting_at(1200.0);
+
+        assert!(!state.track_tail(1200.0, 2700.0));
+        assert!(state.played_before_tail);
+    }
+
+    #[test]
+    fn a_short_file_from_its_start_plays_on() {
+        let mut state = state_starting_at(0.0);
+
+        assert!(!state.track_tail(0.0, 20.0));
+        assert!(state.played_before_tail);
     }
 
     #[test]
