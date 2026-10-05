@@ -86,11 +86,10 @@ pub(super) fn step(ctx: &Context, state: &State) {
     ctx.memory_mut(|mem| mem.move_focus(FocusDirection::None));
     ctx.request_repaint();
 
-    let toward = toward(press.direction);
     let areas = state.areas_of(focused);
     let from = from.rect.translate(scroll::glide_left(ctx, areas));
     let candidates = &state.settled_candidates(ctx);
-    let in_cone = nearest_staying_in(ctx, from, toward, candidates, areas);
+    let in_cone = nearest_staying_in(ctx, from, press.direction, candidates, areas);
     let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
     let Some(nearest) = found else {
         return;
@@ -143,16 +142,24 @@ fn toward(direction: Direction) -> Vec2 {
 /// to go that way, even when a widget outside (a side menu, the search bar)
 /// is nearer on screen: scrolling brings the next item into view. Only then
 /// does it leave, one enclosing area at a time.
+///
+/// Up or Down counts anything wholly above (below) in the area, not just the
+/// cone: far along a long shelf, the shorter shelf above ends well to the left.
 fn nearest_staying_in(
     ctx: &Context,
     from: Rect,
-    toward: Vec2,
+    direction: Direction,
     candidates: &[Candidate],
     areas: &[Id],
 ) -> Option<Id> {
+    let toward = toward(direction);
     for area in areas.iter().rev() {
-        let inside = candidates.iter().filter(|candidate| candidate.areas.contains(area));
-        if let Some(found) = nearest(ctx, from, toward, inside) {
+        let inside = || candidates.iter().filter(|candidate| candidate.areas.contains(area));
+        if let Some(found) = nearest(ctx, from, toward, inside()) {
+            return Some(found);
+        }
+
+        if let Some(found) = nearest_past(ctx, from, direction, inside()) {
             return Some(found);
         }
     }
@@ -198,7 +205,12 @@ fn nearest<'a>(
 
 /// Up or Down with nothing inside the cone: the closest stop wholly above (below).
 /// Reaches a top bar from anywhere under it, however far to the side.
-fn nearest_past(ctx: &Context, from: Rect, direction: Direction, candidates: &[Candidate]) -> Option<Id> {
+fn nearest_past<'a>(
+    ctx: &Context,
+    from: Rect,
+    direction: Direction,
+    candidates: impl IntoIterator<Item = &'a Candidate>,
+) -> Option<Id> {
     let mut best: Option<(Id, f32)> = None;
 
     for candidate in candidates {

@@ -899,6 +899,45 @@ fn header_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     focus::set_content(ui.ctx(), page);
 }
 
+/// Home-like: the search bar over a page of a short shelf above a long one.
+fn short_shelf_over_long_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    let _ = button::label(ui, &theme, "Search", Opts::secondary(vec2(400.0, 32.0)));
+    let poster = Opts::secondary(vec2(100.0, 100.0));
+    scroll::vertical(ui, "tv-short-long", |ui| {
+        for (row, shelf) in [&SHELVES[0][..2], &SHELVES[1][..]].into_iter().enumerate() {
+            scroll::horizontal(ui, ("tv-short-long-shelf", row), |ui| {
+                ui.horizontal(|ui| {
+                    for label in shelf {
+                        let _ = button::label(ui, &theme, label, poster);
+                    }
+                });
+            });
+        }
+    });
+}
+
+#[test]
+fn up_from_far_along_a_long_shelf_lands_on_the_shorter_one_above() {
+    let mut harness = harness(short_shelf_over_long_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "B1"));
+    for _ in 1..6 {
+        press(&mut harness, Key::ArrowRight);
+    }
+    settle(&mut harness);
+    assert!(focused(&harness, "B6"));
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "A2"), "the shelf above takes Up before the search bar");
+}
+
 fn search_focused<S>(harness: &Harness<'_, S>) -> bool {
     let [field, _] = search::stop_ids();
     harness.ctx.memory(|mem| mem.has_focus(field))
