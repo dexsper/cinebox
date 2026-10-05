@@ -244,6 +244,14 @@ pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
     with_state(ui.ctx(), |state| state.holds.push(hold));
 }
 
+/// A popup was open last frame. Once it closes, focus goes back to what
+/// opened it at the start of the next frame, so nothing should take the
+/// focus it left empty in the meantime.
+#[must_use]
+pub fn popup_was_open(ctx: &Context) -> bool {
+    with_state(ctx, |state| state.had_modal)
+}
+
 /// The focused widget's layer, from the previous frame.
 #[must_use]
 pub fn focused_layer(ctx: &Context) -> Option<LayerId> {

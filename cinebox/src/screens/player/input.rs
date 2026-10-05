@@ -83,7 +83,8 @@ impl PlayerScreen {
         focus::hold_arrows(ui, video.id, true, true);
 
         let unfocused = ui.ctx().memory(|mem| mem.focused()).is_none();
-        if unfocused && !popup_open {
+        let returning = popup_open || focus::popup_was_open(ui.ctx());
+        if unfocused && !returning {
             video.request_focus();
             return false;
         }

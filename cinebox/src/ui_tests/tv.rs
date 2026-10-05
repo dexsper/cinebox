@@ -522,6 +522,58 @@ fn popup_keeps_the_dpad_and_gives_it_back() {
     assert!(focused(&harness, "Open"), "focus returns to what opened the popup");
 }
 
+/// Like the player: a video that takes the focus whenever it is empty, and a
+/// button opening a popup.
+fn video_and_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    // The app takes Back before it builds the screen.
+    if ui.input(|i| i.key_pressed(Key::Escape)) {
+        state.popup = false;
+    }
+
+    let video = ui.add_sized(vec2(300.0, 120.0), egui::Button::new("Video"));
+    let empty = ui.memory(|mem| mem.focused()).is_none();
+    let returning = state.popup || focus::popup_was_open(ui.ctx());
+    if empty && !returning {
+        video.request_focus();
+    }
+
+    if button::label(ui, &theme, "Settings", Opts::secondary(vec2(80.0, 32.0))) {
+        state.popup = true;
+    }
+
+    if !state.popup {
+        return;
+    }
+
+    Area::new(Id::new("tv-video-popup"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(120.0, 200.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
+        });
+}
+
+#[test]
+fn closing_a_popup_returns_focus_past_a_video_that_takes_empty_focus() {
+    let mut harness = harness(video_and_popup_ui);
+    settle(&mut harness);
+    assert!(focused(&harness, "Video"));
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Inside"));
+
+    press(&mut harness, Key::BrowserBack);
+    settle(&mut harness);
+    assert!(!harness.state().popup);
+    assert!(focused(&harness, "Settings"), "focus returns to the button that opened the popup");
+}
+
 /// A two-level popup menu like the player's settings: `state.value` is the
 /// page, "" for the root, "speed" for the submenu, "left-speed" for the root
 /// after leaving it.
