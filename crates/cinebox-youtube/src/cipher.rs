@@ -8,13 +8,11 @@ use regex::Regex;
 use crate::error::Error;
 use crate::jsinterp::{JSInterpreter, JsFunction, JsValue};
 
-static PLAYER_JS_URL: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r#""(?:PLAYER_JS_URL|jsUrl)"\s*:\s*"([^"]+)""#).expect("static regex")
-});
+static PLAYER_JS_URL: LazyLock<Regex> =
+    LazyLock::new(|| re(r#""(?:PLAYER_JS_URL|jsUrl)"\s*:\s*"([^"]+)""#));
 
-static STS_RE: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"(?:signatureTimestamp|sts)\s*:\s*(?P<sts>[0-9]{5})").expect("static regex")
-});
+static STS_RE: LazyLock<Regex> =
+    LazyLock::new(|| re(r"(?:signatureTimestamp|sts)\s*:\s*(?P<sts>[0-9]{5})"));
 
 static SIG_NAME: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     let pats = [
@@ -29,8 +27,8 @@ static SIG_NAME: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         r"\b[cs]\s*&&\s*[adf]\.set\([^,]+\s*,\s*(?P<sig>[\w$]+)\(",
         r"\bc\s*&&\s*[\w]+\.set\([^,]+\s*,\s*\([^)]*\)\s*\(\s*(?P<sig>[\w$]+)\(",
     ];
-    let mut out = Vec::with_capacity(pats.len());
 
+    let mut out = Vec::with_capacity(pats.len());
     for pat in pats {
         if let Ok(re) = Regex::new(pat) {
             out.push(re);
@@ -40,14 +38,16 @@ static SIG_NAME: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     out
 });
 
-static NSIG_ASSIGN: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"([A-Za-z_$][\w$]*)\s*=\s*function\(([A-Za-z_$][\w$]*)\)\s*\{").expect("static regex")
-});
+static NSIG_ASSIGN: LazyLock<Regex> =
+    LazyLock::new(|| re(r"([A-Za-z_$][\w$]*)\s*=\s*function\(([A-Za-z_$][\w$]*)\)\s*\{"));
 
 static NSIG_ARRAY: LazyLock<Regex> = LazyLock::new(|| {
-    Regex::new(r"[\n;]var\s+[A-Za-z_$][\w$]*\s*=\s*\[(?P<nfunc>[A-Za-z_$][\w$]*)\]\s*[;\n]")
-        .expect("static regex")
+    re(r"[\n;]var\s+[A-Za-z_$][\w$]*\s*=\s*\[(?P<nfunc>[A-Za-z_$][\w$]*)\]\s*[;\n]")
 });
+
+fn re(pattern: &str) -> Regex {
+    Regex::new(pattern).unwrap_or_else(|error| panic!("cipher regex {pattern}: {error}"))
+}
 
 pub(crate) fn player_js_url(html: &str) -> Option<&str> {
     PLAYER_JS_URL
@@ -107,10 +107,7 @@ impl Decipher {
 
         let func = self.nsig_fn()?;
         let mut kwargs = HashMap::with_capacity(1);
-        kwargs.insert(
-            String::from("_ytdl_do_not_return"),
-            JsValue::from_str(n),
-        );
+        kwargs.insert(String::from("_ytdl_do_not_return"), JsValue::string(n));
         let out = call_str(&mut self.interp, &func, n, Some(&kwargs))?;
         let enhanced = out.starts_with("enhanced_except_");
         let unchanged = out.ends_with(n);
@@ -195,9 +192,7 @@ fn find_n_name(js: &str) -> Option<String> {
         }
     }
 
-    let Some(caps) = NSIG_ARRAY.captures(js) else {
-        return None;
-    };
+    let caps = NSIG_ARRAY.captures(js)?;
 
     caps.name("nfunc").map(|m| m.as_str().to_owned())
 }
@@ -249,7 +244,7 @@ fn call_str(
     arg: &str,
     kwargs: Option<&HashMap<String, JsValue>>,
 ) -> Result<String, Error> {
-    let args = [JsValue::from_str(arg)];
+    let args = [JsValue::string(arg)];
     let val = interp.invoke(func, &args, kwargs)?;
 
     Ok(val.to_js_string())

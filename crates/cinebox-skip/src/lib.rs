@@ -169,7 +169,7 @@ mod tests {
     }
 
     #[test]
-    fn media_segments_json_roundtrip() {
+    fn media_segments_json_roundtrip() -> Result<(), serde_json::Error> {
         let json = r#"{
             "tmdb_id": 12345,
             "type": "movie",
@@ -182,7 +182,7 @@ mod tests {
             "preview": [{"start_ms": 1680000, "end_ms": 1740000}]
         }"#;
 
-        let s: MediaSegments = serde_json::from_str(json).expect("parse");
+        let s: MediaSegments = serde_json::from_str(json)?;
         assert_eq!(s.tmdb_id, 12345);
         assert_eq!(s.intro.len(), 1);
         assert_eq!(s.intro[0].start_ms, None);
@@ -190,15 +190,19 @@ mod tests {
         assert_eq!(s.credits.len(), 2);
         assert_eq!(s.credits[1].start_ms, Some(6_408_000));
         assert_eq!(s.credits[1].end_ms, None);
+
+        Ok(())
     }
 
     #[test]
-    fn segment_type_roundtrip() {
+    fn segment_type_roundtrip() -> Result<(), serde_json::Error> {
         let ty = SegmentType::Credits;
-        let json = serde_json::to_string(&ty).unwrap();
+        let json = serde_json::to_string(&ty)?;
         assert_eq!(json, r#""credits""#);
 
-        let back: SegmentType = serde_json::from_str(&json).unwrap();
+        let back: SegmentType = serde_json::from_str(&json)?;
         assert_eq!(back, ty);
+
+        Ok(())
     }
 }

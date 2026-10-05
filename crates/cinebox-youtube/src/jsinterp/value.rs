@@ -248,7 +248,7 @@ impl JsValue {
     }
 
     #[must_use]
-    pub fn from_str(s: impl Into<String>) -> Self {
+    pub fn string(s: impl Into<String>) -> Self {
         Self::String(s.into().into())
     }
 
@@ -289,10 +289,7 @@ impl JsValue {
             Self::Bool(b) => *b,
             Self::Number(n) => !n.is_nan() && *n != 0.0,
             Self::String(s) => !s.is_empty(),
-            Self::Array(_)
-            | Self::Object(_)
-            | Self::Function(_)
-            | Self::Regex(_) => true,
+            Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Regex(_) => true,
         }
     }
 
@@ -304,9 +301,7 @@ impl JsValue {
             Self::Bool(true) => String::from("true"),
             Self::Bool(false) => String::from("false"),
             Self::Number(n) if n.is_nan() => String::from("NaN"),
-            Self::Number(n) if n.is_infinite() && n.is_sign_positive() => {
-                String::from("Infinity")
-            }
+            Self::Number(n) if n.is_infinite() && n.is_sign_positive() => String::from("Infinity"),
             Self::Number(n) if n.is_infinite() => String::from("-Infinity"),
             Self::Number(n) => js_number_string(*n),
             Self::String(s) => s.to_string(),
@@ -325,10 +320,7 @@ impl JsValue {
             Self::Bool(true) => 1.0,
             Self::Number(n) => *n,
             Self::String(s) => parse_js_number(s),
-            Self::Array(_)
-            | Self::Object(_)
-            | Self::Function(_)
-            | Self::Regex(_) => f64::NAN,
+            Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Regex(_) => f64::NAN,
         }
     }
 
@@ -400,9 +392,7 @@ impl PartialEq for JsValue {
             (Self::Array(a), Self::Array(b)) => a.borrow().as_slice() == b.borrow().as_slice(),
             (Self::Object(a), Self::Object(b)) => *a.borrow() == *b.borrow(),
             (Self::Function(a), Self::Function(b)) => a.repr() == b.repr(),
-            (Self::Regex(a), Self::Regex(b)) => {
-                a.source() == b.source() && a.flags() == b.flags()
-            }
+            (Self::Regex(a), Self::Regex(b)) => a.source() == b.source() && a.flags() == b.flags(),
             _ => false,
         }
     }
@@ -464,8 +454,8 @@ fn js_same_primitive(a: &JsValue, b: &JsValue) -> bool {
 
 fn js_primitive(v: &JsValue) -> JsValue {
     match v {
-        JsValue::Array(_) => JsValue::from_str(v.to_js_string()),
-        JsValue::Object(_) => JsValue::from_str("[object Object]"),
+        JsValue::Array(_) => JsValue::string(v.to_js_string()),
+        JsValue::Object(_) => JsValue::string("[object Object]"),
         other => other.clone(),
     }
 }
@@ -604,7 +594,7 @@ pub fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
     if matches!(a, JsValue::String(_)) || matches!(b, JsValue::String(_)) {
         let mut out = a.to_js_string();
         out.push_str(&b.to_js_string());
-        return JsValue::from_str(out);
+        return JsValue::string(out);
     }
 
     let (x, y) = js_arith(a, b);

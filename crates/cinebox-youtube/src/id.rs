@@ -72,10 +72,7 @@ fn id_from_query(url: &str) -> Option<String> {
         return None;
     }
 
-    let Some((_, query)) = url.split_once('?') else {
-        return None;
-    };
-
+    let (_, query) = url.split_once('?')?;
     let query = query.split('#').next().unwrap_or(query);
 
     for pair in query.split('&') {
@@ -135,10 +132,7 @@ fn id_from_host_path(url: &str, host: &str) -> Option<String> {
 
 fn id_from_prefix(url: &str, prefix: &str) -> Option<String> {
     let path = path_of(url);
-    let Some(rest) = path.find(prefix).map(|i| &path[i + prefix.len()..]) else {
-        return None;
-    };
-
+    let rest = path.find(prefix).map(|i| &path[i + prefix.len()..])?;
     let id = rest.split(['/', '?', '#']).next().unwrap_or(rest);
 
     if is_raw_id(id) {
@@ -174,7 +168,10 @@ mod tests {
             parse_ok("https://youtube.com/watch?v=abcdefghijk&t=12"),
             "abcdefghijk"
         );
-        assert_eq!(parse_ok("www.youtube.com/watch?v=abcdefghijk"), "abcdefghijk");
+        assert_eq!(
+            parse_ok("www.youtube.com/watch?v=abcdefghijk"),
+            "abcdefghijk"
+        );
     }
 
     #[test]

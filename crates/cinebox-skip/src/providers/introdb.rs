@@ -31,10 +31,10 @@ impl SegmentProvider for IntroDbProvider {
         let duration_ms = query.duration_ms.to_string();
 
         let response = send(net, |client| {
-            let mut req = client
-                .get(API_URL)
-                .timeout(REQUEST_TIMEOUT)
-                .query(&[("tmdb_id", tmdb_id.as_str()), ("duration_ms", duration_ms.as_str())]);
+            let mut req = client.get(API_URL).timeout(REQUEST_TIMEOUT).query(&[
+                ("tmdb_id", tmdb_id.as_str()),
+                ("duration_ms", duration_ms.as_str()),
+            ]);
 
             if query.kind == MediaKind::Tv {
                 if let (Some(s), Some(e)) = (query.season, query.episode) {
@@ -94,7 +94,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn movie_query_has_no_season_episode() {
+    async fn movie_query_has_no_season_episode() -> Result<(), Error> {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(GET)
@@ -109,20 +109,27 @@ mod tests {
         });
 
         // Temporarily override API URL via a custom provider for tests
-        let result = fetch_with_base(&server.base_url(), &SegmentQuery {
-            tmdb_id: 12345,
-            kind: MediaKind::Movie,
-            season: None,
-            episode: None,
-            duration_ms: 7_200_000,
-        }, &net()).await;
+        let result = fetch_with_base(
+            &server.base_url(),
+            &SegmentQuery {
+                tmdb_id: 12345,
+                kind: MediaKind::Movie,
+                season: None,
+                episode: None,
+                duration_ms: 7_200_000,
+            },
+            &net(),
+        )
+        .await;
 
         mock.assert();
-        assert!(result.unwrap().is_some());
+        assert!(result?.is_some());
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn tv_query_includes_season_and_episode() {
+    async fn tv_query_includes_season_and_episode() -> Result<(), Error> {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(GET)
@@ -136,38 +143,55 @@ mod tests {
                 .body(r#"{"tmdb_id":67890,"type":"tv","intro":[{"start_ms":null,"end_ms":23000}],"recap":[],"credits":[],"preview":[]}"#);
         });
 
-        let result = fetch_with_base(&server.base_url(), &SegmentQuery {
-            tmdb_id: 67890,
-            kind: MediaKind::Tv,
-            season: Some(1),
-            episode: Some(1),
-            duration_ms: 2_700_000,
-        }, &net()).await;
+        let result = fetch_with_base(
+            &server.base_url(),
+            &SegmentQuery {
+                tmdb_id: 67890,
+                kind: MediaKind::Tv,
+                season: Some(1),
+                episode: Some(1),
+                duration_ms: 2_700_000,
+            },
+            &net(),
+        )
+        .await;
 
         mock.assert();
-        let segs = result.unwrap().unwrap();
+        let Some(segs) = result? else {
+            panic!("no segments for a known episode");
+        };
+
         assert_eq!(segs.intro.len(), 1);
         assert_eq!(segs.intro[0].start_ms, None);
         assert_eq!(segs.intro[0].end_ms, Some(23_000));
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn returns_none_on_404() {
+    async fn returns_none_on_404() -> Result<(), Error> {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v3/media");
             then.status(404);
         });
 
-        let result = fetch_with_base(&server.base_url(), &SegmentQuery {
-            tmdb_id: 1,
-            kind: MediaKind::Movie,
-            season: None,
-            episode: None,
-            duration_ms: 100_000,
-        }, &net()).await;
+        let result = fetch_with_base(
+            &server.base_url(),
+            &SegmentQuery {
+                tmdb_id: 1,
+                kind: MediaKind::Movie,
+                season: None,
+                episode: None,
+                duration_ms: 100_000,
+            },
+            &net(),
+        )
+        .await;
 
-        assert!(result.unwrap().is_none());
+        assert!(result?.is_none());
+
+        Ok(())
     }
 
     #[tokio::test]
@@ -178,13 +202,18 @@ mod tests {
             then.status(500);
         });
 
-        let result = fetch_with_base(&server.base_url(), &SegmentQuery {
-            tmdb_id: 1,
-            kind: MediaKind::Movie,
-            season: None,
-            episode: None,
-            duration_ms: 100_000,
-        }, &net()).await;
+        let result = fetch_with_base(
+            &server.base_url(),
+            &SegmentQuery {
+                tmdb_id: 1,
+                kind: MediaKind::Movie,
+                season: None,
+                episode: None,
+                duration_ms: 100_000,
+            },
+            &net(),
+        )
+        .await;
 
         assert!(matches!(result, Err(Error::Http(500))));
     }
@@ -201,10 +230,10 @@ mod tests {
         let duration_ms = query.duration_ms.to_string();
 
         let response = crate::send(net, |client| {
-            let mut req = client
-                .get(&url)
-                .timeout(REQUEST_TIMEOUT)
-                .query(&[("tmdb_id", tmdb_id.as_str()), ("duration_ms", duration_ms.as_str())]);
+            let mut req = client.get(&url).timeout(REQUEST_TIMEOUT).query(&[
+                ("tmdb_id", tmdb_id.as_str()),
+                ("duration_ms", duration_ms.as_str()),
+            ]);
 
             if query.kind == MediaKind::Tv {
                 if let (Some(s), Some(e)) = (query.season, query.episode) {
