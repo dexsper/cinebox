@@ -5,7 +5,7 @@ use egui::{Align, CornerRadius, Frame, RichText, Sense, Ui, Vec2, vec2};
 use crate::screens::torrents::{TorrentFileRow, season_episode_line};
 use crate::services::Services;
 use crate::theme::Theme;
-use crate::widgets::{button, poster, scroll};
+use crate::widgets::{button, focus, poster, scroll};
 
 const STILL_SCALE: f32 = 0.66;
 const ROW_GAP: f32 = 6.0;
@@ -101,7 +101,12 @@ fn file_row(
         shown.response.scroll_to_me(Some(Align::Center));
     }
 
-    button::click_rect(ui, id, shown.response.rect).clicked()
+    let response = button::click_rect(ui, id, shown.response.rect);
+    if current {
+        focus::prefer(&response);
+    }
+
+    response.clicked()
 }
 
 fn episode_line(file: &TorrentFileRow) -> Option<String> {
