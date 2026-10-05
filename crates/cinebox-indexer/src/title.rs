@@ -9,22 +9,29 @@ use regex::Regex;
 pub struct TitleInfo {
     /// Seasons covered. Defaults to `[1]` when the title has none.
     pub seasons: Vec<u32>,
+    /// The title names its seasons, so [`Self::seasons`] is not the default.
+    pub seasons_named: bool,
     pub episodes: Option<EpisodeSpan>,
     pub year: Option<u16>,
     pub quality: Option<SourceQuality>,
     pub hdr: Option<Hdr>,
     pub resolution: Option<Resolution>,
+    pub codec: Option<Codec>,
+    pub edition: Option<Edition>,
 }
 
 impl Default for TitleInfo {
     fn default() -> Self {
         Self {
             seasons: vec![1],
+            seasons_named: false,
             episodes: None,
             year: None,
             quality: None,
             hdr: None,
             resolution: None,
+            codec: None,
+            edition: None,
         }
     }
 }
@@ -51,6 +58,8 @@ pub struct EpisodeSpan {
 /// Source encode, longest token first so `WEB-DLRip` wins over `WEB-DL`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SourceQuality {
+    /// The disc's own video, untouched: `BDRemux`, `Blu-Ray Remux`.
+    Remux,
     WebDlRip,
     WebDl,
     WebRip,
@@ -69,6 +78,7 @@ impl SourceQuality {
     #[must_use]
     pub const fn as_str(self) -> &'static str {
         match self {
+            Self::Remux => "Remux",
             Self::WebDlRip => "WEB-DLRip",
             Self::WebDl => "WEB-DL",
             Self::WebRip => "WEBRip",
@@ -83,6 +93,31 @@ impl SourceQuality {
             Self::Ts => "TS",
         }
     }
+}
+
+/// Video codec in the release name.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Codec {
+    Hevc,
+    Avc,
+}
+
+impl Codec {
+    #[must_use]
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Self::Hevc => "HEVC",
+            Self::Avc => "AVC",
+        }
+    }
+}
+
+/// A cut other than the theatrical one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Edition {
+    Imax,
+    Extended,
+    DirectorsCut,
 }
 
 /// HDR flavour in the release name.
@@ -144,17 +179,21 @@ pub(crate) fn parse_title_lower(title: &str, lower: &str) -> TitleInfo {
         return TitleInfo::default();
     }
 
+    let named = seasons(title);
     TitleInfo {
-        seasons: seasons(title),
+        seasons_named: named.is_some(),
+        seasons: named.unwrap_or_else(|| vec![1]),
         episodes: episodes(title),
         year: year(title),
         quality: source_quality(lower),
         hdr: hdr(lower),
         resolution: resolution(lower),
+        codec: codec(lower),
+        edition: edition(lower),
     }
 }
 
-fn seasons(title: &str) -> Vec<u32> {
+fn seasons(title: &str) -> Option<Vec<u32>> {
     static RANGE: LazyLock<[Regex; 3]> = LazyLock::new(|| {
         [
             re(r"\[S(\d{1,2})[-–](\d{1,2})\]"),
@@ -177,12 +216,10 @@ fn seasons(title: &str) -> Vec<u32> {
     if let Some((from, to)) = first_pair(RANGE.as_slice(), title) {
         let lo = from.min(to);
         let hi = from.max(to);
-        return (lo..=hi).collect();
+        return Some((lo..=hi).collect());
     }
-    match first_one(SINGLE.as_slice(), title) {
-        Some(n) => vec![n],
-        None => vec![1],
-    }
+
+    first_one(SINGLE.as_slice(), title).map(|n| vec![n])
 }
 
 fn episodes(title: &str) -> Option<EpisodeSpan> {
@@ -199,14 +236,15 @@ fn episodes(title: &str) -> Option<EpisodeSpan> {
             re(r"(?i)(?:серии|episodes):\s*(\d+)[-–](\d+)"),
         ]
     });
-    static SINGLE: LazyLock<[Regex; 6]> = LazyLock::new(|| {
+    // `true`: the number counts episodes out (`[25 of 25]`), else it is one episode (`S01E05`).
+    static SINGLE: LazyLock<[(Regex, bool); 6]> = LazyLock::new(|| {
         [
-            re(r"(?i)\bs\d{1,2}e(\d+)"),
-            re(r"(?i)\d{1,2}x(\d{1,2})\b"),
-            re(r"(?i)\be(\d{1,2})\b"),
-            re(r"(?i)[\[(](\d{1,2})\s+(?:из|з|of)\s+\d{1,2}[\])]"),
-            re(r"(?i)(\d{1,2})\s+(?:из|з|of)\s+\d{1,2}"),
-            re(r"(?i)(\d+)\s*(?:серия|episode)"),
+            (re(r"(?i)\bs\d{1,2}e(\d+)"), false),
+            (re(r"(?i)\d{1,2}x(\d{1,2})\b"), false),
+            (re(r"(?i)\be(\d{1,2})\b"), false),
+            (re(r"(?i)[\[(](\d{1,2})\s+(?:из|з|of)\s+\d{1,2}[\])]"), true),
+            (re(r"(?i)(\d{1,2})\s+(?:из|з|of)\s+\d{1,2}"), true),
+            (re(r"(?i)(\d+)\s*(?:серия|episode)"), false),
         ]
     });
 
@@ -218,7 +256,12 @@ fn episodes(title: &str) -> Option<EpisodeSpan> {
     {
         return Some(span_from_range(a, b));
     }
-    first_one(SINGLE.as_slice(), title).map(|to| EpisodeSpan { from: 1, to })
+    let (to, counted) = SINGLE
+        .iter()
+        .find_map(|(re, counted)| one(re, title).map(|n| (n, *counted)))?;
+    let from = if counted { 1 } else { to };
+
+    Some(EpisodeSpan { from, to })
 }
 
 fn span_from_range(a: u32, b: u32) -> EpisodeSpan {
@@ -246,6 +289,7 @@ fn year(title: &str) -> Option<u16> {
 /// `lower` is the release name already lowercased.
 fn source_quality(lower: &str) -> Option<SourceQuality> {
     const TOKENS: &[(SourceQuality, &[&str])] = &[
+        (SourceQuality::Remux, &["remux"]),
         (SourceQuality::WebDlRip, &["web-dlrip", "webdlrip"]),
         (SourceQuality::WebDl, &["web-dl", "webdl"]),
         (SourceQuality::WebRip, &["webrip"]),
@@ -263,6 +307,34 @@ fn source_quality(lower: &str) -> Option<SourceQuality> {
         .iter()
         .find(|(_, needles)| needles.iter().any(|needle| token_at(lower, needle)))
         .map(|(quality, _)| *quality)
+}
+
+fn codec(lower: &str) -> Option<Codec> {
+    if contains_any(lower, &["hevc", "h.265", "h265", "x265"]) {
+        return Some(Codec::Hevc);
+    }
+
+    if contains_any(lower, &["avc", "h.264", "h264", "x264"]) {
+        return Some(Codec::Avc);
+    }
+
+    None
+}
+
+fn edition(lower: &str) -> Option<Edition> {
+    if lower.contains("imax") {
+        return Some(Edition::Imax);
+    }
+
+    if contains_any(lower, &["director's cut", "directors cut", "режиссёрск", "режиссерск"]) {
+        return Some(Edition::DirectorsCut);
+    }
+
+    if contains_any(lower, &["extended", "расширенн"]) {
+        return Some(Edition::Extended);
+    }
+
+    None
 }
 
 fn hdr(lower: &str) -> Option<Hdr> {
@@ -386,6 +458,30 @@ mod tests {
         assert_eq!(c.year, Some(2024));
         assert_eq!(c.quality, Some(SourceQuality::WebDl));
         assert_eq!(c.resolution, Some(Resolution::Hd));
+    }
+
+    #[test]
+    fn one_episode_is_not_a_range() {
+        let info = parse_title("Слово пацана / 1 сезон 5 серия [2023]");
+        assert_eq!(info.episodes, Some(EpisodeSpan { from: 5, to: 5 }));
+        assert!(info.seasons_named);
+
+        let info = parse_title("Атака титанов [TV] [25 из 25] [2013]");
+        assert_eq!(info.episodes, Some(EpisodeSpan { from: 1, to: 25 }));
+        assert!(!info.seasons_named);
+    }
+
+    #[test]
+    fn remux_codec_and_edition() {
+        let info = parse_title("Аватар (Расширенная версия) / Avatar / 2009 / Blu-Ray Remux (1080p) AVC");
+        assert_eq!(info.quality, Some(SourceQuality::Remux));
+        assert_eq!(info.codec, Some(Codec::Avc));
+        assert_eq!(info.edition, Some(Edition::Extended));
+
+        let info = parse_title("Оппенгеймер / Oppenheimer (IMAX) / 2023 / BDRip [H.265/2160p]");
+        assert_eq!(info.quality, Some(SourceQuality::BdRip));
+        assert_eq!(info.codec, Some(Codec::Hevc));
+        assert_eq!(info.edition, Some(Edition::Imax));
     }
 
     #[test]

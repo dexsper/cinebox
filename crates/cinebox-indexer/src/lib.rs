@@ -2,8 +2,10 @@
 
 #![forbid(unsafe_code)]
 
+mod audio;
 mod filter;
 mod map;
+mod name;
 mod query;
 mod search;
 mod title;
@@ -15,15 +17,18 @@ use cinebox_core::{ParserKind, join_url, normalize_base_url, typograph};
 use cinebox_net::NetConfig;
 use serde::Deserialize;
 
+pub use audio::{AudioInfo, Voiceover};
 pub use filter::{
     AudioLang, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind, filtered_hits,
     matches_filter, season_options, sort_hits, voice_filter_options, year_options,
 };
 pub use map::Hit;
+pub use name::release_name;
 pub use query::SearchQuery;
 pub use search::search;
 pub use title::{
-    EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash, parse_title,
+    Codec, Edition, EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash,
+    parse_title,
 };
 pub use voices::{studios_in_catalog_order, voices};
 
@@ -135,6 +140,8 @@ pub struct TorrentHit {
     pub title: String,
     pub title_lower: String,
     pub display_title: String,
+    /// The names without the tags around them (see [`release_name`]).
+    pub name: String,
     pub tracker: String,
     pub size_bytes: u64,
     pub seeders: u32,
@@ -142,6 +149,8 @@ pub struct TorrentHit {
     pub magnet: String,
     pub published: String,
     pub info: TitleInfo,
+    pub audio: AudioInfo,
+    /// Studios in the order the title names them.
     pub voices: Vec<&'static str>,
     pub bitrate_mbps: Option<f64>,
     pub started: bool,
@@ -160,9 +169,11 @@ impl TorrentHit {
         let size_bytes = hit.size_bytes;
         let title_lower = hit.title.to_lowercase();
         let title_display = typograph(&hit.title);
+        let name = typograph(&release_name(&hit.title));
         let info_from_title = title::parse_title_lower(&hit.title, &title_lower);
 
         let found_voices = voices::voices_lower(&title_lower);
+        let audio = audio::audio_lower(&title_lower);
         let bitrate_mbps = runtime_minutes.and_then(|m| estimate_bitrate_mbps(size_bytes, m));
 
         let hash = infohash(&hit.magnet);
@@ -178,6 +189,7 @@ impl TorrentHit {
             title: hit.title,
             title_lower,
             display_title: title_display,
+            name,
             tracker: hit.tracker,
             size_bytes: hit.size_bytes,
             seeders: hit.seeders,
@@ -185,6 +197,7 @@ impl TorrentHit {
             magnet: hit.magnet,
             published: hit.published,
             info: info_from_title,
+            audio,
             voices: found_voices,
             bitrate_mbps,
             started,
