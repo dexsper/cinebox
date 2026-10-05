@@ -13,7 +13,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
-- Torrent rows show the film or show name without the tags around it, in larger type; the full title stays in the tooltip.
+- Torrent rows show the film or show name without the tags around it, in larger type; the full title stays in the tooltip. Search results come up faster.
 - Torrent publication dates are written in the interface language.
 - Seeders and leechers are called «Раздают» and «Качают» in Russian, «Роздають» and «Завантажують» in Ukrainian.
 - The torrents page puts the year, title, ratings, and genres beside a larger poster, in the order of the title page.
@@ -26,13 +26,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   - closing the playlist or settings returns focus to its button, so the arrows no longer seek;
   - back from a settings category or player submenu, focus returns to the row it came from;
   - closing a dropdown in the torrent filters or Settings returns focus to it instead of the top of the panel;
-  - Up from far along a long shelf moves to the shelf above instead of the search bar.
+  - Up from far along a long shelf moves to the shelf above instead of the search bar;
+  - a held arrow stops at the edge of a list or shelf; a new press moves on to the bar or side menu beside it.
 
 ### Fixed
 
 - Titles in Chinese, Japanese, Korean, Arabic, Hebrew, Devanagari, and Thai scripts show their letters instead of boxes.
 - The torrent files list shows the progress just watched when going back from the player, and the release gets its started mark right away.
 - After a release moves up the list once watched, focus stays on it instead of landing on another release.
+- With a remote, Right past the end of a shelf no longer jumps to another row, which made a held arrow swing the page up and down.
 - The translation filter no longer lists a studio whose name only appears inside a film's name.
 - Shelves further down a page no longer show their scroll bars on the page's bottom edge.
 - On Windows, the app opens without a console window.
