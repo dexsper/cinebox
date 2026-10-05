@@ -108,14 +108,14 @@ impl TorrentsScreen {
     pub fn after_playback(&mut self, svc: &Services, played: Option<Played>) {
         // Not read back from the database: the player saves in the background.
         let source = played.as_ref().map(|played| &played.source);
-        if let Some(PlaySource::Torrent { hash, files, .. }) = source {
-            self.take_progress(hash, files);
+        if let Some(PlaySource::Torrent { hash, files, file_index, .. }) = source {
+            self.take_progress(hash, files, *file_index);
         }
 
         self.retag_local_hits(svc, played.and_then(|played| played.saved));
     }
 
-    fn take_progress(&mut self, hash: &str, played: &[TorrentFileRow]) {
+    fn take_progress(&mut self, hash: &str, played: &[TorrentFileRow], stopped: usize) {
         let Some(state) = &mut self.state else {
             return;
         };
@@ -125,7 +125,7 @@ impl TorrentsScreen {
         };
 
         if ready.hash == hash {
-            ready.take_progress(played);
+            ready.take_progress(played, stopped);
         }
     }
 

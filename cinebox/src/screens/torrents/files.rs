@@ -8,7 +8,7 @@ use super::state::{FilesPane, ReadyFiles, TorrentState, season_episode_line};
 use crate::services::Services;
 use crate::theme::Theme;
 use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::widgets::{self, button, poster, scroll};
+use crate::widgets::{self, button, focus, poster, scroll};
 
 pub(super) fn files_modal(
     ctx: &egui::Context,
@@ -90,7 +90,7 @@ fn file_list(
     }
 
     let serial = media.kind == MediaKind::Tv;
-    let mut scrolled = false;
+    let mut revealed = false;
     scroll::vertical(ui, ("torrent-files", files.hash.as_str()), |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
@@ -186,20 +186,22 @@ fn file_list(
                     });
                 });
 
-            if files.scroll_to_resume && selected {
+            let response = button::click_rect(ui, row_id, shown.response.rect);
+            let reveal = selected && files.reveal_selected;
+            if reveal {
                 shown.response.scroll_to_me(Some(Align::Center));
-                scrolled = true;
+                focus::enter_popup(&response);
+                revealed = true;
             }
 
-            let response = button::click_rect(ui, row_id, shown.response.rect);
             if response.clicked() {
                 *pick_file = Some(file.id);
             }
         }
     });
 
-    if scrolled {
-        files.scroll_to_resume = false;
+    if revealed {
+        files.reveal_selected = false;
     }
 }
 
@@ -256,11 +258,11 @@ mod tests {
         };
 
         let with_resume = ReadyFiles::from_rows(String::from("hash"), vec![started]);
-        assert!(with_resume.scroll_to_resume);
+        assert!(with_resume.reveal_selected);
         assert_eq!(with_resume.selected_id, Some(7));
 
         let fresh = ReadyFiles::from_rows(String::from("hash"), Vec::new());
-        assert!(!fresh.scroll_to_resume);
+        assert!(!fresh.reveal_selected);
         assert!(fresh.selected_id.is_none());
     }
 }
