@@ -70,7 +70,10 @@ pub(super) fn list_pane(
                 Frame::new().inner_margin(ring_room).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 8.0;
                     let focused = ui.memory(|mem| mem.focused());
-                    let keep = visible.iter().position(|&index| Some(hit_id(ui, index)) == focused);
+                    let keep = visible.iter().position(|&index| {
+                        let hit = hits.get(index);
+                        hit.is_some_and(|hit| Some(hit_id(ui, hit)) == focused)
+                    });
 
                     rows.show(ui, visible.len(), keep, |ui, row| {
                         let index = visible[row];
@@ -336,7 +339,7 @@ fn hit_row(
     pick: &mut Option<usize>,
     index: usize,
 ) {
-    let id = hit_id(ui, index);
+    let id = hit_id(ui, hit);
     let shown = Frame::new()
         .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
@@ -407,8 +410,10 @@ fn hit_row(
     }
 }
 
-fn hit_id(ui: &Ui, index: usize) -> egui::Id {
-    ui.id().with(("torrent-hit", index))
+/// Not by position: a release just watched moves up the list, and focus
+/// coming back to it must follow.
+fn hit_id(ui: &Ui, hit: &cinebox_indexer::TorrentHit) -> egui::Id {
+    ui.id().with(("torrent-hit", &hit.tracker, &hit.title, hit.size_bytes))
 }
 
 /// Same ring as the poster hover, with a tighter gap to the row.
