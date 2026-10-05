@@ -42,6 +42,8 @@ pub struct View<'a> {
     pub prefs: TorrentPlaybackPrefs,
     pub sub_scale: f64,
     pub sub_delay: f64,
+    /// The submenu just left for Root, whose row takes the D-pad back.
+    pub left: Option<Page>,
 }
 
 /// Choices made this frame.
@@ -72,28 +74,34 @@ pub fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
 }
 
 fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if submenu_row(ui, theme, t!("player.video_size").as_ref(), scale_label(view.prefs.scale).as_ref()) {
-        out.page = Some(Page::VideoSize);
-    }
+    let scale = scale_label(view.prefs.scale);
+    submenu(ui, theme, view, out, Page::VideoSize, t!("player.video_size").as_ref(), &scale);
 
     if view.features.speed {
         let speed = speed_label(view.prefs.speed);
-        if submenu_row(ui, theme, t!("player.playback_speed").as_ref(), &speed) {
-            out.page = Some(Page::Speed);
-        }
+        submenu(ui, theme, view, out, Page::Speed, t!("player.playback_speed").as_ref(), &speed);
     }
 
-    if submenu_row(ui, theme, t!("player.subtitle_track").as_ref(), &selected_sub_label(view.tracks)) {
-        out.page = Some(Page::Subtitles);
-    }
+    let sub = selected_sub_label(view.tracks);
+    submenu(ui, theme, view, out, Page::Subtitles, t!("player.subtitle_track").as_ref(), &sub);
 
     let audio_count = count_tracks(view.tracks, TrackKind::Audio);
     if audio_count <= 1 {
         return;
     }
 
-    if submenu_row(ui, theme, t!("player.audio_track").as_ref(), &selected_audio_label(view.tracks)) {
-        out.page = Some(Page::Audio);
+    let audio = selected_audio_label(view.tracks);
+    submenu(ui, theme, view, out, Page::Audio, t!("player.audio_track").as_ref(), &audio);
+}
+
+fn submenu(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out, page: Page, label: &str, value: &str) {
+    let row = submenu_row(ui, theme, label, value);
+    if view.left == Some(page) {
+        focus::prefer(&row);
+    }
+
+    if row.clicked() {
+        out.page = Some(page);
     }
 }
 
@@ -279,7 +287,7 @@ fn galley_y(rect: egui::Rect, height: f32) -> f32 {
     rect.center().y - height * 0.5
 }
 
-fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
+fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Response {
     let (rect, mut response) = hover_row(ui, label);
     if focus::lit(&response) {
         ui.painter()
@@ -320,7 +328,7 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
     ui.painter().galley(icon_pos, icon_galley, theme.muted);
 
     if !has_value {
-        return response.clicked();
+        return response;
     }
 
     let value_font = theme.ui_font(theme.text_small);
@@ -347,7 +355,7 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> bool {
     let value_pos = pos2(value_x, galley_y(inner, value_galley.size().y));
     ui.painter().galley(value_pos, value_galley, theme.muted);
 
-    response.clicked()
+    response
 }
 
 fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
@@ -383,6 +391,10 @@ fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
 
 fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     let (rect, mut response) = hover_row(ui, label);
+    if selected {
+        focus::prefer(&response);
+    }
+
     let idle = if selected {
         theme.card_selected
     } else {

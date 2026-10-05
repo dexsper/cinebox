@@ -522,6 +522,75 @@ fn popup_keeps_the_dpad_and_gives_it_back() {
     assert!(focused(&harness, "Open"), "focus returns to what opened the popup");
 }
 
+/// A two-level popup menu like the player's settings: `state.value` is the
+/// page, "" for the root, "speed" for the submenu, "left-speed" for the root
+/// after leaving it.
+fn menu_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    if button::label(ui, &theme, "Open", Opts::secondary(vec2(80.0, 32.0))) {
+        state.popup = true;
+    }
+
+    if !state.popup {
+        return;
+    }
+
+    let opts = Opts::secondary(vec2(80.0, 32.0));
+    let page = state.value.clone();
+    Area::new(Id::new("tv-menu"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(120.0, 40.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            ui.push_id(page.as_str(), |ui| {
+                if page == "speed" {
+                    for (label, current) in [("Slow", false), ("Normal", true), ("Fast", false)] {
+                        let row = button::add_named(ui, &theme, label, opts, Some(label));
+                        if current {
+                            focus::prefer(&row);
+                        }
+                        if row.clicked() {
+                            state.value = String::from("left-speed");
+                        }
+                    }
+                    return;
+                }
+
+                let _ = button::label(ui, &theme, "Size", opts);
+                let speed = button::add_named(ui, &theme, "Speed", opts, Some("Speed"));
+                if page == "left-speed" {
+                    focus::prefer(&speed);
+                }
+                if speed.clicked() {
+                    state.value = String::from("speed");
+                }
+            });
+        });
+}
+
+#[test]
+fn a_popup_menu_starts_on_the_current_choice_and_returns_to_its_row() {
+    let mut harness = harness(menu_popup_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Size"), "the root starts on its first row");
+
+    // The row pressed is gone a frame later; only then does focus move.
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    settle(&mut harness);
+    assert!(focused(&harness, "Normal"), "a submenu starts on its current choice");
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    settle(&mut harness);
+    assert!(focused(&harness, "Speed"), "back on the root, the D-pad is on the row it left");
+}
+
 fn search_ui(ui: &mut egui::Ui, state: &mut TvState) {
     let Some(theme) = state.theme.clone() else {
         return;

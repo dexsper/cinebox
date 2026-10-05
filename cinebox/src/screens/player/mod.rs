@@ -159,6 +159,8 @@ pub struct PlayerScreen {
     controls_focused: bool,
     focus_play: bool,
     popup: Popup,
+    /// See [`settings_popup::View::left`].
+    settings_left: Option<settings_popup::Page>,
     playlist_scroll: bool,
     prefs: TorrentPlaybackPrefs,
     sub_scale: f64,
@@ -182,6 +184,7 @@ impl Default for PlayerScreen {
             controls_focused: false,
             focus_play: false,
             popup: Popup::None,
+            settings_left: None,
             playlist_scroll: false,
             prefs: TorrentPlaybackPrefs::default(),
             sub_scale: 1.0,
@@ -672,6 +675,7 @@ impl PlayerScreen {
             prefs: self.prefs,
             sub_scale: self.sub_scale,
             sub_delay: self.sub_delay,
+            left: self.settings_left,
         };
 
         let mut out = settings_popup::Out::default();
@@ -689,7 +693,7 @@ impl PlayerScreen {
         );
 
         if let Some(next) = out.page {
-            self.popup = Popup::Settings(next);
+            self.turn_settings_page(page, next);
         }
 
         let mut dirty = false;
@@ -869,7 +873,13 @@ impl PlayerScreen {
             self.playlist_scroll = true;
         }
 
+        self.settings_left = None;
         self.popup = popup;
+    }
+
+    fn turn_settings_page(&mut self, from: settings_popup::Page, to: settings_popup::Page) {
+        self.settings_left = Some(from);
+        self.popup = Popup::Settings(to);
     }
 }
 
