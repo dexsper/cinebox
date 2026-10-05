@@ -38,4 +38,4 @@ pub use settings::{
     QualityBand, SecretString, Settings, SettingsError, SettingsStore, SkipSegmentsSettings,
     TorrServerSettings, UiLanguage, VideoScale,
 };
-pub use cinebox_typograf::typograph;
+pub use cinebox_typograf::{decode_entities, typograph};

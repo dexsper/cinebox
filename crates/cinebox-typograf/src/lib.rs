@@ -8,6 +8,13 @@ mod safe_tags;
 
 pub use engine::{LocaleError, Typograf};
 
+/// Named and numeric HTML entities (`&amp;`, `&#171;`) to their characters,
+/// without the rest of the typography.
+#[must_use]
+pub fn decode_entities(text: &str) -> std::borrow::Cow<'_, str> {
+    entities::to_utf(text)
+}
+
 pub(crate) const PRIVATE: char = '\u{F000}';
 pub(crate) const PRIVATE_SEPARATE: char = '\u{F001}';
 

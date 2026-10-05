@@ -13,7 +13,7 @@ mod voices;
 
 use std::time::Duration;
 
-use cinebox_core::{ParserKind, join_url, normalize_base_url, typograph};
+use cinebox_core::{ParserKind, decode_entities, join_url, normalize_base_url};
 use cinebox_net::NetConfig;
 use serde::Deserialize;
 
@@ -168,8 +168,9 @@ impl TorrentHit {
     ) -> Self {
         let size_bytes = hit.size_bytes;
         let title_lower = hit.title.to_lowercase();
-        let title_display = typograph(&hit.title);
-        let name = typograph(&release_name(&hit.title));
+        // Trackers send entities; full typography is wasted on names cut from tags.
+        let title_display = decode_entities(&hit.title).into_owned();
+        let name = release_name(&title_display);
         let info_from_title = title::parse_title_lower(&hit.title, &title_lower);
 
         let found_voices = voices::voices_lower(&title_lower);
@@ -387,28 +388,6 @@ mod tests {
         );
 
         assert_eq!(hit.title, "DoMiNo &amp; селезень &quot;Silo&quot;");
-        assert!(
-            !hit.display_title.contains("&amp;"),
-            "{:?}",
-            hit.display_title
-        );
-
-        assert!(
-            !hit.display_title.contains("&quot;"),
-            "{:?}",
-            hit.display_title
-        );
-
-        assert!(
-            hit.display_title.contains("DoMiNo & "),
-            "{:?}",
-            hit.display_title
-        );
-
-        assert!(
-            hit.display_title.contains('«') || hit.display_title.contains('\u{201C}'),
-            "{:?}",
-            hit.display_title
-        );
+        assert_eq!(hit.display_title, "DoMiNo & селезень \"Silo\"");
     }
 }
