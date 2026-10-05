@@ -770,14 +770,7 @@ impl PlayerScreen {
             let files = state.files();
             let current = state.file_index();
 
-            // Bottom margin 0: the list runs flush to the frame edge, covered
-            // by the flyout's own bottom-up shadow.
-            let pad = egui::Margin {
-                left: flyout::PAD,
-                right: flyout::PAD,
-                top: flyout::PAD,
-                bottom: 0,
-            };
+            let pad = egui::Margin::same(flyout::PAD);
             let fly = flyout::show(
                 ctx,
                 "player-playlist-flyout",
