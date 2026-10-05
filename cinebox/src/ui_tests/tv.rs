@@ -170,6 +170,31 @@ fn press<S>(harness: &mut Harness<'_, S>, key: Key) {
     }
 }
 
+/// A key held down: the first press, then `repeats` auto-repeats a frame
+/// apart, the way a remote sends them, then the release.
+fn hold<S>(harness: &mut Harness<'_, S>, key: Key, repeats: usize) {
+    for index in 0..=repeats {
+        harness.input_mut().events.push(egui::Event::Key {
+            key,
+            physical_key: None,
+            pressed: true,
+            repeat: index > 0,
+            modifiers: egui::Modifiers::NONE,
+        });
+        frame(harness);
+        frame(harness);
+    }
+
+    harness.input_mut().events.push(egui::Event::Key {
+        key,
+        physical_key: None,
+        pressed: false,
+        repeat: false,
+        modifiers: egui::Modifiers::NONE,
+    });
+    settle(harness);
+}
+
 fn settle<S>(harness: &mut Harness<'_, S>) {
     for _ in 0..3 {
         frame(harness);
@@ -983,6 +1008,66 @@ fn short_shelf_over_long_ui(ui: &mut egui::Ui, state: &mut TvState) {
             });
         }
     });
+}
+
+#[test]
+fn holding_up_a_long_list_stops_at_its_top() {
+    let mut harness = harness(search_over_page_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    for _ in 1..TILES.len() {
+        press(&mut harness, Key::ArrowDown);
+    }
+    assert!(focused(&harness, "T5"));
+
+    hold(&mut harness, Key::ArrowUp, TILES.len() + 3);
+    assert!(focused(&harness, "T1"), "a held key stays in the list");
+
+    press(&mut harness, Key::ArrowUp);
+    assert!(focused(&harness, "Search"), "a new press leaves it");
+}
+
+#[test]
+fn holding_left_along_a_shelf_stops_at_its_start() {
+    let mut harness = harness(menu_and_shelf_ui);
+
+    press(&mut harness, Key::ArrowRight);
+    press(&mut harness, Key::ArrowRight);
+    for _ in 1..SHELVES[0].len() {
+        press(&mut harness, Key::ArrowRight);
+    }
+    assert!(focused(&harness, "A8"));
+
+    hold(&mut harness, Key::ArrowLeft, SHELVES[0].len() + 3);
+    assert!(focused(&harness, "A1"), "a held key stays in the shelf");
+
+    press(&mut harness, Key::ArrowLeft);
+    assert!(focused(&harness, "Movies"), "a new press reaches the menu");
+}
+
+#[test]
+fn holding_down_goes_on_through_the_shelves_of_a_page() {
+    let mut harness = harness(shelves_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "A1"));
+
+    hold(&mut harness, Key::ArrowDown, SHELVES.len() + 3);
+    assert!(focused(&harness, "D1"), "shelves of one page are one list for a held key");
+}
+
+#[test]
+fn right_at_the_end_of_a_shelf_does_not_turn_into_the_next_row() {
+    let mut harness = harness(short_shelf_over_long_ui);
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "A2"));
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, "A2"), "past its last item a shelf keeps the focus");
 }
 
 #[test]

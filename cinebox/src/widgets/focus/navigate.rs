@@ -88,7 +88,11 @@ pub(super) fn step(ctx: &Context, state: &State) {
 
     let areas = state.areas_of(focused);
     let from = from.rect.translate(scroll::glide_left(ctx, areas));
-    let candidates = &state.settled_candidates(ctx);
+    let settled = state.settled_candidates(ctx);
+    let reachable = settled.into_iter().filter(|candidate| {
+        !turns_into_another_row(candidate, from, areas, press.direction)
+    });
+    let candidates = &reachable.collect::<Vec<_>>();
     let in_cone = nearest_staying_in(ctx, from, press.direction, candidates, areas);
     let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
     let Some(nearest) = found else {
@@ -96,6 +100,10 @@ pub(super) fn step(ctx: &Context, state: &State) {
     };
 
     let target = state.arrival(nearest, focused);
+    if press.repeat && leaves_scrolling(areas, state.areas_of(target)) {
+        return;
+    }
+
     ctx.memory_mut(|mem| mem.request_focus(target));
     let sound = UiSound::Navigate {
         direction: press.direction,
@@ -127,6 +135,40 @@ fn arrow_press(event: &egui::Event) -> Option<ArrowPress> {
         direction,
         repeat: *repeat,
     })
+}
+
+/// Sideways out of a shelf, the D-pad does not turn the corner into another
+/// row of the same page: past a shelf's end it stays, and from its start it
+/// still reaches what is beside the page, like the side menu.
+fn turns_into_another_row(candidate: &Candidate, from: Rect, areas: &[Id], direction: Direction) -> bool {
+    if matches!(direction, Direction::Up | Direction::Down) {
+        return false;
+    }
+
+    let Some(shelf) = areas.last() else {
+        return false;
+    };
+
+    if candidate.areas.contains(shelf) {
+        return false;
+    }
+
+    let same_page = areas.iter().any(|area| candidate.areas.contains(area));
+    if !same_page {
+        return false;
+    }
+
+    span_offset(candidate.rect.y_range(), from.y_range()) != 0.0
+}
+
+/// A held arrow scrolls: it stops at the edge of the lists the focus is in
+/// rather than running out into a bar or menu beside them. A new press leaves.
+fn leaves_scrolling(from: &[Id], to: &[Id]) -> bool {
+    if from.is_empty() {
+        return false;
+    }
+
+    !from.iter().any(|area| to.contains(area))
 }
 
 fn toward(direction: Direction) -> Vec2 {
