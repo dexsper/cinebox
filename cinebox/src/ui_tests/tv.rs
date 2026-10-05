@@ -574,6 +574,71 @@ fn closing_a_popup_returns_focus_past_a_video_that_takes_empty_focus() {
     assert!(focused(&harness, "Settings"), "focus returns to the button that opened the popup");
 }
 
+/// A drawer with a dropdown in it: a popup over a popup.
+fn dropdown_in_drawer_ui(ui: &mut egui::Ui, state: &mut TvState) {
+    let Some(theme) = state.theme.clone() else {
+        return;
+    };
+
+    // The app takes Back before it builds the screen.
+    if ui.input(|i| i.key_pressed(Key::Escape)) {
+        state.popup = false;
+    }
+
+    let opts = Opts::secondary(vec2(120.0, 32.0));
+    if button::label(ui, &theme, "Open", opts) {
+        state.value = String::from("open");
+    }
+
+    if state.value.is_empty() {
+        return;
+    }
+
+    Area::new(Id::new("tv-drawer"))
+        .order(Order::Foreground)
+        .fixed_pos(pos2(300.0, 20.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "First", opts);
+            let _ = button::label(ui, &theme, "Middle", opts);
+            if button::label(ui, &theme, "Dropdown", opts) {
+                state.popup = true;
+            }
+        });
+
+    if !state.popup {
+        return;
+    }
+
+    Area::new(Id::new("tv-dropdown"))
+        .order(Order::Tooltip)
+        .fixed_pos(pos2(300.0, 160.0))
+        .show(ui.ctx(), |ui| {
+            focus::trap(ui);
+            let _ = button::label(ui, &theme, "Option", opts);
+        });
+}
+
+#[test]
+fn closing_a_dropdown_in_a_drawer_returns_to_its_button() {
+    let mut harness = harness(dropdown_in_drawer_ui);
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "First"));
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowDown);
+    assert!(focused(&harness, "Dropdown"));
+
+    press(&mut harness, Key::Enter);
+    assert!(focused(&harness, "Option"));
+
+    press(&mut harness, Key::BrowserBack);
+    settle(&mut harness);
+    assert!(!harness.state().popup);
+    assert!(focused(&harness, "Dropdown"), "focus returns to the dropdown, not the top of the drawer");
+}
+
 /// A two-level popup menu like the player's settings: `state.value` is the
 /// page, "" for the root, "speed" for the submenu, "left-speed" for the root
 /// after leaving it.

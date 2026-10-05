@@ -62,6 +62,10 @@ struct State {
     content: Option<Rect>,
     before_modal: Option<Id>,
     had_modal: bool,
+    /// The top modal layer last frame.
+    modal: Option<LayerId>,
+    /// Where focus was in each modal layer a popup opened over, outermost first.
+    outer_focus: Vec<(LayerId, Id)>,
     last_allowed: Option<Id>,
     was_editing: bool,
     focused_before_input: Option<Id>,
