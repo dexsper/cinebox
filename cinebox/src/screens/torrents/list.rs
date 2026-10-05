@@ -173,6 +173,11 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
     );
 
     ui.add_space(12.0);
+    if reset_button(ui, theme) {
+        state.filter = cinebox_indexer::TorrentFilter::default();
+    }
+
+    ui.add_space(8.0);
     scroll::vertical(ui, "torrent-filters", |ui| {
         ui.spacing_mut().item_spacing.y = 10.0;
         section_label(ui, theme, t!("filter.quality").as_ref());
@@ -240,14 +245,9 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
                     "torrent-season",
                     &mut state.filter.season,
                     &seasons,
-                    |season| format!("S{season}"),
+                    |season| format!("{} {season}", t!("media.season")),
                 );
             }
-        }
-
-        ui.add_space(8.0);
-        if reset_button(ui, theme) {
-            state.filter = cinebox_indexer::TorrentFilter::default();
         }
     });
 

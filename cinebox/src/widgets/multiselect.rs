@@ -1,6 +1,6 @@
 //! ComboBox that keeps several values checked.
 
-use egui::{ComboBox, RichText, Ui};
+use egui::{ComboBox, PopupCloseBehavior, RichText, Ui};
 use rust_i18n::t;
 
 use super::button;
@@ -28,18 +28,22 @@ pub fn show_with<T: Copy + PartialEq>(
             .width(width)
             .selected_text(selected_text)
             .popup_style(combo::popup_style(theme))
+            // Several values: picking one keeps the list open for the next.
+            .close_behavior(PopupCloseBehavior::CloseOnClickOutside)
             .show_ui(ui, |ui| {
                 focus::trap(ui);
                 let opening = focus::focused_layer(ui.ctx()) != Some(ui.layer_id());
+                let first_on = options.iter().position(|opt| selected.contains(opt));
+                let entry = first_on.unwrap_or(0);
                 for (index, opt) in options.iter().enumerate() {
-                    let mut on = selected.contains(opt);
-                    let checkbox = ui.checkbox(&mut on, label(*opt));
-                    focus::track(&checkbox);
-                    if opening && index == 0 {
-                        focus::enter_popup(&checkbox);
+                    let on = selected.contains(opt);
+                    let row = ui.selectable_label(on, label(*opt));
+                    focus::track(&row);
+                    if opening && index == entry {
+                        focus::enter_popup(&row);
                     }
 
-                    if !checkbox.changed() {
+                    if !row.clicked() {
                         continue;
                     }
 
