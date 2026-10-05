@@ -356,11 +356,11 @@ fn hit_row(
             let name = name_galley(ui, &hit.name, theme);
             ui.add(egui::Label::new(name).selectable(false));
 
-            let tags = row_tags(hit, context);
+            let tags = with_studios(ui, theme, row_tags(hit, context), &hit.voices);
             if !tags.is_empty() {
                 ui.add_space(10.0);
                 ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = vec2(6.0, 6.0);
+                    ui.spacing_mut().item_spacing = vec2(TAG_GAP, TAG_GAP);
                     for tag in &tags {
                         paint_tag(ui, theme, tag);
                     }
@@ -454,8 +454,9 @@ impl Tag {
     }
 }
 
-/// Studios after these many fold into a `+N`.
-const STUDIOS_SHOWN: usize = 3;
+/// Rows of tags a release gets before its studios fold into a `+N`.
+const TAG_LINES: usize = 2;
+const TAG_GAP: f32 = 6.0;
 
 fn row_tags(hit: &cinebox_indexer::TorrentHit, context: RowContext) -> Vec<Tag> {
     let info = &hit.info;
@@ -500,16 +501,67 @@ fn row_tags(hit: &cinebox_indexer::TorrentHit, context: RowContext) -> Vec<Tag> 
         tags.push(Tag::new(t!("torrents.subtitles"), TagTone::Sound));
     }
 
-    for studio in hit.voices.iter().take(STUDIOS_SHOWN) {
+    tags
+}
+
+/// Every studio when the tags still fit in [`TAG_LINES`] rows; otherwise as
+/// many as fit with a `+N` for the rest.
+fn with_studios(ui: &Ui, theme: &Theme, mut tags: Vec<Tag>, studios: &[&'static str]) -> Vec<Tag> {
+    let measure = |text: &str| {
+        let galley = ui.painter().layout_no_wrap(text.to_owned(), theme.ui_font(TAG_SIZE), theme.title);
+        galley.size().x + 2.0 * TAG_PAD_X
+    };
+
+    let mut widths: Vec<f32> = tags.iter().map(|tag| measure(&tag.text)).collect();
+    widths.extend(studios.iter().map(|studio| measure(studio)));
+    let fixed = tags.len();
+    let shown = studios_that_fit(&widths, fixed, |more| measure(&format!("+{more}")), ui.available_width());
+
+    for studio in &studios[..shown] {
         tags.push(Tag::new(*studio, TagTone::Studio));
     }
 
-    let more = hit.voices.len().saturating_sub(STUDIOS_SHOWN);
+    let more = studios.len() - shown;
     if more > 0 {
         tags.push(Tag::new(format!("+{more}"), TagTone::Studio));
     }
 
     tags
+}
+
+/// How many of the studio widths after `fixed` fit in [`TAG_LINES`] rows of
+/// `width`, leaving room for the `+N` tag when some are left out.
+fn studios_that_fit(widths: &[f32], fixed: usize, more_width: impl Fn(usize) -> f32, width: f32) -> usize {
+    let studios = widths.len() - fixed;
+    for shown in (1..=studios).rev() {
+        let mut line: Vec<f32> = widths[..fixed + shown].to_vec();
+        if shown < studios {
+            line.push(more_width(studios - shown));
+        }
+
+        if rows(&line, width) <= TAG_LINES {
+            return shown;
+        }
+    }
+
+    0
+}
+
+fn rows(widths: &[f32], width: f32) -> usize {
+    let mut rows = 1;
+    let mut x = 0.0;
+    for w in widths {
+        let fits = x == 0.0 || x + TAG_GAP + w <= width;
+        if fits {
+            x += if x == 0.0 { *w } else { TAG_GAP + w };
+            continue;
+        }
+
+        rows += 1;
+        x = *w;
+    }
+
+    rows
 }
 
 /// `Season 2 · Episodes 1–8`, `Seasons 1–3`, or the episodes alone.
@@ -665,6 +717,21 @@ fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn studios_all_show_when_they_fit_in_two_rows() {
+        let widths = [40.0, 40.0, 30.0, 30.0];
+
+        assert_eq!(studios_that_fit(&widths, 2, |_| 20.0, 100.0), 2);
+    }
+
+    #[test]
+    fn studios_fold_only_past_the_second_row() {
+        // Row one: two fixed tags. Row two: one studio and `+N`, not a third row.
+        let widths = [40.0, 40.0, 50.0, 50.0, 50.0];
+
+        assert_eq!(studios_that_fit(&widths, 2, |_| 20.0, 100.0), 1);
+    }
 
     #[test]
     fn bitrate_only_for_movies() {
