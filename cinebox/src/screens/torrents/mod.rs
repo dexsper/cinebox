@@ -273,8 +273,9 @@ impl TorrentsScreen {
         let overview_size = theme.text_small * 1.5;
 
         scroll::vertical(ui, "torrent-movie", |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 12.0;
+            // The order of the hero on the media page, in a narrow column.
+            ui.horizontal_top(|ui| {
+                ui.spacing_mut().item_spacing.x = 16.0;
                 let poster =
                     poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
                         svc.images.poster_key(
@@ -293,10 +294,17 @@ impl TorrentsScreen {
                         ui.label(
                             RichText::new(head)
                                 .size(theme.text_section)
-                                .color(theme.muted),
+                                .color(theme.title),
                         );
-                        ui.add_space(8.0);
+                        ui.add_space(4.0);
                     }
+
+                    ui.label(
+                        RichText::new(&state.movie.title)
+                            .font(theme.title_font(theme.text_display))
+                            .color(theme.title),
+                    );
+                    ui.add_space(8.0);
 
                     widgets::rating::row(
                         ui,
@@ -305,28 +313,19 @@ impl TorrentsScreen {
                         None, // MovieBits doesn't carry TMDB status
                         state.movie.certification.as_deref(),
                     );
+
+                    if state.movie.genres_line.is_empty() {
+                        return;
+                    }
+
+                    ui.add_space(6.0);
+                    ui.label(
+                        RichText::new(&state.movie.genres_line)
+                            .size(theme.text_small)
+                            .color(theme.muted),
+                    );
                 });
             });
-
-            ui.add_space(10.0);
-            ui.label(
-                RichText::new(&state.movie.title)
-                    .font(theme.title_font(intro::lerp(
-                        theme.text_explorer_from,
-                        theme.text_display,
-                        t,
-                    )))
-                    .color(theme.title),
-            );
-
-            if !state.movie.genres_line.is_empty() {
-                ui.add_space(4.0);
-                ui.label(
-                    RichText::new(&state.movie.genres_line)
-                        .size(theme.text_small)
-                        .color(theme.muted),
-                );
-            }
 
             let Some(overview) = state.movie.overview.as_deref() else {
                 return;
