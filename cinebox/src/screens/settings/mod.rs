@@ -16,7 +16,7 @@ use crate::services::jobs::{self, JobError};
 use crate::services::settings_input::changed_value;
 use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
-use crate::widgets::scroll;
+use crate::widgets::{focus, scroll};
 
 use catalog::{CategoryId, Check, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
@@ -29,6 +29,8 @@ use speed::SpeedMeter;
 pub struct SettingsScreen {
     overlay: Overlay,
     category: Option<CategoryId>,
+    /// The category just left for the list, whose row takes the D-pad back.
+    left_category: Option<CategoryId>,
     torr: Bind<String, JobError>,
     parser: Bind<String, JobError>,
     tmdb: Bind<String, JobError>,
@@ -42,6 +44,7 @@ impl Default for SettingsScreen {
         Self {
             overlay: Overlay::default(),
             category: None,
+            left_category: None,
             torr: Bind::new(true),
             parser: Bind::new(true),
             tmdb: Bind::new(true),
@@ -86,7 +89,8 @@ impl SettingsScreen {
             return true;
         }
 
-        if self.category.take().is_some() {
+        if self.category.is_some() {
+            self.leave_category();
             return true;
         }
 
@@ -99,6 +103,7 @@ impl SettingsScreen {
         let now = ui.input(|i| i.time);
         if !self.overlay.is_blocking(now) {
             self.category = None;
+            self.left_category = None;
         }
 
         let mut overlay = std::mem::take(&mut self.overlay);
@@ -109,6 +114,10 @@ impl SettingsScreen {
 
         let wizard = std::mem::take(&mut self.wizard_requested);
         wizard.then_some(NavAction::OpenOnboarding)
+    }
+
+    fn leave_category(&mut self) {
+        self.left_category = self.category.take();
     }
 
     fn paint_body(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
@@ -133,7 +142,12 @@ impl SettingsScreen {
             }
 
             for cat in catalog() {
-                if category_row(ui, theme, cat) {
+                let row = category_row(ui, theme, cat);
+                if self.left_category == Some(cat.id) {
+                    focus::prefer(&row);
+                }
+
+                if row.clicked() {
                     self.category = Some(cat.id);
                 }
             }
@@ -149,7 +163,7 @@ impl SettingsScreen {
     ) {
         let cat = category(id);
         if nav_header(ui, theme, crate::i18n::tr(cat.title).as_ref()) {
-            self.category = None;
+            self.leave_category();
             return;
         }
 
@@ -466,6 +480,7 @@ mod tests {
         assert!(screen.on_back(0.1));
         assert!(screen.is_open());
         assert_eq!(screen.category, None);
+        assert_eq!(screen.left_category, Some(CategoryId::Player));
 
         assert!(screen.on_back(0.2));
         assert!(!screen.is_open());
