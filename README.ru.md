@@ -6,7 +6,7 @@
 
 ![GitHub release](https://img.shields.io/github/v/release/dexsper/cinebox?style=flat-square) ![Windows x64](https://img.shields.io/badge/Windows-x64-0078d4?style=flat-square&logo=windows&logoColor=white) ![Linux x86_64](https://img.shields.io/badge/Linux-x86__64-fcc624?style=flat-square&logo=linux&logoColor=black) ![Android TV 8.0+](https://img.shields.io/badge/Android_TV-8.0+-3ddc84?style=flat-square&logo=android&logoColor=white) ![Rust 1.95+](https://img.shields.io/badge/Rust-1.95+-dea584?style=flat-square&logo=rust) ![GPL-3.0-or-later](https://img.shields.io/badge/License-GPL--3.0--or--later-blue?style=flat-square)
 
-![Cinebox русский интерфейс](docs/screen-ru.png)
+![Cinebox на Android TV](docs/screen-ru.gif)
 
 ## Что это и зачем
 
