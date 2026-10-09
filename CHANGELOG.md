@@ -7,6 +7,10 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- The AppImage starts on systems without PipeWire or JACK: it carries its own libmpv built without them.
+
 ## [0.7.0] - 2026-10-05
 
 ### Added
