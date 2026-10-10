@@ -256,6 +256,8 @@ jobs:
       CARGO_DEB_VERSION: 3.8.0
       LINUXDEPLOY_URL: https://github.com/linuxdeploy/linuxdeploy/releases/download/1-alpha-20251107-1/linuxdeploy-x86_64.AppImage
       LINUXDEPLOY_SHA256: c20cd71e3a4e3b80c3483cef793cda3f4e990aca14014d23c544ca3ce1270b4d
+      # The AppImage's own libmpv, relative to the workspace so it can be cached.
+      MPV_DIR: .mpv-appimage
     outputs:
       appimage: ${{ steps.meta.outputs.appimage }}
       deb: ${{ steps.meta.outputs.deb }}
@@ -348,6 +350,94 @@ jobs:
           dpkg-deb --field "dist/$DEB" Depends | grep -q 'libmpv2'
           (cd dist && sha256sum "$DEB" > "$DEB.sha256" && cat "$DEB.sha256")
 
+      # Debian's libmpv links PipeWire and JACK, which linuxdeploy's excludelist
+      # leaves to the host, so the AppImage carries the same mpv built without them.
+      - name: Resolve libmpv source
+        id: mpv
+        run: |
+          set -euo pipefail
+          version="$(dpkg-query -W -f='${source:Version}' libmpv2)"
+          echo "Debian mpv $version"
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+
+      - name: Cache AppImage libmpv
+        id: mpv-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.MPV_DIR }}
+          # Bump the suffix when the build flags change.
+          key: libmpv-appimage-debian12-${{ steps.mpv.outputs.version }}-v1
+
+      - name: Build libmpv for the AppImage
+        if: steps.mpv-cache.outputs.cache-hit != 'true'
+        env:
+          MPV_VERSION: ${{ steps.mpv.outputs.version }}
+        run: |
+          set -euo pipefail
+          prefix="$PWD/$MPV_DIR"
+
+          # The same -dev packages Debian builds with, so meson turns on the same
+          # features (vaapi, vdpau, wayland, x11, pulse, alsa, lua...).
+          sed -i 's/^Types: deb$/Types: deb deb-src/' /etc/apt/sources.list.d/debian.sources
+          apt-get update
+          apt-get build-dep -y "mpv=$MPV_VERSION"
+          apt-get install -y --no-install-recommends meson ninja-build
+
+          src="$RUNNER_TEMP/mpv-src"
+          mkdir -p "$src"
+          # Unpacking applies Debian's patches.
+          (cd "$src" && apt-get source "mpv=$MPV_VERSION")
+          dir="$(find "$src" -mindepth 1 -maxdepth 1 -type d -name 'mpv-*' | head -n1)"
+
+          # Flags as in Debian's debian/rules, plus the three turned off below.
+          export DEB_BUILD_MAINT_OPTIONS=hardening=+all
+          eval "$(dpkg-buildflags --export=sh)"
+          meson setup "$RUNNER_TEMP/mpv-build" "$dir" \
+            --prefix="$prefix" \
+            --libdir=lib \
+            --buildtype=release \
+            -Dlibmpv=true \
+            -Dcplayer=false \
+            -Dbuild-date=false \
+            -Dcdda=enabled \
+            -Ddvdnav=enabled \
+            -Dsdl2=enabled \
+            -Dsndio=disabled \
+            -Ddvbin=enabled \
+            -Dpipewire=disabled \
+            -Djack=disabled \
+            -Dlibavdevice=disabled \
+            -Dmanpage-build=disabled \
+            -Dhtml-build=disabled \
+            -Dpdf-build=disabled
+          meson compile -C "$RUNNER_TEMP/mpv-build"
+          meson install -C "$RUNNER_TEMP/mpv-build"
+
+      # A missing -dev package would quietly drop a feature, and with it a library;
+      # only the three turned off above may differ from Debian's libmpv.
+      - name: Check AppImage libmpv against Debian's
+        run: |
+          set -euo pipefail
+
+          needed() {
+            readelf -d "$1" | sed -n 's/.*(NEEDED).*\[\(.*\)\]/\1/p' | sort -u
+          }
+
+          needed /usr/lib/x86_64-linux-gnu/libmpv.so.2 > "$RUNNER_TEMP/debian.needed"
+          needed "$MPV_DIR/lib/libmpv.so.2" > "$RUNNER_TEMP/ours.needed"
+          printf '%s\n' libavdevice.so.59 libjack.so.0 libpipewire-0.3.so.0 > "$RUNNER_TEMP/dropped.expected"
+
+          added="$(comm -13 "$RUNNER_TEMP/debian.needed" "$RUNNER_TEMP/ours.needed")"
+          dropped="$(comm -23 "$RUNNER_TEMP/debian.needed" "$RUNNER_TEMP/ours.needed")"
+          if [[ -n "$added" || "$dropped" != "$(cat "$RUNNER_TEMP/dropped.expected")" ]]; then
+            echo "AppImage libmpv links differently from Debian's" >&2
+            echo "Added:" >&2
+            printf '%s\n' "$added" >&2
+            echo "Dropped (expected only $(paste -sd' ' "$RUNNER_TEMP/dropped.expected")):" >&2
+            printf '%s\n' "$dropped" >&2
+            exit 1
+          fi
+
       - name: Package AppImage
         env:
           APPIMAGE: ${{ steps.meta.outputs.appimage }}
@@ -370,14 +460,31 @@ jobs:
           export LDAI_OUTPUT="dist/$APPIMAGE"
           # AppImageUpdate and Gear Lever fetch new versions through this .zsync.
           export LDAI_UPDATE_INFORMATION="gh-releases-zsync|${GITHUB_REPOSITORY_OWNER}|${GITHUB_REPOSITORY#*/}|latest|cinebox-*-linux-x86_64.AppImage.zsync"
-          # libmpv needs libjack, which linuxdeploy's excludelist leaves to the host.
+          # linuxdeploy picks libmpv from here ahead of the system's.
+          export LD_LIBRARY_PATH="$PWD/$MPV_DIR/lib"
           ./linuxdeploy \
             --appdir AppDir \
             --executable "target/$TARGET/release/cinebox" \
-            --library /usr/lib/x86_64-linux-gnu/libjack.so.0 \
             --desktop-file "packaging/linux/$APP_ID.desktop" \
             --icon-file "$icon" \
             --output appimage
+
+          # A failed check fails the job, so this AppImage is never uploaded. Debian's
+          # libmpv slipping in instead of ours trips the NEEDED check too.
+          if find AppDir \( -name 'libjack*' -o -name 'libpipewire*' \) | grep .; then
+            echo "The AppDir carries JACK or PipeWire" >&2
+            exit 1
+          fi
+          linked=0
+          while IFS= read -r -d '' elf; do
+            if readelf -d "$elf" 2>/dev/null | grep -qE '\(NEEDED\).*\[lib(jack|pipewire)'; then
+              echo "$elf links JACK or PipeWire" >&2
+              linked=1
+            fi
+          done < <(find AppDir/usr/bin AppDir/usr/lib -type f -print0)
+          if [[ "$linked" -ne 0 ]]; then
+            exit 1
+          fi
 
           # zsyncmake writes into the working directory, not next to the AppImage.
           mv "$APPIMAGE.zsync" dist/
