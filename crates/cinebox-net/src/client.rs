@@ -46,12 +46,9 @@ fn base_builder(
     connect_timeout: Duration,
     user_agent: Option<&'static str>,
 ) -> reqwest::ClientBuilder {
-    let builder = reqwest::Client::builder().connect_timeout(connect_timeout);
-    let Some(agent) = user_agent else {
-        return builder;
-    };
-
-    builder.user_agent(agent)
+    reqwest::Client::builder()
+        .connect_timeout(connect_timeout)
+        .user_agent(user_agent.unwrap_or(crate::USER_AGENT))
 }
 
 /// Long-lived client without DoH: system proxy per `net.use_system_proxy`.

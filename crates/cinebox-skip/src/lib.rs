@@ -13,7 +13,6 @@ use serde::{Deserialize, Serialize};
 pub use error::Error;
 
 pub(crate) const CONNECT_TIMEOUT: Duration = Duration::from_secs(8);
-pub(crate) const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
@@ -130,7 +129,7 @@ pub(crate) async fn send<F>(
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, Some(USER_AGENT), build)
+    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
         .await
         .map_err(|e| Error::Request(e.without_url()))
 }

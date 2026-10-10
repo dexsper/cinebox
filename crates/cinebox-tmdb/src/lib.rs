@@ -28,7 +28,6 @@ pub use shelves::{SectionRow, ShelfId, ShelfRow, ShelfSource, section_rows};
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
 
 const CONFIG_URL: &str = "https://api.themoviedb.org/3/configuration";
-pub(crate) const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
 pub(crate) const API_BASE: &str = "https://api.themoviedb.org/3";
 
 /// Failures talking to TMDB. Never includes the API key.
@@ -89,7 +88,7 @@ pub(crate) async fn send<F>(net: &NetConfig, build: F) -> Result<reqwest::Respon
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, Some(USER_AGENT), build)
+    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
         .await
         .map_err(into_request)
 }

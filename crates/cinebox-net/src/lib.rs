@@ -14,6 +14,9 @@ mod proxy;
 pub use client::{plain_client, send_resilient};
 pub use proxy::http_proxy_url;
 
+/// Default `User-Agent` for every outgoing request; a caller may override it.
+pub const USER_AGENT: &str = concat!("cinebox/", env!("CARGO_PKG_VERSION"));
+
 /// Snapshot of the network settings shared by every outgoing HTTP client.
 ///
 /// Doubles as the cache key for the long-lived `reqwest` clients.
