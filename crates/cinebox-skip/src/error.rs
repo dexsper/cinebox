@@ -7,6 +7,8 @@ pub enum Error {
     Request(#[source] reqwest::Error),
     #[error("segment provider returned HTTP {0}")]
     Http(u16),
+    #[error("segment provider rate limit reached")]
+    RateLimited,
     #[error("segment provider returned unexpected JSON")]
     Json(#[from] serde_json::Error),
 }

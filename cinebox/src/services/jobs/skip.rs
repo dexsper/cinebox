@@ -54,7 +54,7 @@ pub async fn fetch_skip_segments(
         }
     }
 
-    let provider = cinebox_skip::providers::introdb::IntroDbProvider;
+    let provider = cinebox_skip::providers::introdb::IntroDbProvider::default();
     let result = cinebox_skip::SegmentProvider::fetch(&provider, &query, &net).await?;
 
     if let Some(ref db) = db {

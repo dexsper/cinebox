@@ -73,7 +73,9 @@ impl TimeRange {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MediaSegments {
-    pub tmdb_id: u64,
+    // TheIntroDB v4 keys media by TVDB; cache entries from v3 carry `tmdb_id` instead.
+    #[serde(default)]
+    pub tvdb_id: Option<u64>,
     #[serde(rename = "type", default)]
     pub kind_str: String,
     #[serde(default)]
@@ -96,6 +98,13 @@ impl MediaSegments {
             SegmentType::Preview => &self.preview,
         }
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        SegmentType::ALL
+            .iter()
+            .all(|ty| self.segments_of(*ty).is_empty())
+    }
 }
 
 pub struct SegmentQuery {
@@ -105,8 +114,8 @@ pub struct SegmentQuery {
     pub season: Option<u32>,
     /// `None` for movies.
     pub episode: Option<u32>,
-    /// Actual file duration from the media player. The server uses this to
-    /// reject mismatched encodes where the audio track has shifted.
+    /// Actual file duration from the media player. Providers use it to pick
+    /// timings made for this cut and to reject those made for another.
     pub duration_ms: u64,
 }
 
@@ -170,7 +179,7 @@ mod tests {
     #[test]
     fn media_segments_json_roundtrip() -> Result<(), serde_json::Error> {
         let json = r#"{
-            "tmdb_id": 12345,
+            "tvdb_id": 12345,
             "type": "movie",
             "intro": [{"start_ms": null, "end_ms": 23000}],
             "recap": [{"start_ms": 25000, "end_ms": 134000}],
@@ -182,13 +191,26 @@ mod tests {
         }"#;
 
         let s: MediaSegments = serde_json::from_str(json)?;
-        assert_eq!(s.tmdb_id, 12345);
+        assert_eq!(s.tvdb_id, Some(12345));
         assert_eq!(s.intro.len(), 1);
         assert_eq!(s.intro[0].start_ms, None);
         assert_eq!(s.intro[0].end_ms, Some(23_000));
         assert_eq!(s.credits.len(), 2);
         assert_eq!(s.credits[1].start_ms, Some(6_408_000));
         assert_eq!(s.credits[1].end_ms, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn reads_cache_entries_written_before_v4() -> Result<(), serde_json::Error> {
+        let json = r#"{"tmdb_id":12345,"type":"movie","intro":[{"start_ms":null,"end_ms":23000}],"recap":[],"credits":[],"preview":[]}"#;
+
+        let s: MediaSegments = serde_json::from_str(json)?;
+
+        assert_eq!(s.tvdb_id, None);
+        assert_eq!(s.intro.len(), 1);
+        assert!(!s.is_empty());
 
         Ok(())
     }
