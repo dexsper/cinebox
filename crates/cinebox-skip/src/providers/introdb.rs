@@ -387,4 +387,34 @@ mod tests {
 
         assert!(matches!(result, Err(Error::Http(500))));
     }
+
+    // One test for all live lookups: `cinebox-net` caches clients process-wide,
+    // and a pooled connection dies with the runtime of the test that opened it.
+    #[tokio::test]
+    #[ignore = "hits live TheIntroDB"]
+    async fn live_lookups() -> Result<(), Error> {
+        let provider = IntroDbProvider::default();
+        let net = NetConfig::direct();
+        let unknown_episode = SegmentQuery {
+            season: Some(99),
+            ..episode(1399, 3_696_273)
+        };
+
+        let got_s01e01 = provider.fetch(&episode(1399, 3_696_273), &net).await?;
+        let matrix = provider.fetch(&movie(603, 8_180_662), &net).await?;
+        let another_cut = provider.fetch(&episode(1399, 1_000_000), &net).await?;
+        let unknown = provider.fetch(&unknown_episode, &net).await?;
+
+        let Some(got_s01e01) = got_s01e01 else {
+            panic!("Game of Thrones S01E01 has no segments")
+        };
+
+        assert_eq!(got_s01e01.tvdb_id, Some(121_361));
+        assert!(!got_s01e01.intro.is_empty());
+        assert!(matrix.is_some_and(|segments| !segments.intro.is_empty()));
+        assert!(another_cut.is_none());
+        assert!(unknown.is_none());
+
+        Ok(())
+    }
 }
