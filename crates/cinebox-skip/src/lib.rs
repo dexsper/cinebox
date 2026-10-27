@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod chapters;
 mod error;
 pub mod providers;
 
@@ -104,6 +105,26 @@ impl MediaSegments {
         SegmentType::ALL
             .iter()
             .all(|ty| self.segments_of(*ty).is_empty())
+    }
+
+    /// Takes `fallback`'s ranges for each kind that has none of its own.
+    pub fn fill_missing_from(&mut self, fallback: &MediaSegments) {
+        for ty in SegmentType::ALL {
+            let ranges = self.segments_of_mut(ty);
+
+            if ranges.is_empty() {
+                ranges.extend_from_slice(fallback.segments_of(ty));
+            }
+        }
+    }
+
+    pub(crate) fn segments_of_mut(&mut self, ty: SegmentType) -> &mut Vec<TimeRange> {
+        match ty {
+            SegmentType::Intro => &mut self.intro,
+            SegmentType::Recap => &mut self.recap,
+            SegmentType::Credits => &mut self.credits,
+            SegmentType::Preview => &mut self.preview,
+        }
     }
 }
 

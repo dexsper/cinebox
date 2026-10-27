@@ -4,6 +4,8 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 
 use cinebox_core::{MediaKind, Settings, Store, TmdbId};
+use cinebox_player::{Chapter, Player};
+use cinebox_skip::chapters::{ChapterMark, segments_from_chapters};
 use cinebox_skip::{MediaSegments, SegmentType, TimeRange};
 use egui_async::Bind;
 
@@ -48,6 +50,8 @@ pub struct SkipTarget {
 
 pub struct SkipState {
     requested_for: Option<SkipTarget>,
+    /// From the file's own chapter marks; preferred over `segments` per kind.
+    chapter_segments: Option<MediaSegments>,
     pub segments: Bind<Option<MediaSegments>, JobError>,
     pub choices: Bind<HashMap<SegmentType, bool>, JobError>,
     pub armed: HashMap<SegmentType, bool>,
@@ -59,6 +63,7 @@ impl Default for SkipState {
     fn default() -> Self {
         Self {
             requested_for: None,
+            chapter_segments: None,
             segments: Bind::new(true),
             choices: Bind::new(true),
             armed: HashMap::new(),
@@ -71,6 +76,7 @@ impl Default for SkipState {
 impl SkipState {
     pub fn reset(&mut self) {
         self.requested_for = None;
+        self.chapter_segments = None;
         self.segments.abort();
         self.segments.clear();
         self.choices.abort();
@@ -92,7 +98,7 @@ impl SkipState {
         svc: &Services,
     ) -> Option<f64> {
         let settings = &svc.settings;
-        self.maybe_start_fetch(duration_secs, target, settings, &svc.db);
+        self.maybe_start_fetch(duration_secs, target, svc);
         self.poll_results();
 
         if is_paused {
@@ -103,13 +109,7 @@ impl SkipState {
         self.tick_countdown(now, duration_secs)
     }
 
-    fn maybe_start_fetch(
-        &mut self,
-        duration_secs: f64,
-        target: SkipTarget,
-        settings: &Settings,
-        db: &Option<Arc<Store>>,
-    ) {
+    fn maybe_start_fetch(&mut self, duration_secs: f64, target: SkipTarget, svc: &Services) {
         if duration_secs <= 0.0 {
             return;
         }
@@ -119,6 +119,23 @@ impl SkipState {
         }
 
         self.requested_for = Some(target);
+        let duration_ms = (duration_secs * 1000.0).round() as u64;
+
+        self.chapter_segments = svc
+            .player
+            .as_deref()
+            .and_then(|player| read_chapter_segments(player, duration_ms));
+
+        self.request_segments(duration_ms, target, &svc.settings, &svc.db);
+    }
+
+    fn request_segments(
+        &mut self,
+        duration_ms: u64,
+        target: SkipTarget,
+        settings: &Settings,
+        db: &Option<Arc<Store>>,
+    ) {
         let SkipTarget {
             kind,
             tmdb_id,
@@ -127,7 +144,6 @@ impl SkipState {
         } = target;
 
         let net = jobs::net_config(settings);
-        let duration_ms = (duration_secs * 1000.0).round() as u64;
         let query = cinebox_skip::SegmentQuery {
             tmdb_id: u64::from(tmdb_id.get()),
             kind,
@@ -153,13 +169,28 @@ impl SkipState {
         }
     }
 
+    /// Chapter marks first, the provider for the kinds the file does not mark.
+    fn current_segments(&mut self) -> Option<MediaSegments> {
+        let fetched = match self.segments.read() {
+            Some(Ok(Some(fetched))) => Some(fetched),
+            _ => None,
+        };
+
+        let Some(mut segments) = self.chapter_segments.clone() else {
+            return fetched.cloned();
+        };
+
+        if let Some(fetched) = fetched {
+            segments.fill_missing_from(fetched);
+        }
+
+        Some(segments)
+    }
+
     fn update_active(&mut self, time_secs: f64, duration_secs: f64, settings: &Settings) {
-        let segments: MediaSegments = match self.segments.read() {
-            Some(Ok(Some(s))) => s.clone(),
-            _ => {
-                self.active = None;
-                return;
-            }
+        let Some(segments) = self.current_segments() else {
+            self.active = None;
+            return;
         };
 
         let pos_ms = (time_secs * 1000.0).round() as u64;
@@ -314,4 +345,18 @@ impl SkipState {
 
         Some(ty)
     }
+}
+
+fn read_chapter_segments(player: &dyn Player, duration_ms: u64) -> Option<MediaSegments> {
+    let chapters = player.chapters();
+    let marks: Vec<ChapterMark<'_>> = chapters.iter().map(chapter_mark).collect();
+
+    segments_from_chapters(&marks, duration_ms)
+}
+
+fn chapter_mark(chapter: &Chapter) -> ChapterMark<'_> {
+    let start_ms = (chapter.start.max(0.0) * 1000.0).round() as u64;
+    let title = chapter.title.as_deref().unwrap_or_default();
+
+    ChapterMark { start_ms, title }
 }

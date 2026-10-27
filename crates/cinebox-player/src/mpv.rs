@@ -13,7 +13,7 @@ use tracing::{info, warn};
 
 use crate::error::Error;
 use crate::player::{
-    Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
+    Chapter, Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
 };
 
 /// eframe glow `get_proc_address` loader.
@@ -238,6 +238,30 @@ impl Player for MpvPlayer {
         tracks
     }
 
+    /// From mpv's indexed `chapter-list/N/*` properties.
+    fn chapters(&self) -> Vec<Chapter> {
+        let engine = self.engine();
+
+        let mpv = &engine.mpv;
+        let count: i64 = mpv.get_property("chapter-list/count").unwrap_or(0);
+
+        let mut chapters = Vec::new();
+        for index in 0..count {
+            let Ok(start) = mpv.get_property(&format!("chapter-list/{index}/time")) else {
+                continue;
+            };
+
+            let title: Option<String> = mpv
+                .get_property(&format!("chapter-list/{index}/title"))
+                .ok()
+                .filter(|title: &String| !title.is_empty());
+
+            chapters.push(Chapter { start, title });
+        }
+
+        chapters
+    }
+
     fn snapshot(&self) -> Snapshot {
         let engine = self.engine();
         let mpv = &engine.mpv;
@@ -366,7 +390,11 @@ fn apply_play_opts(mpv: &Mpv, media: &Media<'_>) -> Result<(), Error> {
     let proxy = media.http_proxy.unwrap_or("");
     set_prop(mpv, "http-proxy", proxy.to_owned())?;
 
-    let hwdec = if media.hardware_decoding { "auto" } else { "no" };
+    let hwdec = if media.hardware_decoding {
+        "auto"
+    } else {
+        "no"
+    };
     set_prop(mpv, "hwdec", hwdec.to_owned())?;
 
     if media.loudnorm {

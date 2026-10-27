@@ -115,6 +115,14 @@ pub struct Track {
     pub selected: bool,
 }
 
+/// One chapter mark of the loaded file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chapter {
+    /// Seconds from the start of the file.
+    pub start: f64,
+    pub title: Option<String>,
+}
+
 /// Which decoder plays the video, for logs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoDecoder {
@@ -173,6 +181,12 @@ pub trait Player: Send + Sync {
     fn set_subtitle_delay(&self, seconds: f64) -> Result<(), Error>;
 
     fn tracks(&self) -> Vec<Track>;
+
+    /// In time order. Empty until the file is loaded, and on players that
+    /// cannot read chapters.
+    fn chapters(&self) -> Vec<Chapter> {
+        Vec::new()
+    }
 
     fn snapshot(&self) -> Snapshot;
 

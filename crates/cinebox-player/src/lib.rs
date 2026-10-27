@@ -14,5 +14,5 @@ pub use layout::{ClickZone, SEEK_SECS, click_zone, format_clock};
 #[cfg(not(target_os = "android"))]
 pub use mpv::{GlLoader, MpvPlayer, NativeDisplay};
 pub use player::{
-    Failure, Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
+    Chapter, Failure, Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
 };
