@@ -42,11 +42,7 @@ pub(crate) fn catalog_items_from(
             continue;
         }
 
-        let kind = raw
-            .media_type
-            .as_deref()
-            .and_then(kind_from_media_type)
-            .or(fallback);
+        let kind = raw.media_type.as_deref().and_then(kind_from_media_type).or(fallback);
 
         let Some(kind @ (MediaKind::Movie | MediaKind::Tv)) = kind else {
             continue;
@@ -81,10 +77,7 @@ pub(crate) fn catalog_items_from(
     out
 }
 
-pub(crate) fn person_items_from(
-    items: impl IntoIterator<Item = CatalogListItem>,
-    cap: usize,
-) -> Vec<CatalogItem> {
+pub(crate) fn person_items_from(items: impl IntoIterator<Item = CatalogListItem>, cap: usize) -> Vec<CatalogItem> {
     let mut out = Vec::new();
     let mut seen = Vec::new();
 
@@ -110,10 +103,7 @@ pub(crate) fn person_items_from(
             continue;
         };
 
-        let poster_path = raw
-            .profile_path
-            .or(raw.poster_path)
-            .filter(|path| !path.trim().is_empty());
+        let poster_path = raw.profile_path.or(raw.poster_path).filter(|path| !path.trim().is_empty());
 
         seen.push(id);
         out.push(CatalogItem {
@@ -195,11 +185,7 @@ mod tests {
                 media_type: Some(String::from("movie")),
                 ..Default::default()
             },
-            CatalogListItem {
-                id: Some(9),
-                name: Some(String::from("Pat")),
-                ..Default::default()
-            },
+            CatalogListItem { id: Some(9), name: Some(String::from("Pat")), ..Default::default() },
         ];
 
         let parsed = person_items_from(items, 20);

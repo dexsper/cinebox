@@ -178,10 +178,7 @@ mod change_from {
     #[test]
     fn a_new_network_setting_refetches_the_catalog() {
         let next = TmdbView {
-            net: cinebox_net::NetConfig {
-                dns_bypass: true,
-                ..cinebox_net::NetConfig::default()
-            },
+            net: cinebox_net::NetConfig { dns_bypass: true, ..cinebox_net::NetConfig::default() },
             ..view(KEY)
         };
 
@@ -190,20 +187,14 @@ mod change_from {
 
     #[test]
     fn a_new_language_refetches_texts_only() {
-        let next = TmdbView {
-            language: UiLanguage::Russian,
-            ..view(KEY)
-        };
+        let next = TmdbView { language: UiLanguage::Russian, ..view(KEY) };
 
         assert_eq!(view(KEY).change_from(&next), TmdbChange::Language);
     }
 
     #[test]
     fn a_new_poster_size_keeps_the_catalog() {
-        let next = TmdbView {
-            poster_size: PosterSize::W342,
-            ..view(KEY)
-        };
+        let next = TmdbView { poster_size: PosterSize::W342, ..view(KEY) };
 
         assert_eq!(view(KEY).change_from(&next), TmdbChange::PosterSize);
     }

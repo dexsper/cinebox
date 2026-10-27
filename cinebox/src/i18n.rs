@@ -1,17 +1,15 @@
 //! UI copy via rust-i18n. Active locale is [`apply`].
 
-pub mod errors;
+pub(crate) mod errors;
 
 use std::borrow::Cow;
 
-use cinebox_core::{
-    HomeRowId, LibraryList, ListStatus, MediaDetails, MediaKind, Section, UiLanguage,
-};
+use cinebox_core::{HomeRowId, LibraryList, ListStatus, MediaDetails, MediaKind, Section, UiLanguage};
 use cinebox_tmdb::{DiscoverSort, SectionRow, ShelfId, company, genre, keyword};
 use rust_i18n::t;
 
 /// Sync rust-i18n with the settings language.
-pub fn apply(lang: UiLanguage) {
+pub(crate) fn apply(lang: UiLanguage) {
     rust_i18n::set_locale(locale_code(lang));
 }
 
@@ -25,7 +23,7 @@ fn locale_code(lang: UiLanguage) -> &'static str {
 
 /// The OS language, when Cinebox has a translation for it.
 #[must_use]
-pub fn system_language() -> Option<UiLanguage> {
+pub(crate) fn system_language() -> Option<UiLanguage> {
     let locale = sys_locale::get_locale()?;
     language_for_locale(&locale)
 }
@@ -43,12 +41,12 @@ fn language_for_locale(locale: &str) -> Option<UiLanguage> {
 
 /// Look up a key stored as data (settings catalog, etc.).
 #[must_use]
-pub fn tr(key: &str) -> Cow<'_, str> {
+pub(crate) fn tr(key: &str) -> Cow<'_, str> {
     t!(key)
 }
 
 #[must_use]
-pub fn home_row_title(id: HomeRowId) -> Cow<'static, str> {
+pub(crate) fn home_row_title(id: HomeRowId) -> Cow<'static, str> {
     match id {
         HomeRowId::RecentlyWatched => t!("home.recently_watched"),
         HomeRowId::Watching => t!("home.watching"),
@@ -64,7 +62,7 @@ pub fn home_row_title(id: HomeRowId) -> Cow<'static, str> {
 }
 
 #[must_use]
-pub fn shelf_title(id: ShelfId) -> Cow<'static, str> {
+pub(crate) fn shelf_title(id: ShelfId) -> Cow<'static, str> {
     let row = match id {
         ShelfId::Home(id) => return home_row_title(id),
         ShelfId::Section(_, row) => row,
@@ -89,14 +87,14 @@ pub fn shelf_title(id: ShelfId) -> Cow<'static, str> {
         SectionRow::Golden2000s => t!("shelf.golden_2000s"),
         SectionRow::Comedy2000s => t!("shelf.comedy_2000s"),
         SectionRow::ModernComedy => t!("shelf.modern_comedy"),
-        SectionRow::Genre(id) => genre_name(id),
-        SectionRow::Keyword(id) => keyword_name(id),
-        SectionRow::Studio(id) => Cow::Borrowed(studio_name(id)),
+        SectionRow::Genre(genre) => genre_name(genre),
+        SectionRow::Keyword(keyword) => keyword_name(keyword),
+        SectionRow::Studio(studio) => Cow::Borrowed(studio_name(studio)),
     }
 }
 
 #[must_use]
-pub fn section_title(section: Section) -> Cow<'static, str> {
+pub(crate) fn section_title(section: Section) -> Cow<'static, str> {
     match section {
         Section::Movies => t!("rail.movies"),
         Section::Cartoons => t!("rail.cartoons"),
@@ -107,7 +105,7 @@ pub fn section_title(section: Section) -> Cow<'static, str> {
 
 /// Localized TMDB genre name; empty for ids the app never offers.
 #[must_use]
-pub fn genre_name(id: u32) -> Cow<'static, str> {
+pub(crate) fn genre_name(id: u32) -> Cow<'static, str> {
     match id {
         genre::ACTION => t!("genre.action"),
         genre::ADVENTURE => t!("genre.adventure"),
@@ -160,7 +158,7 @@ fn studio_name(id: u32) -> &'static str {
 }
 
 #[must_use]
-pub fn list_status_label(status: ListStatus) -> Cow<'static, str> {
+pub(crate) fn list_status_label(status: ListStatus) -> Cow<'static, str> {
     match status {
         ListStatus::Watching => t!("library.watching"),
         ListStatus::Planned => t!("library.planned"),
@@ -170,7 +168,7 @@ pub fn list_status_label(status: ListStatus) -> Cow<'static, str> {
 }
 
 #[must_use]
-pub fn library_list_label(list: LibraryList) -> Cow<'static, str> {
+pub(crate) fn library_list_label(list: LibraryList) -> Cow<'static, str> {
     match list {
         LibraryList::Status(status) => list_status_label(status),
         LibraryList::Liked => t!("library.liked"),
@@ -178,7 +176,7 @@ pub fn library_list_label(list: LibraryList) -> Cow<'static, str> {
 }
 
 #[must_use]
-pub fn discover_sort_label(sort: DiscoverSort) -> Cow<'static, str> {
+pub(crate) fn discover_sort_label(sort: DiscoverSort) -> Cow<'static, str> {
     match sort {
         DiscoverSort::Popular => t!("discover.sort_popular"),
         DiscoverSort::Rating => t!("discover.sort_rating"),
@@ -188,7 +186,7 @@ pub fn discover_sort_label(sort: DiscoverSort) -> Cow<'static, str> {
 }
 
 #[must_use]
-pub fn kind_label(kind: MediaKind) -> Cow<'static, str> {
+pub(crate) fn kind_label(kind: MediaKind) -> Cow<'static, str> {
     match kind {
         MediaKind::Tv => t!("discover.series"),
         MediaKind::Movie | MediaKind::Person => t!("discover.movies"),
@@ -197,7 +195,7 @@ pub fn kind_label(kind: MediaKind) -> Cow<'static, str> {
 
 /// Format `125` → `2h 5m` / `2 ч 5 мин`.
 #[must_use]
-pub fn format_runtime(minutes: u32) -> String {
+pub(crate) fn format_runtime(minutes: u32) -> String {
     let hours = minutes / 60;
     let mins = minutes % 60;
 
@@ -272,7 +270,7 @@ fn slavic_plural(n: u32) -> SlavicPlural {
 }
 
 #[must_use]
-pub fn status_label(details: &MediaDetails) -> Option<Cow<'static, str>> {
+pub(crate) fn status_label(details: &MediaDetails) -> Option<Cow<'static, str>> {
     let key = match details.status.as_deref()? {
         "Rumored" => "media.status.rumored",
         "Planned" => "media.status.planned",
@@ -291,7 +289,7 @@ pub fn status_label(details: &MediaDetails) -> Option<Cow<'static, str>> {
 
 /// Runtime (movies) or season/episode counts (TV), then genres.
 #[must_use]
-pub fn detail_bits(details: &MediaDetails) -> Vec<String> {
+pub(crate) fn detail_bits(details: &MediaDetails) -> Vec<String> {
     let mut bits = Vec::new();
     match details.kind {
         MediaKind::Tv => {
@@ -316,7 +314,7 @@ pub fn detail_bits(details: &MediaDetails) -> Vec<String> {
 
 /// Abbreviated month name for `1..=12` in the active UI language.
 #[must_use]
-pub fn month_abbr(month: usize) -> Option<Cow<'static, str>> {
+pub(crate) fn month_abbr(month: usize) -> Option<Cow<'static, str>> {
     match month {
         1 => Some(t!("month.jan")),
         2 => Some(t!("month.feb")),
@@ -336,7 +334,7 @@ pub fn month_abbr(month: usize) -> Option<Cow<'static, str>> {
 
 /// Format `YYYY-MM-DD` as `22 Oct 2021` / `22 окт 2021`. Other strings pass through.
 #[must_use]
-pub fn format_release_date(iso: &str) -> String {
+pub(crate) fn format_release_date(iso: &str) -> String {
     let mut parts = iso.split('-');
     let Some(year) = parts.next() else {
         return iso.to_owned();
@@ -365,10 +363,7 @@ mod tests {
     #[test]
     fn locale_codes_map_to_ui_languages() {
         assert_eq!(language_for_locale("ru-RU"), Some(UiLanguage::Russian));
-        assert_eq!(
-            language_for_locale("uk_UA.UTF-8"),
-            Some(UiLanguage::Ukrainian)
-        );
+        assert_eq!(language_for_locale("uk_UA.UTF-8"), Some(UiLanguage::Ukrainian));
 
         assert_eq!(language_for_locale("en"), Some(UiLanguage::English));
         assert_eq!(language_for_locale("de-DE"), None);
@@ -504,10 +499,7 @@ mod tests {
             ..details
         };
 
-        assert_eq!(
-            detail_bits(&tv),
-            vec!["5\u{a0}seasons", "62\u{a0}episodes", "Sci-Fi", "Adventure"]
-        );
+        assert_eq!(detail_bits(&tv), vec!["5\u{a0}seasons", "62\u{a0}episodes", "Sci-Fi", "Adventure"]);
 
         restore_en();
     }
@@ -546,32 +538,17 @@ mod tests {
         };
 
         rust_i18n::set_locale("en");
-        assert_eq!(
-            status_label(&details("Released")).as_deref(),
-            Some("Released")
-        );
-        assert_eq!(
-            status_label(&details("Returning Series")).as_deref(),
-            Some("Ongoing")
-        );
+        assert_eq!(status_label(&details("Released")).as_deref(), Some("Released"));
+        assert_eq!(status_label(&details("Returning Series")).as_deref(), Some("Ongoing"));
 
         assert_eq!(status_label(&details("Unknown")).as_deref(), None);
-        let no_status = MediaDetails {
-            status: None,
-            ..details("Released")
-        };
+        let no_status = MediaDetails { status: None, ..details("Released") };
 
         assert_eq!(status_label(&no_status).as_deref(), None);
         rust_i18n::set_locale("ru");
 
-        assert_eq!(
-            status_label(&details("Released")).as_deref(),
-            Some("Вышел")
-        );
-        assert_eq!(
-            status_label(&details("Returning Series")).as_deref(),
-            Some("Выходит")
-        );
+        assert_eq!(status_label(&details("Released")).as_deref(), Some("Вышел"));
+        assert_eq!(status_label(&details("Returning Series")).as_deref(), Some("Выходит"));
 
         restore_en();
     }

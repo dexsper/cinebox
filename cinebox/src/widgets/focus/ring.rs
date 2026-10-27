@@ -1,12 +1,12 @@
 //! The ring around the focused widget, the one focus mark a remote user looks for.
 
-use egui::{Context, CornerRadius, Stroke, StrokeKind};
+use egui::{Context, Stroke, StrokeKind};
 
 use super::State;
 use crate::theme::Theme;
 
 pub(super) fn paint(ctx: &Context, theme: &Theme, state: &State) {
-    let Some(id) = ctx.memory(|mem| mem.focused()) else {
+    let Some(id) = ctx.memory(egui::Memory::focused) else {
         return;
     };
 
@@ -31,13 +31,12 @@ pub(super) fn paint(ctx: &Context, theme: &Theme, state: &State) {
 
     let pad = theme.ring_w + theme.ring_gap;
     let ring = target.expand(theme.ring_gap);
-    let radius = CornerRadius::same(theme.radius_card.round() as u8);
-    ctx.layer_painter(response.layer_id)
-        .with_clip_rect(visible.expand(pad))
-        .rect_stroke(
-            ring,
-            radius,
-            Stroke::new(theme.ring_w, theme.ring),
-            StrokeKind::Outside,
-        );
+    let radius = theme.rounding(theme.radius_card);
+
+    ctx.layer_painter(response.layer_id).with_clip_rect(visible.expand(pad)).rect_stroke(
+        ring,
+        radius,
+        Stroke::new(theme.ring_w, theme.ring),
+        StrokeKind::Outside,
+    );
 }

@@ -2,10 +2,10 @@
 
 use egui::{Rect, RichText, Sense, Stroke, StrokeKind, Ui, pos2, vec2};
 
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 
 /// Content width passed to the flyout so it hugs the slider.
-pub const WIDTH: f32 = 28.0;
+pub(super) const WIDTH: f32 = 28.0;
 
 const SLIDER_LEN: f32 = 110.0;
 const TRACK_W: f32 = 6.0;
@@ -13,7 +13,7 @@ const HIT_W: f32 = 24.0;
 const THUMB_R: f32 = 6.0;
 
 /// Vertical 0–100 slider plus the numeric readout. Returns `true` on change.
-pub fn slider(ui: &mut Ui, theme: &Theme, volume: &mut f64) -> bool {
+pub(super) fn slider(ui: &mut Ui, theme: &Theme, volume: &mut f64) -> bool {
     let mut changed = false;
 
     ui.vertical_centered(|ui| {
@@ -31,11 +31,7 @@ pub fn slider(ui: &mut Ui, theme: &Theme, volume: &mut f64) -> bool {
         paint(ui, theme, rect, *volume, response.hovered() || scrubbing);
 
         ui.add_space(6.0);
-        ui.label(
-            RichText::new(format!("{:.0}", *volume))
-                .size(theme.text_caption)
-                .color(theme.muted_bright),
-        );
+        ui.label(RichText::new(format!("{:.0}", *volume)).size(theme.text_caption).color(theme.muted_bright));
     });
 
     changed
@@ -43,15 +39,9 @@ pub fn slider(ui: &mut Ui, theme: &Theme, volume: &mut f64) -> bool {
 
 fn paint(ui: &Ui, theme: &Theme, rect: Rect, volume: f64, engaged: bool) {
     let track = Rect::from_center_size(rect.center(), vec2(TRACK_W, rect.height()));
-    ui.painter().rect(
-        track,
-        3.0,
-        theme.input_bg,
-        Stroke::new(1.0, theme.window_edge),
-        StrokeKind::Inside,
-    );
+    ui.painter().rect(track, 3.0, theme.input_bg, Stroke::new(1.0, theme.window_edge), StrokeKind::Inside);
 
-    let fraction = (volume / 100.0).clamp(0.0, 1.0) as f32;
+    let fraction = theme::fraction(volume / 100.0);
     let mut fill = track;
     fill.min.y = track.bottom() - track.height() * fraction;
     ui.painter().rect_filled(fill, 3.0, theme.selection);
@@ -62,6 +52,5 @@ fn paint(ui: &Ui, theme: &Theme, rect: Rect, volume: f64, engaged: bool) {
 
     let thumb = pos2(track.center().x, fill.top());
     ui.painter().circle_filled(thumb, THUMB_R, theme.selection);
-    ui.painter()
-        .circle_stroke(thumb, THUMB_R, Stroke::new(1.0, theme.title));
+    ui.painter().circle_stroke(thumb, THUMB_R, Stroke::new(1.0, theme.title));
 }

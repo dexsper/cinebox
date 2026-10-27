@@ -34,9 +34,7 @@ impl Date {
     /// Today in UTC. Falls back to the Unix epoch if the system clock is before it.
     #[must_use]
     pub fn today() -> Self {
-        let secs = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map_or(0, |elapsed| elapsed.as_secs());
+        let secs = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_secs());
 
         let days = i64::try_from(secs / 86_400).unwrap_or(0);
         Self::from_days(days)
@@ -187,10 +185,7 @@ impl DiscoverQuery {
 
     pub(crate) fn params(&self, today: Date) -> Vec<(&'static str, String)> {
         let tv = self.kind == MediaKind::Tv;
-        let mut out = vec![
-            ("include_adult", String::from("false")),
-            ("sort_by", String::from(self.sort_key())),
-        ];
+        let mut out = vec![("include_adult", String::from("false")), ("sort_by", String::from(self.sort_key()))];
 
         push_ids(&mut out, "with_genres", &self.genres, ",");
         push_ids(&mut out, "without_genres", &self.without_genres, ",");
@@ -204,7 +199,7 @@ impl DiscoverQuery {
 
         let released_to = match self.sort {
             DiscoverSort::Newest => self.released_to.or(Some(today)),
-            _ => self.released_to,
+            DiscoverSort::Popular | DiscoverSort::Rating | DiscoverSort::Revenue => self.released_to,
         };
 
         let (from_key, to_key) = if tv {
@@ -224,7 +219,7 @@ impl DiscoverQuery {
 
         let vote_count = match self.sort {
             DiscoverSort::Rating => self.vote_count_min.or(Some(RATING_SORT_MIN_VOTES)),
-            _ => self.vote_count_min,
+            DiscoverSort::Popular | DiscoverSort::Newest | DiscoverSort::Revenue => self.vote_count_min,
         };
 
         if let Some(count) = vote_count {
@@ -270,10 +265,7 @@ mod tests {
     const TODAY: Date = Date::new(2026, 9, 26);
 
     fn param<'a>(params: &'a [(&'static str, String)], key: &str) -> Option<&'a str> {
-        params
-            .iter()
-            .find(|(name, _)| *name == key)
-            .map(|(_, value)| value.as_str())
+        params.iter().find(|(name, _)| *name == key).map(|(_, value)| value.as_str())
     }
 
     mod date {
@@ -307,16 +299,14 @@ mod tests {
 
         #[test]
         fn cartoons_exclude_anime_keyword() {
-            let params =
-                DiscoverQuery::for_section(Section::Cartoons, MediaKind::Movie).params(TODAY);
+            let params = DiscoverQuery::for_section(Section::Cartoons, MediaKind::Movie).params(TODAY);
 
             assert_eq!(param(&params, "without_keywords"), Some("210024"));
         }
 
         #[test]
         fn movies_exclude_animation() {
-            let params =
-                DiscoverQuery::for_section(Section::Movies, MediaKind::Movie).params(TODAY);
+            let params = DiscoverQuery::for_section(Section::Movies, MediaKind::Movie).params(TODAY);
 
             assert_eq!(param(&params, "without_genres"), Some("16"));
         }
@@ -330,10 +320,7 @@ mod tests {
             let mut query = DiscoverQuery::new(MediaKind::Tv);
             query.released_from = Some(Date::jan1(2020));
 
-            assert_eq!(
-                param(&query.params(TODAY), "first_air_date.gte"),
-                Some("2020-01-01")
-            );
+            assert_eq!(param(&query.params(TODAY), "first_air_date.gte"), Some("2020-01-01"));
         }
 
         #[test]
@@ -349,10 +336,7 @@ mod tests {
             let mut query = DiscoverQuery::new(MediaKind::Tv);
             query.keywords = vec![keyword::VAMPIRE, keyword::ROBOT];
 
-            assert_eq!(
-                param(&query.params(TODAY), "with_keywords"),
-                Some("3133|14544")
-            );
+            assert_eq!(param(&query.params(TODAY), "with_keywords"), Some("3133|14544"));
         }
 
         #[test]
@@ -368,10 +352,7 @@ mod tests {
             let mut query = DiscoverQuery::new(MediaKind::Movie);
             query.sort = DiscoverSort::Newest;
 
-            assert_eq!(
-                param(&query.params(TODAY), "primary_release_date.lte"),
-                Some("2026-09-26")
-            );
+            assert_eq!(param(&query.params(TODAY), "primary_release_date.lte"), Some("2026-09-26"));
         }
 
         #[test]
@@ -379,10 +360,7 @@ mod tests {
             let mut query = DiscoverQuery::new(MediaKind::Tv);
             query.sort = DiscoverSort::Revenue;
 
-            assert_eq!(
-                param(&query.params(TODAY), "sort_by"),
-                Some("popularity.desc")
-            );
+            assert_eq!(param(&query.params(TODAY), "sort_by"), Some("popularity.desc"));
         }
     }
 }

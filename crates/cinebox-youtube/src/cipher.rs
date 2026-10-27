@@ -6,13 +6,11 @@ use std::sync::LazyLock;
 use regex::Regex;
 
 use crate::error::Error;
-use crate::jsinterp::{JSInterpreter, JsFunction, JsValue};
+use crate::jsinterp::{JsFunction, JsInterpreter, JsValue};
 
-static PLAYER_JS_URL: LazyLock<Regex> =
-    LazyLock::new(|| re(r#""(?:PLAYER_JS_URL|jsUrl)"\s*:\s*"([^"]+)""#));
+static PLAYER_JS_URL: LazyLock<Regex> = LazyLock::new(|| re(r#""(?:PLAYER_JS_URL|jsUrl)"\s*:\s*"([^"]+)""#));
 
-static STS_RE: LazyLock<Regex> =
-    LazyLock::new(|| re(r"(?:signatureTimestamp|sts)\s*:\s*(?P<sts>[0-9]{5})"));
+static STS_RE: LazyLock<Regex> = LazyLock::new(|| re(r"(?:signatureTimestamp|sts)\s*:\s*(?P<sts>[0-9]{5})"));
 
 static SIG_NAME: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     let pats = [
@@ -38,11 +36,14 @@ static SIG_NAME: LazyLock<Vec<Regex>> = LazyLock::new(|| {
     out
 });
 
-static NSIG_ASSIGN: LazyLock<Regex> =
-    LazyLock::new(|| re(r"([A-Za-z_$][\w$]*)\s*=\s*function\(([A-Za-z_$][\w$]*)\)\s*\{"));
+static NSIG_ASSIGN: LazyLock<Regex> = LazyLock::new(|| {
+    let pattern = r"([A-Za-z_$][\w$]*)\s*=\s*function\(([A-Za-z_$][\w$]*)\)\s*\{";
+    re(pattern)
+});
 
 static NSIG_ARRAY: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"[\n;]var\s+[A-Za-z_$][\w$]*\s*=\s*\[(?P<nfunc>[A-Za-z_$][\w$]*)\]\s*[;\n]")
+    let pattern = r"[\n;]var\s+[A-Za-z_$][\w$]*\s*=\s*\[(?P<nfunc>[A-Za-z_$][\w$]*)\]\s*[;\n]";
+    re(pattern)
 });
 
 fn re(pattern: &str) -> Regex {
@@ -50,10 +51,7 @@ fn re(pattern: &str) -> Regex {
 }
 
 pub(crate) fn player_js_url(html: &str) -> Option<&str> {
-    PLAYER_JS_URL
-        .captures(html)
-        .and_then(|c| c.get(1))
-        .map(|m| m.as_str())
+    PLAYER_JS_URL.captures(html).and_then(|c| c.get(1)).map(|m| m.as_str())
 }
 
 pub(crate) fn signature_timestamp(js: &str) -> Option<u32> {
@@ -64,7 +62,7 @@ pub(crate) fn signature_timestamp(js: &str) -> Option<u32> {
 }
 
 pub(crate) struct Decipher {
-    interp: JSInterpreter,
+    interp: JsInterpreter,
     sig: Option<JsFunction>,
     nsig: Option<JsFunction>,
     perm: Option<(usize, Vec<usize>)>,
@@ -73,13 +71,7 @@ pub(crate) struct Decipher {
 
 impl Decipher {
     pub(crate) fn new(js: String) -> Self {
-        Self {
-            interp: JSInterpreter::new(js),
-            sig: None,
-            nsig: None,
-            perm: None,
-            n_map: HashMap::new(),
-        }
+        Self { interp: JsInterpreter::new(js), sig: None, nsig: None, perm: None, n_map: HashMap::new() }
     }
 
     pub(crate) fn decrypt_sig(&mut self, s: &str) -> Result<String, Error> {
@@ -150,7 +142,7 @@ impl Decipher {
     }
 }
 
-fn extract_named(interp: &mut JSInterpreter, name: &str) -> Result<JsFunction, Error> {
+fn extract_named(interp: &mut JsInterpreter, name: &str) -> Result<JsFunction, Error> {
     let (args, body) = interp.extract_function_code(name)?;
     let func = interp.extract_with_body(name, args, body)?;
 
@@ -201,7 +193,8 @@ fn test_string(len: usize) -> String {
     let mut s = String::with_capacity(len);
 
     for i in 0..len {
-        if let Some(c) = char::from_u32(i as u32) {
+        let code = u32::try_from(i).ok();
+        if let Some(c) = code.and_then(char::from_u32) {
             s.push(c);
         }
     }
@@ -239,7 +232,7 @@ fn apply_perm(s: &str, perm: &[usize]) -> Result<String, Error> {
 }
 
 fn call_str(
-    interp: &mut JSInterpreter,
+    interp: &mut JsInterpreter,
     func: &JsFunction,
     arg: &str,
     kwargs: Option<&HashMap<String, JsValue>>,

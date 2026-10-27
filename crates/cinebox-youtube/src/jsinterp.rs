@@ -19,37 +19,33 @@ pub use value::{JsFunction, JsRegex, JsValue};
 use crate::error::JsError;
 use separate::{ALL_OPS, OP_CHARS, comma_split, separate, separate_at_paren};
 use value::{
-    CmpOp, EnvMap, EnvRc, EnvSlot, RE_G, RE_I, RE_M, RE_S, RE_U, js_add, js_cmp, js_div, js_eq,
-    js_exp, js_mod, js_mul, js_number_string, js_shift_count, js_strict_eq, js_sub, js_to_int32,
+    CmpOp, EnvMap, EnvRc, EnvSlot, FunctionCode, RE_G, RE_I, RE_M, RE_S, RE_U, js_add, js_cmp, js_count, js_div, js_eq,
+    js_exp, js_index, js_integer, js_mod, js_mul, js_number_string, js_shift_count, js_signed_len, js_strict_eq,
+    js_sub, js_to_int32,
 };
 
 const NAME: &str = r"[A-Za-z_$][0-9A-Za-z_$]*";
 const OBJ_PREFIX: &str = "__youtube_dl_jsinterp_obj";
 const MAX_LOOP_ITERS: u32 = 100_000;
+const MAX_ARRAY_INDEX: usize = 1 << 20;
 
 static COMPOUND: LazyLock<Regex> = LazyLock::new(|| {
-    re(
-        r"(?P<try>try)\s*\{|(?P<if>if)\s*\(|(?P<switch>switch)\s*\(|(?P<for>for)\s*\(|(?P<while>while)\s*\(",
-    )
+    re(r"(?P<try>try)\s*\{|(?P<if>if)\s*\(|(?P<switch>switch)\s*\(|(?P<for>for)\s*\(|(?P<while>while)\s*\(")
 });
 
 static FINALLY_RE: LazyLock<Regex> = LazyLock::new(|| re(r"finally\s*\{"));
 
-static CATCH_RE: LazyLock<Regex> =
-    LazyLock::new(|| re(&format!(r"catch\s*(?:\((?P<err>\s*{NAME}\s*)\))?\s*\{{")));
+static CATCH_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"catch\s*(?:\((?P<err>\s*{NAME}\s*)\))?\s*\{{")));
 
 static NESTED_FN: LazyLock<Regex> = LazyLock::new(|| re(r"function\((?P<args>[^)]*)\)\s*\{"));
 
 static OBJECT_FN: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!(
-        r"(?P<key>{NAME})\s*:\s*function\s*\((?P<args>(?:{NAME}|,)*)\)\{{(?P<code>[^}}]+)\}}"
-    ))
+    re(&format!(r"(?P<key>{NAME})\s*:\s*function\s*\((?P<args>(?:{NAME}|,)*)\)\{{(?P<code>[^}}]+)\}}"))
 });
 
 static INC_RE: LazyLock<Regex> = LazyLock::new(|| {
-    re(&format!(
-        r"(?P<pre_sign>\+\+|--)(?P<var1>{NAME})|(?P<var2>{NAME})(?P<post_sign>\+\+|--)"
-    ))
+    let pattern = format!(r"(?P<pre_sign>\+\+|--)(?P<var1>{NAME})|(?P<var2>{NAME})(?P<post_sign>\+\+|--)");
+    re(&pattern)
 });
 
 static NAME_RE: LazyLock<Regex> = LazyLock::new(|| re(&format!(r"^{NAME}$")));
@@ -58,7 +54,23 @@ fn re(pattern: &str) -> Regex {
     Regex::new(pattern).unwrap_or_else(|error| panic!("jsinterp regex {pattern}: {error}"))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum LoopKind {
+    For,
+    While,
+}
+
+/// What a leading literal or block leaves of a statement.
+enum Expanded {
+    /// The statement is done: its value, and whether a `return` ran in it.
+    Settled(JsValue, bool),
+
+    /// The statement goes on with the literal replaced by a name for its value.
+    Rewritten(String),
+}
+
 /// `var.member`, or `var?.member` when `nullish`.
+#[derive(Clone, Copy)]
 struct MemberAccess<'a> {
     var: &'a str,
     member: &'a str,
@@ -66,7 +78,8 @@ struct MemberAccess<'a> {
 }
 
 /// youtube-dl `JSInterpreter`.
-pub struct JSInterpreter {
+#[derive(Debug)]
+pub struct JsInterpreter {
     code: Rc<str>,
     functions: HashMap<String, JsFunction>,
     objects: HashMap<String, JsValue>,
@@ -81,9 +94,7 @@ struct LocalNs {
 impl LocalNs {
     fn new(maps: Vec<EnvRc>) -> Self {
         if maps.is_empty() {
-            return Self {
-                maps: vec![Rc::new(RefCell::new(HashMap::new()))],
-            };
+            return Self { maps: vec![Rc::new(RefCell::new(HashMap::new()))] };
         }
 
         Self { maps }
@@ -113,20 +124,14 @@ impl LocalNs {
     }
 }
 
-impl JSInterpreter {
+impl JsInterpreter {
     #[must_use]
     pub fn new(code: impl Into<String>) -> Self {
         Self::new_rc(Rc::<str>::from(code.into()))
     }
 
     fn new_rc(code: Rc<str>) -> Self {
-        Self {
-            code,
-            functions: HashMap::new(),
-            objects: HashMap::new(),
-            scratch: HashMap::new(),
-            named_counter: 0,
-        }
+        Self { code, functions: HashMap::new(), objects: HashMap::new(), scratch: HashMap::new(), named_counter: 0 }
     }
 
     pub(crate) fn code_str(&self) -> &str {
@@ -147,7 +152,7 @@ impl JSInterpreter {
     pub(crate) fn call_extracted(
         func: &JsFunction,
         args: &[JsValue],
-        kwargs: Option<&std::collections::HashMap<String, JsValue>>,
+        kwargs: Option<&HashMap<String, JsValue>>,
         rec: i32,
     ) -> Result<JsValue, JsError> {
         let mut interp = Self::new_rc(func.source());
@@ -171,7 +176,7 @@ impl JSInterpreter {
     pub fn extract_function_with(
         &mut self,
         name: &str,
-        extra: Vec<std::collections::HashMap<String, JsValue>>,
+        extra: Vec<HashMap<String, JsValue>>,
     ) -> Result<JsFunction, JsError> {
         let (args, body) = self.extract_function_code(name)?;
 
@@ -190,10 +195,7 @@ impl JSInterpreter {
         self.extract_function_from_code(name, args, body, &stack)
     }
 
-    pub(crate) fn extract_function_code(
-        &self,
-        name: &str,
-    ) -> Result<(Vec<String>, String), JsError> {
+    pub(crate) fn extract_function_code(&self, name: &str) -> Result<(Vec<String>, String), JsError> {
         let escaped = regex::escape(name);
         let pat = format!(
             r"(?s)(?:function\s+{escaped}|[{{;,]\s*{escaped}\s*=\s*function|(?:var|const|let)\s+{escaped}\s*=\s*function)\s*\((?P<args>[^)]*)\)\s*(?P<code>\{{.+}})"
@@ -204,9 +206,9 @@ impl JSInterpreter {
             return Err(JsError::msg(missing));
         };
 
-        let args_txt = caps.name("args").map(|m| m.as_str()).unwrap_or("");
+        let args_txt = caps.name("args").map_or("", |m| m.as_str());
         let args = build_arglist(args_txt);
-        let code = caps.name("code").map(|m| m.as_str()).unwrap_or("");
+        let code = caps.name("code").map_or("", |m| m.as_str());
         let (body, _) = separate_at_paren(code, Some('}'))?;
 
         Ok((args, body))
@@ -238,8 +240,8 @@ impl JSInterpreter {
                 return Err(JsError::msg("nested function"));
             };
 
-            let args_txt = caps.name("args").map(|m| m.as_str()).unwrap_or("");
-            let body_start = start + caps.get(0).map(|m| m.end()).unwrap_or(0) - 1;
+            let args_txt = caps.name("args").map_or("", |arg| arg.as_str());
+            let body_start = start + caps.get(0).map_or(0, |whole| whole.end()) - 1;
             let (body, remaining) = separate_at_paren(&code[body_start..], Some('}'))?;
             let nested_args = build_arglist(args_txt);
             let mut child_stack = Vec::with_capacity(stack.len() + 1);
@@ -249,8 +251,7 @@ impl JSInterpreter {
 
             let n = self.next_named_id();
             let fname = u32_string(n);
-            let nested_fn =
-                self.extract_function_from_code(&fname, nested_args, body, &child_stack)?;
+            let nested_fn = self.extract_function_from_code(&fname, nested_args, body, &child_stack)?;
             let obj_name = named_var(n);
 
             nested.insert(obj_name.clone(), nested_fn);
@@ -260,18 +261,16 @@ impl JSInterpreter {
         let mut closure = Vec::with_capacity(stack.len() + 1);
         closure.push(local);
         closure.extend(stack.iter().cloned());
-        let source = Rc::clone(&self.code);
+        let function_code = FunctionCode { argnames, body: code, source: Rc::clone(&self.code) };
 
-        Ok(JsFunction::new(
-            name, argnames, code, source, closure, nested,
-        ))
+        Ok(JsFunction::new(name, function_code, closure, nested))
     }
 
     fn run_function(
         &mut self,
         func: &JsFunction,
         args: &[JsValue],
-        kwargs: Option<&std::collections::HashMap<String, JsValue>>,
+        kwargs: Option<&HashMap<String, JsValue>>,
         rec: i32,
     ) -> Result<JsValue, JsError> {
         self.push_nested(func);
@@ -350,8 +349,8 @@ impl JSInterpreter {
             return val;
         }
 
-        if let Some(val) = self.scratch.get(name) {
-            return val.clone();
+        if let Some(scratch) = self.scratch.get(name) {
+            return scratch.clone();
         }
 
         if let Some(func) = self.functions.get(name) {
@@ -372,9 +371,7 @@ impl JSInterpreter {
             JsValue::Bool(true) => String::from("true"),
             JsValue::Bool(false) => String::from("false"),
             JsValue::Number(n) if n.is_nan() => String::from("NaN"),
-            JsValue::Number(n) if n.is_infinite() && n.is_sign_positive() => {
-                String::from("Infinity")
-            }
+            JsValue::Number(n) if n.is_infinite() && n.is_sign_positive() => String::from("Infinity"),
             JsValue::Number(n) if n.is_infinite() => String::from("-Infinity"),
             JsValue::Number(n) => js_number_string(*n),
             JsValue::String(s) => serde_json::to_string(s.as_ref()).unwrap_or_else(|_| {
@@ -384,35 +381,31 @@ impl JSInterpreter {
                 out.push('"');
                 out
             }),
-            other => self.named_object(other.clone()),
+            JsValue::Array(_) | JsValue::Object(_) | JsValue::Function(_) | JsValue::Regex(_) => {
+                self.named_object(obj.clone())
+            }
         }
     }
 
+    /// Runs `remaining` on `val`; the flag says whether a `return` ran there.
     fn continue_with(
         &mut self,
         val: JsValue,
         remaining: &str,
         local: &LocalNs,
         rec: i32,
-        should_return: bool,
     ) -> Result<(JsValue, bool), JsError> {
         if remaining.trim().is_empty() {
-            return Ok((val, should_return));
+            return Ok((val, false));
         }
 
         let name = self.named_object(val);
         let next = concat2(&name, remaining);
-        let (ret, abort) = self.interpret_statement(&next, local, rec)?;
 
-        Ok((ret, abort || should_return))
+        self.interpret_statement(&next, local, rec)
     }
 
-    fn interpret_expression(
-        &mut self,
-        expr: &str,
-        local: &LocalNs,
-        rec: i32,
-    ) -> Result<JsValue, JsError> {
+    fn interpret_expression(&mut self, expr: &str, local: &LocalNs, rec: i32) -> Result<JsValue, JsError> {
         let (ret, should_return) = self.interpret_statement(expr, local, rec)?;
 
         if should_return {
@@ -422,12 +415,7 @@ impl JSInterpreter {
         Ok(ret)
     }
 
-    fn interpret_iter(
-        &mut self,
-        list_txt: &str,
-        local: &LocalNs,
-        rec: i32,
-    ) -> Result<Vec<JsValue>, JsError> {
+    fn interpret_iter(&mut self, list_txt: &str, local: &LocalNs, rec: i32) -> Result<Vec<JsValue>, JsError> {
         let parts = comma_split(list_txt);
         let only_empty = parts.len() == 1;
         let mut out = Vec::with_capacity(parts.len());
@@ -443,12 +431,7 @@ impl JSInterpreter {
         Ok(out)
     }
 
-    fn interpret_statement(
-        &mut self,
-        stmt: &str,
-        local: &LocalNs,
-        rec: i32,
-    ) -> Result<(JsValue, bool), JsError> {
+    fn interpret_statement(&mut self, stmt: &str, local: &LocalNs, rec: i32) -> Result<(JsValue, bool), JsError> {
         if rec < 0 {
             return Err(JsError::Recursion);
         }
@@ -500,57 +483,9 @@ impl JSInterpreter {
         }
 
         if expr.starts_with('{') {
-            let (inner, outer) = separate_at_paren(&expr, Some('}'))?;
-            let chunks = comma_split(&inner);
-            let mut sub_exprs = Vec::with_capacity(chunks.len());
-
-            for sub in chunks {
-                let parts = separate(sub.trim(), ":", Some(1), &[]);
-                let parts: Vec<String> = parts.into_iter().map(|s| s.trim().to_owned()).collect();
-                sub_exprs.push(parts);
-            }
-
-            let inner_empty = inner.trim().is_empty();
-            let all_pairs = sub_exprs.iter().all(|p| p.len() == 2);
-            let is_object = inner_empty || (!sub_exprs.is_empty() && all_pairs);
-
-            if inner_empty {
-                let val = JsValue::object(HashMap::new());
-
-                if outer.is_empty() {
-                    return Ok((val, should_return));
-                }
-
-                expr = concat2(&self.dump(&val), &outer);
-            }
-
-            if !inner_empty && is_object {
-                let mut map = HashMap::with_capacity(sub_exprs.len());
-
-                for pair in &sub_exprs {
-                    let key = object_key(self, &pair[0], local, rec)?;
-                    let val = self.interpret_expression(&pair[1], local, rec)?;
-                    map.insert(key, val);
-                }
-
-                let val = JsValue::object(map);
-
-                if outer.is_empty() {
-                    return Ok((val, should_return));
-                }
-
-                expr = concat2(&self.dump(&val), &outer);
-            }
-
-            if !inner_empty && !is_object {
-                let (inner_val, abort) = self.interpret_statement(&inner, local, rec)?;
-                let done = outer.is_empty() || abort;
-
-                if done {
-                    return Ok((inner_val, abort || should_return));
-                }
-
-                expr = concat2(&self.dump(&inner_val), &outer);
+            match self.expand_braces(&expr, local, rec)? {
+                Expanded::Settled(value, abort) => return Ok((value, abort || should_return)),
+                Expanded::Rewritten(rewritten) => expr = rewritten,
             }
         }
 
@@ -589,7 +524,62 @@ impl JSInterpreter {
             return Ok((ret, false));
         }
 
-        expr = self.apply_increments(&expr, local);
+        self.interpret_plain(&expr, local, rec, should_return)
+    }
+
+    /// A statement that opens with `{`: an object literal or a block.
+    fn expand_braces(&mut self, expr: &str, local: &LocalNs, rec: i32) -> Result<Expanded, JsError> {
+        let (inner, outer) = separate_at_paren(expr, Some('}'))?;
+        let chunks = comma_split(&inner);
+        let mut sub_exprs = Vec::with_capacity(chunks.len());
+
+        for sub in chunks {
+            let pair = separate(sub.trim(), ":", Some(1), &[]);
+            let pair: Vec<String> = pair.into_iter().map(|s| s.trim().to_owned()).collect();
+            sub_exprs.push(pair);
+        }
+
+        let inner_empty = inner.trim().is_empty();
+        let all_pairs = sub_exprs.iter().all(|p| p.len() == 2);
+        let is_object = inner_empty || (!sub_exprs.is_empty() && all_pairs);
+
+        if !is_object {
+            let (inner_val, abort) = self.interpret_statement(&inner, local, rec)?;
+
+            if outer.is_empty() || abort {
+                return Ok(Expanded::Settled(inner_val, abort));
+            }
+
+            return Ok(Expanded::Rewritten(concat2(&self.dump(&inner_val), &outer)));
+        }
+
+        let fields = if inner_empty { &[][..] } else { sub_exprs.as_slice() };
+        let mut map = HashMap::with_capacity(fields.len());
+
+        for pair in fields {
+            let key = object_key(self, &pair[0], local, rec)?;
+            let val = self.interpret_expression(&pair[1], local, rec)?;
+            map.insert(key, val);
+        }
+
+        let val = JsValue::object(map);
+
+        if outer.is_empty() {
+            return Ok(Expanded::Settled(val, false));
+        }
+
+        Ok(Expanded::Rewritten(concat2(&self.dump(&val), &outer)))
+    }
+
+    /// A statement with no literal, block or keyword left to peel off its front.
+    fn interpret_plain(
+        &mut self,
+        expr: &str,
+        local: &LocalNs,
+        rec: i32,
+        should_return: bool,
+    ) -> Result<(JsValue, bool), JsError> {
+        let expr = self.apply_increments(expr, local);
 
         if expr.is_empty() {
             return Ok((JsValue::Null, should_return));
@@ -623,9 +613,9 @@ impl JSInterpreter {
             return Ok(result);
         }
 
-        if let Some(op_split) = self.separate_at_op(&expr) {
+        if let Some(op_split) = separate_at_op(&expr) {
             let (op, left, right) = op_split;
-            let val = self.eval_operator(&op, &left, &right, local, rec)?;
+            let val = self.eval_operator(&op, [&left, &right], local, rec)?;
             return Ok((val, should_return));
         }
 
@@ -703,9 +693,9 @@ impl JSInterpreter {
             let pattern: String = inner.chars().skip(1).collect();
             let re = JsRegex::new(&pattern, flags)?;
             let val = JsValue::Regex(Rc::new(re));
-            let result = self.continue_with(val, &outer, local, rec, should_return)?;
+            let (value, abort) = self.continue_with(val, &outer, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         let quoted = concat2(&inner, &q.to_string());
@@ -713,9 +703,9 @@ impl JSInterpreter {
             return Ok(None);
         };
 
-        let result = self.continue_with(val, &outer, local, rec, should_return)?;
+        let (value, abort) = self.continue_with(val, &outer, local, rec)?;
 
-        Ok(Some(result))
+        Ok(Some((value, abort || should_return)))
     }
 
     fn try_new_kw(
@@ -743,19 +733,16 @@ impl JSInterpreter {
             let val = match klass {
                 "Date" => JsValue::Number(date::construct(&argvals)),
                 "RegExp" => {
-                    let pat = argvals
-                        .first()
-                        .map(JsValue::to_js_string)
-                        .unwrap_or_default();
-                    let flags = argvals.get(1).map(flags_from_value).unwrap_or(0);
+                    let pat = argvals.first().map(JsValue::to_js_string).unwrap_or_default();
+                    let flags = argvals.get(1).map_or(0, flags_from_value);
                     JsValue::Regex(Rc::new(JsRegex::new(&pat, flags)?))
                 }
                 _ => JsValue::string("Error"),
             };
 
-            let result = self.continue_with(val, &right, local, rec, should_return)?;
+            let (value, abort) = self.continue_with(val, &right, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         Err(JsError::msg("unsupported object"))
@@ -784,7 +771,7 @@ impl JSInterpreter {
             }
 
             let operand = operand.to_owned();
-            let val = self.eval_operator(op, &operand, "", local, rec)?;
+            let val = self.eval_operator(op, [&operand, ""], local, rec)?;
             return Ok(Some((val, should_return)));
         }
 
@@ -802,7 +789,7 @@ impl JSInterpreter {
             return Ok(None);
         };
 
-        let end = caps.get(0).map(|m| m.end()).unwrap_or(0);
+        let end = caps.get(0).map_or(0, |m| m.end());
         let rest = &expr[end - 1..];
 
         if caps.name("if").is_some() {
@@ -817,13 +804,16 @@ impl JSInterpreter {
             return Ok(Some(result));
         }
 
-        let is_for = caps.name("for").is_some();
-        let is_while = caps.name("while").is_some();
+        let loop_kind = match (caps.name("for"), caps.name("while")) {
+            (Some(_), _) => Some(LoopKind::For),
+            (None, Some(_)) => Some(LoopKind::While),
+            (None, None) => None,
+        };
 
-        if is_for || is_while {
-            let result = self.eval_loop(is_for, rest, local, rec, should_return)?;
+        if let Some(kind) = loop_kind {
+            let (value, abort) = self.eval_loop(kind, rest, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         if caps.name("switch").is_some() {
@@ -864,10 +854,10 @@ impl JSInterpreter {
         }
 
         if let Some(body) = branch {
-            let (ret, abort) = self.interpret_statement(&body, local, rec)?;
+            let (value, abort) = self.interpret_statement(&body, local, rec)?;
 
             if abort {
-                return Ok((ret, true));
+                return Ok((value, true));
             }
         }
 
@@ -875,9 +865,9 @@ impl JSInterpreter {
             return Ok((JsValue::Null, should_return));
         }
 
-        let (ret, abort) = self.interpret_statement(&rest, local, rec)?;
+        let (value, abort) = self.interpret_statement(&rest, local, rec)?;
 
-        Ok((ret, abort || should_return))
+        Ok((value, abort || should_return))
     }
 
     fn eval_try(
@@ -892,9 +882,9 @@ impl JSInterpreter {
         let mut pending = (JsValue::Null, false);
 
         match self.interpret_statement(&try_expr, local, rec) {
-            Ok((ret, abort)) => {
+            Ok((value, abort)) => {
                 if abort {
-                    return Ok((ret, true));
+                    return Ok((value, true));
                 }
             }
             Err(e) => err = Some(e),
@@ -903,7 +893,7 @@ impl JSInterpreter {
         rest = rest.trim_start().to_owned();
 
         if let Some(caps) = CATCH_RE.captures(&rest) {
-            let end = caps.get(0).map(|m| m.end()).unwrap_or(0);
+            let end = caps.get(0).map_or(0, |m| m.end());
             let err_name = caps.name("err").map(|m| m.as_str().trim().to_owned());
             let catch_src = rest[end - 1..].to_owned();
             let (sub, outer) = separate_at_paren(&catch_src, Some('}'))?;
@@ -930,13 +920,13 @@ impl JSInterpreter {
         rest = rest.trim_start().to_owned();
 
         if let Some(caps) = FINALLY_RE.captures(&rest) {
-            let end = caps.get(0).map(|m| m.end()).unwrap_or(0);
+            let end = caps.get(0).map_or(0, |m| m.end());
             let finally_src = &rest[end - 1..];
             let (sub, _outer) = separate_at_paren(finally_src, Some('}'))?;
-            let (ret, abort) = self.interpret_statement(&sub, local, rec)?;
+            let (value, abort) = self.interpret_statement(&sub, local, rec)?;
 
             if abort {
-                return Ok((ret, true));
+                return Ok((value, true));
             }
         }
 
@@ -951,26 +941,20 @@ impl JSInterpreter {
         Ok((pending.0, should_return))
     }
 
-    fn eval_loop(
-        &mut self,
-        is_for: bool,
-        expr: &str,
-        local: &LocalNs,
-        rec: i32,
-        should_return: bool,
-    ) -> Result<(JsValue, bool), JsError> {
+    /// The flag says whether a `return` ran in the loop or after it.
+    fn eval_loop(&mut self, kind: LoopKind, expr: &str, local: &LocalNs, rec: i32) -> Result<(JsValue, bool), JsError> {
         let (init_or_cond, remaining) = separate_at_paren(expr, Some(')'))?;
 
         let (body, rest) = split_loop_body(remaining)?;
         let mut cndn = init_or_cond.clone();
         let mut increment = None;
 
-        if is_for {
+        if kind == LoopKind::For {
             let parts = separate(&init_or_cond, ";", None, &[]);
             let start = parts.first().cloned().unwrap_or_default();
             cndn = parts.get(1).cloned().unwrap_or_default();
             increment = parts.get(2).cloned();
-            let _ = self.interpret_expression(&start, local, rec)?;
+            self.interpret_expression(&start, local, rec)?;
         }
 
         let mut iters = 0_u32;
@@ -989,9 +973,9 @@ impl JSInterpreter {
             iters += 1;
 
             match self.interpret_statement(&body, local, rec) {
-                Ok((ret, abort)) => {
+                Ok((value, abort)) => {
                     if abort {
-                        return Ok((ret, true));
+                        return Ok((value, true));
                     }
                 }
                 Err(JsError::Break) => break,
@@ -1000,17 +984,15 @@ impl JSInterpreter {
             }
 
             if let Some(inc) = &increment {
-                let _ = self.interpret_expression(inc, local, rec)?;
+                self.interpret_expression(inc, local, rec)?;
             }
         }
 
         if rest.trim().is_empty() {
-            return Ok((JsValue::Null, should_return));
+            return Ok((JsValue::Null, false));
         }
 
-        let (ret, abort) = self.interpret_statement(&rest, local, rec)?;
-
-        Ok((ret, abort || should_return))
+        self.interpret_statement(&rest, local, rec)
     }
 
     fn eval_switch(
@@ -1027,13 +1009,13 @@ impl JSInterpreter {
         let body = body.replace("default:", "case default:");
         let items: Vec<&str> = body.split("case ").skip(1).collect();
 
-        let mut ret = JsValue::Null;
+        let mut value = JsValue::Null;
         for default in [false, true] {
             let mut matched = false;
             for item in &items {
                 let parts = separate(item.trim(), ":", Some(1), &[]);
-                let case = parts.first().map(|s| s.trim()).unwrap_or("");
-                let stmt = parts.get(1).map(|s| s.trim()).unwrap_or("");
+                let case = parts.first().map_or("", |s| s.trim());
+                let stmt = parts.get(1).map_or("", |s| s.trim());
 
                 if default {
                     matched = matched || case == "default";
@@ -1049,10 +1031,10 @@ impl JSInterpreter {
                     continue;
                 }
                 match self.interpret_statement(stmt, local, rec) {
-                    Ok((v, abort)) => {
-                        ret = v;
+                    Ok((case_value, abort)) => {
+                        value = case_value;
                         if abort {
-                            return Ok((ret, true));
+                            return Ok((value, true));
                         }
                     }
                     Err(JsError::Break) => {
@@ -1068,12 +1050,12 @@ impl JSInterpreter {
         }
 
         if rest.trim().is_empty() {
-            return Ok((ret, should_return));
+            return Ok((value, should_return));
         }
 
-        let (v, abort) = self.interpret_statement(&rest, local, rec)?;
+        let (tail, abort) = self.interpret_statement(&rest, local, rec)?;
 
-        Ok((v, abort || should_return))
+        Ok((tail, abort || should_return))
     }
 
     fn apply_increments(&mut self, expr: &str, local: &LocalNs) -> String {
@@ -1083,10 +1065,10 @@ impl JSInterpreter {
         for caps in INC_RE.captures_iter(&snapshot) {
             let var1 = caps.name("var1");
             let var2 = caps.name("var2");
-            let var = var1.or(var2).map(|m| m.as_str()).unwrap_or("");
+            let var = var1.or(var2).map_or("", |m| m.as_str());
             let pre = caps.name("pre_sign");
             let post = caps.name("post_sign");
-            let sign = pre.or(post).map(|m| m.as_str()).unwrap_or("++");
+            let sign = pre.or(post).map_or("++", |m| m.as_str());
             let mut ret = local.get(var);
             let one = JsValue::Number(1.0);
             let mut next = js_sub(&ret, &one);
@@ -1142,9 +1124,7 @@ impl JSInterpreter {
             let mut left_val = local.get(&name);
 
             if matches!(left_val, JsValue::Undefined | JsValue::Null) {
-                return Err(JsError::msg(format!(
-                    "cannot index undefined variable {name}"
-                )));
+                return Err(JsError::msg(format!("cannot index undefined variable {name}")));
             }
 
             let idx = self.interpret_expression(&idx_src, local, rec)?;
@@ -1160,7 +1140,7 @@ impl JSInterpreter {
 
             let cur = index_get(&left_val, &idx_key)?;
             let dumped = self.dump(&cur);
-            let new_val = self.eval_operator(op, &dumped, right, local, rec)?;
+            let new_val = self.eval_operator(op, [&dumped, right], local, rec)?;
             index_set(&mut left_val, &idx_key, new_val.clone())?;
             local.set(&name, left_val);
 
@@ -1177,7 +1157,7 @@ impl JSInterpreter {
 
             let left_val = local.get(out_part);
             let dumped = self.dump(&left_val);
-            let val = self.eval_operator(op, &dumped, right, local, rec)?;
+            let val = self.eval_operator(op, [&dumped, right], local, rec)?;
             local.set(out_part, val.clone());
 
             return Ok(Some((val, should_return)));
@@ -1232,85 +1212,53 @@ impl JSInterpreter {
         let rest = rest.trim_start();
 
         if let Some(after) = rest.strip_prefix("?.") {
-            let (member, rest) = split_member_name(after);
+            let (member, tail) = split_member_name(after);
 
             if member.is_empty() {
                 return Ok(None);
             }
 
-            let result = self.finish_member(
-                MemberAccess {
-                    var,
-                    member: &member,
-                    nullish: true,
-                },
-                rest,
-                local,
-                rec,
-                should_return,
-            )?;
+            let access = MemberAccess { var, member: &member, nullish: true };
+            let (value, abort) = self.finish_member(access, tail, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         if let Some(after) = rest.strip_prefix('.') {
-            let (member, rest) = split_member_name(after);
+            let (member, tail) = split_member_name(after);
 
             if member.is_empty() {
                 return Ok(None);
             }
 
-            let result = self.finish_member(
-                MemberAccess {
-                    var,
-                    member: &member,
-                    nullish: false,
-                },
-                rest,
-                local,
-                rec,
-                should_return,
-            )?;
+            let access = MemberAccess { var, member: &member, nullish: false };
+            let (value, abort) = self.finish_member(access, tail, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         if rest.starts_with('[') {
             let (idx_expr, after) = separate_at_paren(rest, Some(']'))?;
             let idx = self.interpret_expression(&idx_expr, local, rec)?;
             let member = idx.to_js_string();
-            let rest = after.trim_start();
-            let result = self.finish_member(
-                MemberAccess {
-                    var,
-                    member: &member,
-                    nullish: false,
-                },
-                rest,
-                local,
-                rec,
-                should_return,
-            )?;
+            let tail = after.trim_start();
+            let access = MemberAccess { var, member: &member, nullish: false };
+            let (value, abort) = self.finish_member(access, tail, local, rec)?;
 
-            return Ok(Some(result));
+            return Ok(Some((value, abort || should_return)));
         }
 
         Ok(None)
     }
 
+    /// The flag says whether a `return` ran in what follows the member.
     fn finish_member(
         &mut self,
         access: MemberAccess<'_>,
         rest: &str,
         local: &LocalNs,
         rec: i32,
-        should_return: bool,
     ) -> Result<(JsValue, bool), JsError> {
-        let MemberAccess {
-            var,
-            member,
-            nullish,
-        } = access;
         let mut arg_str = None;
         let mut remaining = rest.to_owned();
 
@@ -1320,20 +1268,19 @@ impl JSInterpreter {
             remaining = rem;
         }
 
-        let val = self.eval_method(var, member, nullish, arg_str.as_deref(), local, rec)?;
+        let val = self.eval_method(access, arg_str.as_deref(), local, rec)?;
 
-        self.continue_with(val, &remaining, local, rec, should_return)
+        self.continue_with(val, &remaining, local, rec)
     }
 
     fn eval_method(
         &mut self,
-        variable: &str,
-        member: &str,
-        nullish: bool,
+        access: MemberAccess<'_>,
         arg_str: Option<&str>,
         local: &LocalNs,
         rec: i32,
     ) -> Result<JsValue, JsError> {
+        let MemberAccess { var: variable, member, nullish } = access;
         let mut obj = self.lookup(local, variable);
         let undefined = matches!(obj, JsValue::Undefined);
         let builtin = is_js_builtin(variable);
@@ -1343,7 +1290,7 @@ impl JSInterpreter {
         }
 
         if undefined && !builtin {
-            obj = self.require_object(variable, member, local)?;
+            obj = self.require_object(variable, member)?;
         }
 
         if nullish && matches!(obj, JsValue::Undefined) {
@@ -1382,20 +1329,15 @@ impl JSInterpreter {
         let from_char_code = is_string_ctor && method == "fromCharCode";
 
         if from_char_code {
-            return string_from_char_code(&argvals);
+            return Ok(string_from_char_code(&argvals));
         }
 
         apply_method(self, &mut obj, &method, &argvals, rec)
     }
 
-    fn require_object(
-        &mut self,
-        variable: &str,
-        member: &str,
-        local: &LocalNs,
-    ) -> Result<JsValue, JsError> {
+    fn require_object(&mut self, variable: &str, member: &str) -> Result<JsValue, JsError> {
         if !self.objects.contains_key(variable) {
-            if let Ok(extracted) = self.extract_object(variable, local) {
+            if let Ok(extracted) = self.extract_object(variable) {
                 self.objects.insert(variable.to_owned(), extracted);
             }
         }
@@ -1407,8 +1349,7 @@ impl JSInterpreter {
         Err(JsError::msg(format!("cannot get index {member}")))
     }
 
-    fn extract_object(&mut self, objname: &str, local: &LocalNs) -> Result<JsValue, JsError> {
-        let _ = local;
+    fn extract_object(&self, objname: &str) -> Result<JsValue, JsError> {
         let name = regex::escape(objname);
         let pat = format!(r"(?s){NAME}\s*\.\s*{name}|{name}\s*=\s*\{{(?P<fields>[^}}]*)\}}\s*;");
         let re = Regex::new(&pat).map_err(|e| JsError::msg(e.to_string()))?;
@@ -1416,38 +1357,25 @@ impl JSInterpreter {
             return Err(JsError::msg(format!("could not find object {objname}")));
         };
 
-        let fields = caps.name("fields").map(|m| m.as_str()).unwrap_or("");
+        let fields = caps.name("fields").map_or("", |m| m.as_str());
         let mut map = HashMap::new();
 
-        for caps in OBJECT_FN.captures_iter(fields) {
-            let key = caps.name("key").map(|m| m.as_str()).unwrap_or("");
-            let args_txt = caps.name("args").map(|m| m.as_str()).unwrap_or("");
+        for field in OBJECT_FN.captures_iter(fields) {
+            let key = field.name("key").map_or("", |m| m.as_str());
+            let args_txt = field.name("args").map_or("", |m| m.as_str());
             let args = build_arglist(args_txt);
-            let code = caps.name("code").map(|m| m.as_str()).unwrap_or("");
-            let source = Rc::clone(&self.code);
+            let code = field.name("code").map_or("", |m| m.as_str());
+            let function_code = FunctionCode { argnames: args, body: code.to_owned(), source: Rc::clone(&self.code) };
             let empty_env = vec![Rc::new(RefCell::new(HashMap::new()))];
-            let func = JsFunction::new(
-                key,
-                args,
-                code.to_owned(),
-                source,
-                empty_env,
-                HashMap::new(),
-            );
+            let func = JsFunction::new(key, function_code, empty_env, HashMap::new());
             map.insert(key.to_owned(), JsValue::Function(func));
         }
 
         Ok(JsValue::object(map))
     }
 
-    fn eval_operator(
-        &mut self,
-        op: &str,
-        left_expr: &str,
-        right_expr: &str,
-        local: &LocalNs,
-        rec: i32,
-    ) -> Result<JsValue, JsError> {
+    fn eval_operator(&mut self, op: &str, operands: [&str; 2], local: &LocalNs, rec: i32) -> Result<JsValue, JsError> {
+        let [left_expr, right_expr] = operands;
         let is_unary = matches!(op, "typeof" | "void" | "!");
 
         if is_unary {
@@ -1488,10 +1416,10 @@ impl JSInterpreter {
             }
             "?" => {
                 let parts = separate(right_expr, ":", Some(1), &[]);
-                let mut chosen = parts.get(1).map(String::as_str).unwrap_or("");
+                let mut chosen = parts.get(1).map_or("", String::as_str);
 
                 if left.as_bool_js() {
-                    chosen = parts.first().map(String::as_str).unwrap_or("");
+                    chosen = parts.first().map_or("", String::as_str);
                 }
 
                 return self.interpret_expression(chosen, local, rec);
@@ -1507,119 +1435,119 @@ impl JSInterpreter {
 
         Ok(apply_binop(op, &left, &right))
     }
+}
 
-    fn separate_at_op(&self, expr: &str) -> Option<(String, String, String)> {
-        let mut expr = expr.to_owned();
+fn separate_at_op(expr: &str) -> Option<(String, String, String)> {
+    let mut expr = expr.to_owned();
 
-        for op in ALL_OPS {
-            if *op == "void" || *op == "typeof" || *op == "!" {
-                continue;
+    for op in ALL_OPS {
+        if *op == "void" || *op == "typeof" || *op == "!" {
+            continue;
+        }
+
+        let skip: Vec<&str> = match *op {
+            "<" | ">" => vec!["<<", ">>"],
+            "*" => vec!["**"],
+            "?" => vec!["??", "?."],
+            _ => Vec::new(),
+        };
+
+        let mut separated = separate(&expr, op, None, &skip);
+        if separated.len() < 2 {
+            continue;
+        }
+
+        let mut right = separated.pop().unwrap_or_default();
+        let plus_or_minus = *op == "+" || *op == "-";
+
+        if plus_or_minus {
+            for s in &mut separated {
+                *s = s.trim().to_owned();
             }
 
-            let skip: Vec<&str> = match *op {
-                "<" | ">" => vec!["<<", ">>"],
-                "*" => vec!["**"],
-                "?" => vec!["??", "?."],
-                _ => Vec::new(),
-            };
+            let mut undone = 0u32;
 
-            let mut separated = separate(&expr, op, None, &skip);
-            if separated.len() < 2 {
-                continue;
-            }
+            while separated.len() > 1 {
+                let last_empty = separated.last().is_some_and(String::is_empty);
 
-            let mut right = separated.pop().unwrap_or_default();
-            let plus_or_minus = *op == "+" || *op == "-";
-
-            if plus_or_minus {
-                for s in &mut separated {
-                    *s = s.trim().to_owned();
+                if !last_empty {
+                    break;
                 }
 
-                let mut undone = 0u32;
+                undone += 1;
+                separated.pop();
+            }
 
-                while separated.len() > 1 {
-                    let last_empty = separated.last().is_some_and(|s| s.is_empty());
+            let odd_minus = *op == "-" && undone % 2 == 1;
 
-                    if !last_empty {
+            if odd_minus {
+                right = concat2(op, &right);
+            }
+
+            if *op == "+" {
+                loop {
+                    if separated.len() <= 1 {
                         break;
                     }
 
-                    undone += 1;
-                    separated.pop();
-                }
-
-                let odd_minus = *op == "-" && undone % 2 == 1;
-
-                if odd_minus {
-                    right = concat2(op, &right);
-                }
-
-                if *op == "+" {
-                    loop {
-                        if separated.len() <= 1 {
-                            break;
-                        }
-
-                        let Some(last) = separated.last() else {
-                            break;
-                        };
-
-                        if last.is_empty() {
-                            break;
-                        }
-
-                        let all_ops = last.chars().all(|c| OP_CHARS.contains(&c));
-
-                        if !all_ops {
-                            break;
-                        }
-
-                        let Some(prev) = separated.pop() else {
-                            break;
-                        };
-
-                        right = concat2(&prev, &right);
-                    }
-
-                    let ends_with_op = match separated.last() {
-                        Some(s) => s.chars().last().is_some_and(|c| OP_CHARS.contains(&c)),
-                        None => false,
+                    let Some(last) = separated.last() else {
+                        break;
                     };
 
-                    if ends_with_op {
-                        if let Some(prev) = separated.pop() {
-                            right = concat2(&prev, &right);
-                        }
+                    if last.is_empty() {
+                        break;
+                    }
+
+                    let all_ops = last.chars().all(|c| OP_CHARS.contains(&c));
+
+                    if !all_ops {
+                        break;
+                    }
+
+                    let Some(prev) = separated.pop() else {
+                        break;
+                    };
+
+                    right = concat2(&prev, &right);
+                }
+
+                let ends_with_op = match separated.last() {
+                    Some(s) => s.chars().last().is_some_and(|c| OP_CHARS.contains(&c)),
+                    None => false,
+                };
+
+                if ends_with_op {
+                    if let Some(prev) = separated.pop() {
+                        right = concat2(&prev, &right);
                     }
                 }
-
-                separated.push(right.clone());
-                separated = yield_bodmas(separated, op);
-
-                if separated.len() <= 1 {
-                    expr = separated.join(op);
-                    continue;
-                }
-
-                right = separated.pop().unwrap_or_default();
             }
 
-            let left = separated.join(op);
+            separated.push(right.clone());
+            separated = yield_bodmas(&separated, op);
 
-            if left.is_empty() && plus_or_minus {
-                return Some(((*op).to_owned(), String::new(), right));
-            }
-
-            if left.is_empty() {
+            if separated.len() <= 1 {
+                expr = separated.join(op);
                 continue;
             }
 
-            return Some(((*op).to_owned(), left, right));
+            right = separated.pop().unwrap_or_default();
         }
 
-        None
+        let left = separated.join(op);
+
+        if left.is_empty() && plus_or_minus {
+            return Some(((*op).to_owned(), String::new(), right));
+        }
+
+        if left.is_empty() {
+            continue;
+        }
+
+        return Some(((*op).to_owned(), left, right));
     }
+
+    None
 }
 
 fn blocked_return(local: &LocalNs, val: &JsValue) -> bool {
@@ -1632,12 +1560,7 @@ fn blocked_return(local: &LocalNs, val: &JsValue) -> bool {
     *val == blocked
 }
 
-fn object_key(
-    interp: &mut JSInterpreter,
-    raw: &str,
-    local: &LocalNs,
-    rec: i32,
-) -> Result<String, JsError> {
+fn object_key(interp: &mut JsInterpreter, raw: &str, local: &LocalNs, rec: i32) -> Result<String, JsError> {
     if NAME_RE.is_match(raw) {
         return Ok(raw.to_owned());
     }
@@ -1686,7 +1609,9 @@ fn split_member_name(rest: &str) -> (String, &str) {
 fn thrown_js(err: &JsError) -> JsValue {
     match err {
         JsError::Throw(s) => JsValue::string(s.clone()),
-        other => JsValue::string(other.to_string()),
+        other @ (JsError::Recursion | JsError::Break | JsError::Continue | JsError::Msg(_)) => {
+            JsValue::string(other.to_string())
+        }
     }
 }
 
@@ -1698,10 +1623,7 @@ fn date_static_method(member: &str, argvals: &[JsValue]) -> Result<JsValue, JsEr
     match member {
         "now" => Ok(JsValue::Number(date::now_ms())),
         "parse" => {
-            let s = argvals
-                .first()
-                .map(JsValue::to_js_string)
-                .unwrap_or_default();
+            let s = argvals.first().map(JsValue::to_js_string).unwrap_or_default();
 
             Ok(JsValue::Number(date::parse(&s).unwrap_or(f64::NAN)))
         }
@@ -1729,10 +1651,11 @@ fn apply_prototype_call(
     argvals: &mut Vec<JsValue>,
 ) -> Result<(), JsError> {
     let (meth, call_kind) = rest.split_once('.').unwrap_or((rest, ""));
-    *method = meth.to_owned();
+    meth.clone_into(method);
 
     if call_kind == "call" {
-        *obj = argvals.remove(0);
+        // `f.call()` without arguments runs with `this` undefined; `remove(0)` would panic on it.
+        *obj = if argvals.is_empty() { JsValue::Undefined } else { argvals.remove(0) };
         return Ok(());
     }
 
@@ -1755,11 +1678,11 @@ fn apply_prototype_call(
     Ok(())
 }
 
-fn string_from_char_code(argvals: &[JsValue]) -> Result<JsValue, JsError> {
+fn string_from_char_code(argvals: &[JsValue]) -> JsValue {
     let mut s = String::new();
 
     for n in argvals {
-        let code = n.to_number() as u32;
+        let code = u32::try_from(js_integer(n.to_number()).max(0)).unwrap_or(u32::MAX);
         let Some(c) = char::from_u32(code) else {
             continue;
         };
@@ -1767,10 +1690,10 @@ fn string_from_char_code(argvals: &[JsValue]) -> Result<JsValue, JsError> {
         s.push(c);
     }
 
-    Ok(JsValue::string(s))
+    JsValue::string(s)
 }
 
-fn yield_bodmas(terms: Vec<String>, op: &str) -> Vec<String> {
+fn yield_bodmas(terms: &[String], op: &str) -> Vec<String> {
     let dm = ["*", "%", "/", "**"];
     let mut out = Vec::new();
     let mut skip = false;
@@ -1805,8 +1728,8 @@ fn yield_bodmas(terms: Vec<String>, op: &str) -> Vec<String> {
                     suffix = concat2(op, &suffix);
                 }
 
-                if let Some(last) = bodmas.last_mut() {
-                    *last = suffix;
+                if let Some(tail_term) = bodmas.last_mut() {
+                    *tail_term = suffix;
                 }
 
                 out.push(bodmas.join(dm_op));
@@ -1832,7 +1755,7 @@ fn apply_binop(op: &str, left: &JsValue, right: &JsValue) -> JsValue {
         "%" => js_mod(left, right),
         "**" => js_exp(left, right),
         "<<" => {
-            let v = (js_to_int32(left) as u32).wrapping_shl(js_shift_count(right)) as i32;
+            let v = js_to_int32(left).wrapping_shl(js_shift_count(right));
             JsValue::Number(f64::from(v))
         }
         ">>" => {
@@ -1850,13 +1773,13 @@ fn apply_binop(op: &str, left: &JsValue, right: &JsValue) -> JsValue {
         "<=" => JsValue::Bool(js_cmp(left, right, CmpOp::Le)),
         ">" => JsValue::Bool(js_cmp(left, right, CmpOp::Gt)),
         ">=" => JsValue::Bool(js_cmp(left, right, CmpOp::Ge)),
-        "||" | "&&" | "??" => right.clone(),
+        // `||`, `&&` and `??` reach here only when `left` did not decide them.
         _ => right.clone(),
     }
 }
 
 fn apply_method(
-    interp: &mut JSInterpreter,
+    interp: &mut JsInterpreter,
     obj: &mut JsValue,
     member: &str,
     argvals: &[JsValue],
@@ -1884,7 +1807,7 @@ fn apply_method(
 
             a.borrow_mut().extend_from_slice(argvals);
             let len = a.borrow().len();
-            Ok(JsValue::Number(len as f64))
+            Ok(js_count(len))
         }
         "unshift" => {
             let JsValue::Array(a) = obj else {
@@ -1898,7 +1821,7 @@ fn apply_method(
             }
 
             let len = arr.len();
-            Ok(JsValue::Number(len as f64))
+            Ok(js_count(len))
         }
         "forEach" => method_for_each(interp, obj, argvals, rec),
         "charCodeAt" => method_char_code_at(obj, argvals),
@@ -1911,9 +1834,15 @@ fn apply_method(
             index_get(obj, member)
         }
         "length" => match obj {
-            JsValue::Array(a) => Ok(JsValue::Number(a.borrow().len() as f64)),
-            JsValue::String(s) => Ok(JsValue::Number(s.chars().count() as f64)),
-            _ => index_get(obj, member),
+            JsValue::Array(a) => Ok(js_count(a.borrow().len())),
+            JsValue::String(s) => Ok(js_count(s.chars().count())),
+            JsValue::Undefined
+            | JsValue::Null
+            | JsValue::Bool(_)
+            | JsValue::Number(_)
+            | JsValue::Object(_)
+            | JsValue::Function(_)
+            | JsValue::Regex(_) => index_get(obj, member),
         },
         _ => {
             if let JsValue::Function(func) = index_get(obj, member)? {
@@ -1932,7 +1861,7 @@ fn method_split(obj: &JsValue, argvals: &[JsValue]) -> Result<JsValue, JsError> 
 
     let limit = match argvals.get(1) {
         Some(JsValue::Number(n)) if *n == 0.0 => return Ok(JsValue::array(Vec::new())),
-        Some(JsValue::Number(n)) => Some(*n as usize),
+        Some(JsValue::Number(n)) => Some(js_index(js_integer(*n))),
         _ => None,
     };
 
@@ -2030,8 +1959,8 @@ fn join_with(items: &[JsValue], sep: &str) -> String {
 }
 
 fn method_slice(obj: &JsValue, argvals: &[JsValue]) -> Result<JsValue, JsError> {
-    let start = argvals.first().map(|v| v.to_number() as i64);
-    let end = argvals.get(1).map(|v| v.to_number() as i64);
+    let start = argvals.first().map(|v| js_integer(v.to_number()));
+    let end = argvals.get(1).map(|v| js_integer(v.to_number()));
 
     match obj {
         JsValue::Array(a) => {
@@ -2044,20 +1973,26 @@ fn method_slice(obj: &JsValue, argvals: &[JsValue]) -> Result<JsValue, JsError> 
             let (a, b) = slice_bounds(chars.len(), start, end);
             Ok(JsValue::string(chars[a..b].iter().collect::<String>()))
         }
-        _ => Err(JsError::msg("must be applied on a list or string")),
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Number(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => Err(JsError::msg("must be applied on a list or string")),
     }
 }
 
 fn slice_bounds(len: usize, start: Option<i64>, end: Option<i64>) -> (usize, usize) {
     let to_idx = |n: i64| -> usize {
         if n < 0 {
-            return (len as i64 + n).max(0) as usize;
+            return js_index(js_signed_len(len).saturating_add(n));
         }
-        (n as usize).min(len)
+        js_index(n).min(len)
     };
 
-    let s = start.map(to_idx).unwrap_or(0);
-    let e = end.map(to_idx).unwrap_or(len);
+    let s = start.map_or(0, to_idx);
+    let e = end.map_or(len, to_idx);
     if s > e {
         return (s, s);
     }
@@ -2070,35 +2005,26 @@ fn method_splice(obj: &mut JsValue, argvals: &[JsValue]) -> Result<JsValue, JsEr
     };
 
     let mut arr = a.borrow_mut();
-    let mut index = argvals.first().map(|v| v.to_number() as i64).unwrap_or(0);
-    let mut how_many = arr.len() as i64;
+    let len = arr.len();
+    let mut index = argvals.first().map_or(0, |v| js_integer(v.to_number()));
+    let mut how_many = js_signed_len(len);
 
     if let Some(v) = argvals.get(1) {
-        how_many = v.to_number() as i64;
+        how_many = js_integer(v.to_number());
     }
 
     if index < 0 {
-        index += arr.len() as i64;
+        index = index.saturating_add(js_signed_len(len));
     }
 
-    let index = index.max(0) as usize;
-    let n = how_many.max(0) as usize;
-    let mut removed = Vec::new();
+    // Clamped as JS does: a start past the end inserts at the end, and a count stops there.
+    let start = js_index(index).min(len);
+    let count = js_index(how_many).min(len - start);
+    let removed: Vec<JsValue> = arr.drain(start..start + count).collect();
 
-    for _ in 0..n {
-        if index < arr.len() {
-            removed.push(arr.remove(index));
-        }
-    }
-
-    let mut insert: &[JsValue] = &[];
-
-    if argvals.len() > 2 {
-        insert = &argvals[2..];
-    }
-
-    for (i, v) in insert.iter().enumerate() {
-        arr.insert(index + i, v.clone());
+    let insert = argvals.get(2..).unwrap_or_default();
+    for (offset, v) in insert.iter().enumerate() {
+        arr.insert(start + offset, v.clone());
     }
 
     Ok(JsValue::array(removed))
@@ -2122,7 +2048,7 @@ fn method_pop_shift(obj: &mut JsValue, shift: bool) -> Result<JsValue, JsError> 
 }
 
 fn method_for_each(
-    interp: &mut JSInterpreter,
+    interp: &mut JsInterpreter,
     obj: &JsValue,
     argvals: &[JsValue],
     rec: i32,
@@ -2142,8 +2068,8 @@ fn method_for_each(
 
     for idx in 0..len {
         let item = a.borrow().get(idx).cloned().unwrap_or(JsValue::Undefined);
-        let args = [item, JsValue::Number(idx as f64), obj.clone()];
-        let _ = interp.run_function(func, &args, Some(&kwargs), rec)?;
+        let args = [item, js_count(idx), obj.clone()];
+        interp.run_function(func, &args, Some(&kwargs), rec)?;
     }
 
     Ok(obj.clone())
@@ -2155,7 +2081,7 @@ fn method_char_code_at(obj: &JsValue, argvals: &[JsValue]) -> Result<JsValue, Js
     };
 
     let idx = match argvals.first() {
-        Some(JsValue::Number(n)) if n.fract() == 0.0 => *n as i64,
+        Some(JsValue::Number(n)) if n.fract() == 0.0 => js_integer(*n),
         _ => 0,
     };
 
@@ -2163,11 +2089,11 @@ fn method_char_code_at(obj: &JsValue, argvals: &[JsValue]) -> Result<JsValue, Js
         return Ok(JsValue::Null);
     }
 
-    let Some(c) = s.chars().nth(idx as usize) else {
+    let Some(c) = s.chars().nth(js_index(idx)) else {
         return Ok(JsValue::Null);
     };
 
-    Ok(JsValue::Number(f64::from(c as u32)))
+    Ok(JsValue::Number(f64::from(u32::from(c))))
 }
 
 fn method_replace(obj: &JsValue, member: &str, argvals: &[JsValue]) -> Result<JsValue, JsError> {
@@ -2186,9 +2112,7 @@ fn method_replace(obj: &JsValue, member: &str, argvals: &[JsValue]) -> Result<Js
             let global = re.global();
 
             if member == "replaceAll" && !global {
-                return Err(JsError::msg(
-                    "replaceAll must be called with a global RegExp",
-                ));
+                return Err(JsError::msg("replaceAll must be called with a global RegExp"));
             }
 
             if global {
@@ -2201,7 +2125,14 @@ fn method_replace(obj: &JsValue, member: &str, argvals: &[JsValue]) -> Result<Js
 
             Ok(JsValue::string(out))
         }
-        other => {
+        other @ (JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Number(_)
+        | JsValue::String(_)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)) => {
             let pat = other.to_js_string();
 
             if member == "replaceAll" {
@@ -2217,33 +2148,28 @@ fn index_get(obj: &JsValue, idx: &str) -> Result<JsValue, JsError> {
     match obj {
         JsValue::Array(a) => {
             if idx == "length" {
-                return Ok(JsValue::Number(a.borrow().len() as f64));
+                return Ok(js_count(a.borrow().len()));
             }
             let n: f64 = idx.parse().unwrap_or(f64::NAN);
             if n.is_nan() {
                 return Ok(JsValue::Undefined);
             }
-            let i = n as i64;
+            let i = js_integer(n);
             if i < 0 {
                 return Ok(JsValue::Undefined);
             }
-            Ok(a.borrow()
-                .get(i as usize)
-                .cloned()
-                .unwrap_or(JsValue::Undefined))
+            Ok(a.borrow().get(js_index(i)).cloned().unwrap_or(JsValue::Undefined))
         }
         JsValue::String(s) => {
             if idx == "length" {
-                return Ok(JsValue::Number(s.chars().count() as f64));
+                return Ok(js_count(s.chars().count()));
             }
             Ok(JsValue::Undefined)
         }
         JsValue::Object(o) => Ok(o.borrow().get(idx).cloned().unwrap_or(JsValue::Undefined)),
-        JsValue::Regex(re) if idx == "source" || idx == "pattern" => {
-            Ok(JsValue::string(re.source()))
-        }
+        JsValue::Regex(re) if idx == "source" || idx == "pattern" => Ok(JsValue::string(re.source())),
         JsValue::Undefined | JsValue::Null => Err(JsError::msg(format!("cannot get index {idx}"))),
-        _ => Ok(JsValue::Undefined),
+        JsValue::Bool(_) | JsValue::Number(_) | JsValue::Function(_) | JsValue::Regex(_) => Ok(JsValue::Undefined),
     }
 }
 
@@ -2251,10 +2177,16 @@ fn index_set(obj: &mut JsValue, idx: &str, val: JsValue) -> Result<(), JsError> 
     match obj {
         JsValue::Array(a) => {
             let n: f64 = idx.parse().unwrap_or(0.0);
-            let i = n as usize;
+            let i = js_index(js_integer(n));
+
+            // The script is untrusted: an index far past the end would fill memory with holes.
+            if i > MAX_ARRAY_INDEX {
+                return Err(JsError::msg(format!("array index {idx} is too large")));
+            }
+
             let mut arr = a.borrow_mut();
-            while arr.len() <= i {
-                arr.push(JsValue::Undefined);
+            if arr.len() <= i {
+                arr.resize(i + 1, JsValue::Undefined);
             }
             arr[i] = val;
             Ok(())
@@ -2263,14 +2195,28 @@ fn index_set(obj: &mut JsValue, idx: &str, val: JsValue) -> Result<(), JsError> 
             o.borrow_mut().insert(idx.to_owned(), val);
             Ok(())
         }
-        _ => Err(JsError::msg("cannot index")),
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Number(_)
+        | JsValue::String(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => Err(JsError::msg("cannot index")),
     }
 }
 
 fn index_key(idx: &JsValue) -> String {
     match idx {
         JsValue::Number(n) if n.fract() == 0.0 => js_number_string(*n),
-        other => other.to_js_string(),
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Number(_)
+        | JsValue::String(_)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => idx.to_js_string(),
     }
 }
 
@@ -2348,15 +2294,7 @@ fn split_call(expr: &str) -> Option<(&str, String)> {
 
     let is_keyword = matches!(
         name,
-        "if" | "return"
-            | "true"
-            | "false"
-            | "null"
-            | "undefined"
-            | "NaN"
-            | "Infinity"
-            | "void"
-            | "typeof"
+        "if" | "return" | "true" | "false" | "null" | "undefined" | "NaN" | "Infinity" | "void" | "typeof"
     );
 
     if is_keyword {
@@ -2404,11 +2342,7 @@ fn stmt_prefix(stmt: &str) -> Option<StmtPrefix> {
             continue;
         }
 
-        return Some(StmtPrefix {
-            end: kw.len() + leading_ws_len(rest),
-            ret: false,
-            throw: false,
-        });
+        return Some(StmtPrefix { end: kw.len() + leading_ws_len(rest), ret: false, throw: false });
     }
 
     if let Some(rest) = stmt.strip_prefix("return") {
@@ -2421,21 +2355,13 @@ fn stmt_prefix(stmt: &str) -> Option<StmtPrefix> {
                 extra = leading_ws_len(rest);
             }
 
-            return Some(StmtPrefix {
-                end: 6 + extra,
-                ret: true,
-                throw: false,
-            });
+            return Some(StmtPrefix { end: 6 + extra, ret: true, throw: false });
         }
     }
 
     if let Some(rest) = stmt.strip_prefix("throw") {
         if rest.starts_with(|c: char| c.is_whitespace()) {
-            return Some(StmtPrefix {
-                end: 5 + leading_ws_len(rest),
-                ret: false,
-                throw: true,
-            });
+            return Some(StmtPrefix { end: 5 + leading_ws_len(rest), ret: false, throw: true });
         }
     }
 
@@ -2464,10 +2390,7 @@ fn try_literal(expr: &str) -> Option<JsValue> {
     }
 
     if let Ok(n) = expr.parse::<f64>() {
-        if expr
-            .chars()
-            .all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+')
-        {
+        if expr.chars().all(|c| c.is_ascii_digit() || c == '.' || c == '-' || c == '+') {
             return Some(JsValue::Number(n));
         }
     }
@@ -2585,7 +2508,13 @@ fn push_u32(buf: &mut String, mut n: u32) {
 fn flags_from_value(v: &JsValue) -> u32 {
     match v {
         JsValue::String(s) => regex_flags(s).0,
-        JsValue::Number(n) => *n as u32,
-        _ => 0,
+        JsValue::Number(n) => u32::try_from(js_integer(*n).max(0)).unwrap_or(u32::MAX),
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => 0,
     }
 }

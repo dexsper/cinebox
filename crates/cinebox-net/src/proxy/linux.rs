@@ -7,9 +7,7 @@ use super::{SystemProxy, with_proxy_scheme};
 
 pub(super) fn desktop_proxy() -> Option<SystemProxy> {
     let desktop = std::env::var("XDG_CURRENT_DESKTOP").unwrap_or_default();
-    let kde = desktop
-        .split(':')
-        .any(|name| name.eq_ignore_ascii_case("KDE"));
+    let kde = desktop.split(':').any(|name| name.eq_ignore_ascii_case("KDE"));
 
     if kde {
         let text = std::fs::read_to_string(kioslaverc_path()?).ok()?;
@@ -29,18 +27,13 @@ fn kioslaverc_path() -> Option<PathBuf> {
 }
 
 fn gsettings_get(schema: &str, key: &str) -> Option<String> {
-    let output = Command::new("gsettings")
-        .args(["get", schema, key])
-        .output()
-        .ok()?;
+    let output = Command::new("gsettings").args(["get", schema, key]).output().ok()?;
 
     if !output.status.success() {
         return None;
     }
 
-    String::from_utf8(output.stdout)
-        .ok()
-        .map(|value| value.trim().to_owned())
+    String::from_utf8(output.stdout).ok().map(|value| value.trim().to_owned())
 }
 
 /// `get(schema, key)` returns a value in GVariant text form, e.g. `'manual'` or `3128`.
@@ -67,9 +60,8 @@ fn gnome_proxy(get: impl Fn(&str, &str) -> Option<String>) -> Option<SystemProxy
         Some(with_proxy_scheme(&format!("{host}:{port}"), scheme))
     };
 
-    let bypass = get("org.gnome.system.proxy", "ignore-hosts")
-        .map(|list| parse_gvariant_strings(&list))
-        .unwrap_or_default();
+    let ignore_hosts = get("org.gnome.system.proxy", "ignore-hosts");
+    let bypass = ignore_hosts.map(|list| parse_gvariant_strings(&list)).unwrap_or_default();
 
     Some(SystemProxy {
         http: endpoint("http", "http://"),
@@ -81,18 +73,9 @@ fn gnome_proxy(get: impl Fn(&str, &str) -> Option<String>) -> Option<SystemProxy
 
 /// `['localhost', '127.0.0.0/8']`, or `@as []` when empty.
 fn parse_gvariant_strings(raw: &str) -> Vec<String> {
-    let inner = raw
-        .trim()
-        .trim_start_matches("@as")
-        .trim()
-        .trim_start_matches('[')
-        .trim_end_matches(']');
+    let inner = raw.trim().trim_start_matches("@as").trim().trim_start_matches('[').trim_end_matches(']');
 
-    inner
-        .split(',')
-        .map(|item| unquote(item.trim()).to_owned())
-        .filter(|item| !item.is_empty())
-        .collect()
+    inner.split(',').map(|item| unquote(item.trim()).to_owned()).filter(|item| !item.is_empty()).collect()
 }
 
 fn unquote(value: &str) -> &str {
@@ -130,12 +113,8 @@ fn parse_kioslaverc(text: &str) -> Option<SystemProxy> {
             "httpsProxy" => proxy.https = kde_endpoint(value, "http://"),
             "socksProxy" => proxy.socks = kde_endpoint(value, "socks5://"),
             "NoProxyFor" => {
-                proxy.bypass = value
-                    .split(',')
-                    .map(str::trim)
-                    .filter(|host| !host.is_empty())
-                    .map(bypass_rule)
-                    .collect();
+                let hosts = value.split(',').map(str::trim).filter(|host| !host.is_empty());
+                proxy.bypass = hosts.map(bypass_rule).collect();
             }
             "ReversedException" => reversed = value.eq_ignore_ascii_case("true"),
             _ => {}
@@ -213,11 +192,7 @@ mod tests {
                     http: Some(String::from("http://proxy.lan:3128")),
                     https: None,
                     socks: Some(String::from("socks5://127.0.0.1:1080")),
-                    bypass: vec![
-                        String::from("localhost"),
-                        String::from(".lan"),
-                        String::from("10.0.0.0/8"),
-                    ],
+                    bypass: vec![String::from("localhost"), String::from(".lan"), String::from("10.0.0.0/8"),],
                 })
             );
         }

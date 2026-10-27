@@ -2,17 +2,19 @@
 
 use egui::{Align2, Area, Color32, Frame, Id, Order, RichText, Sense, Vec2};
 
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 
 const HOLD_SECS: f64 = 4.0;
 const FADE_SECS: f64 = 0.4;
 
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub enum ToastKind {
-    #[allow(dead_code)]
+pub(crate) enum ToastKind {
+    #[cfg_attr(not(test), expect(dead_code, reason = "no screen shows an info toast yet; the UI tests do"))]
     Info,
-    #[allow(dead_code)]
+
+    #[cfg_attr(not(test), expect(dead_code, reason = "no screen shows a success toast yet; the UI tests do"))]
     Success,
+
     Error,
 }
 
@@ -24,23 +26,23 @@ struct Toast {
 }
 
 #[derive(Default)]
-pub struct Toasts {
+pub(crate) struct Toasts {
     items: Vec<Toast>,
     next_id: u64,
 }
 
 impl Toasts {
-    #[allow(dead_code)]
-    pub fn info(&mut self, text: impl Into<String>, now: f64) {
+    #[cfg_attr(not(test), expect(dead_code, reason = "no screen shows an info toast yet; the UI tests do"))]
+    pub(crate) fn info(&mut self, text: impl Into<String>, now: f64) {
         self.push(ToastKind::Info, text, now);
     }
 
-    #[allow(dead_code)]
-    pub fn success(&mut self, text: impl Into<String>, now: f64) {
+    #[cfg_attr(not(test), expect(dead_code, reason = "no screen shows a success toast yet; the UI tests do"))]
+    pub(crate) fn success(&mut self, text: impl Into<String>, now: f64) {
         self.push(ToastKind::Success, text, now);
     }
 
-    pub fn error(&mut self, text: impl Into<String>, now: f64) {
+    pub(crate) fn error(&mut self, text: impl Into<String>, now: f64) {
         self.push(ToastKind::Error, text, now);
     }
 
@@ -55,15 +57,10 @@ impl Toasts {
         }
 
         self.next_id = self.next_id.wrapping_add(1);
-        self.items.push(Toast {
-            id: self.next_id,
-            kind,
-            text,
-            born: now,
-        });
+        self.items.push(Toast { id: self.next_id, kind, text, born: now });
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, theme: &Theme) {
+    pub(crate) fn show(&mut self, ctx: &egui::Context, theme: &Theme) {
         let now = ctx.input(|i| i.time);
         self.items.retain(|toast| now - toast.born < HOLD_SECS);
         if self.items.is_empty() {
@@ -82,11 +79,8 @@ impl Toasts {
                 let mut dismiss = None;
                 for toast in self.items.iter().rev() {
                     let age = now - toast.born;
-                    let alpha = if age > HOLD_SECS - FADE_SECS {
-                        ((HOLD_SECS - age) / FADE_SECS).clamp(0.0, 1.0) as f32
-                    } else {
-                        1.0
-                    };
+                    // Clamped to 1 until the last `FADE_SECS` of the hold, then down to 0.
+                    let alpha = theme::fraction((HOLD_SECS - age) / FADE_SECS);
 
                     let accent = fade(kind_color(toast.kind, theme), alpha);
                     let bg = fade(theme.panel_elevated, alpha);
@@ -101,8 +95,8 @@ impl Toasts {
                             ui.label(RichText::new(&toast.text).color(fg).size(theme.text_body));
                         })
                         .response;
-                    let response = crate::widgets::button::pointing(response.interact(Sense::click()));
 
+                    let response = crate::widgets::button::pointing(response.interact(Sense::click()));
                     if response.clicked() {
                         dismiss = Some(toast.id);
                     }
@@ -113,11 +107,7 @@ impl Toasts {
                 }
             });
 
-        if self
-            .items
-            .iter()
-            .any(|t| now - t.born > HOLD_SECS - FADE_SECS)
-        {
+        if self.items.iter().any(|t| now - t.born > HOLD_SECS - FADE_SECS) {
             ctx.request_repaint();
         }
     }
@@ -133,7 +123,7 @@ fn kind_color(kind: ToastKind, theme: &Theme) -> Color32 {
 
 fn fade(color: Color32, alpha: f32) -> Color32 {
     let [r, g, b, a] = color.to_array();
-    Color32::from_rgba_unmultiplied(r, g, b, (f32::from(a) * alpha).round() as u8)
+    Color32::from_rgba_unmultiplied(r, g, b, theme::round_u8(f32::from(a) * alpha))
 }
 
 #[cfg(test)]

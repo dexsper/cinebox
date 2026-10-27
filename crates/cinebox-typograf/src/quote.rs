@@ -1,9 +1,11 @@
 use std::borrow::Cow;
 
+use fancy_regex::Captures;
+
+use crate::PRIVATE;
 use crate::data::{self, QuoteData};
 use crate::engine::Context;
 use crate::re;
-use crate::PRIVATE;
 
 const MAX_LEVEL_WITH_ERRORS: usize = 2;
 const BUFFER_LEFT: &str = "\u{F005}\u{F006}\u{F007}";
@@ -21,16 +23,18 @@ struct OwnedQuote {
 
 impl From<&QuoteData> for OwnedQuote {
     fn from(q: &QuoteData) -> Self {
-        Self {
-            left: q.left,
-            right: q.right,
-            spacing: q.spacing,
-            remove_duplicate_quotes: q.remove_duplicate_quotes,
-        }
+        Self { left: q.left, right: q.right, spacing: q.spacing, remove_duplicate_quotes: q.remove_duplicate_quotes }
     }
 }
 
-pub fn process<'a>(text: &'a str, settings: &QuoteData, ctx: &Context<'_>) -> Cow<'a, str> {
+/// The outermost opening and closing quote of a locale.
+#[derive(Clone, Copy)]
+struct QuotePair {
+    left: char,
+    right: char,
+}
+
+pub(crate) fn process<'a>(text: &'a str, settings: &QuoteData, ctx: &Context<'_>) -> Cow<'a, str> {
     let count = count_quotes(text, Some(settings));
 
     if count.total == 0 {
@@ -72,7 +76,7 @@ pub fn process<'a>(text: &'a str, settings: &QuoteData, ctx: &Context<'_>) -> Co
 }
 
 fn take_prefix(s: &'static str, n: usize) -> &'static str {
-    let end = s.char_indices().nth(n).map(|(i, _)| i).unwrap_or(s.len());
+    let end = s.char_indices().nth(n).map_or(s.len(), |(i, _)| i);
 
     &s[..end]
 }
@@ -120,11 +124,7 @@ fn count_quotes(text: &str, settings: Option<&QuoteData>) -> Counts {
         }
     }
 
-    Counts {
-        total,
-        left0,
-        right0,
-    }
+    Counts { total, left0, right0 }
 }
 
 fn char_class(chars: &str) -> String {
@@ -198,6 +198,11 @@ fn set_spacing(text: &str, settings: &OwnedQuote) -> String {
     out
 }
 
+/// The text before the quote run (group 1), then the run (group 2) redrawn as `quote`.
+fn with_quotes(caps: &Captures<'_, str>, quote: char) -> String {
+    format!("{}{}", &caps[1], repeat_char(quote, caps[2].chars().count()))
+}
+
 fn set_quotes(text: &str, settings: &OwnedQuote, ctx: &Context<'_>) -> String {
     let quotes = {
         let mut s = data::COMMON_QUOTE.to_string();
@@ -212,23 +217,13 @@ fn set_quotes(text: &str, settings: &OwnedQuote, ctx: &Context<'_>) -> String {
     let before = char_class(BEFORE_LEFT);
     let after = char_class(AFTER_RIGHT);
 
-    let re_l = re::cached_im(&format!(
-        "(^|[{before}])([{qclass}]+)(?=[^\\s{PRIVATE}])"
-    ));
-    let re_r = re::cached_im(&format!(
-        "([^\\s{PRIVATE}])([{qclass}]+)(?=[{after}]|$)"
-    ));
+    let re_l = re::cached_im(&format!("(^|[{before}])([{qclass}]+)(?=[^\\s{PRIVATE}])"));
+    let re_r = re::cached_im(&format!("([^\\s{PRIVATE}])([{qclass}]+)(?=[{after}]|$)"));
 
-    let mut out = re::replace_all_fn(&re_l, text, |caps| {
-        format!("{}{}", &caps[1], repeat_char(lquote, caps[2].chars().count()))
-    })
-    .into_owned();
-    out = re::replace_all_fn(&re_r, &out, |caps| {
-        format!("{}{}", &caps[1], repeat_char(rquote, caps[2].chars().count()))
-    })
-    .into_owned();
+    let mut out = re::replace_all_fn(&re_l, text, |caps| with_quotes(caps, lquote)).into_owned();
+    out = re::replace_all_fn(&re_r, &out, |caps| with_quotes(caps, rquote)).into_owned();
 
-    out = set_above_tags(&out, settings, ctx, &qclass, lquote, rquote);
+    out = set_above_tags(&out, ctx, &qclass, QuotePair { left: lquote, right: rquote });
 
     if lquote != lquote2 {
         out = set_inner(&out, settings);
@@ -245,14 +240,8 @@ fn first_char(s: &str) -> char {
     s.chars().next().unwrap_or('"')
 }
 
-fn set_above_tags(
-    text: &str,
-    _settings: &OwnedQuote,
-    ctx: &Context<'_>,
-    qclass: &str,
-    lquote: char,
-    rquote: char,
-) -> String {
+fn set_above_tags(text: &str, ctx: &Context<'_>, qclass: &str, quotes: QuotePair) -> String {
+    let QuotePair { left: lquote, right: rquote } = quotes;
     let re = re::cached_m(&format!("(^|.)([{qclass}])(.|$)"));
     let chars: Vec<(usize, char)> = text.char_indices().collect();
 
@@ -261,7 +250,7 @@ fn set_above_tags(
         let prev = &caps[1];
         let quote = &caps[2];
         let next = &caps[3];
-        let pos = caps.get(0).map(|m| m.start()).unwrap_or(0);
+        let pos = caps.get(0).map_or(0, |m| m.start());
         let prev_priv = prev == "\u{F000}";
         let next_priv = next == "\u{F000}";
 
@@ -271,7 +260,7 @@ fn set_above_tags(
 
         if prev_priv && next_priv {
             if quote == "\"" {
-                let above = get_above_two_tags(&chars, text, pos + prev.len(), ctx, lquote, rquote);
+                let above = get_above_two_tags(&chars, text, pos + prev.len(), ctx, quotes);
 
                 return format!("{prev}{above}{next}");
             }
@@ -287,20 +276,12 @@ fn set_above_tags(
             let prev_info = tags.get_prev_tag_info(&chars, text, quote_pos);
 
             if has_right && prev_info.as_ref().is_some_and(|i| i.group == "html") {
-                let q = if prev_info.is_some_and(|i| i.is_closing) {
-                    rquote
-                } else {
-                    lquote
-                };
+                let q = if prev_info.is_some_and(|i| i.is_closing) { rquote } else { lquote };
 
                 return format!("{prev}{q}{next}");
             }
 
-            let q = if next.is_empty() || has_right {
-                rquote
-            } else {
-                lquote
-            };
+            let q = if next.is_empty() || has_right { rquote } else { lquote };
 
             return format!("{prev}{q}{next}");
         }
@@ -309,20 +290,12 @@ fn set_above_tags(
         let next_info = tags.get_next_tag_info(&chars, text, quote_pos);
 
         if has_left && next_info.as_ref().is_some_and(|i| i.group == "html") {
-            let q = if next_info.is_some_and(|i| i.is_closing) {
-                rquote
-            } else {
-                lquote
-            };
+            let q = if next_info.is_some_and(|i| i.is_closing) { rquote } else { lquote };
 
             return format!("{prev}{q}{next}");
         }
 
-        let q = if prev.is_empty() || has_left {
-            lquote
-        } else {
-            rquote
-        };
+        let q = if prev.is_empty() || has_left { lquote } else { rquote };
 
         format!("{prev}{q}{next}")
     });
@@ -330,14 +303,7 @@ fn set_above_tags(
     replaced.into_owned()
 }
 
-fn get_above_two_tags(
-    chars: &[(usize, char)],
-    text: &str,
-    pos: usize,
-    ctx: &Context<'_>,
-    lquote: char,
-    rquote: char,
-) -> String {
+fn get_above_two_tags(chars: &[(usize, char)], text: &str, pos: usize, ctx: &Context<'_>, quotes: QuotePair) -> String {
     let tags = ctx.safe_tags.borrow();
     let prev_info = tags.get_prev_tag_info(chars, text, pos);
     let next_info = tags.get_next_tag_info(chars, text, pos);
@@ -345,19 +311,16 @@ fn get_above_two_tags(
     if let Some(prev) = prev_info {
         if prev.group == "html" {
             if !prev.is_closing {
-                return lquote.to_string();
+                return quotes.left.to_string();
             }
 
             if next_info.is_some_and(|n| n.is_closing) && prev.is_closing {
-                return rquote.to_string();
+                return quotes.right.to_string();
             }
         }
     }
 
-    text.get(pos..)
-        .and_then(|s| s.chars().next())
-        .map(|c| c.to_string())
-        .unwrap_or_default()
+    text.get(pos..).and_then(|s| s.chars().next()).map(|c| c.to_string()).unwrap_or_default()
 }
 
 fn set_inner(text: &str, settings: &OwnedQuote) -> String {
@@ -366,19 +329,10 @@ fn set_inner(text: &str, settings: &OwnedQuote) -> String {
     let left_chars: Vec<char> = settings.left.chars().collect();
     let right_chars: Vec<char> = settings.right.chars().collect();
     let length = left_chars.len();
-    let qd = QuoteData {
-        left: settings.left,
-        right: settings.right,
-        spacing: None,
-        remove_duplicate_quotes: false,
-    };
+    let qd = QuoteData { left: settings.left, right: settings.right, spacing: None, remove_duplicate_quotes: false };
     let counted = count_quotes(text, Some(&qd));
     let has_errors = counted.left0 != counted.right0;
-    let max_level = if has_errors {
-        length.min(MAX_LEVEL_WITH_ERRORS)
-    } else {
-        length
-    };
+    let max_level = if has_errors { length.min(MAX_LEVEL_WITH_ERRORS) } else { length };
 
     let mut level = 0usize;
     let mut result = String::new();
@@ -428,7 +382,5 @@ fn return_original(text: &str, original: &OwnedQuote, buffer: &OwnedQuote) -> St
         map.push((br[i], or_[i]));
     }
 
-    text.chars()
-        .map(|ch| map.iter().find(|(from, _)| *from == ch).map(|(_, to)| *to).unwrap_or(ch))
-        .collect()
+    text.chars().map(|ch| map.iter().find(|(from, _)| *from == ch).map_or(ch, |(_, to)| *to)).collect()
 }

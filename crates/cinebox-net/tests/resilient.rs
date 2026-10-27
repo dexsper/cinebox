@@ -12,11 +12,7 @@ use httpmock::prelude::*;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(2);
 
 fn proxy_net(dns_bypass: bool) -> NetConfig {
-    NetConfig {
-        use_system_proxy: true,
-        dns_bypass,
-        custom_doh_url: String::new(),
-    }
+    NetConfig { use_system_proxy: true, dns_bypass, custom_doh_url: String::new() }
 }
 
 #[tokio::test]
@@ -30,10 +26,7 @@ async fn direct_request_reaches_server() -> Result<(), reqwest::Error> {
         .await;
 
     let net = NetConfig::direct();
-    let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| {
-        client.get(server.url("/ping"))
-    })
-    .await?;
+    let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| client.get(server.url("/ping"))).await?;
 
     assert_eq!(response.status().as_u16(), 200);
     mock.assert_async().await;
@@ -52,15 +45,8 @@ async fn doh_client_serves_direct_path_when_bypass_is_on() -> Result<(), reqwest
 
     // IP-literal URL: no DNS lookup happens, but the request must go through
     // the DoH-configured client because the proxy is off and bypass is on.
-    let net = NetConfig {
-        use_system_proxy: false,
-        dns_bypass: true,
-        custom_doh_url: String::new(),
-    };
-    let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| {
-        client.get(server.url("/doh-direct"))
-    })
-    .await?;
+    let net = NetConfig { use_system_proxy: false, dns_bypass: true, custom_doh_url: String::new() };
+    let response = send_resilient(&net, CONNECT_TIMEOUT, None, |client| client.get(server.url("/doh-direct"))).await?;
 
     assert_eq!(response.status().as_u16(), 200);
     mock.assert_async().await;
@@ -97,6 +83,6 @@ fn plain_client_is_cached_per_config() -> Result<(), reqwest::Error> {
     let second = plain_client(&net, CONNECT_TIMEOUT, Some("test/1"))?;
 
     // reqwest::Client is an Arc internally; the factory must reuse it.
-    let _ = (first, second);
+    drop((first, second));
     Ok(())
 }

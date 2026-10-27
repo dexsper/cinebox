@@ -58,8 +58,7 @@ const TRIM: &[char] = &[' ', ',', ':', ';', '-', '–', '.', '+'];
 /// ` / ` between names; `AC/DC` stays whole.
 static SEPARATOR: LazyLock<Regex> = LazyLock::new(|| re(r"\s+/\s*|\s*/\s+"));
 
-static YEAR_SEGMENT: LazyLock<Regex> =
-    LazyLock::new(|| re(r"^(?:19|20)\d{2}(?:\s*[-–]\s*(?:19|20)?\d{2})?$"));
+static YEAR_SEGMENT: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:19|20)\d{2}(?:\s*[-–]\s*(?:19|20)?\d{2})?$"));
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| {
     re(r"(?ix)^(?:
@@ -84,7 +83,8 @@ static RIP: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\w+-)*(\w+?)[Rr]ip(?:\d{
 const SOFT_TAGS: &[&str] = &["hybrid", "bd", "dvb", "dsr"];
 
 static SEASON: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?ix)^(?:сезон\w*|серии|серия|season|s\d{1,2}(?:e\d+(?:-\d+)?)?|тв-\d+|tv)$")
+    let pattern = r"(?ix)^(?:сезон\w*|серии|серия|season|s\d{1,2}(?:e\d+(?:-\d+)?)?|тв-\d+|tv)$";
+    re(pattern)
 });
 
 /// `/ Issues 1-45 /` as a segment of its own; inside a name the word belongs to it.
@@ -142,10 +142,8 @@ fn is_rip(word: &str) -> bool {
 }
 
 /// Sources a capital or two cannot tell from a word (`CamRip`, `dvdrip`).
-const KNOWN_RIPS: &[&str] = &[
-    "dvd", "bd", "web", "webdl", "dl", "hdtv", "hd", "sat", "tv", "cam", "dcp", "vhs", "hybrid",
-    "theater",
-];
+const KNOWN_RIPS: &[&str] =
+    &["dvd", "bd", "web", "webdl", "dl", "hdtv", "hd", "sat", "tv", "cam", "dcp", "vhs", "hybrid", "theater"];
 
 fn is_season(word: &str) -> bool {
     SEASON.is_match(word.trim_matches(&[',', ';', ':'][..]))
@@ -282,7 +280,10 @@ mod tests {
             ("Оппенгеймер / Oppenheimer (2023) CamRip [H.264/1080p]", "Оппенгеймер / Oppenheimer"),
             ("Матрица / The Matrix (1999) HybridRip-AVC | D, P", "Матрица / The Matrix"),
             ("Шерлок / Sherlock [S03] (2014) WED-DLRip от Scarabey", "Шерлок / Sherlock"),
-            ("Побег из Шоушенка / The Shawshank Redemption (1994) BDRip720p от FreeHD", "Побег из Шоушенка / The Shawshank Redemption"),
+            (
+                "Побег из Шоушенка / The Shawshank Redemption (1994) BDRip720p от FreeHD",
+                "Побег из Шоушенка / The Shawshank Redemption",
+            ),
         ];
 
         for (title, name) in cases {
@@ -336,8 +337,14 @@ mod tests {
         let cases = [
             ("Road Trip (2000) BDRip 1080p", "Road Trip"),
             ("Linkin Park - Hybrid Theory (2000) DVD9", "Linkin Park - Hybrid Theory"),
-            ("Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики / Сезон: 1", "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики"),
-            ("Офис / The Office (UK) / Рождественские выпуски / Christmas Specials / 2003 / ПМ", "Офис / The Office / Рождественские выпуски / Christmas Specials"),
+            (
+                "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики / Сезон: 1",
+                "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики",
+            ),
+            (
+                "Офис / The Office (UK) / Рождественские выпуски / Christmas Specials / 2003 / ПМ",
+                "Офис / The Office / Рождественские выпуски / Christmas Specials",
+            ),
         ];
 
         for (title, name) in cases {

@@ -15,7 +15,12 @@ struct DateParts {
 }
 
 pub(super) fn now_ms() -> f64 {
-    Utc::now().timestamp_millis() as f64
+    js_millis(Utc::now().timestamp_millis())
+}
+
+#[expect(clippy::cast_precision_loss, reason = "JS dates are milliseconds within 2^53, where `f64` is exact")]
+pub(super) fn js_millis(ms: i64) -> f64 {
+    ms as f64
 }
 
 pub(super) fn parse(date_str: &str) -> Option<f64> {
@@ -23,7 +28,7 @@ pub(super) fn parse(date_str: &str) -> Option<f64> {
     let s = collapse_ws(&s);
 
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s.replace(' ', "T")) {
-        return Some(dt.timestamp_millis() as f64);
+        return Some(js_millis(dt.timestamp_millis()));
     }
 
     if let Some(ms) = parse_iso(&s) {
@@ -59,9 +64,7 @@ pub(super) fn parse(date_str: &str) -> Option<f64> {
 }
 
 pub(super) fn utc_ms(args: &[JsValue]) -> f64 {
-    let Some(parts) = date_parts(args) else {
-        return f64::NAN;
-    };
+    let parts = date_parts(args);
 
     let Some(date) = NaiveDate::from_ymd_opt(parts.y, parts.month, parts.day) else {
         return f64::NAN;
@@ -71,15 +74,13 @@ pub(super) fn utc_ms(args: &[JsValue]) -> f64 {
         return f64::NAN;
     };
 
-    naive.and_utc().timestamp_millis() as f64 + parts.ms
+    js_millis(naive.and_utc().timestamp_millis()) + parts.ms
 }
 
 pub(super) fn local_ms(args: &[JsValue]) -> f64 {
     use chrono::Local;
 
-    let Some(parts) = date_parts(args) else {
-        return f64::NAN;
-    };
+    let parts = date_parts(args);
 
     let Some(date) = NaiveDate::from_ymd_opt(parts.y, parts.month, parts.day) else {
         return f64::NAN;
@@ -91,7 +92,7 @@ pub(super) fn local_ms(args: &[JsValue]) -> f64 {
 
     match Local.from_local_datetime(&naive) {
         chrono::LocalResult::Single(dt) | chrono::LocalResult::Ambiguous(dt, _) => {
-            dt.timestamp_millis() as f64 + parts.ms
+            js_millis(dt.timestamp_millis()) + parts.ms
         }
         chrono::LocalResult::None => f64::NAN,
     }
@@ -111,7 +112,12 @@ pub(super) fn construct(args: &[JsValue]) -> f64 {
         JsValue::String(s) => parse(s).unwrap_or(f64::NAN),
         JsValue::Number(n) if n.is_nan() => f64::NAN,
         JsValue::Number(n) => n.trunc(),
-        other => number_or_parse(other),
+        other @ (JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_)) => number_or_parse(other),
     }
 }
 
@@ -125,20 +131,25 @@ fn number_or_parse(v: &JsValue) -> f64 {
     n.trunc()
 }
 
-fn date_parts(args: &[JsValue]) -> Option<DateParts> {
-    Some(DateParts {
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "`as` truncates and saturates each field; `from_ymd_opt` and `and_hms_opt` reject what is out of range"
+)]
+fn date_parts(args: &[JsValue]) -> DateParts {
+    DateParts {
         y: num(args, 0, 1970.0) as i32,
-        month: num(args, 1, 0.0) as u32 + 1,
+        month: (num(args, 1, 0.0) as u32).saturating_add(1),
         day: num(args, 2, 1.0) as u32,
         hour: num(args, 3, 0.0) as u32,
         min: num(args, 4, 0.0) as u32,
         sec: num(args, 5, 0.0) as u32,
         ms: num(args, 6, 0.0),
-    })
+    }
 }
 
 fn num(args: &[JsValue], i: usize, default: f64) -> f64 {
-    args.get(i).map(JsValue::to_number).unwrap_or(default)
+    args.get(i).map_or(default, JsValue::to_number)
 }
 
 fn naive_to_ms(naive: NaiveDateTime, offset_sec: i32) -> f64 {
@@ -152,22 +163,22 @@ fn naive_to_ms(naive: NaiveDateTime, offset_sec: i32) -> f64 {
         return f64::NAN;
     };
 
-    dt.with_timezone(&Utc).timestamp_millis() as f64
+    js_millis(dt.with_timezone(&Utc).timestamp_millis())
 }
 
 fn parse_iso(s: &str) -> Option<f64> {
     let s = s.replace(' ', "T");
 
     if let Ok(dt) = chrono::DateTime::parse_from_rfc3339(&s) {
-        return Some(dt.timestamp_millis() as f64);
+        return Some(js_millis(dt.timestamp_millis()));
     }
 
     if let Ok(naive) = NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S%.3f") {
-        return Some(naive.and_utc().timestamp_millis() as f64);
+        return Some(js_millis(naive.and_utc().timestamp_millis()));
     }
 
     if let Ok(naive) = NaiveDateTime::parse_from_str(&s, "%Y-%m-%dT%H:%M:%S") {
-        return Some(naive.and_utc().timestamp_millis() as f64);
+        return Some(js_millis(naive.and_utc().timestamp_millis()));
     }
 
     None
@@ -176,8 +187,23 @@ fn parse_iso(s: &str) -> Option<f64> {
 fn strip_weekday(s: &str) -> String {
     let lower = s.to_ascii_lowercase();
     let days = [
-        "monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday", "mon",
-        "tue", "tues", "wed", "thu", "thur", "thurs", "fri", "sat", "sun",
+        "monday",
+        "tuesday",
+        "wednesday",
+        "thursday",
+        "friday",
+        "saturday",
+        "sunday",
+        "mon",
+        "tue",
+        "tues",
+        "wed",
+        "thu",
+        "thur",
+        "thurs",
+        "fri",
+        "sat",
+        "sun",
     ];
 
     for day in days {
@@ -225,14 +251,11 @@ fn split_tz(s: &str) -> (String, i32) {
 fn tz_offset(name: &str) -> Option<i32> {
     let hour = match name {
         "UTC" | "GMT" | "Z" => 0,
-        "MDT" => -6,
-        "MST" => -7,
-        "PDT" => -7,
-        "PST" => -8,
         "EDT" => -4,
-        "EST" => -5,
-        "CDT" => -5,
-        "CST" => -6,
+        "EST" | "CDT" => -5,
+        "CST" | "MDT" => -6,
+        "MST" | "PDT" => -7,
+        "PST" => -8,
         _ => return None,
     };
 

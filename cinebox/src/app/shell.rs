@@ -5,11 +5,11 @@ use cinebox_player::VideoOutput;
 use egui::{CentralPanel, Color32, Context, Frame, Margin, Rect, Ui, pos2};
 
 use super::App;
-use super::nav::{NavAction, Screen};
+use super::nav::{MediaRef, NavAction, Screen};
 use crate::platform;
 use crate::services::Services;
 use crate::services::images::ImageSlot;
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 use crate::widgets::{backdrop, chrome, focus, rail};
 
 /// Navigation the window asked for this frame.
@@ -25,73 +25,49 @@ impl App {
         let on_player = matches!(screen, Screen::Player { .. });
         let profile = platform::profile(ui.ctx());
         let player_fullscreen = on_player && self.player.fills_screen(profile);
-        let outline = if profile.is_desktop_window() {
-            1.0
-        } else {
-            0.0
-        };
+        let outline = if profile.is_desktop_window() { 1.0 } else { 0.0 };
 
-        let mut actions = WindowActions {
-            chrome: None,
-            screen: None,
-        };
+        let mut actions = WindowActions { chrome: None, screen: None };
 
         let fill = self.page_fill(on_player);
-        CentralPanel::default()
-            .frame(Frame::new().fill(fill))
-            .show(ui, |ui| {
-                self.paint_backdrop(ui);
-                let with_rail = screen.shows_rail() && !player_fullscreen;
+        CentralPanel::default().frame(Frame::new().fill(fill)).show(ui, |ui| {
+            self.paint_backdrop(ui);
+            let with_rail = screen.shows_rail() && !player_fullscreen;
 
-                // Inside the window outline, starting at the title bar's bottom edge.
-                let window = ui.max_rect();
-                let bar_h = chrome::bar_height(ui.ctx(), theme);
-                let rail_body = Rect::from_min_max(
-                    pos2(window.left() + outline, window.top() + bar_h),
-                    pos2(window.right(), window.bottom() - outline),
-                );
+            // Inside the window outline, starting at the title bar's bottom edge.
+            let window = ui.max_rect();
+            let bar_h = chrome::bar_height(ui.ctx(), theme);
+            let rail_body = Rect::from_min_max(
+                pos2(window.left() + outline, window.top() + bar_h),
+                pos2(window.right(), window.bottom() - outline),
+            );
 
-                let rail_column = rail::column_center(ui.ctx(), rail_body.left());
-                let back_x = with_rail.then_some(rail_column);
+            let rail_column = rail::column_center(ui.ctx(), rail_body.left());
+            let back_x = with_rail.then_some(rail_column);
 
-                let header = if player_fullscreen {
-                    None
-                } else {
-                    chrome::header(
-                        ui,
-                        screen,
-                        theme,
-                        self.settings_screen.is_open(),
-                        &mut self.search_bar,
-                        back_x,
-                    )
-                };
+            let header = if player_fullscreen {
+                None
+            } else {
+                let bar = chrome::Header { screen, is_settings_open: self.settings_screen.is_open(), back_x };
+                chrome::header(ui, theme, bar, &mut self.search_bar)
+            };
 
-                let rail = if with_rail {
-                    rail::show(ui, rail_body, theme, screen.rail_entry())
-                } else {
-                    None
-                };
+            let rail = if with_rail { rail::show(ui, rail_body, theme, screen.rail_entry()) } else { None };
 
-                let margin = content_margin(ui.ctx(), screen, theme, with_rail);
-                let content = Frame::new()
-                    .inner_margin(margin)
-                    .show(ui, |ui| screen_ui(self, ui, screen, theme));
+            let margin = content_margin(ui.ctx(), screen, theme, with_rail);
+            let content = Frame::new().inner_margin(margin).show(ui, |ui| screen_ui(self, ui, screen, theme));
 
-                focus::set_content(ui.ctx(), content.response.rect - margin);
-                if !player_fullscreen && profile.is_desktop_window() {
-                    chrome::resize_edges(ui, theme);
-                    chrome::window_outline(ui, theme);
-                }
+            focus::set_content(ui.ctx(), content.response.rect - margin);
+            if !player_fullscreen && profile.is_desktop_window() {
+                chrome::resize_edges(ui, theme);
+                chrome::window_outline(ui, theme);
+            }
 
-                let settings = self.settings_screen.ui(ui, &mut self.services, theme);
-                let rail = rail.map(NavAction::OpenRail);
+            let settings = self.settings_screen.ui(ui, &mut self.services, theme);
+            let rail = rail.map(NavAction::OpenRail);
 
-                actions = WindowActions {
-                    chrome: settings.or(rail).or(header),
-                    screen: content.inner,
-                };
-            });
+            actions = WindowActions { chrome: settings.or(rail).or(header), screen: content.inner };
+        });
 
         actions
     }
@@ -111,11 +87,17 @@ impl App {
 
     fn paint_backdrop(&mut self, ui: &mut Ui) {
         let url = match self.nav.current() {
-            Screen::Media { .. } | Screen::Torrents { .. } => self
-                .media
-                .ready()
-                .and_then(|d| tmdb_image_url(d.backdrop_path.as_deref(), "w1280")),
-            _ => None,
+            Screen::Media { .. } | Screen::Torrents { .. } => {
+                self.media.ready().and_then(|d| tmdb_image_url(d.backdrop_path.as_deref(), "w1280"))
+            }
+            Screen::Home
+            | Screen::Section { .. }
+            | Screen::Category { .. }
+            | Screen::Discover { .. }
+            | Screen::Library
+            | Screen::Search
+            | Screen::Person { .. }
+            | Screen::Player { .. } => None,
         };
 
         let Some(url) = url else {
@@ -129,30 +111,22 @@ impl App {
 }
 
 fn content_margin(ctx: &Context, screen: Screen, theme: &Theme, with_rail: bool) -> Margin {
-    let pad = theme.pad.round() as i8;
+    let pad = theme::round_i8(theme.pad);
     let edge = platform::edge_inset(ctx);
-    let left = if with_rail {
-        (rail::collapsed_width(ctx) + theme.pad).round() as i8
-    } else {
-        pad + edge.left
-    };
-
+    let left = if with_rail { theme::round_i8(rail::collapsed_width(ctx) + theme.pad) } else { pad + edge.left };
     let right = pad + edge.right;
 
     match screen {
         Screen::Player { .. } => Margin::ZERO,
-        Screen::Home => Margin {
-            left,
-            right,
-            top: 0,
-            bottom: pad + edge.bottom,
-        },
-        _ => Margin {
-            left,
-            right,
-            top: 0,
-            bottom: edge.bottom,
-        },
+        Screen::Home => Margin { left, right, top: 0, bottom: pad + edge.bottom },
+        Screen::Section { .. }
+        | Screen::Category { .. }
+        | Screen::Discover { .. }
+        | Screen::Library
+        | Screen::Search
+        | Screen::Media { .. }
+        | Screen::Person { .. }
+        | Screen::Torrents { .. } => Margin { left, right, top: 0, bottom: edge.bottom },
     }
 }
 
@@ -170,7 +144,7 @@ fn screen_ui(app: &mut App, ui: &mut Ui, screen: Screen, theme: &Theme) -> Optio
         Screen::Discover { section } => app.discover.ui(ui, &mut app.services, theme, section),
         Screen::Library => app.library.ui(ui, &app.services, theme),
         Screen::Search => app.search.ui(ui, &mut app.services, theme),
-        Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, kind, id),
+        Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, MediaRef { kind, id }),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {
             let nav = app.torrents.ui(ui, &mut app.services, theme, kind, id);

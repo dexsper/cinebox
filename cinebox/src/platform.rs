@@ -8,14 +8,17 @@ mod media_session;
 mod profile;
 pub(crate) mod text_input;
 
+use std::fmt;
 use std::sync::Arc;
 
 use cinebox_core::Overscan;
 use egui::{Context, Id, Key, Margin, RawInput};
 
+use crate::theme;
+
 pub use device::{
-    Device, DeviceEvent, Direction, FieldText, MediaCommand, MediaSessionState, NoDevice,
-    SpeechEvent, SpeechRequest, TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
+    Device, DeviceEvent, Direction, FieldText, MediaCommand, MediaSessionState, NoDevice, SpeechEvent, SpeechRequest,
+    TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 pub(crate) use media_session::SessionPublisher;
 pub use profile::{Navigation, Profile, Viewing, Windowing};
@@ -33,11 +36,17 @@ pub struct Host {
 impl Host {
     #[must_use]
     pub fn desktop() -> Self {
-        Self {
-            profile: Profile::desktop(),
-            device: Arc::new(NoDevice),
-            player: None,
-        }
+        Self { profile: Profile::desktop(), device: Arc::new(NoDevice), player: None }
+    }
+}
+
+impl fmt::Debug for Host {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Host")
+            .field("profile", &self.profile)
+            .field("player", &self.player.as_ref().map(|_| "platform"))
+            .finish_non_exhaustive()
     }
 }
 
@@ -89,7 +98,7 @@ pub(crate) fn edge_inset(ctx: &Context) -> Margin {
     let share = overscan.unwrap_or_default().fraction();
     let cropped = ctx.content_rect().size() * share;
 
-    Margin::symmetric(cropped.x.round() as i8, cropped.y.round() as i8)
+    Margin::symmetric(theme::round_i8(cropped.x), theme::round_i8(cropped.y))
 }
 
 /// Before egui sees the frame's input: the OS Back becomes Escape, which
@@ -105,7 +114,7 @@ pub(crate) fn take_input(ctx: &Context, raw_input: &mut RawInput) -> Vec<DeviceE
     while let Some(event) = device.poll_event() {
         match event {
             DeviceEvent::Text(text) => text_input::feed(ctx, raw_input, text),
-            other => for_app.push(other),
+            DeviceEvent::Media(_) | DeviceEvent::Speech(_) | DeviceEvent::SearchKey => for_app.push(event),
         }
     }
 
@@ -136,7 +145,7 @@ pub(crate) fn end_frame(ctx: &Context) {
     text_input::sync(ctx);
 }
 
-fn fit_layout_width(ctx: &Context, width_pt: f32) {
+fn fit_layout_width(ctx: &Context, layout_points: f32) {
     let Some(native) = ctx.input(|i| i.viewport().native_pixels_per_point) else {
         return;
     };
@@ -145,12 +154,12 @@ fn fit_layout_width(ctx: &Context, width_pt: f32) {
         return;
     }
 
-    let width_px = ctx.content_rect().width() * ctx.pixels_per_point();
-    if width_px <= 0.0 {
+    let window_pixels = ctx.content_rect().width() * ctx.pixels_per_point();
+    if window_pixels <= 0.0 {
         return;
     }
 
-    let zoom = width_px / width_pt / native;
+    let zoom = window_pixels / layout_points / native;
     if (ctx.zoom_factor() - zoom).abs() > 0.01 {
         ctx.set_zoom_factor(zoom);
     }
@@ -161,21 +170,13 @@ mod tests {
     use super::*;
 
     fn key(key: Key, pressed: bool) -> egui::Event {
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        }
+        egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE }
     }
 
     #[test]
     fn back_becomes_escape_both_ways() {
-        let mut raw = RawInput {
-            events: vec![key(Key::BrowserBack, true), key(Key::BrowserBack, false)],
-            ..Default::default()
-        };
+        let events = vec![key(Key::BrowserBack, true), key(Key::BrowserBack, false)];
+        let mut raw = RawInput { events, ..Default::default() };
 
         back_is_escape(&mut raw);
 

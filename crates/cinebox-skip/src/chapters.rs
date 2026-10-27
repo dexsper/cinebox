@@ -32,13 +32,7 @@ const INTRO: &[&str] = &[
     "片头曲",
 ];
 
-const RECAP: &[&str] = &[
-    "recap",
-    "previously",
-    "previously on",
-    "ранее",
-    "в предыдущих сериях",
-];
+const RECAP: &[&str] = &["recap", "previously", "previously on", "ранее", "в предыдущих сериях"];
 
 const CREDITS: &[&str] = &[
     "credits",
@@ -81,10 +75,7 @@ const NAMES: [(SegmentType, &[&str]); 4] = [
 
 /// `None` when no chapter is marked, or every marked one looks mislabeled.
 #[must_use]
-pub fn segments_from_chapters(
-    chapters: &[ChapterMark<'_>],
-    duration_ms: u64,
-) -> Option<MediaSegments> {
+pub fn segments_from_chapters(chapters: &[ChapterMark<'_>], duration_ms: u64) -> Option<MediaSegments> {
     let mut segments = MediaSegments::default();
 
     for (index, chapter) in chapters.iter().enumerate() {
@@ -93,10 +84,7 @@ pub fn segments_from_chapters(
         };
 
         let end_ms = chapters.get(index + 1).map(|next| next.start_ms);
-        let range = TimeRange {
-            start_ms: Some(chapter.start_ms),
-            end_ms,
-        };
+        let range = TimeRange { start_ms: Some(chapter.start_ms), end_ms };
 
         if !is_plausible(&range, duration_ms) {
             continue;
@@ -199,10 +187,7 @@ mod tests {
     }
 
     fn range(start_ms: u64, end_ms: Option<u64>) -> TimeRange {
-        TimeRange {
-            start_ms: Some(start_ms),
-            end_ms,
-        }
+        TimeRange { start_ms: Some(start_ms), end_ms }
     }
 
     #[test]
@@ -216,14 +201,8 @@ mod tests {
         assert_eq!(classify("Next Episode Preview"), Some(SegmentType::Preview));
         assert_eq!(classify("Previously on"), Some(SegmentType::Recap));
 
-        assert_eq!(
-            classify(" 28. End Credits / Конец"),
-            Some(SegmentType::Credits)
-        );
-        assert_eq!(
-            classify("Opening Credits (\"Twas a Long Time Ago...\")"),
-            Some(SegmentType::Intro)
-        );
+        assert_eq!(classify(" 28. End Credits / Конец"), Some(SegmentType::Credits));
+        assert_eq!(classify("Opening Credits (\"Twas a Long Time Ago...\")"), Some(SegmentType::Intro));
         assert_eq!(classify("Episode 26 Preview"), Some(SegmentType::Preview));
         assert_eq!(classify("エンディング"), Some(SegmentType::Credits));
         assert_eq!(classify("次回予告"), Some(SegmentType::Preview));
@@ -241,19 +220,13 @@ mod tests {
 
     #[test]
     fn chapter_runs_until_the_next_one() {
-        let chapters = [
-            mark(0, "Prologue"),
-            mark(90_000, "Opening"),
-            mark(180_000, "Part A"),
-        ];
+        let chapters = [mark(0, "Prologue"), mark(90_000, "Opening"), mark(180_000, "Part A")];
 
         let segments = segments_from_chapters(&chapters, 24 * MINUTE_MS);
-        let Some(segments) = segments else {
-            panic!("no segments from a marked opening")
-        };
+        let Some(segments) = segments else { panic!("no segments from a marked opening") };
 
         assert_eq!(segments.intro, vec![range(90_000, Some(180_000))]);
-        assert!(segments.credits.is_empty());
+        assert_eq!(segments.credits, []);
     }
 
     #[test]
@@ -261,9 +234,7 @@ mod tests {
         let chapters = [mark(0, "Part 01"), mark(6_490_000, "Credits")];
 
         let segments = segments_from_chapters(&chapters, 6_620_000);
-        let Some(segments) = segments else {
-            panic!("no segments from a marked credits chapter")
-        };
+        let Some(segments) = segments else { panic!("no segments from a marked credits chapter") };
 
         assert_eq!(segments.credits, vec![range(6_490_000, None)]);
     }
@@ -278,14 +249,9 @@ mod tests {
         ];
 
         let segments = segments_from_chapters(&chapters, 24 * MINUTE_MS);
-        let Some(segments) = segments else {
-            panic!("no segments from marked chapters")
-        };
+        let Some(segments) = segments else { panic!("no segments from marked chapters") };
 
-        assert_eq!(
-            segments.credits,
-            vec![range(21 * MINUTE_MS, Some(23 * MINUTE_MS))]
-        );
+        assert_eq!(segments.credits, vec![range(21 * MINUTE_MS, Some(23 * MINUTE_MS))]);
         assert_eq!(segments.preview, vec![range(23 * MINUTE_MS, None)]);
     }
 
@@ -294,11 +260,9 @@ mod tests {
         let chapters = [mark(0, "Intro"), mark(100 * MINUTE_MS, "Credits")];
         let segments = segments_from_chapters(&chapters, 105 * MINUTE_MS);
 
-        let Some(segments) = segments else {
-            panic!("credits dropped along with the intro")
-        };
+        let Some(segments) = segments else { panic!("credits dropped along with the intro") };
 
-        assert!(segments.intro.is_empty());
+        assert_eq!(segments.intro, []);
         assert_eq!(segments.credits, vec![range(100 * MINUTE_MS, None)]);
     }
 

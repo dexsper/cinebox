@@ -8,7 +8,7 @@ use rust_i18n::t;
 
 use super::gate;
 use crate::app::nav::NavAction;
-use crate::screens::paged::PagedGrid;
+use crate::screens::paged::{GridView, PagedGrid};
 use crate::services::Services;
 use crate::services::jobs;
 use crate::theme::Theme;
@@ -22,20 +22,14 @@ const RATINGS: [u8; 3] = [6, 7, 8];
 const RATING_FILTER_MIN_VOTES: u32 = 50;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Decade {
+pub(crate) enum Decade {
     From(i32),
     Before1980,
 }
 
 impl Decade {
-    pub const ALL: [Self; 6] = [
-        Self::From(2020),
-        Self::From(2010),
-        Self::From(2000),
-        Self::From(1990),
-        Self::From(1980),
-        Self::Before1980,
-    ];
+    pub(crate) const ALL: [Self; 6] =
+        [Self::From(2020), Self::From(2010), Self::From(2000), Self::From(1990), Self::From(1980), Self::Before1980];
 
     fn range(self) -> (Option<Date>, Option<Date>) {
         match self {
@@ -54,7 +48,7 @@ impl Decade {
 
 /// User-chosen filters. Section scoping (animation, anime language) is added by [`Self::query`].
 #[derive(Debug, Clone, PartialEq)]
-pub struct DiscoverFilters {
+pub(crate) struct DiscoverFilters {
     pub kind: MediaKind,
     pub genres: Vec<u32>,
     pub decade: Option<Decade>,
@@ -63,24 +57,15 @@ pub struct DiscoverFilters {
 }
 
 impl DiscoverFilters {
-    pub fn new(kind: MediaKind) -> Self {
-        Self {
-            kind,
-            genres: Vec::new(),
-            decade: None,
-            min_vote: None,
-            sort: DiscoverSort::Popular,
-        }
+    pub(crate) fn new(kind: MediaKind) -> Self {
+        Self { kind, genres: Vec::new(), decade: None, min_vote: None, sort: DiscoverSort::Popular }
     }
 
-    pub fn with_genre(kind: MediaKind, genre: u32) -> Self {
-        Self {
-            genres: vec![genre],
-            ..Self::new(kind)
-        }
+    pub(crate) fn with_genre(kind: MediaKind, genre: u32) -> Self {
+        Self { genres: vec![genre], ..Self::new(kind) }
     }
 
-    pub fn query(&self, section: Section) -> DiscoverQuery {
+    pub(crate) fn query(&self, section: Section) -> DiscoverQuery {
         let mut query = DiscoverQuery::for_section(section, self.kind);
         query.genres.extend_from_slice(&self.genres);
         query.sort = self.sort;
@@ -115,13 +100,13 @@ impl DiscoverFilters {
     }
 }
 
-pub struct DiscoverScreen {
+pub(crate) struct DiscoverScreen {
     section: Option<Section>,
     filters: DiscoverFilters,
     grid: PagedGrid,
     drawer: Overlay,
     lang: Option<UiLanguage>,
-    reset_scroll: bool,
+    is_scroll_reset: bool,
 }
 
 impl Default for DiscoverScreen {
@@ -132,32 +117,26 @@ impl Default for DiscoverScreen {
             grid: PagedGrid::default(),
             drawer: Overlay::default(),
             lang: None,
-            reset_scroll: false,
+            is_scroll_reset: false,
         }
     }
 }
 
 impl DiscoverScreen {
-    pub fn seed(&mut self, section: Section, filters: DiscoverFilters) {
+    pub(crate) fn seed(&mut self, section: Section, filters: DiscoverFilters) {
         self.section = Some(section);
         self.filters = filters;
         self.grid.reset();
         self.drawer.snap_shut();
-        self.reset_scroll = true;
+        self.is_scroll_reset = true;
     }
 
     /// Escape / Back closes the filter drawer first.
-    pub fn on_back(&mut self, now: f64) -> bool {
+    pub(crate) fn on_back(&mut self, now: f64) -> bool {
         self.drawer.on_back(now)
     }
 
-    pub fn ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        section: Section,
-    ) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, section: Section) -> Option<NavAction> {
         if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
             return gate::tmdb_key(ui, theme, problem);
         }
@@ -170,34 +149,37 @@ impl DiscoverScreen {
         if self.lang.is_some_and(|seen| seen != lang) {
             self.grid.reset();
         }
+
         self.lang = Some(lang);
-
         let before = self.filters.clone();
-        let to_top = std::mem::take(&mut self.reset_scroll);
         let filters = &mut self.filters;
-        let drawer = &mut self.drawer;
-        let out = self.grid.ui(ui, svc, theme, ("discover-page", section.as_key()), to_top, |ui| {
-            header(ui, section, filters, drawer, theme);
-        });
 
+        let drawer = &mut self.drawer;
+        let view = GridView {
+            scroll_salt: ("discover-page", section.as_key()),
+            is_scroll_reset: std::mem::take(&mut self.is_scroll_reset),
+            header: |header_ui: &mut Ui| header(header_ui, section, filters, drawer, theme),
+        };
+
+        let out = self.grid.ui(ui, svc, theme, view);
         let mut overlay = std::mem::take(&mut self.drawer);
+
         overlay.paint(ui, theme, "cinebox-discover-filters", |ui, theme| {
             filters_drawer(ui, section, &mut self.filters, theme);
         });
-        self.drawer = overlay;
 
+        self.drawer = overlay;
         if self.filters != before {
             self.filters.fit_kind();
             self.grid.reset();
-            self.reset_scroll = true;
+            self.is_scroll_reset = true;
             return out.action;
         }
 
-        if out.wants_page {
+        if out.is_page_wanted {
             let tmdb = jobs::TmdbCtx::from(&svc.settings);
             let query = self.filters.query(section);
-            self.grid
-                .request(move |page| jobs::load_discover_page(tmdb, query, page));
+            self.grid.request(move |page| jobs::load_discover_page(tmdb, query, page));
         }
 
         out.action
@@ -211,19 +193,11 @@ impl super::LiveTmdb for DiscoverScreen {
     }
 }
 
-fn header(
-    ui: &mut Ui,
-    section: Section,
-    filters: &mut DiscoverFilters,
-    drawer: &mut Overlay,
-    theme: &Theme,
-) {
+fn header(ui: &mut Ui, section: Section, filters: &mut DiscoverFilters, drawer: &mut Overlay, theme: &Theme) {
     ui.add_space(8.0);
     ui.horizontal(|ui| {
         ui.label(
-            RichText::new(t!("discover.title").as_ref())
-                .font(theme.title_font(theme.text_heading))
-                .color(theme.title),
+            RichText::new(t!("discover.title").as_ref()).font(theme.title_font(theme.text_heading)).color(theme.title),
         );
         ui.label(
             RichText::new(crate::i18n::section_title(section).as_ref())
@@ -317,11 +291,8 @@ fn removable_chip(ui: &mut Ui, theme: &Theme, label: &str) -> bool {
 }
 
 fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, count: usize) -> bool {
-    let label = if count > 0 {
-        format!("{} ({count})", t!("discover.filters"))
-    } else {
-        t!("discover.filters").into_owned()
-    };
+    let title = t!("discover.filters");
+    let label = if count > 0 { format!("{title} ({count})") } else { title.into_owned() };
 
     let size = vec2(FILTERS_BTN_W, combo::HEIGHT);
     let pad_y = button::icon_label_pad_y(ui, theme, ICON_FILTER_LIST, combo::HEIGHT);
@@ -394,11 +365,7 @@ fn wrapped(ui: &mut Ui, add: impl FnOnce(&mut Ui)) {
 
 fn section_label(ui: &mut Ui, theme: &Theme, label: &str) {
     ui.add_space(14.0);
-    ui.label(
-        RichText::new(label)
-            .size(theme.text_small)
-            .color(theme.muted_bright),
-    );
+    ui.label(RichText::new(label).size(theme.text_small).color(theme.muted_bright));
 }
 
 /// "Any" (`any_label`) or one of `options`.
@@ -437,7 +404,7 @@ mod tests {
 
             filters.fit_kind();
 
-            assert!(filters.genres.is_empty());
+            assert_eq!(filters.genres, [] as [u32; 0]);
         }
 
         #[test]
@@ -471,10 +438,7 @@ mod tests {
 
             let query = filters.query(Section::Movies);
 
-            assert_eq!(
-                (query.released_from, query.released_to),
-                (Some(Date::jan1(1990)), Some(Date::dec31(1999)))
-            );
+            assert_eq!((query.released_from, query.released_to), (Some(Date::jan1(1990)), Some(Date::dec31(1999))));
         }
 
         #[test]

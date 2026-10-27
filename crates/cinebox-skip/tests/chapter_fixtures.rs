@@ -13,7 +13,8 @@ const FIXTURES: &str = include_str!("fixtures/chapters.json");
 #[derive(Debug, Deserialize)]
 #[serde(deny_unknown_fields)]
 struct Release {
-    release: String,
+    #[serde(rename = "release")]
+    name: String,
     duration_ms: u64,
     chapters: Vec<(u64, String)>,
     #[serde(default)]
@@ -28,10 +29,7 @@ struct Release {
 
 impl Release {
     fn marks(&self) -> Vec<ChapterMark<'_>> {
-        let marks = self.chapters.iter().map(|(start_ms, title)| ChapterMark {
-            start_ms: *start_ms,
-            title,
-        });
+        let marks = self.chapters.iter().map(|(start_ms, title)| ChapterMark { start_ms: *start_ms, title });
 
         marks.collect()
     }
@@ -60,10 +58,8 @@ fn real_releases_give_the_labelled_segments() -> Result<(), serde_json::Error> {
             let actual = MediaSegments::segments_of(&segments, ty);
 
             if actual != expected {
-                let name = &release.release;
-                failures.push(format!(
-                    "{name}: {ty:?} expected {expected:?}, got {actual:?}"
-                ));
+                let name = &release.name;
+                failures.push(format!("{name}: {ty:?} expected {expected:?}, got {actual:?}"));
             }
         }
     }

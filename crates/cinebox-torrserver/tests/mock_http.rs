@@ -5,10 +5,7 @@ use httpmock::prelude::*;
 
 /// The mock as a TorrServer without auth.
 fn torr(mock: &MockServer) -> Server {
-    Server {
-        url: mock.base_url(),
-        ..Server::default()
-    }
+    Server { url: mock.base_url(), ..Server::default() }
 }
 
 #[tokio::test]
@@ -60,9 +57,7 @@ async fn list_parses_rows_and_skips_hashless() -> Result<(), Error> {
     let server = MockServer::start_async().await;
     server
         .mock_async(|when, then| {
-            when.method(POST)
-                .path("/torrents")
-                .json_body_includes(r#"{ "action": "list" }"#);
+            when.method(POST).path("/torrents").json_body_includes(r#"{ "action": "list" }"#);
             then.status(200).json_body_obj(&serde_json::json!([
                 { "hash": "aa", "title": "Kept" },
                 { "title": "No hash" },
@@ -106,11 +101,7 @@ async fn add_sends_basic_auth_and_parses_status() -> Result<(), Error> {
         save_to_db: false,
     };
 
-    let signed_in = Server {
-        url: server.base_url(),
-        username: String::from("user"),
-        password: String::from("pass"),
-    };
+    let signed_in = Server { url: server.base_url(), username: String::from("user"), password: String::from("pass") };
     let status = add(&signed_in, &spec).await?;
 
     mock.assert_async().await;

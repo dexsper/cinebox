@@ -11,10 +11,11 @@ use egui_async::Bind;
 
 use crate::services::Services;
 use crate::services::jobs::{self, JobError};
+use crate::theme;
 
-pub const AUTOSKIP_SECS: f64 = 8.0;
+pub(super) const AUTOSKIP_SECS: f64 = 8.0;
 
-pub struct ActiveSegment {
+pub(super) struct ActiveSegment {
     pub ty: SegmentType,
     pub start_ms: u64,
     pub end_ms: u64,
@@ -23,32 +24,35 @@ pub struct ActiveSegment {
 }
 
 impl ActiveSegment {
+    fn is_same_span(&self, other: &Self) -> bool {
+        self.ty == other.ty && self.start_ms == other.start_ms && self.end_ms == other.end_ms
+    }
+
     #[must_use]
-    pub fn countdown_frac(&self, now: f64) -> f32 {
+    pub(super) fn countdown_frac(&self, now: f64) -> f32 {
         let Some(started_at) = self.countdown_started_at else {
             return 0.0;
         };
 
-        ((now - started_at) / AUTOSKIP_SECS).clamp(0.0, 1.0) as f32
+        theme::fraction((now - started_at) / AUTOSKIP_SECS)
     }
 
     #[must_use]
-    pub fn countdown_done(&self, now: f64) -> bool {
-        self.countdown_started_at
-            .is_some_and(|t| now - t >= AUTOSKIP_SECS)
+    pub(super) fn countdown_done(&self, now: f64) -> bool {
+        self.countdown_started_at.is_some_and(|t| now - t >= AUTOSKIP_SECS)
     }
 }
 
 /// The film or episode whose segments are skipped.
 #[derive(Clone, Copy, PartialEq, Eq)]
-pub struct SkipTarget {
+pub(super) struct SkipTarget {
     pub kind: MediaKind,
     pub tmdb_id: TmdbId,
     pub season: Option<u32>,
     pub episode: Option<u32>,
 }
 
-pub struct SkipState {
+pub(super) struct SkipState {
     requested_for: Option<SkipTarget>,
     /// From the file's own chapter marks; preferred over `segments` per kind.
     chapter_segments: Option<MediaSegments>,
@@ -74,7 +78,7 @@ impl Default for SkipState {
 }
 
 impl SkipState {
-    pub fn reset(&mut self) {
+    pub(super) fn reset(&mut self) {
         self.requested_for = None;
         self.chapter_segments = None;
         self.segments.abort();
@@ -88,7 +92,7 @@ impl SkipState {
 
     /// Called from `tick()`. Returns `Some(seek_target_secs)` when an
     /// auto-skip fires this frame.
-    pub fn tick(
+    pub(super) fn tick(
         &mut self,
         now: f64,
         time_secs: f64,
@@ -121,43 +125,23 @@ impl SkipState {
         self.requested_for = Some(target);
         let duration_ms = (duration_secs * 1000.0).round() as u64;
 
-        self.chapter_segments = svc
-            .player
-            .as_deref()
-            .and_then(|player| read_chapter_segments(player, duration_ms));
+        self.chapter_segments = svc.player.as_deref().and_then(|player| read_chapter_segments(player, duration_ms));
 
         self.request_segments(duration_ms, target, &svc.settings, &svc.db);
     }
 
-    fn request_segments(
-        &mut self,
-        duration_ms: u64,
-        target: SkipTarget,
-        settings: &Settings,
-        db: &Option<Arc<Store>>,
-    ) {
-        let SkipTarget {
-            kind,
-            tmdb_id,
-            season,
-            episode,
-        } = target;
+    fn request_segments(&mut self, duration_ms: u64, target: SkipTarget, settings: &Settings, db: &Option<Arc<Store>>) {
+        let SkipTarget { kind, tmdb_id, season, episode } = target;
 
         let net = jobs::net_config(settings);
-        let query = cinebox_skip::SegmentQuery {
-            tmdb_id: u64::from(tmdb_id.get()),
-            kind,
-            season,
-            episode,
-            duration_ms,
-        };
+        let cache_id = jobs::skip_cache_id(tmdb_id, kind, season, episode, duration_ms);
+        let provider_id = u64::from(tmdb_id.get());
+        let query = cinebox_skip::SegmentQuery { tmdb_id: provider_id, kind, season, episode, duration_ms };
 
-        self.segments
-            .request(jobs::fetch_skip_segments(net, db.clone(), query));
+        self.segments.request(jobs::fetch_skip_segments(net, db.clone(), query, cache_id));
 
         if let Some(db) = db.clone() {
-            self.choices
-                .request(jobs::fetch_skip_choices(db, kind, tmdb_id));
+            self.choices.request(jobs::fetch_skip_choices(db, kind, tmdb_id));
         }
     }
 
@@ -206,19 +190,11 @@ impl SkipState {
                 let start_ms = range.start_or_zero();
                 let end_ms = range.end_or_duration(dur_ms);
 
-                let same = self
-                    .active
-                    .as_ref()
-                    .is_some_and(|a| a.ty == ty && a.start_ms == start_ms && a.end_ms == end_ms);
+                let candidate = ActiveSegment { ty, start_ms, end_ms, dismissed: false, countdown_started_at: None };
+                let is_same = self.active.as_ref().is_some_and(|active| active.is_same_span(&candidate));
 
-                if !same {
-                    self.active = Some(ActiveSegment {
-                        ty,
-                        start_ms,
-                        end_ms,
-                        dismissed: false,
-                        countdown_started_at: None,
-                    });
+                if !is_same {
+                    self.active = Some(candidate);
                 }
             }
         }
@@ -293,11 +269,7 @@ impl SkipState {
         self.skipped_instances.insert((ty, start_ms, end_ms));
         self.active = None;
 
-        let target_secs = if end_ms == 0 {
-            duration_secs
-        } else {
-            end_ms as f64 / 1000.0
-        };
+        let target_secs = if end_ms == 0 { duration_secs } else { end_ms as f64 / 1000.0 };
 
         Some(target_secs)
     }
@@ -306,7 +278,7 @@ impl SkipState {
     ///
     /// Returns `(seek_target_secs, segment_type)` so the caller can seek and
     /// persist `armed = true` for this type.
-    pub fn on_skip(&mut self, duration_secs: f64) -> Option<(f64, SegmentType)> {
+    pub(super) fn on_skip(&mut self, duration_secs: f64) -> Option<(f64, SegmentType)> {
         let active = self.active.take()?;
         let ty = active.ty;
         let end_ms = active.end_ms;
@@ -314,11 +286,7 @@ impl SkipState {
         self.skipped_instances.insert((ty, active.start_ms, end_ms));
         self.armed.insert(ty, true);
 
-        let target_secs = if end_ms == 0 {
-            duration_secs
-        } else {
-            end_ms as f64 / 1000.0
-        };
+        let target_secs = if end_ms == 0 { duration_secs } else { end_ms as f64 / 1000.0 };
 
         Some((target_secs, ty))
     }
@@ -329,7 +297,7 @@ impl SkipState {
     /// Returns `Some(ty)` only when the auto-skip countdown was already
     /// running — the caller should then persist `armed = false` to DB so the
     /// countdown won't fire next time.
-    pub fn on_cancel(&mut self) -> Option<SegmentType> {
+    pub(super) fn on_cancel(&mut self) -> Option<SegmentType> {
         let active = self.active.as_mut()?;
         let was_counting = active.countdown_started_at.is_some();
         let ty = active.ty;

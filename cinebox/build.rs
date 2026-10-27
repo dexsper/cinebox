@@ -24,10 +24,7 @@ fn build() -> Result<()> {
     let svg_path = manifest.join("assets/icon.svg");
 
     println!("cargo:rerun-if-changed={}", svg_path.display());
-    println!(
-        "cargo:rerun-if-changed={}",
-        manifest.join("locales").display()
-    );
+    println!("cargo:rerun-if-changed={}", manifest.join("locales").display());
 
     let out_dir = PathBuf::from(env::var("OUT_DIR")?);
     let svg = fs::read(&svg_path).with_context(|| format!("read {}", svg_path.display()))?;
@@ -51,9 +48,7 @@ fn embed_windows_icon(tree: &usvg::Tree, out_dir: &Path) -> Result<()> {
     write_ico(tree, &ico_path)?;
 
     let mut resource = winresource::WindowsResource::new();
-    let ico = ico_path
-        .to_str()
-        .context("icon.ico path is not valid UTF-8")?;
+    let ico = ico_path.to_str().context("icon.ico path is not valid UTF-8")?;
 
     resource.set_icon(ico);
     resource.compile().context("embed Windows icon resource")
@@ -84,6 +79,7 @@ fn rasterize(tree: &usvg::Tree, size: u32) -> Result<Vec<u8>> {
         bail!("could not allocate {size}x{size} pixmap");
     };
 
+    #[expect(clippy::cast_precision_loss, reason = "icon sizes are a few hundred pixels, exact in `f32`")]
     let scale = size as f32 / svg_w;
     let transform = Transform::from_scale(scale, scale);
     resvg::render(tree, transform, &mut pixmap.as_mut());
@@ -105,10 +101,10 @@ fn unpremultiply(pixels: &[PremultipliedColorU8]) -> Vec<u8> {
             continue;
         }
 
-        let red = (u16::from(pixel.red()) * 255 / alpha) as u8;
-        let green = (u16::from(pixel.green()) * 255 / alpha) as u8;
-        let blue = (u16::from(pixel.blue()) * 255 / alpha) as u8;
-        rgba.extend_from_slice(&[red, green, blue, alpha as u8]);
+        // A premultiplied channel never exceeds alpha, so each quotient fits a `u8`.
+        let unpremultiplied = |channel: u8| u8::try_from(u16::from(channel) * 255 / alpha).unwrap_or(u8::MAX);
+        let rgb = [pixel.red(), pixel.green(), pixel.blue()].map(unpremultiplied);
+        rgba.extend_from_slice(&[rgb[0], rgb[1], rgb[2], pixel.alpha()]);
     }
 
     rgba

@@ -19,16 +19,15 @@ use serde::Deserialize;
 
 pub use audio::{AudioInfo, Voiceover};
 pub use filter::{
-    AudioLang, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind, filtered_hits,
-    matches_filter, season_options, sort_hits, voice_filter_options, year_options,
+    AudioLang, SortMode, TorrentFilter, TriChoice, VoiceFilter, VoiceKind, filtered_hits, matches_filter,
+    season_options, sort_hits, voice_filter_options, year_options,
 };
 pub use map::Hit;
 pub use name::release_name;
 pub use query::SearchQuery;
 pub use search::search;
 pub use title::{
-    Codec, Edition, EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash,
-    parse_title,
+    Codec, Edition, EpisodeSpan, Hdr, Resolution, SourceQuality, TitleInfo, format_bytes, infohash, parse_title,
 };
 pub use voices::{studios_in_catalog_order, voices};
 
@@ -53,9 +52,7 @@ pub(crate) async fn send<F>(net: &NetConfig, build: F) -> Result<reqwest::Respon
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
-        .await
-        .map_err(Error::Request)
+    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await.map_err(Error::Request)
 }
 
 #[derive(Debug, Deserialize)]
@@ -76,12 +73,7 @@ const PING_TIMEOUT: Duration = Duration::from_secs(20);
 /// # Errors
 ///
 /// Empty URL, HTTP failures, or JSON that does not match the expected shape.
-pub async fn ping(
-    kind: ParserKind,
-    base_url: &str,
-    api_key: &str,
-    net: &NetConfig,
-) -> Result<String, Error> {
+pub async fn ping(kind: ParserKind, base_url: &str, api_key: &str, net: &NetConfig) -> Result<String, Error> {
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
     match kind {
         ParserKind::Jackett => ping_jackett(&base, api_key, net).await,
@@ -91,13 +83,8 @@ pub async fn ping(
 
 async fn ping_jackett(base: &str, api_key: &str, net: &NetConfig) -> Result<String, Error> {
     let url = join_url(base, "api/v2.0/indexers/all/results");
-    let response = send(net, |client| {
-        client
-            .get(&url)
-            .timeout(PING_TIMEOUT)
-            .query(&[("apikey", api_key), ("Query", "cinebox")])
-    })
-    .await?;
+    let query = [("apikey", api_key), ("Query", "cinebox")];
+    let response = send(net, |client| client.get(&url).timeout(PING_TIMEOUT).query(&query)).await?;
 
     let status = response.status();
     if !status.is_success() {
@@ -112,11 +99,7 @@ async fn ping_jackett(base: &str, api_key: &str, net: &NetConfig) -> Result<Stri
 async fn ping_prowlarr(base: &str, api_key: &str, net: &NetConfig) -> Result<String, Error> {
     let url = join_url(base, "api/v1/system/status");
     let response = send(net, |client| {
-        client
-            .get(&url)
-            .timeout(PING_TIMEOUT)
-            .header("X-Api-Key", api_key)
-            .query(&[("apikey", api_key)])
+        client.get(&url).timeout(PING_TIMEOUT).header("X-Api-Key", api_key).query(&[("apikey", api_key)])
     })
     .await?;
 
@@ -160,12 +143,7 @@ pub struct TorrentHit {
 impl TorrentHit {
     /// Parse a release name and attach tags.
     #[must_use]
-    pub fn new(
-        hit: Hit,
-        runtime_minutes: Option<u32>,
-        started_hashes: &[String],
-        local_hashes: &[String],
-    ) -> Self {
+    pub fn new(hit: Hit, runtime_minutes: Option<u32>, started_hashes: &[String], local_hashes: &[String]) -> Self {
         let size_bytes = hit.size_bytes;
         let title_lower = hit.title.to_lowercase();
         // Trackers send entities; full typography is wasted on names cut from tags.
@@ -180,11 +158,8 @@ impl TorrentHit {
         let hash = infohash(&hit.magnet);
         let local_rank = local_rank_of(&hit.magnet, local_hashes);
 
-        let started = hash.as_ref().is_some_and(|hash| {
-            started_hashes
-                .iter()
-                .any(|known| known.eq_ignore_ascii_case(hash))
-        });
+        let is_started = |candidate: &String| started_hashes.iter().any(|known| known.eq_ignore_ascii_case(candidate));
+        let started = hash.as_ref().is_some_and(is_started);
 
         Self {
             title: hit.title,
@@ -224,15 +199,14 @@ impl TorrentHit {
 
 fn local_rank_of(magnet: &str, local_hashes: &[String]) -> Option<u8> {
     let hash = infohash(magnet)?;
-    let rank = local_hashes
-        .iter()
-        .position(|known| known.eq_ignore_ascii_case(&hash))?;
+    let rank = local_hashes.iter().position(|known| known.eq_ignore_ascii_case(&hash))?;
 
     u8::try_from(rank).ok()
 }
 
 /// Mbps from byte size and runtime minutes: `(size * 8 / 1e6) / (minutes * 60)`.
 #[must_use]
+#[expect(clippy::cast_precision_loss, reason = "an estimate needs no more than the 52 bits `f64` keeps")]
 pub fn estimate_bitrate_mbps(size_bytes: u64, runtime_minutes: u32) -> Option<f64> {
     if size_bytes == 0 || runtime_minutes == 0 {
         return None;
@@ -258,10 +232,8 @@ mod tests {
 
     #[test]
     fn bitrate_matches_expected_formula() {
-        let mbps = match estimate_bitrate_mbps(1_500_000_000, 120) {
-            Some(value) => value,
-            None => panic!("bitrate"),
-        };
+        let Some(mbps) = estimate_bitrate_mbps(1_500_000_000, 120) else { panic!("bitrate") };
+
         assert!((mbps - 1.666).abs() < 0.01, "{mbps}");
     }
 
@@ -288,10 +260,7 @@ mod tests {
         assert_eq!(hit.info.resolution, Some(Resolution::Fhd));
         assert_eq!(hit.info.quality, Some(SourceQuality::WebDlRip));
 
-        let mbps = match hit.bitrate_mbps {
-            Some(value) => value,
-            None => panic!("bitrate should be set when size and runtime are known"),
-        };
+        let Some(mbps) = hit.bitrate_mbps else { panic!("bitrate should be set when size and runtime are known") };
 
         assert!(mbps > 0.0, "{mbps}");
     }

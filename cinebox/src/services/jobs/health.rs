@@ -4,29 +4,28 @@ use std::collections::hash_map::DefaultHasher;
 use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
-use cinebox_core::{CONFIG_TTL, KIND_CONFIG, Store};
+use cinebox_core::{CONFIG_TTL, CacheKey, KIND_CONFIG, Store};
 use tracing::warn;
 
 use super::{JobError, ParserCtx, TmdbCtx, TorrCtx};
 
-pub async fn ping_torrserver(torr: TorrCtx) -> Result<String, JobError> {
+pub(crate) async fn ping_torrserver(torr: TorrCtx) -> Result<String, JobError> {
     let echo = cinebox_torrserver::echo(&torr.server).await?;
 
     Ok(echo)
 }
 
-pub async fn ping_parser(parser: ParserCtx) -> Result<String, JobError> {
-    let version =
-        cinebox_indexer::ping(parser.kind, &parser.url, &parser.api_key, &parser.net).await?;
+pub(crate) async fn ping_parser(parser: ParserCtx) -> Result<String, JobError> {
+    let version = cinebox_indexer::ping(parser.kind, &parser.url, &parser.api_key, &parser.net).await?;
 
     Ok(version)
 }
 
-pub async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, JobError> {
+pub(crate) async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, JobError> {
     let fp = key_fingerprint(&tmdb.api_key);
     let cache_id = format!("ping:{fp:x}");
     if let Some(db) = &db {
-        let cached = db.get_json::<String>("", KIND_CONFIG, &cache_id).await;
+        let cached = db.get_json::<String>(CacheKey { language: "", kind: KIND_CONFIG, id: &cache_id }).await;
 
         if let Ok(Some(hit)) = cached
             && hit.is_fresh(CONFIG_TTL)
@@ -40,7 +39,7 @@ pub async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, 
     if let Ok(msg) = &result
         && let Some(db) = db
     {
-        let saved = db.put_json("", KIND_CONFIG, &cache_id, msg, &[]).await;
+        let saved = db.put_json(CacheKey { language: "", kind: KIND_CONFIG, id: &cache_id }, msg, &[]).await;
 
         if let Err(error) = saved {
             warn!(%error, "failed to persist tmdb ping");
@@ -56,7 +55,7 @@ fn key_fingerprint(key: &str) -> u64 {
     hasher.finish()
 }
 
-pub async fn speed_test(
+pub(crate) async fn speed_test(
     torr: TorrCtx,
     on_event: impl FnMut(cinebox_torrserver::SpeedEvent) + Send,
 ) -> Result<f64, JobError> {

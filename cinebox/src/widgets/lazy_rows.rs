@@ -14,7 +14,7 @@ use egui::{Rangef, Ui};
 const NEAR_SCREENS: f32 = 1.0;
 
 #[derive(Debug, Clone, Default)]
-pub struct LazyRows {
+pub(crate) struct LazyRows {
     width: f32,
     /// Height of each row plus the spacing after it, once the row has been built.
     spans: Vec<Option<f32>>,
@@ -22,19 +22,13 @@ pub struct LazyRows {
 
 impl LazyRows {
     /// The rows changed (another order, another filter): heights are learned again.
-    pub fn reset(&mut self) {
+    pub(crate) fn reset(&mut self) {
         self.spans.clear();
     }
 
     /// `row` builds the row at a position. `keep` is built wherever it is:
     /// egui drops focus from a widget that was not built in a frame.
-    pub fn show(
-        &mut self,
-        ui: &mut Ui,
-        count: usize,
-        keep: Option<usize>,
-        mut row: impl FnMut(&mut Ui, usize),
-    ) {
+    pub(crate) fn show(&mut self, ui: &mut Ui, count: usize, keep: Option<usize>, mut row: impl FnMut(&mut Ui, usize)) {
         // Text wraps differently at another width.
         let width = ui.available_width();
         if width != self.width {

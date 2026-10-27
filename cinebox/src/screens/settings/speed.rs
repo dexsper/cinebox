@@ -8,7 +8,7 @@ use rust_i18n::t;
 
 use crate::i18n::errors::UserError;
 use crate::services::jobs::{self, JobError, TorrCtx};
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 
 const MIN_SCALE: f64 = 20.0;
 const HEADROOM: f64 = 1.25;
@@ -19,7 +19,7 @@ const SETTLE_FRAC: f64 = 0.003;
 const NEEDLE_RIM: f64 = 0.82;
 
 #[derive(Clone)]
-pub struct SpeedMeter {
+pub(super) struct SpeedMeter {
     inner: Arc<Mutex<Live>>,
 }
 
@@ -44,33 +44,24 @@ enum Phase {
 
 impl Default for Live {
     fn default() -> Self {
-        Self {
-            phase: Phase::Idle,
-            target: 0.0,
-            shown: 0.0,
-            span: MIN_SCALE,
-            last_t: None,
-            error: None,
-        }
+        Self { phase: Phase::Idle, target: 0.0, shown: 0.0, span: MIN_SCALE, last_t: None, error: None }
     }
 }
 
 impl SpeedMeter {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Live::default())),
-        }
+    pub(super) fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(Live::default())) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Live> {
-        self.inner.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub fn is_busy(&self) -> bool {
+    pub(super) fn is_busy(&self) -> bool {
         matches!(self.lock().phase, Phase::Connecting | Phase::Testing)
     }
 
-    pub fn needs_repaint(&self) -> bool {
+    pub(super) fn needs_repaint(&self) -> bool {
         let live = self.lock();
         if matches!(live.phase, Phase::Connecting | Phase::Testing) {
             return true;
@@ -83,7 +74,7 @@ impl SpeedMeter {
         catching_up || scaling
     }
 
-    pub fn begin(&self) {
+    pub(super) fn begin(&self) {
         let mut live = self.lock();
         live.phase = Phase::Connecting;
         live.target = 0.0;
@@ -93,7 +84,7 @@ impl SpeedMeter {
         live.error = None;
     }
 
-    pub fn on_event(&self, event: SpeedEvent) {
+    pub(super) fn on_event(&self, event: SpeedEvent) {
         let mut live = self.lock();
         match event {
             SpeedEvent::Testing => {
@@ -106,14 +97,14 @@ impl SpeedMeter {
         }
     }
 
-    pub fn finish_ok(&self, mbps: f64) {
+    pub(super) fn finish_ok(&self, mbps: f64) {
         let mut live = self.lock();
         live.target = mbps;
         live.phase = Phase::Ready;
         live.error = None;
     }
 
-    pub fn finish_err(&self, msg: String) {
+    pub(super) fn finish_err(&self, msg: String) {
         let mut live = self.lock();
         live.phase = Phase::Failed;
         live.error = Some(msg);
@@ -132,7 +123,7 @@ impl SpeedMeter {
     }
 }
 
-pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result<(), JobError> {
+pub(super) async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result<(), JobError> {
     let live = meter.clone();
     let live_ctx = ctx.clone();
     let result = jobs::speed_test(torr, move |event| {
@@ -150,7 +141,7 @@ pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result
     result.map(|_| ())
 }
 
-pub fn paint(ui: &mut Ui, theme: &Theme, meter: &SpeedMeter) {
+pub(super) fn paint(ui: &mut Ui, theme: &Theme, meter: &SpeedMeter) {
     let now = ui.input(|i| i.time);
     meter.tick(now);
     let live = meter.lock().clone();
@@ -174,16 +165,9 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let center = pos2(rect.center().x, rect.top() + center_y);
     let painter = ui.painter_at(rect);
     let span = live.span.max(MIN_SCALE);
-    let t = (live.shown / span).clamp(0.0, 1.0) as f32;
+    let t = theme::fraction(live.shown / span);
 
-    stroke_arc(
-        &painter,
-        center,
-        radius,
-        0.0,
-        1.0,
-        Stroke::new(10.0, theme.gauge_track()),
-    );
+    stroke_arc(&painter, center, radius, 0.0, 1.0, Stroke::new(10.0, theme.gauge_track()));
 
     let tick_n = 24;
     for i in 0..=tick_n {
@@ -195,28 +179,15 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
 
     let has_fill = t > 0.004;
     if has_fill {
-        stroke_arc(
-            &painter,
-            center,
-            radius,
-            0.0,
-            t,
-            Stroke::new(12.0, theme.gauge_hot(t)),
-        );
+        stroke_arc(&painter, center, radius, 0.0, t, Stroke::new(12.0, theme.gauge_hot(t)));
     }
 
     let label_font = theme.ui_font(theme.text_micro);
     let marks = scale_marks(span);
     for mark in marks {
-        let mark_t = (mark / span).clamp(0.0, 1.0) as f32;
+        let mark_t = theme::fraction(mark / span);
         let pos = gauge_pos(center, radius + 16.0, mark_t);
-        painter.text(
-            pos,
-            Align2::CENTER_CENTER,
-            format_mark(mark),
-            label_font.clone(),
-            theme.muted,
-        );
+        painter.text(pos, Align2::CENTER_CENTER, format_mark(mark), label_font.clone(), theme.muted);
     }
 
     let num_pos = pos2(center.x, center.y - radius * 0.38);
@@ -224,13 +195,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let status_pos = pos2(center.x, center.y + 6.0);
     let num_size = (radius * 0.42).clamp(theme.text_gauge_min, theme.text_gauge_max);
 
-    painter.text(
-        num_pos,
-        Align2::CENTER_CENTER,
-        format_mbps(live.shown),
-        theme.ui_font(num_size),
-        theme.title,
-    );
+    painter.text(num_pos, Align2::CENTER_CENTER, format_mbps(live.shown), theme.ui_font(num_size), theme.title);
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
@@ -244,13 +209,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
         return;
     }
 
-    painter.text(
-        status_pos,
-        Align2::CENTER_CENTER,
-        status,
-        theme.ui_font(theme.text_small),
-        status_color,
-    );
+    painter.text(status_pos, Align2::CENTER_CENTER, status, theme.ui_font(theme.text_small), status_color);
 }
 
 fn status_line(live: &Live, theme: &Theme) -> (std::borrow::Cow<'static, str>, egui::Color32) {
@@ -282,10 +241,7 @@ fn stroke_arc(painter: &egui::Painter, center: Pos2, radius: f32, t0: f32, t1: f
 fn gauge_pos(center: Pos2, radius: f32, t: f32) -> Pos2 {
     let t = t.clamp(0.0, 1.0);
     let angle = std::f32::consts::PI * (1.0 - t);
-    pos2(
-        center.x + radius * angle.cos(),
-        center.y - radius * angle.sin(),
-    )
+    pos2(center.x + radius * angle.cos(), center.y - radius * angle.sin())
 }
 
 fn grow_span(live: &mut Live, dt: f64) {
@@ -476,10 +432,7 @@ mod tests {
     #[test]
     fn marks_fit_the_dial() {
         assert_eq!(scale_marks(20.0), vec![0.0, 5.0, 10.0, 15.0, 20.0]);
-        assert_eq!(
-            scale_marks(20_000.0),
-            vec![0.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
-        );
+        assert_eq!(scale_marks(20_000.0), vec![0.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]);
     }
 
     #[test]
@@ -520,11 +473,7 @@ mod tests {
     fn scale_jump_does_not_yank_needle_to_zero() {
         let meter = SpeedMeter::new();
         meter.begin();
-        meter.on_event(SpeedEvent::Sample {
-            mbps: 16.0,
-            elapsed: Duration::from_millis(300),
-            bytes: 1,
-        });
+        meter.on_event(SpeedEvent::Sample { mbps: 16.0, elapsed: Duration::from_millis(300), bytes: 1 });
 
         let mut now = 1.0;
         for _ in 0..40 {
@@ -538,11 +487,7 @@ mod tests {
         };
         assert!(before > 0.4, "{before}");
 
-        meter.on_event(SpeedEvent::Sample {
-            mbps: 2_400.0,
-            elapsed: Duration::from_secs(1),
-            bytes: 1,
-        });
+        meter.on_event(SpeedEvent::Sample { mbps: 2_400.0, elapsed: Duration::from_secs(1), bytes: 1 });
         meter.tick(now);
 
         let after = {

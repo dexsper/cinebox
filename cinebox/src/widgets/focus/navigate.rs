@@ -69,7 +69,7 @@ pub(super) fn step(ctx: &Context, state: &State) {
         return;
     };
 
-    let Some(focused) = ctx.memory(|mem| mem.focused()) else {
+    let Some(focused) = ctx.memory(egui::Memory::focused) else {
         return;
     };
 
@@ -89,9 +89,8 @@ pub(super) fn step(ctx: &Context, state: &State) {
     let areas = state.areas_of(focused);
     let from = from.rect.translate(scroll::glide_left(ctx, areas));
     let settled = state.settled_candidates(ctx);
-    let reachable = settled.into_iter().filter(|candidate| {
-        !turns_into_another_row(candidate, from, areas, press.direction)
-    });
+    let direction = press.direction;
+    let reachable = settled.into_iter().filter(|target| !turns_into_another_row(target, from, areas, direction));
     let candidates = &reachable.collect::<Vec<_>>();
     let in_cone = nearest_staying_in(ctx, from, press.direction, candidates, areas);
     let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
@@ -105,21 +104,12 @@ pub(super) fn step(ctx: &Context, state: &State) {
     }
 
     ctx.memory_mut(|mem| mem.request_focus(target));
-    let sound = UiSound::Navigate {
-        direction: press.direction,
-        repeat: press.repeat,
-    };
+    let sound = UiSound::Navigate { direction: press.direction, repeat: press.repeat };
     platform::device(ctx).play_sound(sound);
 }
 
 fn arrow_press(event: &egui::Event) -> Option<ArrowPress> {
-    let egui::Event::Key {
-        key,
-        pressed: true,
-        repeat,
-        ..
-    } = event
-    else {
+    let egui::Event::Key { key, pressed: true, repeat, .. } = event else {
         return None;
     };
 
@@ -131,10 +121,7 @@ fn arrow_press(event: &egui::Event) -> Option<ArrowPress> {
         _ => return None,
     };
 
-    Some(ArrowPress {
-        direction,
-        repeat: *repeat,
-    })
+    Some(ArrowPress { direction, repeat: *repeat })
 }
 
 /// Sideways out of a shelf, the D-pad does not turn the corner into another

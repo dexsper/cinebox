@@ -6,10 +6,11 @@ use cinebox_torrserver::AddSpec;
 use rust_i18n::t;
 
 use crate::i18n::errors::UserError;
+use crate::theme;
 use crate::widgets::lazy_rows::LazyRows;
 
 #[derive(Debug, Clone)]
-pub struct MovieBits {
+pub(crate) struct MovieBits {
     pub title: String,
     pub overview: Option<String>,
     pub year: Option<u16>,
@@ -26,7 +27,7 @@ pub struct MovieBits {
 }
 
 impl MovieBits {
-    pub fn from_details(details: &MediaDetails) -> Self {
+    pub(crate) fn from_details(details: &MediaDetails) -> Self {
         let genres: Vec<&str> = details.genres.iter().take(3).map(String::as_str).collect();
 
         Self {
@@ -38,11 +39,7 @@ impl MovieBits {
             poster_path: details.poster_path.clone(),
             backdrop_path: details.backdrop_path.clone(),
             number_of_seasons: details.number_of_seasons,
-            section: cinebox_tmdb::classify(
-                details.kind,
-                &details.genre_ids,
-                details.original_language.as_deref(),
-            ),
+            section: cinebox_tmdb::classify(details.kind, &details.genre_ids, details.original_language.as_deref()),
             head_line: head_line(details.year, &details.countries),
             genres_line: genres.join(", "),
         }
@@ -57,12 +54,7 @@ fn head_line(year: Option<u16>, countries: &[String]) -> String {
     }
 
     if !countries.is_empty() {
-        let countries = countries
-            .iter()
-            .take(5)
-            .cloned()
-            .collect::<Vec<_>>()
-            .join(" | ");
+        let countries = countries.iter().take(5).cloned().collect::<Vec<_>>().join(" | ");
         parts.push(countries);
     }
 
@@ -70,14 +62,14 @@ fn head_line(year: Option<u16>, countries: &[String]) -> String {
 }
 
 #[derive(Debug, Clone)]
-pub enum TorrentHits {
+pub(crate) enum TorrentHits {
     Loading,
     Ready(Vec<TorrentHit>),
     Failed(UserError),
 }
 
 #[derive(Debug, Clone)]
-pub struct TorrentFileRow {
+pub(crate) struct TorrentFileRow {
     pub id: i32,
     pub path: String,
     pub length: u64,
@@ -93,7 +85,7 @@ pub struct TorrentFileRow {
 
 /// "Season N · Episode M" line shared by the files modal and player playlist.
 #[must_use]
-pub fn season_episode_line(season: u32, episode: Option<u32>) -> String {
+pub(crate) fn season_episode_line(season: u32, episode: Option<u32>) -> String {
     let mut line = format!("{} {season}", t!("media.season"));
 
     let Some(episode) = episode else {
@@ -106,7 +98,7 @@ pub fn season_episode_line(season: u32, episode: Option<u32>) -> String {
 
 impl TorrentFileRow {
     #[must_use]
-    pub fn progress(&self) -> f32 {
+    pub(crate) fn progress(&self) -> f32 {
         if self.timecode <= 0.0 {
             return 0.0;
         }
@@ -114,12 +106,12 @@ impl TorrentFileRow {
             return 0.0;
         };
         let duration = f64::from(mins) * 60.0;
-        (self.timecode / duration).clamp(0.0, 1.0) as f32
+        theme::fraction(self.timecode / duration)
     }
 }
 
 #[derive(Debug, Clone)]
-pub struct ReadyFiles {
+pub(crate) struct ReadyFiles {
     pub hash: String,
     pub files: Vec<TorrentFileRow>,
     pub resume_id: Option<i32>,
@@ -129,21 +121,15 @@ pub struct ReadyFiles {
 }
 
 impl ReadyFiles {
-    pub fn from_rows(hash: String, files: Vec<TorrentFileRow>) -> Self {
+    pub(crate) fn from_rows(hash: String, files: Vec<TorrentFileRow>) -> Self {
         let resume_id = resume_id(&files);
 
-        Self {
-            hash,
-            files,
-            resume_id,
-            selected_id: resume_id,
-            reveal_selected: resume_id.is_some(),
-        }
+        Self { hash, files, resume_id, selected_id: resume_id, reveal_selected: resume_id.is_some() }
     }
 
     /// Takes the timecodes `played` reached, as if the list were opened again,
     /// but on the file the player stopped on, `played[stopped]`.
-    pub fn take_progress(&mut self, played: &[TorrentFileRow], stopped: usize) {
+    pub(crate) fn take_progress(&mut self, played: &[TorrentFileRow], stopped: usize) {
         for file in &mut self.files {
             if let Some(seen) = played.iter().find(|seen| seen.id == file.id) {
                 file.timecode = seen.timecode;
@@ -170,7 +156,7 @@ fn resume_id(files: &[TorrentFileRow]) -> Option<i32> {
 }
 
 #[derive(Debug, Clone)]
-pub enum FilesPane {
+pub(crate) enum FilesPane {
     Closed,
     Loading,
     Failed(UserError),
@@ -179,16 +165,16 @@ pub enum FilesPane {
 
 impl FilesPane {
     #[must_use]
-    pub fn is_open(&self) -> bool {
+    pub(crate) fn is_open(&self) -> bool {
         !matches!(self, Self::Closed)
     }
 
-    pub fn close(&mut self) {
+    pub(crate) fn close(&mut self) {
         *self = Self::Closed;
     }
 
     #[must_use]
-    pub fn ready(&self) -> Option<&ReadyFiles> {
+    pub(crate) fn ready(&self) -> Option<&ReadyFiles> {
         match self {
             Self::Ready(files) => Some(files),
             Self::Closed | Self::Loading | Self::Failed(_) => None,
@@ -197,7 +183,7 @@ impl FilesPane {
 }
 
 #[derive(Debug, Clone)]
-pub struct TorrentState {
+pub(crate) struct TorrentState {
     pub kind: MediaKind,
     pub id: TmdbId,
     pub movie: MovieBits,
@@ -217,7 +203,7 @@ pub struct TorrentState {
 }
 
 impl TorrentState {
-    pub fn from_details(details: &MediaDetails, default_quality: &[QualityBand]) -> Self {
+    pub(crate) fn from_details(details: &MediaDetails, default_quality: &[QualityBand]) -> Self {
         Self {
             kind: details.kind,
             id: details.id,
@@ -225,10 +211,7 @@ impl TorrentState {
             year: details.year,
             runtime_minutes: details.runtime_minutes,
             hits: TorrentHits::Loading,
-            filter: TorrentFilter {
-                quality: default_quality.to_vec(),
-                ..TorrentFilter::default()
-            },
+            filter: TorrentFilter { quality: default_quality.to_vec(), ..TorrentFilter::default() },
             sort: SortMode::Popular,
             files: FilesPane::Closed,
             pick_gen: 0,
@@ -239,18 +222,18 @@ impl TorrentState {
         }
     }
 
-    pub fn matches(&self, kind: MediaKind, id: TmdbId) -> bool {
+    pub(crate) fn matches(&self, kind: MediaKind, id: TmdbId) -> bool {
         self.kind == kind && self.id == id
     }
 
     /// Replace the hit list and mark the sorted/filtered view dirty.
-    pub fn set_hits(&mut self, hits: TorrentHits) {
+    pub(crate) fn set_hits(&mut self, hits: TorrentHits) {
         self.hits = hits;
         self.view_key = None;
     }
 
     /// Promote hits whose magnet is in local play history. Does not refetch.
-    pub fn mark_local_hashes(&mut self, hashes: &[String]) {
+    pub(crate) fn mark_local_hashes(&mut self, hashes: &[String]) {
         if hashes.is_empty() {
             return;
         }
@@ -269,26 +252,21 @@ impl TorrentState {
 
     /// Re-sort `hits` and recompute `visible`, but only when the hit list,
     /// sort mode, or filters actually changed since the last call.
-    pub fn apply_filter_sort(&mut self) {
+    pub(crate) fn apply_filter_sort(&mut self) {
         let TorrentHits::Ready(hits) = &mut self.hits else {
             self.view_key = None;
             self.visible.clear();
             return;
         };
 
-        let current = self
-            .view_key
-            .as_ref()
-            .is_some_and(|(sort, filter)| *sort == self.sort && *filter == self.filter);
+        let current = self.view_key.as_ref().is_some_and(|(sort, filter)| *sort == self.sort && *filter == self.filter);
 
         if current {
             return;
         }
 
         sort_hits(hits, self.kind, self.sort);
-        self.visible = filtered_hits(hits, &self.filter)
-            .map(|(index, _)| index)
-            .collect();
+        self.visible = filtered_hits(hits, &self.filter).map(|(index, _)| index).collect();
 
         self.view_key = Some((self.sort, self.filter.clone()));
         self.rows.reset();
@@ -317,10 +295,7 @@ mod ready_files {
     use super::*;
 
     fn row(id: i32, timecode: f64) -> TorrentFileRow {
-        TorrentFileRow {
-            timecode,
-            ..test_row(id)
-        }
+        TorrentFileRow { timecode, ..test_row(id) }
     }
 
     #[test]
@@ -333,8 +308,7 @@ mod ready_files {
 
     #[test]
     fn take_progress_moves_the_resume_point_to_the_next_started_file() {
-        let mut ready =
-            ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 0.0)]);
+        let mut ready = ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 0.0)]);
 
         ready.take_progress(&[row(1, 100.0), row(2, 50.0)], 1);
 
@@ -343,8 +317,7 @@ mod ready_files {
 
     #[test]
     fn take_progress_selects_an_earlier_file_watched_again() {
-        let mut ready =
-            ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 50.0)]);
+        let mut ready = ReadyFiles::from_rows(String::from("hash"), vec![row(1, 100.0), row(2, 50.0)]);
 
         ready.take_progress(&[row(1, 300.0), row(2, 50.0)], 0);
 

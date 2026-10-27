@@ -26,6 +26,7 @@ use device::AndroidDevice;
 use keys::KeyRouter;
 use player::ExoPlayer;
 
+#[expect(unsafe_code, reason = "android-activity looks up `android_main` by its symbol name")]
 #[unsafe(no_mangle)]
 fn android_main(app: AndroidApp) {
     init_logging();
@@ -49,16 +50,10 @@ fn android_main(app: AndroidApp) {
 }
 
 fn run(app: AndroidApp, device: AndroidDevice, player: Option<ExoPlayer>) -> eframe::Result {
-    let event_loop = EventLoop::<UserEvent>::with_user_event()
-        .with_android_app(app)
-        .build()?;
+    let event_loop = EventLoop::<UserEvent>::with_user_event().with_android_app(app).build()?;
 
     let player = player.map(|player| Arc::new(player) as Arc<dyn cinebox_player::Player>);
-    let host = Host {
-        profile: Profile::tv(),
-        device: Arc::new(device),
-        player,
-    };
+    let host = Host { profile: Profile::tv(), device: Arc::new(device), player };
 
     let mut options = cinebox::native_options();
     // The video plays in a layer below the window and shows through where the app
@@ -73,8 +68,5 @@ fn run(app: AndroidApp, device: AndroidDevice, player: Option<ExoPlayer>) -> efr
 
 fn init_logging() {
     let filter = EnvFilter::new("cinebox=info,cinebox_android=info");
-    let _ = tracing_subscriber::registry()
-        .with(filter)
-        .with(paranoid_android::layer("cinebox"))
-        .try_init();
+    let _ = tracing_subscriber::registry().with(filter).with(paranoid_android::layer("cinebox")).try_init();
 }

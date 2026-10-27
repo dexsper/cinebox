@@ -45,9 +45,7 @@ impl IntroDbProvider {
     /// `base_url` is the API root without `/media`, as in `https://api.theintrodb.org/v4`.
     #[must_use]
     pub fn with_base_url(base_url: impl Into<String>) -> Self {
-        Self {
-            base_url: base_url.into(),
-        }
+        Self { base_url: base_url.into() }
     }
 }
 
@@ -58,20 +56,13 @@ impl Default for IntroDbProvider {
 }
 
 impl SegmentProvider for IntroDbProvider {
-    async fn fetch(
-        &self,
-        query: &SegmentQuery,
-        net: &NetConfig,
-    ) -> Result<Option<MediaSegments>, Error> {
+    async fn fetch(&self, query: &SegmentQuery, net: &NetConfig) -> Result<Option<MediaSegments>, Error> {
         let Some(params) = query_params(query) else {
             return Ok(None);
         };
 
         let url = format!("{}/media", self.base_url.trim_end_matches('/'));
-        let response = send(net, |client| {
-            client.get(&url).timeout(REQUEST_TIMEOUT).query(&params)
-        })
-        .await?;
+        let response = send(net, |client| client.get(&url).timeout(REQUEST_TIMEOUT).query(&params)).await?;
         let status = response.status();
 
         if status == StatusCode::NOT_FOUND || status == StatusCode::BAD_REQUEST {
@@ -87,10 +78,7 @@ impl SegmentProvider for IntroDbProvider {
             return Err(Error::Http(status.as_u16()));
         }
 
-        let body: MediaResponse = response
-            .json()
-            .await
-            .map_err(|error| Error::Request(error.without_url()))?;
+        let body: MediaResponse = response.json().await.map_err(|error| Error::Request(error.without_url()))?;
 
         if !is_same_cut(body.group_duration_ms, query.duration_ms) {
             debug!(
@@ -173,29 +161,14 @@ mod tests {
     }
 
     fn movie(tmdb_id: u64, duration_ms: u64) -> SegmentQuery {
-        SegmentQuery {
-            tmdb_id,
-            kind: MediaKind::Movie,
-            season: None,
-            episode: None,
-            duration_ms,
-        }
+        SegmentQuery { tmdb_id, kind: MediaKind::Movie, season: None, episode: None, duration_ms }
     }
 
     fn episode(tmdb_id: u64, duration_ms: u64) -> SegmentQuery {
-        SegmentQuery {
-            tmdb_id,
-            kind: MediaKind::Tv,
-            season: Some(1),
-            episode: Some(1),
-            duration_ms,
-        }
+        SegmentQuery { tmdb_id, kind: MediaKind::Tv, season: Some(1), episode: Some(1), duration_ms }
     }
 
-    async fn fetch(
-        server: &MockServer,
-        query: &SegmentQuery,
-    ) -> Result<Option<MediaSegments>, Error> {
+    async fn fetch(server: &MockServer, query: &SegmentQuery) -> Result<Option<MediaSegments>, Error> {
         provider(server).fetch(query, &NetConfig::direct()).await
     }
 
@@ -213,9 +186,7 @@ mod tests {
                 .query_param_missing("mapping");
             then.status(200)
                 .header("content-type", "application/json")
-                .body(
-                    r#"{"tvdb_id":777,"type":"movie","intro":[{"start_ms":null,"end_ms":23000}]}"#,
-                );
+                .body(r#"{"tvdb_id":777,"type":"movie","intro":[{"start_ms":null,"end_ms":23000}]}"#);
         });
 
         let result = fetch(&server, &movie(12345, 7_200_000)).await;
@@ -237,22 +208,18 @@ mod tests {
                 .query_param("season", "1")
                 .query_param("episode", "1")
                 .query_param_missing("mapping");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(GOT_S01E01);
+            then.status(200).header("content-type", "application/json").body(GOT_S01E01);
         });
 
         let result = fetch(&server, &episode(1399, 3_696_000)).await;
 
         mock.assert();
-        let Some(segments) = result? else {
-            panic!("no segments for a known episode")
-        };
+        let Some(segments) = result? else { panic!("no segments for a known episode") };
         assert_eq!(segments.tvdb_id, Some(121_361));
         assert_eq!(segments.intro.len(), 1);
         assert_eq!(segments.intro[0].start_ms, Some(435_691));
         assert_eq!(segments.credits[0].end_ms, Some(3_697_669));
-        assert!(segments.recap.is_empty());
+        assert_eq!(segments.recap, []);
 
         Ok(())
     }
@@ -262,14 +229,9 @@ mod tests {
         let server = MockServer::start();
         let mock = server.mock(|when, then| {
             when.method(GET).path("/v4/media");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(GOT_S01E01);
+            then.status(200).header("content-type", "application/json").body(GOT_S01E01);
         });
-        let query = SegmentQuery {
-            episode: None,
-            ..episode(1399, 3_696_000)
-        };
+        let query = SegmentQuery { episode: None, ..episode(1399, 3_696_000) };
 
         let result = fetch(&server, &query).await;
 
@@ -284,9 +246,7 @@ mod tests {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v4/media");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(GOT_S01E01);
+            then.status(200).header("content-type", "application/json").body(GOT_S01E01);
         });
 
         let result = fetch(&server, &episode(1399, 1_000_000)).await;
@@ -301,9 +261,9 @@ mod tests {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v4/media");
-            then.status(200)
-                .header("content-type", "application/json")
-                .body(r#"{"tvdb_id":1,"type":"movie","group_duration_ms":0,"credits":[{"start_ms":100,"end_ms":null}]}"#);
+            then.status(200).header("content-type", "application/json").body(
+                r#"{"tvdb_id":1,"type":"movie","group_duration_ms":0,"credits":[{"start_ms":100,"end_ms":null}]}"#,
+            );
         });
 
         let result = fetch(&server, &movie(1, 100_000_000)).await;
@@ -335,8 +295,7 @@ mod tests {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v4/media");
-            then.status(404)
-                .body(r#"{"error":"no submissions for this media","code":"no_submissions"}"#);
+            then.status(404).body(r#"{"error":"no submissions for this media","code":"no_submissions"}"#);
         });
 
         let result = fetch(&server, &movie(1, 100_000)).await;
@@ -351,8 +310,7 @@ mod tests {
         let server = MockServer::start();
         server.mock(|when, then| {
             when.method(GET).path("/v4/media");
-            then.status(400)
-                .body(r#"{"error":"episode not found on TVDB"}"#);
+            then.status(400).body(r#"{"error":"episode not found on TVDB"}"#);
         });
 
         let result = fetch(&server, &episode(1, 100_000)).await;
@@ -395,22 +353,17 @@ mod tests {
     async fn live_lookups() -> Result<(), Error> {
         let provider = IntroDbProvider::default();
         let net = NetConfig::direct();
-        let unknown_episode = SegmentQuery {
-            season: Some(99),
-            ..episode(1399, 3_696_273)
-        };
+        let unknown_episode = SegmentQuery { season: Some(99), ..episode(1399, 3_696_273) };
 
         let got_s01e01 = provider.fetch(&episode(1399, 3_696_273), &net).await?;
         let matrix = provider.fetch(&movie(603, 8_180_662), &net).await?;
         let another_cut = provider.fetch(&episode(1399, 1_000_000), &net).await?;
         let unknown = provider.fetch(&unknown_episode, &net).await?;
 
-        let Some(got_s01e01) = got_s01e01 else {
-            panic!("Game of Thrones S01E01 has no segments")
-        };
+        let Some(got_s01e01) = got_s01e01 else { panic!("Game of Thrones S01E01 has no segments") };
 
         assert_eq!(got_s01e01.tvdb_id, Some(121_361));
-        assert!(!got_s01e01.intro.is_empty());
+        assert_ne!(got_s01e01.intro, []);
         assert!(matrix.is_some_and(|segments| !segments.intro.is_empty()));
         assert!(another_cut.is_none());
         assert!(unknown.is_none());

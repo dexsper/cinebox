@@ -7,9 +7,7 @@ use cinebox_core::SEARCH_HISTORY_LIMIT;
 use crate::services::{Services, db_block_on};
 
 #[cfg(not(target_os = "android"))]
-pub(super) fn attach_mpv(
-    cc: &eframe::CreationContext<'_>,
-) -> Option<Arc<dyn cinebox_player::Player>> {
+pub(super) fn attach_mpv(cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
     let loader = cc.get_proc_address.clone()?;
     match cinebox_player::MpvPlayer::attach(loader, native_display(cc)) {
         Ok(player) => Some(Arc::new(player)),
@@ -22,9 +20,7 @@ pub(super) fn attach_mpv(
 
 /// There is no libmpv on Android; the entry point always brings a player.
 #[cfg(target_os = "android")]
-pub(super) fn attach_mpv(
-    _cc: &eframe::CreationContext<'_>,
-) -> Option<Arc<dyn cinebox_player::Player>> {
+pub(super) fn attach_mpv(_cc: &eframe::CreationContext<'_>) -> Option<Arc<dyn cinebox_player::Player>> {
     None
 }
 
@@ -41,9 +37,7 @@ fn native_display(cc: &eframe::CreationContext<'_>) -> cinebox_player::NativeDis
 
     match handle.as_raw() {
         RawDisplayHandle::Wayland(wayland) => NativeDisplay::Wayland(wayland.display),
-        RawDisplayHandle::Xlib(xlib) => {
-            xlib.display.map_or(NativeDisplay::None, NativeDisplay::X11)
-        }
+        RawDisplayHandle::Xlib(xlib) => xlib.display.map_or(NativeDisplay::None, NativeDisplay::X11),
         _ => NativeDisplay::None,
     }
 }

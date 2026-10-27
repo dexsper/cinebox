@@ -33,9 +33,7 @@ fn main() {
 const MIN_LIBMPV_API: &str = "2.0";
 
 fn link_system_libmpv() {
-    let probe = pkg_config::Config::new()
-        .atleast_version(MIN_LIBMPV_API)
-        .probe("mpv");
+    let probe = pkg_config::Config::new().atleast_version(MIN_LIBMPV_API).probe("mpv");
 
     if let Err(error) = probe {
         panic!(
@@ -48,9 +46,7 @@ fn link_system_libmpv() {
 
 fn bundle_windows_libmpv() {
     let pointer_width = need(env::var("CARGO_CFG_TARGET_POINTER_WIDTH"), "pointer width");
-    if pointer_width != "64" {
-        panic!("Cinebox bundles 64-bit libmpv only (got pointer width {pointer_width})");
-    }
+    assert!(pointer_width == "64", "Cinebox bundles 64-bit libmpv only (got pointer width {pointer_width})");
 
     let source = mpv_source_dir();
     let dir64 = source.join("64");
@@ -62,12 +58,10 @@ fn bundle_windows_libmpv() {
         fetch_and_prepare(&source, &dir64);
     }
 
-    if !dll.is_file() {
-        panic!("bundled libmpv-2.dll missing at {}", dll.display());
-    }
-    if env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc") && !implib.is_file() {
-        panic!("bundled mpv.lib missing at {}", implib.display());
-    }
+    let is_msvc = env::var("CARGO_CFG_TARGET_ENV").as_deref() == Ok("msvc");
+
+    assert!(dll.is_file(), "bundled libmpv-2.dll missing at {}", dll.display());
+    assert!(!is_msvc || implib.is_file(), "bundled mpv.lib missing at {}", implib.display());
 
     println!("cargo:rustc-link-search=native={}", dir64.display());
     copy_runtime_dlls(&dir64);
@@ -76,8 +70,7 @@ fn bundle_windows_libmpv() {
 fn mpv_source_dir() -> PathBuf {
     let raw = match env::var("MPV_SOURCE") {
         Ok(source) => PathBuf::from(source),
-        Err(_) => PathBuf::from(need(env::var("CARGO_MANIFEST_DIR"), "CARGO_MANIFEST_DIR"))
-            .join("mpv-src"),
+        Err(_) => PathBuf::from(need(env::var("CARGO_MANIFEST_DIR"), "CARGO_MANIFEST_DIR")).join("mpv-src"),
     };
     need(fs::create_dir_all(&raw), "create MPV_SOURCE");
     need(fs::canonicalize(&raw), "canonicalize MPV_SOURCE")
@@ -98,15 +91,14 @@ fn fetch_and_prepare(source: &Path, dir64: &Path) {
     }
 
     if !archive.is_file() {
-        let url = format!(
-            "https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/{RELEASE}/{name}"
-        );
+        let url = format!("https://github.com/shinchiro/mpv-winbuild-cmake/releases/download/{RELEASE}/{name}");
 
         download(&url, &archive);
         let hash = sha256_file(&archive);
 
         if hash != ARCHIVE_SHA256 {
-            let _ = fs::remove_file(&archive);
+            // The panic is the error that matters; an archive left behind fails the hash check next build too.
+            drop(fs::remove_file(&archive));
             panic!("libmpv archive sha256 mismatch (got {hash}, expected {ARCHIVE_SHA256})");
         }
     }
@@ -129,10 +121,10 @@ fn fetch_and_prepare(source: &Path, dir64: &Path) {
 
     copy_file(&found_dll, &dir64.join("libmpv-2.dll"));
     for dll in find_dlls(&extract) {
-        let Some(name) = dll.file_name() else {
+        let Some(dll_name) = dll.file_name() else {
             continue;
         };
-        copy_file(&dll, &dir64.join(name));
+        copy_file(&dll, &dir64.join(dll_name));
     }
 
     let target_env = env::var("CARGO_CFG_TARGET_ENV").unwrap_or_default();
@@ -142,7 +134,9 @@ fn fetch_and_prepare(source: &Path, dir64: &Path) {
         copy_file(&mingw, &dir64.join("libmpv.dll.a"));
     }
 
-    let _ = fs::remove_dir_all(&extract);
+    if let Err(error) = fs::remove_dir_all(&extract) {
+        println!("cargo:warning=could not clear {}: {error}", extract.display());
+    }
 }
 
 fn generate_msvc_implib(dll: &Path, dir64: &Path) {
@@ -168,9 +162,7 @@ fn generate_msvc_implib(dll: &Path, dir64: &Path) {
         count += 1;
     }
 
-    if count == 0 {
-        panic!("no mpv_* exports in {}", dll.display());
-    }
+    assert!(count != 0, "no mpv_* exports in {}", dll.display());
 
     need(fs::write(&def_path, def), "write mpv.def");
     let target = need(env::var("TARGET"), "TARGET");
@@ -183,9 +175,7 @@ fn generate_msvc_implib(dll: &Path, dir64: &Path) {
     cmd.args(["/NOLOGO", "/DEF:mpv.def", "/OUT:mpv.lib", "/MACHINE:X64"]);
 
     let status = need(cmd.status(), "run lib.exe");
-    if !status.success() {
-        panic!("lib.exe failed with {status}");
-    }
+    assert!(status.success(), "lib.exe failed with {status}");
 }
 
 fn copy_runtime_dlls(dir64: &Path) {
@@ -206,25 +196,16 @@ fn profile_dir() -> PathBuf {
     let out = PathBuf::from(need(env::var("OUT_DIR"), "OUT_DIR"));
     match out.ancestors().nth(3) {
         Some(path) => path.to_path_buf(),
-        None => panic!(
-            "OUT_DIR is not in the expected cargo layout: {}",
-            out.display()
-        ),
+        None => panic!("OUT_DIR is not in the expected cargo layout: {}", out.display()),
     }
 }
 
 fn download(url: &str, dest: &Path) {
     println!("cargo:warning=downloading bundled libmpv (30-50MB)");
-    let agent: ureq::Agent = ureq::Agent::config_builder()
-        .timeout_global(Some(Duration::from_secs(300)))
-        .build()
-        .new_agent();
+    let config = ureq::Agent::config_builder().timeout_global(Some(Duration::from_secs(300))).build();
+    let agent: ureq::Agent = config.new_agent();
 
-    let mut response = match agent
-        .get(url)
-        .header("User-Agent", "cinebox-player-build")
-        .call()
-    {
+    let mut response = match agent.get(url).header("User-Agent", "cinebox-player-build").call() {
         Ok(response) => response,
         Err(error) => panic!("failed to download libmpv from {url}: {error}"),
     };
@@ -232,7 +213,8 @@ fn download(url: &str, dest: &Path) {
     let mut file = need(File::create(dest), "create archive file");
     let mut reader = response.body_mut().as_reader();
     if let Err(error) = io::copy(&mut reader, &mut file) {
-        let _ = fs::remove_file(dest);
+        // The panic is the error that matters; a partial archive fails the hash check next build.
+        drop(fs::remove_file(dest));
         panic!("failed to save libmpv archive: {error}");
     }
 
@@ -242,9 +224,11 @@ fn download(url: &str, dest: &Path) {
 }
 
 fn sha256_file(path: &Path) -> String {
+    const HEX: &[u8; 16] = b"0123456789abcdef";
+
     let mut file = need(File::open(path), "open archive for hash");
     let mut hasher = Sha256::new();
-    let mut buf = [0u8; 64 * 1024];
+    let mut buf = vec![0u8; 64 * 1024];
     loop {
         let n = match file.read(&mut buf) {
             Ok(0) => break,
@@ -254,13 +238,15 @@ fn sha256_file(path: &Path) -> String {
         hasher.update(&buf[..n]);
     }
 
-    hasher
-        .finalize()
-        .iter()
-        .fold(String::with_capacity(64), |mut hex, byte| {
-            hex.push_str(&format!("{byte:02x}"));
-            hex
-        })
+    let digest = hasher.finalize();
+    let mut hex = String::with_capacity(digest.len() * 2);
+
+    for byte in digest {
+        hex.push(char::from(HEX[usize::from(byte >> 4)]));
+        hex.push(char::from(HEX[usize::from(byte & 0x0F)]));
+    }
+
+    hex
 }
 
 fn find_named(root: &Path, file_name: &str) -> Option<PathBuf> {
@@ -277,10 +263,7 @@ fn find_named(root: &Path, file_name: &str) -> Option<PathBuf> {
 fn find_dlls(root: &Path) -> Vec<PathBuf> {
     let mut dlls = Vec::new();
     walk(root, &mut |path| {
-        let Some(name) = path.file_name().and_then(|n| n.to_str()) else {
-            return;
-        };
-        if name.ends_with(".dll") || name.ends_with(".DLL") {
+        if path.extension().is_some_and(|extension| extension.eq_ignore_ascii_case("dll")) {
             dlls.push(path.to_path_buf());
         }
     });
@@ -289,10 +272,7 @@ fn find_dlls(root: &Path) -> Vec<PathBuf> {
 }
 
 fn walk(dir: &Path, visit: &mut impl FnMut(&Path)) {
-    let entries = match fs::read_dir(dir) {
-        Ok(entries) => entries,
-        Err(_) => return,
-    };
+    let Ok(entries) = fs::read_dir(dir) else { return };
 
     for entry in entries {
         let Ok(entry) = entry else {

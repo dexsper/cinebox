@@ -54,10 +54,7 @@ impl MediaSession {
         }
 
         let image = cached_poster(svc, card);
-        self.artwork = Some(Artwork {
-            card: key,
-            image: image.clone(),
-        });
+        self.artwork = Some(Artwork { card: key, image: image.clone() });
         image
     }
 }

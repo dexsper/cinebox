@@ -3,19 +3,19 @@
 use std::sync::Arc;
 
 use cinebox_core::{
-    HOME_SLOW_TTL, HomeCatalog, HomeRow, HomeRowId, KIND_HOME, KIND_MEDIA, KIND_PERSON,
-    MediaDetails, MediaKind, PersonDetails, RECENT_ROW_LIMIT, Section, Store, TmdbId, language_key,
-    media_cache_id, person_cache_id, poster_paths,
+    CacheKey, HOME_SLOW_TTL, HomeCatalog, HomeRow, HomeRowId, KIND_HOME, KIND_MEDIA, KIND_PERSON, MediaDetails,
+    MediaKind, PersonDetails, RECENT_ROW_LIMIT, Section, Store, TmdbId, language_key, media_cache_id, person_cache_id,
+    poster_paths,
 };
 use cinebox_tmdb::{
-    DiscoverQuery, SectionRow, ShelfId, ShelfRow, fetch_catalog_page, fetch_discover_page,
-    fetch_home, fetch_media, fetch_person, fetch_search_page, fetch_section, section_rows,
+    DiscoverQuery, SectionRow, ShelfId, ShelfRow, fetch_catalog_page, fetch_discover_page, fetch_home, fetch_media,
+    fetch_person, fetch_search_page, fetch_section, section_rows,
 };
 use tracing::warn;
 
 use super::{JobError, TmdbCtx};
 
-pub async fn load_catalog_page(
+pub(crate) async fn load_catalog_page(
     tmdb: TmdbCtx,
     id: ShelfId,
     page: u32,
@@ -26,7 +26,7 @@ pub async fn load_catalog_page(
     Ok(page)
 }
 
-pub async fn load_discover_page(
+pub(crate) async fn load_discover_page(
     tmdb: TmdbCtx,
     query: DiscoverQuery,
     page: u32,
@@ -38,7 +38,7 @@ pub async fn load_discover_page(
 }
 
 /// Section hub from disk. `fresh` is true when every remote shelf is within its TTL.
-pub async fn cached_section(
+pub(crate) async fn cached_section(
     db: Arc<Store>,
     language: String,
     section: Section,
@@ -55,7 +55,7 @@ pub async fn cached_section(
         }
 
         let cached = db
-            .get_json::<ShelfRow>(&language, KIND_HOME, &id.as_key())
+            .get_json::<ShelfRow>(CacheKey { language: &language, kind: KIND_HOME, id: &id.as_key() })
             .await
             .ok()
             .flatten();
@@ -76,7 +76,7 @@ pub async fn cached_section(
     any.then_some((rows, fresh))
 }
 
-pub async fn load_section(
+pub(crate) async fn load_section(
     tmdb: TmdbCtx,
     section: Section,
     db: Option<Arc<Store>>,
@@ -103,7 +103,7 @@ pub async fn load_section(
         }
 
         let paths = poster_paths(&row.items);
-        if let Err(error) = db.put_json(lang, KIND_HOME, &key, &row, &paths).await {
+        if let Err(error) = db.put_json(CacheKey { language: lang, kind: KIND_HOME, id: &key }, &row, &paths).await {
             warn!(%error, "failed to persist section shelf");
         }
 
@@ -119,7 +119,7 @@ async fn shelf_instead(db: &Store, lang: &str, failed: ShelfRow) -> ShelfRow {
     let error = failed.error.as_deref().unwrap_or_default();
     warn!(shelf = key, error, "section shelf failed to load");
 
-    let cached = db.get_json::<ShelfRow>(lang, KIND_HOME, &key).await;
+    let cached = db.get_json::<ShelfRow>(CacheKey { language: lang, kind: KIND_HOME, id: &key }).await;
     match cached {
         Ok(Some(hit)) if hit.value.error.is_none() => hit.value,
         _ => failed,
@@ -129,11 +129,7 @@ async fn shelf_instead(db: &Store, lang: &str, failed: ShelfRow) -> ShelfRow {
 async fn recent_in_section(db: &Store, section: Section) -> ShelfRow {
     let id = ShelfId::Section(section, SectionRow::RecentlyWatched);
     match db.recently_watched(RECENT_ROW_LIMIT, Some(section)).await {
-        Ok(items) => ShelfRow {
-            id,
-            items,
-            error: None,
-        },
+        Ok(items) => ShelfRow { id, items, error: None },
         Err(error) => {
             warn!(%error, "failed to load recently watched");
             ShelfRow::empty(id)
@@ -141,19 +137,20 @@ async fn recent_in_section(db: &Store, section: Section) -> ShelfRow {
     }
 }
 
-pub async fn load_search_page(
+pub(crate) async fn load_search_page(
     tmdb: TmdbCtx,
     query: String,
     kind: cinebox_tmdb::SearchKind,
     page: u32,
 ) -> Result<cinebox_tmdb::CatalogPage, JobError> {
     let language = Some(tmdb.language);
-    let page = fetch_search_page(&tmdb.api_key, &query, kind, page, language, &tmdb.net).await?;
+    let search = cinebox_tmdb::SearchQuery { text: &query, kind, page };
+    let page = fetch_search_page(&tmdb.api_key, search, language, &tmdb.net).await?;
 
     Ok(page)
 }
 
-pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
+pub(crate) async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
     let language = Some(tmdb.language);
     let fetched = fetch_home(&tmdb.api_key, language, &tmdb.net).await?;
 
@@ -186,9 +183,7 @@ pub async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCata
         }
 
         let paths = row.image_paths();
-        let saved = db
-            .put_json(lang, KIND_HOME, row.id.as_key(), &row, &paths)
-            .await;
+        let saved = db.put_json(CacheKey { language: lang, kind: KIND_HOME, id: row.id.as_key() }, &row, &paths).await;
 
         if let Err(error) = saved {
             warn!(%error, "failed to persist home row");
@@ -207,9 +202,7 @@ async fn home_row_instead(db: &Store, lang: &str, failed: HomeRow) -> HomeRow {
     let error = failed.error.as_deref().unwrap_or_default();
     warn!(row = failed.id.as_key(), error, "home row failed to load");
 
-    let cached = db
-        .get_json::<HomeRow>(lang, KIND_HOME, failed.id.as_key())
-        .await;
+    let cached = db.get_json::<HomeRow>(CacheKey { language: lang, kind: KIND_HOME, id: failed.id.as_key() }).await;
 
     match cached {
         Ok(Some(hit)) if hit.value.error.is_none() => hit.value,
@@ -217,7 +210,7 @@ async fn home_row_instead(db: &Store, lang: &str, failed: HomeRow) -> HomeRow {
     }
 }
 
-pub async fn load_media(
+pub(crate) async fn load_media(
     tmdb: TmdbCtx,
     kind: MediaKind,
     id: TmdbId,
@@ -230,9 +223,7 @@ pub async fn load_media(
         let lang = language_key(language);
         let cache_id = media_cache_id(kind, id);
         let paths = details.image_paths();
-        let saved = db
-            .put_json(lang, KIND_MEDIA, &cache_id, &details, &paths)
-            .await;
+        let saved = db.put_json(CacheKey { language: lang, kind: KIND_MEDIA, id: &cache_id }, &details, &paths).await;
 
         if let Err(error) = saved {
             warn!(%error, "failed to persist media details");
@@ -243,7 +234,7 @@ pub async fn load_media(
     Ok(Box::new(details))
 }
 
-pub async fn load_person(
+pub(crate) async fn load_person(
     tmdb: TmdbCtx,
     id: TmdbId,
     db: Option<Arc<Store>>,
@@ -255,9 +246,7 @@ pub async fn load_person(
         let lang = language_key(language);
         let cache_id = person_cache_id(id);
         let paths = details.image_paths();
-        let saved = db
-            .put_json(lang, KIND_PERSON, &cache_id, &details, &paths)
-            .await;
+        let saved = db.put_json(CacheKey { language: lang, kind: KIND_PERSON, id: &cache_id }, &details, &paths).await;
 
         if let Err(error) = saved {
             warn!(%error, "failed to persist person details");

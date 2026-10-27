@@ -1,0 +1,8 @@
+avoid-breaking-exported-api = false
+upper-case-acronyms-aggressive = true
+allow-unwrap-in-tests = true
+allow-expect-in-tests = true
+allow-panic-in-tests = true
+allow-dbg-in-tests = true
+too-many-arguments-threshold = 5
+doc-valid-idents = ["TorrServer", "YouTube", "InnerTube", "TheIntroDB", "DoH", "AliDNS", "WinINet", "SQLx", "ToS", "PascalCase", ".."]

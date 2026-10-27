@@ -8,8 +8,8 @@ use super::{Candidate, State};
 /// Focus stays on the popup (modal layer) while one is open and returns to
 /// where it was once the popup closes.
 pub(super) fn keep_in_modal(ctx: &Context, last: &State, next: &mut State) {
-    let modal = ctx.memory(|mem| mem.top_modal_layer());
-    let focused = ctx.memory(|mem| mem.focused());
+    let modal = ctx.memory(egui::Memory::top_modal_layer);
+    let focused = ctx.memory(egui::Memory::focused);
     next.had_modal = modal.is_some();
     next.modal = modal;
 
@@ -71,8 +71,8 @@ fn restore_after_modal(ctx: &Context, last: &State, next: &mut State, focused: O
         return;
     }
 
-    let lost = focused.is_none_or(|id| ctx.read_response(id).is_none());
-    if !lost {
+    let is_focus_lost = focused.is_none_or(|id| ctx.read_response(id).is_none());
+    if !is_focus_lost {
         return;
     }
 
@@ -87,9 +87,9 @@ fn restore_after_modal(ctx: &Context, last: &State, next: &mut State, focused: O
 /// Nothing focused and the D-pad pressed: land on the first widget of the
 /// screen body. The press only places focus; it does not also move or click.
 pub(super) fn start_focus(ctx: &Context, last: &State, raw_input: &mut RawInput) {
-    let focused = ctx.memory(|mem| mem.focused());
-    let lost = focused.is_none_or(|id| ctx.read_response(id).is_none());
-    if !lost {
+    let focused = ctx.memory(egui::Memory::focused);
+    let is_focus_lost = focused.is_none_or(|id| ctx.read_response(id).is_none());
+    if !is_focus_lost {
         return;
     }
 
@@ -106,17 +106,11 @@ pub(super) fn start_focus(ctx: &Context, last: &State, raw_input: &mut RawInput)
 }
 
 fn is_nav_press(event: &egui::Event) -> bool {
-    let egui::Event::Key {
-        key, pressed: true, ..
-    } = event
-    else {
+    let egui::Event::Key { key, pressed: true, .. } = event else {
         return false;
     };
 
-    matches!(
-        key,
-        Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter
-    )
+    matches!(key, Key::ArrowUp | Key::ArrowDown | Key::ArrowLeft | Key::ArrowRight | Key::Enter)
 }
 
 /// The spot the screen or popup asked for, else its first widget inside
@@ -161,13 +155,7 @@ mod tests {
     use super::*;
 
     fn key(key: Key, pressed: bool) -> egui::Event {
-        egui::Event::Key {
-            key,
-            physical_key: None,
-            pressed,
-            repeat: false,
-            modifiers: egui::Modifiers::NONE,
-        }
+        egui::Event::Key { key, physical_key: None, pressed, repeat: false, modifiers: egui::Modifiers::NONE }
     }
 
     #[test]

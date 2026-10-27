@@ -55,10 +55,7 @@ pub struct TorrPresets {
 
 impl Default for TorrPresets {
     fn default() -> Self {
-        Self {
-            mdns_service: DEFAULT_MDNS_SERVICE.to_owned(),
-            fallback: Vec::new(),
-        }
+        Self { mdns_service: DEFAULT_MDNS_SERVICE.to_owned(), fallback: Vec::new() }
     }
 }
 
@@ -150,7 +147,7 @@ mod tests {
             panic!("bundled presets must parse");
         };
 
-        assert!(!presets.parsers.is_empty());
+        assert_ne!(presets.parsers, []);
         assert_eq!(presets.torrserver.mdns_service, DEFAULT_MDNS_SERVICE);
     }
 
@@ -198,11 +195,8 @@ mod tests {
     fn merge_appends_new_addresses_only() {
         let base = ServicePresets::bundled();
         let before = base.parsers.len();
-        let mine = ParserPreset {
-            kind: ParserKind::Jackett,
-            url: String::from("http://nas.local:9117"),
-            public: false,
-        };
+        let url = String::from("http://nas.local:9117");
+        let mine = ParserPreset { kind: ParserKind::Jackett, url, public: false };
         let extra = ServicePresets {
             version: 1,
             parsers: vec![base.parsers[0].clone(), mine],

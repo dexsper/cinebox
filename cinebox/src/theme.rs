@@ -1,18 +1,16 @@
 //! Brand colors and sizes. The only place `Color32` literals live.
 
-pub mod fonts;
+pub(crate) mod fonts;
 
-use egui::{
-    Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle,
-};
+use egui::{Color32, CornerRadius, CursorIcon, FontId, Margin, Stroke, Style, Visuals, style::ScrollStyle};
 
 use crate::platform::Profile;
 
-pub const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
+pub(crate) const PAGE_BG_RGB: [u8; 3] = [0x2B, 0x2D, 0x31];
 
 /// Application theme. Screens and widgets take `&Theme`; they do not pick colors.
 #[derive(Clone, Debug)]
-pub struct Theme {
+pub(crate) struct Theme {
     pub page_bg: Color32,
     pub panel: Color32,
     pub panel_elevated: Color32,
@@ -95,7 +93,7 @@ pub struct Theme {
 
 impl Theme {
     #[must_use]
-    pub fn dark() -> Self {
+    pub(crate) fn dark() -> Self {
         Self {
             page_bg: Color32::from_rgb(PAGE_BG_RGB[0], PAGE_BG_RGB[1], PAGE_BG_RGB[2]),
             panel: Color32::from_rgb(20, 20, 26),
@@ -181,7 +179,7 @@ impl Theme {
     /// With a D-pad one widget always carries the ring, so it is drawn lighter
     /// than the pointer's hover ring.
     #[must_use]
-    pub fn for_profile(mut self, profile: Profile) -> Self {
+    pub(crate) fn for_profile(mut self, profile: Profile) -> Self {
         if profile.is_directional() {
             self.ring_w = 2.0;
             self.ring_gap = 2.0;
@@ -197,52 +195,58 @@ impl Theme {
     }
 
     #[must_use]
-    pub fn ring_pad(&self) -> f32 {
+    pub(crate) fn ring_pad(&self) -> f32 {
         self.ring_w + self.ring_gap
     }
 
     #[must_use]
-    pub fn rounding(&self, radius: f32) -> CornerRadius {
-        CornerRadius::same(radius.round() as u8)
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn rounding(&self, radius: f32) -> CornerRadius {
+        CornerRadius::same(round_u8(radius))
     }
 
     #[must_use]
-    pub fn overlay_at(&self, t: f32) -> Color32 {
+    pub(crate) fn overlay_at(&self, t: f32) -> Color32 {
         self.overlay.gamma_multiply(t.clamp(0.0, 1.0))
     }
 
     /// Arc color for the speed gauge. `t` is 0..=1 along the scale.
     #[must_use]
-    pub fn gauge_hot(&self, t: f32) -> Color32 {
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn gauge_hot(&self, t: f32) -> Color32 {
         let t = t.clamp(0.0, 1.0);
         let hue = 330.0 + t * 200.0;
         hsl(hue, 0.80, 0.45)
     }
 
     #[must_use]
-    pub fn gauge_track(&self) -> Color32 {
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn gauge_track(&self) -> Color32 {
         Color32::from_white_alpha(28)
     }
 
     #[must_use]
-    pub fn ui_font(&self, size: f32) -> FontId {
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn ui_font(&self, size: f32) -> FontId {
         FontId::proportional(size)
     }
 
     /// Movie titles, shelf labels, drawer headings.
     #[must_use]
-    pub fn title_font(&self, size: f32) -> FontId {
-        crate::theme::fonts::title(size)
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn title_font(&self, size: f32) -> FontId {
+        fonts::title(size)
     }
 
     /// Primary action labels.
     #[must_use]
-    pub fn emphasis_font(&self, size: f32) -> FontId {
-        crate::theme::fonts::emphasis(size)
+    #[expect(clippy::unused_self, reason = "widgets take every style from the theme they hold")]
+    pub(crate) fn emphasis_font(&self, size: f32) -> FontId {
+        fonts::emphasis(size)
     }
 
     /// Apply visuals once at startup.
-    pub fn apply(&self, ctx: &egui::Context) {
+    pub(crate) fn apply(&self, ctx: &egui::Context) {
         let mut visuals = Visuals::dark();
 
         visuals.override_text_color = Some(self.label);
@@ -268,10 +272,7 @@ impl Theme {
         visuals.window_stroke = Stroke::NONE;
         visuals.window_shadow.blur = 16;
 
-        let mut style = Style {
-            visuals,
-            ..Style::default()
-        };
+        let mut style = Style { visuals, ..Style::default() };
 
         style.spacing.scroll = ScrollStyle::floating();
         style.spacing.scroll.fade.strength = 0.0;
@@ -283,34 +284,69 @@ impl Theme {
     }
 }
 
-fn hsl(h: f32, s: f32, l: f32) -> Color32 {
-    let h = ((h % 360.0) + 360.0) % 360.0;
-    let c = (1.0 - (2.0 * l - 1.0).abs()) * s;
-    let h_sec = h / 60.0;
-    let x = c * (1.0 - (h_sec % 2.0 - 1.0).abs());
-    let m = l - c / 2.0;
-    let (r, g, b) = hsl_rgb(h, c, x);
-
-    let to_u8 = |v: f32| ((v + m) * 255.0).round().clamp(0.0, 255.0) as u8;
-    Color32::from_rgb(to_u8(r), to_u8(g), to_u8(b))
+/// A float rounded and clamped into a `u8`: a color channel or a corner radius.
+#[must_use]
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "the value is clamped to the `u8` range first"
+)]
+pub(crate) fn round_u8(value: f32) -> u8 {
+    value.round().clamp(0.0, 255.0) as u8
 }
 
-fn hsl_rgb(h: f32, c: f32, x: f32) -> (f32, f32, f32) {
-    if h < 60.0 {
-        return (c, x, 0.0);
-    }
-    if h < 120.0 {
-        return (x, c, 0.0);
-    }
-    if h < 180.0 {
-        return (0.0, c, x);
-    }
-    if h < 240.0 {
-        return (0.0, x, c);
-    }
-    if h < 300.0 {
-        return (x, 0.0, c);
+/// A float rounded and clamped into an `i8`: an egui margin.
+#[must_use]
+#[expect(clippy::cast_possible_truncation, reason = "the value is clamped to the `i8` range first")]
+pub(crate) fn round_i8(value: f32) -> i8 {
+    value.round().clamp(-128.0, 127.0) as i8
+}
+
+/// A time or a ratio narrowed for drawing, which works in `f32`.
+#[must_use]
+#[expect(clippy::cast_possible_truncation, reason = "drawing needs no more precision than `f32` keeps")]
+pub(crate) fn narrow(value: f64) -> f32 {
+    value as f32
+}
+
+/// A share clamped to 0..=1 and narrowed for drawing.
+#[must_use]
+pub(crate) fn fraction(value: f64) -> f32 {
+    narrow(value.clamp(0.0, 1.0))
+}
+
+fn hsl(hue: f32, saturation: f32, lightness: f32) -> Color32 {
+    let hue = ((hue % 360.0) + 360.0) % 360.0;
+    let chroma = (1.0 - (2.0 * lightness - 1.0).abs()) * saturation;
+    let sector = hue / 60.0;
+    let second = chroma * (1.0 - (sector % 2.0 - 1.0).abs());
+    let offset = lightness - chroma / 2.0;
+    let (red, green, blue) = hsl_rgb(hue, chroma, second);
+
+    let channel = |value: f32| round_u8((value + offset) * 255.0);
+    Color32::from_rgb(channel(red), channel(green), channel(blue))
+}
+
+fn hsl_rgb(hue: f32, chroma: f32, second: f32) -> (f32, f32, f32) {
+    if hue < 60.0 {
+        return (chroma, second, 0.0);
     }
 
-    (c, 0.0, x)
+    if hue < 120.0 {
+        return (second, chroma, 0.0);
+    }
+
+    if hue < 180.0 {
+        return (0.0, chroma, second);
+    }
+
+    if hue < 240.0 {
+        return (0.0, second, chroma);
+    }
+
+    if hue < 300.0 {
+        return (second, 0.0, chroma);
+    }
+
+    (chroma, 0.0, second)
 }

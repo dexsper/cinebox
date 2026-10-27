@@ -2,7 +2,7 @@
 
 mod boot;
 mod device;
-pub mod nav;
+pub(crate) mod nav;
 pub(crate) mod routing;
 mod shell;
 mod tmdb;
@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use crate::platform::{self, DeviceEvent, Host};
 use crate::screens::{
-    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, OnboardingScreen,
-    PersonScreen, PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
+    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, OnboardingScreen, PersonScreen,
+    PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
 };
 use crate::services::Services;
 use crate::services::jobs;
@@ -23,7 +23,7 @@ use crate::widgets::{chrome, focus};
 use nav::{Nav, Screen};
 use tmdb::TmdbView;
 
-pub struct App {
+pub(crate) struct App {
     nav: Nav,
     theme: Theme,
     services: Services,
@@ -48,7 +48,7 @@ pub struct App {
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
+    pub(crate) fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
         let theme = Theme::dark().for_profile(host.profile);
         let platform_player = host.player.clone();
 
@@ -57,8 +57,7 @@ impl App {
 
         crate::theme::fonts::install(&cc.egui_ctx);
 
-        cc.egui_ctx
-            .plugin_or_default::<egui_async::EguiAsyncPlugin>();
+        cc.egui_ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
         let player = platform_player.or_else(|| boot::attach_mpv(cc));
         if let Some(player) = &player {

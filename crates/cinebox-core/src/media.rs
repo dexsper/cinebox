@@ -71,14 +71,7 @@ impl MediaDetails {
         }
 
         if !self.countries.is_empty() {
-            parts.push(
-                self.countries
-                    .iter()
-                    .take(5)
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join(" | "),
-            );
+            parts.push(self.countries.iter().take(5).cloned().collect::<Vec<_>>().join(" | "));
         }
 
         parts.join(", ")
@@ -99,11 +92,7 @@ impl MediaDetails {
     /// Default indexer query: original title (year is a separate Jackett param).
     #[must_use]
     pub fn torrent_query(&self) -> String {
-        self.original_title
-            .as_deref()
-            .filter(|s| !s.is_empty())
-            .unwrap_or(&self.title)
-            .to_owned()
+        self.original_title.as_deref().filter(|s| !s.is_empty()).unwrap_or(&self.title).to_owned()
     }
 
     /// Poster / backdrop / credit / related paths for the image cache.
@@ -118,11 +107,7 @@ impl MediaDetails {
             push_path(&mut paths, person.profile_path.as_deref());
         }
 
-        let items = self
-            .collection
-            .iter()
-            .chain(&self.recommendations)
-            .chain(&self.similar);
+        let items = self.collection.iter().chain(&self.recommendations).chain(&self.similar);
 
         for item in items {
             push_path(&mut paths, item.poster_path.as_deref());
@@ -280,20 +265,14 @@ mod tests {
             collection: Vec::new(),
             recommendations: Vec::new(),
             similar: Vec::new(),
-            trailers: vec![Trailer {
-                name: String::from("Official"),
-                youtube_key: String::from("abc"),
-            }],
+            trailers: vec![Trailer { name: String::from("Official"), youtube_key: String::from("abc") }],
         };
 
         assert_eq!(details.head_line(), "2021, United States");
         assert_eq!(details.torrent_query(), "Dune");
         assert!(!details.is_anime());
 
-        assert_eq!(
-            details.trailers[0].watch_url(),
-            "https://www.youtube.com/watch?v=abc"
-        );
+        assert_eq!(details.trailers[0].watch_url(), "https://www.youtube.com/watch?v=abc");
     }
 
     #[test]
@@ -345,9 +324,6 @@ mod tests {
         };
 
         assert_ne!(overview, "A - B wait...");
-        assert!(
-            overview.contains('\u{2014}') || overview.contains('…'),
-            "{overview:?}"
-        );
+        assert!(overview.contains('\u{2014}') || overview.contains('…'), "{overview:?}");
     }
 }

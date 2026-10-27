@@ -16,9 +16,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs, VideoScale};
-use cinebox_player::{
-    Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video,
-};
+use cinebox_player::{Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video};
 use egui::{Align, Align2, Color32, CursorIcon, Rect, RichText, Sense, Ui, pos2};
 use egui_async::Bind;
 use rust_i18n::t;
@@ -31,7 +29,7 @@ use crate::screens::play::{PlayRequest, PlaySource, WatchCard};
 use crate::screens::torrents::TorrentFileRow;
 use crate::services::jobs::{self, JobError};
 use crate::services::{Services, db_block_on};
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 use crate::widgets::flyout;
 
 use buffering::{Buffering, PreloadMeter};
@@ -126,7 +124,7 @@ impl PlayerState {
 }
 
 /// What [`PlayerScreen::stop`] leaves behind.
-pub struct Played {
+pub(crate) struct Played {
     pub source: PlaySource,
     /// The database write of the progress, still running in the background.
     pub saved: Option<tokio::task::JoinHandle<()>>,
@@ -174,7 +172,7 @@ struct VideoCallback {
     callback: Arc<egui_glow::CallbackFn>,
 }
 
-pub struct PlayerScreen {
+pub(crate) struct PlayerScreen {
     phase: Option<PlayerPhase>,
     fullscreen: bool,
     was_maximized: bool,
@@ -225,7 +223,7 @@ impl Default for PlayerScreen {
 }
 
 impl PlayerScreen {
-    pub fn start(&mut self, req: PlayRequest, svc: &mut Services, ctx: &egui::Context) {
+    pub(crate) fn start(&mut self, req: PlayRequest, svc: &mut Services, ctx: &egui::Context) {
         self.prefs = Default::default();
 
         if let Some(hash) = req.source.torrent_hash() {
@@ -244,27 +242,19 @@ impl PlayerScreen {
         self.begin_load(
             svc,
             ctx,
-            LoadSpec {
-                card: req.card,
-                title: req.title,
-                source: req.source,
-                backdrop_path: req.backdrop_path,
-            },
+            LoadSpec { card: req.card, title: req.title, source: req.source, backdrop_path: req.backdrop_path },
         );
     }
 
     /// Saves progress and stops. Returns the source it stopped on, with the
     /// timecodes just saved.
-    pub fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<Played> {
+    pub(crate) fn stop(&mut self, svc: &mut Services, ctx: &egui::Context) -> Option<Played> {
         let saved = self.save_progress(svc, true);
         stop_player(svc);
 
         self.abort_buffering();
         self.skip_state.reset();
-        let played = self.phase.take().map(|phase| Played {
-            source: phase.into_source(),
-            saved,
-        });
+        let played = self.phase.take().map(|phase| Played { source: phase.into_source(), saved });
         self.popup = Popup::None;
 
         if self.volume_dirty {
@@ -280,7 +270,7 @@ impl PlayerScreen {
     }
 
     /// Pause without toggling (the app went to the background).
-    pub fn pause(&mut self, svc: &Services) {
+    pub(crate) fn pause(&mut self, svc: &Services) {
         let playing = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if !state.paused);
         if playing {
             self.toggle(svc);
@@ -295,7 +285,7 @@ impl PlayerScreen {
     }
 
     /// Transport control from outside the player UI.
-    pub fn apply(&mut self, command: MediaCommand, svc: &mut Services, ctx: &egui::Context) {
+    pub(crate) fn apply(&mut self, command: MediaCommand, svc: &mut Services, ctx: &egui::Context) {
         match command {
             MediaCommand::Play => self.resume(svc),
             MediaCommand::Pause | MediaCommand::Stop => self.pause(svc),
@@ -322,7 +312,7 @@ impl PlayerScreen {
     /// Video with nothing of the app's chrome around it. Where the OS owns the
     /// window there is no fullscreen to toggle: the player always fills it.
     #[must_use]
-    pub fn fills_screen(&self, profile: crate::platform::Profile) -> bool {
+    pub(crate) fn fills_screen(&self, profile: crate::platform::Profile) -> bool {
         if !profile.is_desktop_window() {
             return true;
         }
@@ -330,7 +320,7 @@ impl PlayerScreen {
         self.fullscreen
     }
 
-    pub fn tick(&mut self, svc: &mut Services, ctx: &egui::Context) {
+    pub(crate) fn tick(&mut self, svc: &mut Services, ctx: &egui::Context) {
         self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
@@ -408,7 +398,7 @@ impl PlayerScreen {
         }
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         let now = ui.input(|i| i.time);
         self.update_activity(ui, now);
         self.handle_keys(ui, svc);
@@ -463,14 +453,7 @@ impl PlayerScreen {
         overlay::header(ui.ctx(), theme, rect, &state.title, 1.0);
     }
 
-    fn playing_ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        video: Rect,
-        now: f64,
-    ) {
+    fn playing_ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, video: Rect, now: f64) {
         let ctx = ui.ctx().clone();
         let popup_was_open = self.popup != Popup::None;
 
@@ -512,13 +495,7 @@ impl PlayerScreen {
 
         if let Some(error) = view.error.as_deref() {
             ui.painter().rect_filled(rect, 0.0, theme.video_bg);
-            ui.painter().text(
-                rect.center(),
-                Align2::CENTER_CENTER,
-                error,
-                theme.ui_font(theme.text_body),
-                theme.err,
-            );
+            ui.painter().text(rect.center(), Align2::CENTER_CENTER, error, theme.ui_font(theme.text_body), theme.err);
         } else {
             let frame = VideoFrame {
                 scale: self.prefs.scale,
@@ -526,14 +503,7 @@ impl PlayerScreen {
                 subtitle: view.subtitle.as_deref(),
                 subtitle_scale: self.sub_scale,
             };
-            paint_video(
-                ui,
-                rect,
-                svc.player.clone(),
-                theme,
-                &mut self.video_cb,
-                &frame,
-            );
+            paint_video(ui, rect, svc.player.clone(), theme, &mut self.video_cb, &frame);
         }
 
         let mut seek_rel = None;
@@ -580,7 +550,7 @@ impl PlayerScreen {
             ctx.memory_mut(|mem| mem.request_focus(footer.play_id));
         }
 
-        let focused = ctx.memory(|mem| mem.focused());
+        let focused = ctx.memory(egui::Memory::focused);
         self.controls_focused = focused.is_some_and(|id| id != input::video_id());
 
         self.popups(&ctx, svc, theme, &footer);
@@ -593,12 +563,7 @@ impl PlayerScreen {
             view.time,
             view.duration,
             view.paused,
-            skip::SkipTarget {
-                kind: view.kind,
-                tmdb_id: view.tmdb_id,
-                season: view.season,
-                episode: view.episode,
-            },
+            skip::SkipTarget { kind: view.kind, tmdb_id: view.tmdb_id, season: view.season, episode: view.episode },
             svc,
         );
 
@@ -673,31 +638,20 @@ impl PlayerScreen {
         }
     }
 
-    fn popups(
-        &mut self,
-        ctx: &egui::Context,
-        svc: &mut Services,
-        theme: &Theme,
-        footer: &overlay::FooterOut,
-    ) {
+    fn popups(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, footer: &overlay::FooterOut) {
         match self.popup {
             Popup::None => {}
-            Popup::Settings(page) => {
-                self.settings_popup(ctx, svc, theme, footer.settings_rect, page)
-            }
+            Popup::Settings(_) => self.settings_popup(ctx, svc, theme, footer.settings_rect),
             Popup::Playlist => self.playlist_popup(ctx, svc, theme, footer.playlist_rect),
             Popup::Volume => self.volume_popup(ctx, svc, theme, footer.volume_rect),
         }
     }
 
-    fn settings_popup(
-        &mut self,
-        ctx: &egui::Context,
-        svc: &mut Services,
-        theme: &Theme,
-        anchor: Rect,
-        page: settings_popup::Page,
-    ) {
+    fn settings_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
+        let Popup::Settings(page) = self.popup else {
+            return;
+        };
+
         let tracks = player_tracks(svc);
         let view = settings_popup::View {
             page,
@@ -710,18 +664,10 @@ impl PlayerScreen {
         };
 
         let mut out = settings_popup::Out::default();
-        let pad = egui::Margin::same(flyout::PAD);
-        let fly = flyout::show(
-            ctx,
-            "player-settings-flyout",
-            anchor,
-            theme,
-            280.0,
-            pad,
-            |ui, theme| {
-                out = settings_popup::paint(ui, theme, &view);
-            },
-        );
+        let placement = flyout::Placement { id: "player-settings-flyout", anchor, width: 280.0 };
+        let fly = flyout::show(ctx, theme, placement, |ui, theme| {
+            out = settings_popup::paint(ui, theme, &view);
+        });
 
         if let Some(next) = out.page {
             self.turn_settings_page(page, next);
@@ -784,13 +730,7 @@ impl PlayerScreen {
         }
     }
 
-    fn playlist_popup(
-        &mut self,
-        ctx: &egui::Context,
-        svc: &mut Services,
-        theme: &Theme,
-        anchor: Rect,
-    ) {
+    fn playlist_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
         let mut jump = None;
         let mut scroll_to_current = self.playlist_scroll;
 
@@ -798,28 +738,12 @@ impl PlayerScreen {
             let Some(PlayerPhase::Playing(state)) = &self.phase else {
                 return;
             };
-            let files = state.files();
-            let current = state.file_index();
+            let playlist = playlist_popup::Playlist { files: state.files(), current: state.file_index() };
 
-            let pad = egui::Margin::same(flyout::PAD);
-            let fly = flyout::show(
-                ctx,
-                "player-playlist-flyout",
-                anchor,
-                theme,
-                380.0,
-                pad,
-                |ui, theme| {
-                    jump = playlist_popup::paint(
-                        ui,
-                        theme,
-                        svc,
-                        files,
-                        current,
-                        &mut scroll_to_current,
-                    );
-                },
-            );
+            let placement = flyout::Placement { id: "player-playlist-flyout", anchor, width: 380.0 };
+            let fly = flyout::show(ctx, theme, placement, |ui, theme| {
+                jump = playlist_popup::paint(ui, theme, svc, playlist, &mut scroll_to_current);
+            });
 
             fly.dismissed
         };
@@ -837,28 +761,14 @@ impl PlayerScreen {
         }
     }
 
-    fn volume_popup(
-        &mut self,
-        ctx: &egui::Context,
-        svc: &mut Services,
-        theme: &Theme,
-        anchor: Rect,
-    ) {
+    fn volume_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
         let mut level = svc.settings.player.volume;
         let mut changed = false;
 
-        let pad = egui::Margin::same(flyout::PAD);
-        let fly = flyout::show(
-            ctx,
-            "player-volume-flyout",
-            anchor,
-            theme,
-            volume::WIDTH,
-            pad,
-            |ui, theme| {
-                changed = volume::slider(ui, theme, &mut level);
-            },
-        );
+        let placement = flyout::Placement { id: "player-volume-flyout", anchor, width: volume::WIDTH };
+        let fly = flyout::show(ctx, theme, placement, |ui, theme| {
+            changed = volume::slider(ui, theme, &mut level);
+        });
 
         if changed {
             let level = level.clamp(0.0, 100.0);
@@ -870,9 +780,7 @@ impl PlayerScreen {
         }
 
         let pointer = ctx.pointer_latest_pos();
-        let over = pointer.is_some_and(|pos| {
-            fly.rect.expand(8.0).contains(pos) || anchor.expand(8.0).contains(pos)
-        });
+        let over = pointer.is_some_and(|pos| fly.rect.expand(8.0).contains(pos) || anchor.expand(8.0).contains(pos));
 
         if over {
             return;
@@ -954,11 +862,7 @@ struct LoadMedia {
 
 fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
     match &state.source {
-        PlaySource::Youtube {
-            video_url,
-            audio_url,
-            http_header_fields,
-        } => {
+        PlaySource::Youtube { video_url, audio_url, http_header_fields } => {
             let net = jobs::net_config(&svc.settings);
             let proxy = cinebox_net::http_proxy_url(&net);
             if net.use_system_proxy && proxy.is_none() {
@@ -975,12 +879,7 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
                 start: 0.0,
             })
         }
-        PlaySource::Torrent {
-            hash,
-            files,
-            file_index,
-            ..
-        } => {
+        PlaySource::Torrent { hash, files, file_index, .. } => {
             let Some(file) = files.get(*file_index) else {
                 return Err(t!("common.failed").into_owned());
             };
@@ -999,13 +898,7 @@ fn load_args(state: &PlayerState, svc: &Services) -> Result<LoadMedia, String> {
             let pass = svc.settings.torrserver.password.expose();
             let auth = cinebox_torrserver::basic_auth_header(user, pass);
 
-            Ok(LoadMedia {
-                url,
-                headers: auth.into_iter().collect(),
-                audio: None,
-                proxy: None,
-                start: state.time,
-            })
+            Ok(LoadMedia { url, headers: auth.into_iter().collect(), audio: None, proxy: None, start: state.time })
         }
     }
 }
@@ -1063,27 +956,14 @@ impl PlayerScreen {
         let repaint = ctx.clone();
 
         job.request(async move {
-            jobs::wait_stream(
-                torr,
-                path,
-                hash_owned,
-                file_id,
-                resume_bytes,
-                move |event| {
-                    live.on_event(event);
-                    repaint.request_repaint();
-                },
-            )
+            jobs::wait_stream(torr, path, hash_owned, file_id, resume_bytes, move |event| {
+                live.on_event(event);
+                repaint.request_repaint();
+            })
             .await
         });
 
-        let PlaySource::Torrent {
-            hash,
-            files,
-            file_index,
-            start,
-        } = spec.source
-        else {
+        let PlaySource::Torrent { hash, files, file_index, start } = spec.source else {
             return;
         };
 
@@ -1247,12 +1127,7 @@ impl PlayerScreen {
                         return;
                     }
 
-                    (
-                        state.card.clone(),
-                        state.source.clone(),
-                        state.backdrop_path.clone(),
-                        Some(state.file_index()),
-                    )
+                    (state.card.clone(), state.source.clone(), state.backdrop_path.clone(), Some(state.file_index()))
                 }
                 PlayerPhase::Buffering(state) => (
                     state.card.clone(),
@@ -1286,12 +1161,7 @@ impl PlayerScreen {
             LoadSpec {
                 card,
                 title,
-                source: PlaySource::Torrent {
-                    hash,
-                    files,
-                    file_index: index,
-                    start,
-                },
+                source: PlaySource::Torrent { hash, files, file_index: index, start },
                 backdrop_path,
             }
         };
@@ -1299,14 +1169,7 @@ impl PlayerScreen {
         self.begin_load(svc, ctx, spec);
     }
 
-    fn skip_or_next(
-        &mut self,
-        svc: &mut Services,
-        ctx: &egui::Context,
-        target: f64,
-        duration: f64,
-        has_next: bool,
-    ) {
+    fn skip_or_next(&mut self, svc: &mut Services, ctx: &egui::Context, target: f64, duration: f64, has_next: bool) {
         let at_end = duration > 1.0 && target >= duration - 1.0;
 
         if at_end && has_next && svc.settings.player.auto_next {
@@ -1376,13 +1239,8 @@ impl PlayerScreen {
 
 fn pauses(command: MediaCommand) -> bool {
     match command {
-        MediaCommand::Play | MediaCommand::Pause | MediaCommand::Stop | MediaCommand::PlayPause => {
-            true
-        }
-        MediaCommand::SeekTo(_)
-        | MediaCommand::SeekBy(_)
-        | MediaCommand::Next
-        | MediaCommand::Previous => false,
+        MediaCommand::Play | MediaCommand::Pause | MediaCommand::Stop | MediaCommand::PlayPause => true,
+        MediaCommand::SeekTo(_) | MediaCommand::SeekBy(_) | MediaCommand::Next | MediaCommand::Previous => false,
     }
 }
 
@@ -1426,10 +1284,7 @@ struct VideoFrame<'a> {
 
 /// Returns the cached render callback, rebuilding it only when the player
 /// changes; allocating a new `Arc<CallbackFn>` per frame is waste.
-fn video_callback(
-    cache: &mut Option<VideoCallback>,
-    player: Arc<dyn Player>,
-) -> Arc<egui_glow::CallbackFn> {
+fn video_callback(cache: &mut Option<VideoCallback>, player: Arc<dyn Player>) -> Arc<egui_glow::CallbackFn> {
     let cached = cache.as_ref().filter(|cb| Arc::ptr_eq(&cb.player, &player));
 
     if let Some(cb) = cached {
@@ -1439,14 +1294,11 @@ fn video_callback(
     let render_player = player.clone();
     let callback = Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
         let vp = info.viewport_in_pixels();
-        let fbo = painter.intermediate_fbo().map(|fb| fb.0.get()).unwrap_or(0);
+        let fbo = painter.intermediate_fbo().map_or(0, |fb| fb.0.get());
         let _ = render_player.render(fbo, vp.width_px, vp.height_px);
     }));
 
-    *cache = Some(VideoCallback {
-        player,
-        callback: callback.clone(),
-    });
+    *cache = Some(VideoCallback { player, callback: callback.clone() });
 
     callback
 }
@@ -1504,12 +1356,7 @@ fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, theme: &Theme, frame
 }
 
 fn to_area(rect: Rect) -> Area {
-    Area {
-        x: rect.left(),
-        y: rect.top(),
-        width: rect.width(),
-        height: rect.height(),
-    }
+    Area { x: rect.left(), y: rect.top(), width: rect.width(), height: rect.height() }
 }
 
 fn to_rect(area: Area) -> Rect {
@@ -1525,19 +1372,10 @@ fn bars_around(outer: Rect, inner: Rect) -> Vec<Rect> {
 
     let top = Rect::from_min_max(outer.min, pos2(outer.right(), inner.top()));
     let bottom = Rect::from_min_max(pos2(outer.left(), inner.bottom()), outer.max);
-    let left = Rect::from_min_max(
-        pos2(outer.left(), inner.top()),
-        pos2(inner.left(), inner.bottom()),
-    );
-    let right = Rect::from_min_max(
-        pos2(inner.right(), inner.top()),
-        pos2(outer.right(), inner.bottom()),
-    );
+    let left = Rect::from_min_max(pos2(outer.left(), inner.top()), pos2(inner.left(), inner.bottom()));
+    let right = Rect::from_min_max(pos2(inner.right(), inner.top()), pos2(outer.right(), inner.bottom()));
 
-    [top, bottom, left, right]
-        .into_iter()
-        .filter(|bar| bar.is_positive())
-        .collect()
+    [top, bottom, left, right].into_iter().filter(Rect::is_positive).collect()
 }
 
 /// Subtitle height as a share of the video rect, close to mpv's default.
@@ -1548,7 +1386,7 @@ const SUBTITLE_MARGIN_SHARE: f32 = 0.05;
 const SUBTITLE_OUTLINE: f32 = 2.0;
 
 fn paint_subtitle(ui: &Ui, rect: Rect, text: &str, scale: f64) {
-    let size = rect.height() * SUBTITLE_SHARE * scale as f32;
+    let size = rect.height() * SUBTITLE_SHARE * theme::narrow(scale);
     let font = egui::FontId::proportional(size);
     let wrap = rect.width() * 0.9;
 
@@ -1565,11 +1403,7 @@ fn paint_subtitle(ui: &Ui, rect: Rect, text: &str, scale: f64) {
     for dx in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
         for dy in [-SUBTITLE_OUTLINE, 0.0, SUBTITLE_OUTLINE] {
             let offset = egui::vec2(dx, dy);
-            painter.galley_with_override_text_color(
-                anchor + offset,
-                galley.clone(),
-                Color32::BLACK,
-            );
+            painter.galley_with_override_text_color(anchor + offset, galley.clone(), Color32::BLACK);
         }
     }
     painter.galley(anchor, galley, Color32::WHITE);
@@ -1634,10 +1468,7 @@ mod tests {
         drop(job);
         std::thread::sleep(Duration::from_millis(400));
 
-        assert!(
-            !completed.load(Ordering::SeqCst),
-            "task should have been cancelled by abort()"
-        );
+        assert!(!completed.load(Ordering::SeqCst), "task should have been cancelled by abort()");
     }
 
     fn file(id: i32) -> TorrentFileRow {
@@ -1659,8 +1490,8 @@ mod tests {
     pub(super) fn spec(file_index: usize, count: i32) -> LoadSpec {
         LoadSpec {
             card: WatchCard {
-                kind: cinebox_core::MediaKind::Tv,
-                id: cinebox_core::TmdbId::new(1),
+                kind: MediaKind::Tv,
+                id: TmdbId::new(1),
                 section: cinebox_core::Section::Tv,
                 title: String::from("Show"),
                 poster_path: None,
@@ -1681,8 +1512,8 @@ mod tests {
     pub(super) fn youtube_spec() -> LoadSpec {
         LoadSpec {
             card: WatchCard {
-                kind: cinebox_core::MediaKind::Movie,
-                id: cinebox_core::TmdbId::new(1),
+                kind: MediaKind::Movie,
+                id: TmdbId::new(1),
                 section: cinebox_core::Section::Movies,
                 title: String::from("Movie"),
                 poster_path: None,

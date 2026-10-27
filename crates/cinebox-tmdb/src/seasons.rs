@@ -50,7 +50,7 @@ struct EpisodeBody {
 ///
 /// Empty key. A failed season is logged and skipped instead of failing the
 /// whole batch.
-pub async fn fetch_season_episodes(
+pub(crate) async fn fetch_season_episodes(
     api_key: &str,
     tv_id: TmdbId,
     seasons: &[u32],
@@ -65,9 +65,7 @@ pub async fn fetch_season_episodes(
 
     let results = fetch_seasons(net, api_key, tv_id, &wanted, language).await;
 
-    let is_missing = results
-        .iter()
-        .any(|(_, result)| matches!(result, Err(Error::Http(404))));
+    let is_missing = results.iter().any(|(_, result)| matches!(result, Err(Error::Http(404))));
 
     if is_missing {
         match regrouped(net, api_key, tv_id, &wanted, language).await {
@@ -87,9 +85,7 @@ async fn fetch_seasons(
     seasons: &[u32],
     language: Option<&str>,
 ) -> Vec<(u32, Result<Vec<SeasonEpisode>, Error>)> {
-    let fetches = seasons
-        .iter()
-        .map(|season| fetch_one_season(net, api_key, tv_id, *season, language));
+    let fetches = seasons.iter().map(|season| fetch_one_season(net, api_key, tv_id, *season, language));
 
     let results = futures_util::future::join_all(fetches).await;
     seasons.iter().copied().zip(results).collect()
@@ -119,10 +115,7 @@ async fn regrouped(
         return Ok(None);
     };
 
-    let mut tmdb_seasons: Vec<u32> = numbering
-        .iter()
-        .map(|renumber| renumber.tmdb_season)
-        .collect();
+    let mut tmdb_seasons: Vec<u32> = numbering.iter().map(|renumber| renumber.tmdb_season).collect();
 
     tmdb_seasons.sort_unstable();
     tmdb_seasons.dedup();
@@ -139,17 +132,11 @@ fn renumbered(numbering: &[Renumber], catalog: &[SeasonEpisode]) -> Vec<SeasonEp
 
     for renumber in numbering {
         let target = (renumber.tmdb_season, renumber.tmdb_episode);
-        let found = catalog
-            .iter()
-            .find(|episode| (episode.season, episode.episode) == target);
+        let found = catalog.iter().find(|episode| (episode.season, episode.episode) == target);
 
         let Some(episode) = found else { continue };
 
-        out.push(SeasonEpisode {
-            season: renumber.season,
-            episode: renumber.episode,
-            ..episode.clone()
-        });
+        out.push(SeasonEpisode { season: renumber.season, episode: renumber.episode, ..episode.clone() });
     }
 
     out
@@ -164,10 +151,7 @@ async fn fetch_one_season(
 ) -> Result<Vec<SeasonEpisode>, Error> {
     let url = format!("{API_BASE}/tv/{}/season/{season}", tv_id.get());
     let body: SeasonBody = send_json(net, |client| {
-        let mut request = client
-            .get(&url)
-            .timeout(std::time::Duration::from_secs(25))
-            .query(&[("api_key", api_key)]);
+        let mut request = client.get(&url).timeout(std::time::Duration::from_secs(25)).query(&[("api_key", api_key)]);
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
             request = request.query(&[("language", language)]);
@@ -309,12 +293,7 @@ mod tests {
             air_date: None,
         };
         let catalog = vec![named(3, 1, "first"), named(3, 2, "second")];
-        let into_part_4 = |episode, tmdb_episode| Renumber {
-            season: 4,
-            episode,
-            tmdb_season: 3,
-            tmdb_episode,
-        };
+        let into_part_4 = |episode, tmdb_episode| Renumber { season: 4, episode, tmdb_season: 3, tmdb_episode };
         let numbering = [into_part_4(1, 1), into_part_4(2, 9), into_part_4(3, 2)];
 
         let episodes = renumbered(&numbering, &catalog);
@@ -326,6 +305,6 @@ mod tests {
     fn empty_payload_maps_to_no_episodes() {
         let episodes = map_season(body("{}"), 5);
 
-        assert!(episodes.is_empty());
+        assert_eq!(episodes, []);
     }
 }

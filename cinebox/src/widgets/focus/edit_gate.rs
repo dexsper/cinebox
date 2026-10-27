@@ -6,7 +6,7 @@ use egui::{Id, Key, Modifiers, Rect, Response, Sense, Ui};
 
 use super::{directional, track, with_state};
 
-pub struct EditGate {
+pub(crate) struct EditGate {
     /// Pass to `TextEdit::interactive`.
     pub interactive: bool,
     /// The stop that holds focus while not typing; `None` with pointer navigation.
@@ -14,21 +14,15 @@ pub struct EditGate {
 }
 
 /// `rect` covers the whole field, `edit_id` is its `TextEdit`'s id.
-pub fn edit_gate(ui: &mut Ui, rect: Rect, edit_id: Id) -> EditGate {
+pub(crate) fn edit_gate(ui: &mut Ui, rect: Rect, edit_id: Id) -> EditGate {
     if !directional(ui.ctx()) {
-        return EditGate {
-            interactive: true,
-            stop: None,
-        };
+        return EditGate { interactive: true, stop: None };
     }
 
     let editing = ui.ctx().memory(|mem| mem.has_focus(edit_id));
     if editing {
         ring_around_field(ui, edit_id, rect);
-        return EditGate {
-            interactive: true,
-            stop: None,
-        };
+        return EditGate { interactive: true, stop: None };
     }
 
     let stop = ui.interact(rect, field_stop(edit_id), Sense::click());
@@ -42,15 +36,12 @@ pub fn edit_gate(ui: &mut Ui, rect: Rect, edit_id: Id) -> EditGate {
         ring_around_field(ui, edit_id, rect);
     }
 
-    EditGate {
-        interactive: start,
-        stop: Some(stop),
-    }
+    EditGate { interactive: start, stop: Some(stop) }
 }
 
 /// After the `TextEdit` is shown: typing ended (Enter or Back), so the D-pad
 /// continues from the field.
-pub fn edit_done(ui: &Ui, edit: &Response) {
+pub(crate) fn edit_done(ui: &Ui, edit: &Response) {
     if !directional(ui.ctx()) {
         return;
     }
@@ -70,6 +61,6 @@ fn ring_around_field(ui: &Ui, edit_id: Id, rect: Rect) {
 
 /// The stop that stands for the field `edit_id` while it is not being typed in.
 #[must_use]
-pub fn field_stop(edit_id: Id) -> Id {
+pub(crate) fn field_stop(edit_id: Id) -> Id {
     edit_id.with("focus-stop")
 }

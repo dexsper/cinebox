@@ -11,23 +11,23 @@ const DRAWER_MIN: f32 = 340.0;
 const DRAWER_MAX: f32 = 520.0;
 
 #[derive(Clone, Debug, Default)]
-pub struct Overlay {
+pub(crate) struct Overlay {
     want_open: bool,
     anim_at: Option<f64>,
 }
 
 impl Overlay {
     #[must_use]
-    pub fn is_open(&self) -> bool {
+    pub(crate) fn is_open(&self) -> bool {
         self.want_open
     }
 
     #[must_use]
-    pub fn animating(&self, now: f64) -> bool {
+    pub(crate) fn animating(&self, now: f64) -> bool {
         intro::running(self.anim_at, now) && self.visual_t(now) > 0.0
     }
 
-    pub fn toggle(&mut self, now: f64) {
+    pub(crate) fn toggle(&mut self, now: f64) {
         if self.want_open {
             self.begin_close(now);
             return;
@@ -36,25 +36,25 @@ impl Overlay {
         self.begin_open(now);
     }
 
-    pub fn begin_open(&mut self, now: f64) {
+    pub(crate) fn begin_open(&mut self, now: f64) {
         let current = self.visual_t(now);
         self.want_open = true;
         self.anim_at = Some(intro::started_at(now, current));
     }
 
-    pub fn begin_close(&mut self, now: f64) {
+    pub(crate) fn begin_close(&mut self, now: f64) {
         let current = self.visual_t(now);
         self.want_open = false;
         self.anim_at = Some(intro::started_at(now, 1.0 - current));
     }
 
-    pub fn snap_shut(&mut self) {
+    pub(crate) fn snap_shut(&mut self) {
         self.want_open = false;
         self.anim_at = None;
     }
 
     /// Escape / chrome Back. `true` if the drawer consumed it.
-    pub fn on_back(&mut self, now: f64) -> bool {
+    pub(crate) fn on_back(&mut self, now: f64) -> bool {
         if !self.is_blocking(now) {
             return false;
         }
@@ -68,12 +68,12 @@ impl Overlay {
     }
 
     #[must_use]
-    pub fn is_blocking(&self, now: f64) -> bool {
+    pub(crate) fn is_blocking(&self, now: f64) -> bool {
         self.want_open || self.visual_t(now) > 0.02
     }
 
     #[must_use]
-    pub fn visual_t(&self, now: f64) -> f32 {
+    pub(crate) fn visual_t(&self, now: f64) -> f32 {
         let t = intro::t(self.anim_at, now);
         if self.want_open {
             return t;
@@ -94,7 +94,7 @@ impl Overlay {
         self.anim_at = None;
     }
 
-    pub fn paint(
+    pub(crate) fn paint(
         &mut self,
         ui: &mut Ui,
         theme: &Theme,
@@ -123,42 +123,35 @@ impl Overlay {
         let drawer_rect = Rect::from_min_max(pos2(drawer_left, body.top()), body.right_bottom());
         let mut dim_clicked = false;
 
-        Area::new(Id::new(id))
-            .order(Order::Foreground)
-            .fixed_pos(body.min)
-            .constrain(false)
-            .show(ui.ctx(), |ui| {
-                ui.set_min_size(body.size());
-                ui.set_clip_rect(body);
+        Area::new(Id::new(id)).order(Order::Foreground).fixed_pos(body.min).constrain(false).show(ui.ctx(), |ui| {
+            ui.set_min_size(body.size());
+            ui.set_clip_rect(body);
 
-                if self.want_open {
-                    focus::trap(ui);
+            if self.want_open {
+                focus::trap(ui);
+            }
+
+            if dim_rect.width() > 1.0 {
+                ui.painter().rect_filled(dim_rect, 0.0, theme.overlay_at(t));
+                // Not a focus stop: the D-pad belongs to the drawer.
+                let dim = ui.interact(dim_rect, Id::new((id, "dim")), Sense::CLICK);
+                if dim.clicked() {
+                    dim_clicked = true;
                 }
+            }
 
-                if dim_rect.width() > 1.0 {
-                    ui.painter().rect_filled(dim_rect, 0.0, theme.overlay_at(t));
-                    // Not a focus stop: the D-pad belongs to the drawer.
-                    let dim = ui.interact(dim_rect, Id::new((id, "dim")), Sense::CLICK);
-                    if dim.clicked() {
-                        dim_clicked = true;
-                    }
-                }
+            if drawer_rect.width() < 8.0 {
+                return;
+            }
 
-                if drawer_rect.width() < 8.0 {
-                    return;
-                }
-
-                ui.scope_builder(UiBuilder::new().max_rect(drawer_rect), |ui| {
-                    ui.set_min_size(drawer_rect.size());
-                    ui.set_max_size(drawer_rect.size());
-                    Frame::new()
-                        .fill(theme.panel_elevated)
-                        .inner_margin(inner_margin(ui.ctx()))
-                        .show(ui, |ui| {
-                            content(ui, theme);
-                        });
+            ui.scope_builder(UiBuilder::new().max_rect(drawer_rect), |ui| {
+                ui.set_min_size(drawer_rect.size());
+                ui.set_max_size(drawer_rect.size());
+                Frame::new().fill(theme.panel_elevated).inner_margin(inner_margin(ui.ctx())).show(ui, |ui| {
+                    content(ui, theme);
                 });
             });
+        });
 
         if dim_clicked {
             self.begin_close(now);
@@ -170,12 +163,7 @@ impl Overlay {
 fn inner_margin(ctx: &egui::Context) -> Margin {
     let edge = platform::edge_inset(ctx);
 
-    Margin {
-        left: 20,
-        right: 20 + edge.right,
-        top: 16,
-        bottom: 16 + edge.bottom,
-    }
+    Margin { left: 20, right: 20 + edge.right, top: 16, bottom: 16 + edge.bottom }
 }
 
 #[cfg(test)]

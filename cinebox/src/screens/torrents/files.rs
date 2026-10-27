@@ -82,11 +82,7 @@ fn file_list(
     }
 
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
-        ui.label(
-            RichText::new(t!("torrents.started").as_ref())
-                .size(theme.text_caption)
-                .color(theme.ok),
-        );
+        ui.label(RichText::new(t!("torrents.started").as_ref()).size(theme.text_caption).color(theme.ok));
     }
 
     let serial = media.kind == MediaKind::Tv;
@@ -98,93 +94,63 @@ fn file_list(
         for file in &files.files {
             if show_headers && last_season != Some(file.season) {
                 ui.label(
-                    RichText::new(format!(
-                        "{} {}",
-                        t!("media.season"),
-                        file.season.unwrap_or(1)
-                    ))
-                    .size(theme.text_small)
-                    .color(theme.muted),
+                    RichText::new(format!("{} {}", t!("media.season"), file.season.unwrap_or(1)))
+                        .size(theme.text_small)
+                        .color(theme.muted),
                 );
                 last_season = Some(file.season);
             }
 
             let selected = files.selected_id == Some(file.id);
             let row_id = ui.id().with(("torrent-file", file.id));
-            let idle = if selected {
-                theme.card_selected
-            } else {
-                theme.panel
-            };
+            let idle = if selected { theme.card_selected } else { theme.panel };
 
             let bg = button::fill_for_hover(ui, row_id, idle, theme.widget_hover);
 
-            let shown = Frame::new()
-                .fill(bg)
-                .corner_radius(6)
-                .inner_margin(12.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        poster::rounded_image(
-                            ui,
-                            Vec2::new(theme.still_w, theme.still_h),
-                            theme,
-                            || {
-                                svc.images.slot(file.still_url.as_deref()).or_else(|| {
-                                    svc.images.poster_key(
-                                        media.kind,
-                                        media.id,
-                                        media.poster_path,
-                                        svc.settings.tmdb.poster_size,
-                                    )
-                                })
-                            },
-                        );
+            let shown = Frame::new().fill(bg).corner_radius(6).inner_margin(12.0).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    poster::rounded_image(ui, Vec2::new(theme.still_w, theme.still_h), theme, || {
+                        svc.images.slot(file.still_url.as_deref()).or_else(|| {
+                            svc.images.poster_key(
+                                media.kind,
+                                media.id,
+                                media.poster_path,
+                                svc.settings.tmdb.poster_size,
+                            )
+                        })
+                    });
 
-                        ui.vertical(|ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
+                    ui.vertical(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&file.title).size(theme.text_section).color(theme.title));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.label(
-                                    RichText::new(&file.title)
-                                        .size(theme.text_section)
-                                        .color(theme.title),
+                                    RichText::new(cinebox_indexer::format_bytes(file.length)).color(theme.muted_bright),
                                 );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(
-                                        RichText::new(cinebox_indexer::format_bytes(file.length))
-                                            .color(theme.muted_bright),
-                                    );
-                                });
                             });
-
-                            if serial {
-                                let season = file.season.unwrap_or(1);
-                                let mut line = season_episode_line(season, file.episode);
-                                if file.episode.is_none() {
-                                    line = format!("{line}  ·  {}", file.number);
-                                }
-
-                                ui.label(
-                                    RichText::new(line)
-                                        .size(theme.text_small)
-                                        .color(theme.muted),
-                                );
-                            }
-
-                            if let Some(air) = file.air_date.as_deref() {
-                                ui.label(
-                                    RichText::new(air)
-                                        .size(theme.text_caption)
-                                        .color(theme.muted),
-                                );
-                            }
-
-                            ui.add_space(6.0);
-                            progress(ui, file.progress(), theme);
                         });
+
+                        if serial {
+                            let season = file.season.unwrap_or(1);
+                            let mut line = season_episode_line(season, file.episode);
+                            if file.episode.is_none() {
+                                line = format!("{line}  ·  {}", file.number);
+                            }
+
+                            ui.label(RichText::new(line).size(theme.text_small).color(theme.muted));
+                        }
+
+                        if let Some(air) = file.air_date.as_deref() {
+                            ui.label(RichText::new(air).size(theme.text_caption).color(theme.muted));
+                        }
+
+                        ui.add_space(6.0);
+                        progress(ui, file.progress(), theme);
                     });
                 });
+            });
 
             let response = button::click_rect(ui, row_id, shown.response.rect);
             let reveal = selected && files.reveal_selected;
@@ -207,14 +173,12 @@ fn file_list(
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 3.0), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(3), theme.progress_track);
+    ui.painter().rect_filled(rect, CornerRadius::same(3), theme.progress_track);
 
     if value > 0.0 {
         let mut fill = rect;
         fill.max.x = rect.left() + rect.width() * value.clamp(0.0, 1.0);
-        ui.painter()
-            .rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
+        ui.painter().rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
     }
 }
 
@@ -252,10 +216,7 @@ mod tests {
 
     #[test]
     fn ready_files_scrolls_to_resume_once() {
-        let started = TorrentFileRow {
-            timecode: 60.0,
-            ..test_row(7)
-        };
+        let started = TorrentFileRow { timecode: 60.0, ..test_row(7) };
 
         let with_resume = ReadyFiles::from_rows(String::from("hash"), vec![started]);
         assert!(with_resume.reveal_selected);

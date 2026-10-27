@@ -56,11 +56,7 @@ pub struct ResumeProgress {
     pub percent: f64,
 }
 
-const EMPTY_PROGRESS: ResumeProgress = ResumeProgress {
-    completed_bytes: 0,
-    window_bytes: 0,
-    percent: 0.0,
-};
+const EMPTY_PROGRESS: ResumeProgress = ResumeProgress { completed_bytes: 0, window_bytes: 0, percent: 0.0 };
 
 /// `POST /cache` with `action: get`.
 ///
@@ -99,22 +95,25 @@ pub fn resume_window_progress(state: &CacheState, needed_bytes: u64) -> ResumePr
         return EMPTY_PROGRESS;
     };
 
-    let needed = ((needed_bytes as i64) / state.pieces_length).max(4);
-    let window_end = (window.reader + needed).min(window.end);
+    let needed_bytes = i64::try_from(needed_bytes).unwrap_or(i64::MAX);
+    let needed = (needed_bytes / state.pieces_length).max(4);
+    let window_end = window.reader.saturating_add(needed).min(window.end);
+
     if window_end <= window.reader {
         return EMPTY_PROGRESS;
     }
 
-    let total = window_end - window.reader;
+    let total = window_end.saturating_sub(window.reader);
     let ids = window.reader..window_end;
     let is_done = |id: &i64| state.pieces.get(id).is_some_and(|piece| piece.completed);
-    let completed = ids.filter(|id| is_done(id)).count() as i64;
+    let completed = i64::try_from(ids.filter(|id| is_done(id)).count()).unwrap_or(total);
 
+    #[expect(clippy::cast_precision_loss, reason = "a percent needs far less than the 52 bits `f64` keeps")]
     let percent = (completed as f64) * 100.0 / (total as f64);
 
     ResumeProgress {
-        completed_bytes: completed * state.pieces_length,
-        window_bytes: total * state.pieces_length,
+        completed_bytes: completed.saturating_mul(state.pieces_length),
+        window_bytes: total.saturating_mul(state.pieces_length),
         percent,
     }
 }
@@ -147,32 +146,20 @@ mod tests {
     #[test]
     fn counts_completed_pieces_ahead_of_reader() {
         // 64 MiB / 8 MiB pieces = 8 needed; window [10, 18).
-        let reader = ReaderState {
-            start: 8,
-            end: 40,
-            reader: 10,
-        };
+        let reader = ReaderState { start: 8, end: 40, reader: 10 };
         let pieces = vec![piece(10, true), piece(11, true), piece(12, false)];
         let state = state_with(reader, pieces);
 
         let progress = resume_window_progress(&state, 64 << 20);
         assert_eq!(progress.window_bytes, 8 * (8 << 20));
         assert_eq!(progress.completed_bytes, 2 * (8 << 20));
-        assert!(
-            (progress.percent - 25.0).abs() < 0.01,
-            "{}",
-            progress.percent
-        );
+        assert!((progress.percent - 25.0).abs() < 0.01, "{}", progress.percent);
     }
 
     #[test]
     fn window_is_capped_by_reader_end() {
         // Reader window ends 2 pieces ahead: wait only for those two.
-        let reader = ReaderState {
-            start: 0,
-            end: 12,
-            reader: 10,
-        };
+        let reader = ReaderState { start: 0, end: 12, reader: 10 };
         let pieces = vec![piece(10, true), piece(11, true), piece(30, true)];
         let state = state_with(reader, pieces);
 
@@ -195,8 +182,7 @@ mod tests {
             "Readers": [ { "Start": 40, "End": 55, "Reader": 42 } ]
         }"#;
 
-        let state: CacheState =
-            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
+        let state: CacheState = serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(state.pieces_length, 4_194_304);
         assert_eq!(state.readers.len(), 1);
@@ -207,8 +193,7 @@ mod tests {
     #[test]
     fn empty_object_from_nil_cache_state_parses() {
         // TorrServer replies `{}` when the torrent has no cache yet.
-        let state: CacheState =
-            serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let state: CacheState = serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(state, CacheState::default());
     }

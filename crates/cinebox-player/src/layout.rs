@@ -29,13 +29,21 @@ pub fn format_clock(secs: f64) -> String {
     if !secs.is_finite() || secs < 0.0 {
         return String::from("0:00");
     }
+
+    #[expect(
+        clippy::cast_possible_truncation,
+        clippy::cast_sign_loss,
+        reason = "`secs` is finite and not negative above, and `as` saturates a position past `u64`"
+    )]
     let total = secs.round() as u64;
     let hours = total / 3600;
     let minutes = (total % 3600) / 60;
     let seconds = total % 60;
+
     if hours == 0 {
         return format!("{minutes}:{seconds:02}");
     }
+
     format!("{hours}:{minutes:02}:{seconds:02}")
 }
 

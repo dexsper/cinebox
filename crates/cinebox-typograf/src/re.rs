@@ -4,32 +4,31 @@ use std::sync::{Arc, LazyLock, RwLock};
 
 use fancy_regex::{Captures, Regex};
 
-pub fn compile(pat: &str) -> Regex {
+pub(crate) fn compile(pat: &str) -> Regex {
     Regex::new(pat).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
 }
 
-pub fn compile_i(pat: &str) -> Regex {
+pub(crate) fn compile_i(pat: &str) -> Regex {
     compile(&format!("(?i){pat}"))
 }
 
-pub fn compile_m(pat: &str) -> Regex {
+pub(crate) fn compile_m(pat: &str) -> Regex {
     compile(&format!("(?m){pat}"))
 }
 
-pub fn compile_im(pat: &str) -> Regex {
+pub(crate) fn compile_im(pat: &str) -> Regex {
     compile(&format!("(?im){pat}"))
 }
 
-pub fn compile_is(pat: &str) -> Regex {
+pub(crate) fn compile_is(pat: &str) -> Regex {
     compile(&format!("(?is){pat}"))
 }
 
-static CACHE: LazyLock<RwLock<HashMap<String, Arc<Regex>>>> =
-    LazyLock::new(|| RwLock::new(HashMap::new()));
+static CACHE: LazyLock<RwLock<HashMap<String, Arc<Regex>>>> = LazyLock::new(|| RwLock::new(HashMap::new()));
 
 /// Compile-once cache for patterns built at runtime (locale-dependent, etc.).
-pub fn cached(pat: &str) -> Arc<Regex> {
-    let read = CACHE.read().unwrap_or_else(|e| e.into_inner());
+pub(crate) fn cached(pat: &str) -> Arc<Regex> {
+    let read = CACHE.read().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     if let Some(re) = read.get(pat) {
         return Arc::clone(re);
@@ -38,36 +37,36 @@ pub fn cached(pat: &str) -> Arc<Regex> {
     drop(read);
 
     let re = Arc::new(compile(pat));
-    let mut write = CACHE.write().unwrap_or_else(|e| e.into_inner());
+    let mut write = CACHE.write().unwrap_or_else(std::sync::PoisonError::into_inner);
 
     Arc::clone(write.entry(pat.to_string()).or_insert(re))
 }
 
-pub fn cached_i(pat: &str) -> Arc<Regex> {
+pub(crate) fn cached_i(pat: &str) -> Arc<Regex> {
     cached(&format!("(?i){pat}"))
 }
 
-pub fn cached_m(pat: &str) -> Arc<Regex> {
+pub(crate) fn cached_m(pat: &str) -> Arc<Regex> {
     cached(&format!("(?m){pat}"))
 }
 
-pub fn cached_im(pat: &str) -> Arc<Regex> {
+pub(crate) fn cached_im(pat: &str) -> Arc<Regex> {
     cached(&format!("(?im){pat}"))
 }
 
-pub fn cached_s(pat: &str) -> Arc<Regex> {
+pub(crate) fn cached_s(pat: &str) -> Arc<Regex> {
     cached(&format!("(?s){pat}"))
 }
 
-pub fn replace_all<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
+pub(crate) fn replace_all<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
     replace_all_fn(re, text, |caps| expand_js(rep, caps))
 }
 
-pub fn replace_first<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
+pub(crate) fn replace_first<'a>(re: &Regex, text: &'a str, rep: &str) -> Cow<'a, str> {
     re.replace(text, |caps: &Captures<'_, str>| expand_js(rep, caps))
 }
 
-pub fn replace_all_fn<'a>(
+pub(crate) fn replace_all_fn<'a>(
     re: &Regex,
     text: &'a str,
     mut replacer: impl FnMut(&Captures<'_, str>) -> String,
@@ -76,11 +75,11 @@ pub fn replace_all_fn<'a>(
 }
 
 /// Continue a replace chain without re-allocating when nothing matches.
-pub fn chain<'a>(re: &Regex, input: Cow<'a, str>, rep: &str) -> Cow<'a, str> {
+pub(crate) fn chain<'a>(re: &Regex, input: Cow<'a, str>, rep: &str) -> Cow<'a, str> {
     chain_fn(re, input, |caps| expand_js(rep, caps))
 }
 
-pub fn chain_fn<'a>(
+pub(crate) fn chain_fn<'a>(
     re: &Regex,
     input: Cow<'a, str>,
     replacer: impl FnMut(&Captures<'_, str>) -> String,
@@ -88,12 +87,12 @@ pub fn chain_fn<'a>(
     match input {
         Cow::Borrowed(s) => replace_all_fn(re, s, replacer),
         Cow::Owned(s) => {
-            let replaced = match replace_all_fn(re, &s, replacer) {
+            let rewritten = match replace_all_fn(re, &s, replacer) {
                 Cow::Borrowed(_) => None,
                 Cow::Owned(out) => Some(out),
             };
 
-            Cow::Owned(replaced.unwrap_or(s))
+            Cow::Owned(rewritten.unwrap_or(s))
         }
     }
 }
@@ -116,54 +115,54 @@ fn expand_js(template: &str, caps: &Captures<'_, str>) -> String {
             continue;
         }
 
-        let Some(d1) = chars.get(i + 1).copied().filter(|c| c.is_ascii_digit()) else {
+        let Some(d1) = chars.get(i + 1).copied().filter(char::is_ascii_digit) else {
             out.push('$');
             i += 1;
             continue;
         };
 
         let n1 = d1.to_digit(10).unwrap_or(0) as usize;
-        let two = chars.get(i + 2).copied().filter(|c| c.is_ascii_digit());
+        let two = chars.get(i + 2).copied().filter(char::is_ascii_digit);
 
         if let Some(d2) = two {
             let n2 = n1 * 10 + d2.to_digit(10).unwrap_or(0) as usize;
 
             if caps.get(n2).is_some() {
-                out.push_str(caps.get(n2).map(|m| m.as_str()).unwrap_or(""));
+                out.push_str(caps.get(n2).map_or("", |m| m.as_str()));
                 i += 3;
                 continue;
             }
         }
 
-        out.push_str(caps.get(n1).map(|m| m.as_str()).unwrap_or(""));
+        out.push_str(caps.get(n1).map_or("", |m| m.as_str()));
         i += 2;
     }
 
     out
 }
 
-pub fn is_digit_char(ch: &str) -> bool {
+pub(crate) fn is_digit_char(ch: &str) -> bool {
     ch.len() == 1 && ch.as_bytes()[0].is_ascii_digit()
 }
 
 /// Unicode whitespace plus BOM.
-pub fn js_trim_start(text: &str) -> &str {
+pub(crate) fn js_trim_start(text: &str) -> &str {
     text.trim_start_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
 }
 
-pub fn js_trim_end(text: &str) -> &str {
+pub(crate) fn js_trim_end(text: &str) -> &str {
     text.trim_end_matches(|c: char| c.is_whitespace() || c == '\u{FEFF}')
 }
 
-pub fn js_trim(text: &str) -> &str {
+pub(crate) fn js_trim(text: &str) -> &str {
     js_trim_end(js_trim_start(text))
 }
 
-pub fn is_match(re: &Regex, text: &str) -> bool {
+pub(crate) fn is_match(re: &Regex, text: &str) -> bool {
     re.is_match(text).unwrap_or(false)
 }
 
-pub fn escape(text: &str) -> String {
+pub(crate) fn escape(text: &str) -> String {
     let mut out = String::with_capacity(text.len());
 
     for ch in text.chars() {

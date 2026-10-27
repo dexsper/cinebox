@@ -4,7 +4,7 @@ use crate::screens::torrents::TorrentFileRow;
 
 /// Denormalized TMDB card so watch history never depends on the cache.
 #[derive(Debug, Clone)]
-pub struct WatchCard {
+pub(crate) struct WatchCard {
     pub kind: MediaKind,
     pub id: TmdbId,
     pub section: Section,
@@ -15,15 +15,11 @@ pub struct WatchCard {
 }
 
 impl WatchCard {
-    pub fn from_details(details: &MediaDetails) -> Self {
+    pub(crate) fn from_details(details: &MediaDetails) -> Self {
         Self {
             kind: details.kind,
             id: details.id,
-            section: cinebox_tmdb::classify(
-                details.kind,
-                &details.genre_ids,
-                details.original_language.as_deref(),
-            ),
+            section: cinebox_tmdb::classify(details.kind, &details.genre_ids, details.original_language.as_deref()),
             title: details.title.clone(),
             poster_path: details.poster_path.clone(),
             year: details.year,
@@ -31,7 +27,7 @@ impl WatchCard {
         }
     }
 
-    pub fn item(&self) -> CatalogItem {
+    pub(crate) fn item(&self) -> CatalogItem {
         CatalogItem {
             id: self.id,
             kind: self.kind,
@@ -45,28 +41,19 @@ impl WatchCard {
 
 /// Stream origin for [`PlayRequest`].
 #[derive(Debug, Clone)]
-pub enum PlaySource {
-    Torrent {
-        hash: String,
-        files: Vec<TorrentFileRow>,
-        file_index: usize,
-        start: f64,
-    },
-    Youtube {
-        video_url: String,
-        audio_url: Option<String>,
-        http_header_fields: Vec<String>,
-    },
+pub(crate) enum PlaySource {
+    Torrent { hash: String, files: Vec<TorrentFileRow>, file_index: usize, start: f64 },
+    Youtube { video_url: String, audio_url: Option<String>, http_header_fields: Vec<String> },
 }
 
 impl PlaySource {
     #[must_use]
-    pub fn is_youtube(&self) -> bool {
+    pub(crate) fn is_youtube(&self) -> bool {
         matches!(self, Self::Youtube { .. })
     }
 
     #[must_use]
-    pub fn torrent_hash(&self) -> Option<&str> {
+    pub(crate) fn torrent_hash(&self) -> Option<&str> {
         match self {
             Self::Torrent { hash, .. } => Some(hash.as_str()),
             Self::Youtube { .. } => None,
@@ -74,7 +61,7 @@ impl PlaySource {
     }
 
     #[must_use]
-    pub fn files(&self) -> &[TorrentFileRow] {
+    pub(crate) fn files(&self) -> &[TorrentFileRow] {
         match self {
             Self::Torrent { files, .. } => files,
             Self::Youtube { .. } => &[],
@@ -82,7 +69,7 @@ impl PlaySource {
     }
 
     #[must_use]
-    pub fn file_index(&self) -> usize {
+    pub(crate) fn file_index(&self) -> usize {
         match self {
             Self::Torrent { file_index, .. } => *file_index,
             Self::Youtube { .. } => 0,
@@ -90,7 +77,7 @@ impl PlaySource {
     }
 
     #[must_use]
-    pub fn has_next(&self) -> bool {
+    pub(crate) fn has_next(&self) -> bool {
         match self {
             Self::Torrent { files, file_index, .. } => file_index + 1 < files.len(),
             Self::Youtube { .. } => false,
@@ -98,20 +85,15 @@ impl PlaySource {
     }
 
     #[must_use]
-    pub fn start_seconds(&self) -> f64 {
+    pub(crate) fn start_seconds(&self) -> f64 {
         match self {
             Self::Torrent { start, .. } => *start,
             Self::Youtube { .. } => 0.0,
         }
     }
 
-    pub fn set_current_timecode(&mut self, time: f64) {
-        let Self::Torrent {
-            files,
-            file_index,
-            ..
-        } = self
-        else {
+    pub(crate) fn set_current_timecode(&mut self, time: f64) {
+        let Self::Torrent { files, file_index, .. } = self else {
             return;
         };
 
@@ -123,7 +105,7 @@ impl PlaySource {
     }
 }
 
-pub struct PlayRequest {
+pub(crate) struct PlayRequest {
     pub card: WatchCard,
     pub title: String,
     pub backdrop_path: Option<String>,

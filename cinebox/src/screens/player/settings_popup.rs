@@ -8,25 +8,26 @@ use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT
 use rust_i18n::t;
 
 use crate::theme::Theme;
-use crate::widgets::{button, focus, poster};
+use crate::widgets::poster::{self, Wrap};
+use crate::widgets::{button, focus};
 
 const ROW_H: f32 = 36.0;
 const ROW_GAP: f32 = 8.0;
 const VALUE_MIN_W: f32 = 48.0;
 const STEPPER_BTN: f32 = 26.0;
 
-pub const SPEEDS: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+pub(super) const SPEEDS: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
-pub const SUB_SCALE_STEP: f64 = 0.1;
-pub const SUB_SCALE_MIN: f64 = 0.5;
-pub const SUB_SCALE_MAX: f64 = 2.0;
-pub const SUB_DELAY_STEP: f64 = 0.5;
-pub const SUB_DELAY_MIN: f64 = -10.0;
-pub const SUB_DELAY_MAX: f64 = 10.0;
+pub(super) const SUB_SCALE_STEP: f64 = 0.1;
+pub(super) const SUB_SCALE_MIN: f64 = 0.5;
+pub(super) const SUB_SCALE_MAX: f64 = 2.0;
+pub(super) const SUB_DELAY_STEP: f64 = 0.5;
+pub(super) const SUB_DELAY_MIN: f64 = -10.0;
+pub(super) const SUB_DELAY_MAX: f64 = 10.0;
 
 /// Which submenu the flyout is showing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Page {
+pub(super) enum Page {
     Root,
     VideoSize,
     Speed,
@@ -35,7 +36,7 @@ pub enum Page {
 }
 
 /// Read-only inputs for one popup frame.
-pub struct View<'a> {
+pub(super) struct View<'a> {
     pub page: Page,
     pub features: Features,
     pub tracks: &'a [Track],
@@ -48,7 +49,7 @@ pub struct View<'a> {
 
 /// Choices made this frame.
 #[derive(Default)]
-pub struct Out {
+pub(super) struct Out {
     pub page: Option<Page>,
     pub scale: Option<VideoScale>,
     pub speed: Option<f64>,
@@ -59,7 +60,7 @@ pub struct Out {
     pub sub_delay: Option<f64>,
 }
 
-pub fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+pub(super) fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
     let mut out = Out::default();
 
     match view.page {
@@ -141,11 +142,7 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         return;
     }
 
-    let subs: Vec<&Track> = view
-        .tracks
-        .iter()
-        .filter(|track| track.kind == TrackKind::Subtitle)
-        .collect();
+    let subs: Vec<&Track> = view.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).collect();
     let none_selected = !subs.iter().any(|track| track.selected);
 
     if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), none_selected) {
@@ -186,10 +183,7 @@ fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         return;
     }
 
-    let audio = view
-        .tracks
-        .iter()
-        .filter(|track| track.kind == TrackKind::Audio);
+    let audio = view.tracks.iter().filter(|track| track.kind == TrackKind::Audio);
 
     for track in audio {
         if radio_row(ui, theme, &track_label(track), track.selected) {
@@ -200,7 +194,7 @@ fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
 }
 
 /// Human label for one mpv track.
-pub fn track_label(track: &Track) -> String {
+pub(super) fn track_label(track: &Track) -> String {
     let title = track.title.as_deref().filter(|s| !s.is_empty());
     let lang = track.lang.as_deref().filter(|s| !s.is_empty());
 
@@ -212,7 +206,7 @@ pub fn track_label(track: &Track) -> String {
     }
 }
 
-pub fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
+pub(super) fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
     match scale {
         VideoScale::Default => t!("player.scale.default"),
         VideoScale::Expand => t!("player.scale.expand"),
@@ -222,7 +216,7 @@ pub fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
     }
 }
 
-pub fn speed_label(speed: f64) -> String {
+pub(super) fn speed_label(speed: f64) -> String {
     if (speed - 1.0).abs() < 0.01 {
         return t!("player.speed_normal").into_owned();
     }
@@ -235,21 +229,15 @@ fn count_tracks(tracks: &[Track], kind: TrackKind) -> usize {
 }
 
 fn selected_audio_label(tracks: &[Track]) -> String {
-    let selected = tracks
-        .iter()
-        .find(|track| track.kind == TrackKind::Audio && track.selected);
+    let selected = tracks.iter().find(|track| track.kind == TrackKind::Audio && track.selected);
 
     selected.map(track_label).unwrap_or_default()
 }
 
 fn selected_sub_label(tracks: &[Track]) -> String {
-    let selected = tracks
-        .iter()
-        .find(|track| track.kind == TrackKind::Subtitle && track.selected);
+    let selected = tracks.iter().find(|track| track.kind == TrackKind::Subtitle && track.selected);
 
-    selected
-        .map(track_label)
-        .unwrap_or_else(|| t!("player.subtitles_off").into_owned())
+    selected.map_or_else(|| t!("player.subtitles_off").into_owned(), track_label)
 }
 
 fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
@@ -263,12 +251,7 @@ fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
 ///
 /// The value shrinks first; the label only yields once the value is down to
 /// [`VALUE_MIN_W`]. Trailing is the chevron/check width (gap added here).
-fn split_row_widths(
-    inner_w: f32,
-    label_desired: f32,
-    trailing_w: f32,
-    has_value: bool,
-) -> (f32, f32) {
+fn split_row_widths(inner_w: f32, label_desired: f32, trailing_w: f32, has_value: bool) -> (f32, f32) {
     let after_icon = (inner_w - trailing_w).max(0.0);
 
     if !has_value {
@@ -290,8 +273,7 @@ fn galley_y(rect: egui::Rect, height: f32) -> f32 {
 fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Response {
     let (rect, mut response) = hover_row(ui, label);
     if focus::lit(&response) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
@@ -311,15 +293,8 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
     let (label_budget, value_budget) = split_row_widths(inner_w, label_desired, icon_w, has_value);
 
     let label_width = label_budget.max(1.0);
-    let label_galley = poster::wrap_lines(
-        ui,
-        label,
-        theme.label,
-        theme.text_body,
-        label_width,
-        1,
-        theme,
-    );
+    let label_wrap = Wrap { color: theme.label, font_size: theme.text_body, width: label_width, max_rows: 1 };
+    let label_galley = poster::wrap_lines(ui, theme, label, label_wrap);
 
     let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
     ui.painter().galley(label_pos, label_galley, theme.label);
@@ -341,15 +316,8 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
     }
 
     let value_width = value_budget.max(1.0);
-    let value_galley = poster::wrap_lines(
-        ui,
-        value,
-        theme.muted,
-        theme.text_small,
-        value_width,
-        1,
-        theme,
-    );
+    let value_wrap = Wrap { color: theme.muted, font_size: theme.text_small, width: value_width, max_rows: 1 };
+    let value_galley = poster::wrap_lines(ui, theme, value, value_wrap);
 
     let value_x = icon_pos.x - ROW_GAP - value_galley.size().x;
     let value_pos = pos2(value_x, galley_y(inner, value_galley.size().y));
@@ -361,29 +329,15 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
 fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let (rect, response) = hover_row(ui, "back");
     if focus::lit(&response) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
-    row.label(
-        ICON_ARROW_BACK
-            .rich_text()
-            .size(theme.text_icon)
-            .color(theme.title),
-    );
+    row.label(ICON_ARROW_BACK.rich_text().size(theme.text_icon).color(theme.title));
     row.add_space(8.0);
-    row.label(
-        RichText::new(title)
-            .size(theme.text_body)
-            .color(theme.title),
-    );
+    row.label(RichText::new(title).size(theme.text_body).color(theme.title));
 
     ui.add_space(4.0);
     response.clicked()
@@ -395,21 +349,12 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
         focus::prefer(&response);
     }
 
-    let idle = if selected {
-        theme.card_selected
-    } else {
-        egui::Color32::TRANSPARENT
-    };
+    let idle = if selected { theme.card_selected } else { egui::Color32::TRANSPARENT };
 
-    let fill = if focus::lit(&response) {
-        theme.widget_hover
-    } else {
-        idle
-    };
+    let fill = if focus::lit(&response) { theme.widget_hover } else { idle };
 
     if fill != egui::Color32::TRANSPARENT {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), fill);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), fill);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
@@ -419,11 +364,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     let check_text = check.codepoint.to_owned();
     let check_galley = ui.painter().layout_no_wrap(check_text, check_font, theme.title);
 
-    let trailing = if selected {
-        check_galley.size().x + ROW_GAP
-    } else {
-        0.0
-    };
+    let trailing = if selected { check_galley.size().x + ROW_GAP } else { 0.0 };
 
     let text_w = (inner.width() - trailing).max(1.0);
     let label_font = theme.ui_font(theme.text_body);
@@ -435,24 +376,14 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
         response = response.on_hover_text(label);
     }
 
-    let label_galley = poster::wrap_lines(
-        ui,
-        label,
-        theme.label,
-        theme.text_body,
-        text_w,
-        1,
-        theme,
-    );
+    let label_wrap = Wrap { color: theme.label, font_size: theme.text_body, width: text_w, max_rows: 1 };
+    let label_galley = poster::wrap_lines(ui, theme, label, label_wrap);
 
     let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
     ui.painter().galley(label_pos, label_galley, theme.label);
 
     if selected {
-        let check_pos = pos2(
-            inner.right() - check_galley.size().x,
-            galley_y(inner, check_galley.size().y),
-        );
+        let check_pos = pos2(inner.right() - check_galley.size().x, galley_y(inner, check_galley.size().y));
         ui.painter().galley(check_pos, check_galley, theme.title);
     }
 
@@ -473,38 +404,24 @@ fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
     let cluster = STEPPER_BTN * 2.0 + 6.0 * 2.0 + value_w;
     let label_w = (inner.width() - cluster - ROW_GAP).max(1.0);
 
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
     row.add_sized(
         vec2(label_w, inner.height()),
-        Label::new(
-            RichText::new(label)
-                .size(theme.text_small)
-                .color(theme.label),
-        )
-        .truncate(),
+        Label::new(RichText::new(label).size(theme.text_small).color(theme.label)).truncate(),
     );
 
     row.with_layout(Layout::right_to_left(Align::Center), |ui| {
         ui.spacing_mut().item_spacing.x = 6.0;
-        let opts =
-            crate::widgets::button::Opts::secondary(vec2(STEPPER_BTN, STEPPER_BTN)).pad_y(0.0);
+        let opts = button::Opts::secondary(vec2(STEPPER_BTN, STEPPER_BTN)).pad_y(0.0);
 
-        if crate::widgets::button::label(ui, theme, "+", opts) {
+        if button::label(ui, theme, "+", opts) {
             step = 1.0;
         }
 
-        ui.label(
-            RichText::new(value)
-                .size(theme.text_small)
-                .color(theme.muted_bright),
-        );
+        ui.label(RichText::new(value).size(theme.text_small).color(theme.muted_bright));
 
-        if crate::widgets::button::label(ui, theme, "−", opts) {
+        if button::label(ui, theme, "−", opts) {
             step = -1.0;
         }
     });
@@ -517,13 +434,7 @@ mod tests {
     use super::*;
 
     fn track(id: i64, kind: TrackKind, title: Option<&str>, lang: Option<&str>) -> Track {
-        Track {
-            id,
-            kind,
-            lang: lang.map(str::to_owned),
-            title: title.map(str::to_owned),
-            selected: false,
-        }
+        Track { id, kind, lang: lang.map(str::to_owned), title: title.map(str::to_owned), selected: false }
     }
 
     #[test]

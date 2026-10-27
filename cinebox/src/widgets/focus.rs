@@ -18,8 +18,8 @@ use egui::{Context, EventFilter, Id, LayerId, PointerButton, Rect, Response, Ui}
 use crate::platform::{self, UiSound};
 use crate::widgets::scroll;
 
-pub use edit_gate::{edit_done, edit_gate, field_stop};
-pub use frame::{begin_frame, end_frame};
+pub(crate) use edit_gate::{edit_done, edit_gate, field_stop};
+pub(crate) use frame::{begin_frame, end_frame};
 
 /// A focusable widget seen this frame, in creation (reading) order.
 #[derive(Clone)]
@@ -88,7 +88,7 @@ fn directional(ctx: &Context) -> bool {
 /// Pointer over the widget, or the D-pad on it: when a widget that paints its
 /// own background shows the hover look. The focus ring is painted on top.
 #[must_use]
-pub fn lit(response: &Response) -> bool {
+pub(crate) fn lit(response: &Response) -> bool {
     let focused = response.has_focus() && directional(&response.ctx);
     focused || response.hovered()
 }
@@ -96,7 +96,7 @@ pub fn lit(response: &Response) -> bool {
 /// Like [`lit`], for a widget that shows focus its own way (a poster's ring,
 /// a side menu item's fill), so the shared ring is not added on top.
 #[must_use]
-pub fn own_mark(response: &Response) -> bool {
+pub(crate) fn own_mark(response: &Response) -> bool {
     let focused = response.has_focus() && directional(&response.ctx);
     if focused {
         with_state(&response.ctx, |state| state.own_marks.push(response.id));
@@ -108,7 +108,7 @@ pub fn own_mark(response: &Response) -> bool {
 
 /// Register a clickable as a focus stop. Must run where the widget is created
 /// (inside its scroll area), so gaining focus can scroll it into view.
-pub fn track(response: &Response) {
+pub(crate) fn track(response: &Response) {
     if needs_reveal(response) {
         reveal(response);
     }
@@ -185,7 +185,7 @@ fn needs_reveal(response: &Response) -> bool {
 }
 
 /// Keep the D-pad inside this popup while it is open.
-pub fn trap(ui: &Ui) {
+pub(crate) fn trap(ui: &Ui) {
     if !directional(ui.ctx()) {
         return;
     }
@@ -200,7 +200,7 @@ pub fn trap(ui: &Ui) {
 }
 
 /// Put the D-pad on this item of a popup that just opened.
-pub fn enter_popup(response: &Response) {
+pub(crate) fn enter_popup(response: &Response) {
     if directional(&response.ctx) {
         response.request_focus();
     }
@@ -208,7 +208,7 @@ pub fn enter_popup(response: &Response) {
 
 /// Where focus should start in this popup or screen instead of its first widget
 /// (the current choice, the main action). The first call in a frame wins.
-pub fn prefer(response: &Response) {
+pub(crate) fn prefer(response: &Response) {
     if !directional(&response.ctx) {
         return;
     }
@@ -221,7 +221,7 @@ pub fn prefer(response: &Response) {
 
 /// Stops entered as one, like a side menu: arriving from outside lands on
 /// `entry` (the current choice) rather than on whichever member is nearest.
-pub fn group(ctx: &Context, members: Vec<Id>, entry: Id) {
+pub(crate) fn group(ctx: &Context, members: Vec<Id>, entry: Id) {
     if !directional(ctx) {
         return;
     }
@@ -230,21 +230,12 @@ pub fn group(ctx: &Context, members: Vec<Id>, entry: Id) {
 }
 
 /// The arrows act on this widget instead of moving focus off it (seek bars, video).
-pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
-    let filter = EventFilter {
-        horizontal_arrows: horizontal,
-        vertical_arrows: vertical,
-        ..EventFilter::default()
-    };
+pub(crate) fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
+    let filter = EventFilter { horizontal_arrows: horizontal, vertical_arrows: vertical, ..EventFilter::default() };
 
-    ui.ctx()
-        .memory_mut(|mem| mem.set_focus_lock_filter(id, filter));
+    ui.ctx().memory_mut(|mem| mem.set_focus_lock_filter(id, filter));
 
-    let hold = Hold {
-        id,
-        horizontal,
-        vertical,
-    };
+    let hold = Hold { id, horizontal, vertical };
     with_state(ui.ctx(), |state| state.holds.push(hold));
 }
 
@@ -252,33 +243,33 @@ pub fn hold_arrows(ui: &Ui, id: Id, horizontal: bool, vertical: bool) {
 /// opened it at the start of the next frame, so nothing should take the
 /// focus it left empty in the meantime.
 #[must_use]
-pub fn popup_was_open(ctx: &Context) -> bool {
+pub(crate) fn popup_was_open(ctx: &Context) -> bool {
     with_state(ctx, |state| state.had_modal)
 }
 
 /// The focused widget's layer, from the previous frame.
 #[must_use]
-pub fn focused_layer(ctx: &Context) -> Option<LayerId> {
-    let id = ctx.memory(|mem| mem.focused())?;
+pub(crate) fn focused_layer(ctx: &Context) -> Option<LayerId> {
+    let id = ctx.memory(egui::Memory::focused)?;
 
     ctx.read_response(id).map(|response| response.layer_id)
 }
 
 /// Where the starting focus should land: the screen body, not the title bar or rail.
-pub fn set_content(ctx: &Context, rect: Rect) {
+pub(crate) fn set_content(ctx: &Context, rect: Rect) {
     with_state(ctx, |state| state.content = Some(rect));
 }
 
 /// A text field was focused when this frame's input arrived, so Escape (the
 /// remote's Back) only leaves the field.
 #[must_use]
-pub fn was_editing(ctx: &Context) -> bool {
+pub(crate) fn was_editing(ctx: &Context) -> bool {
     with_state(ctx, |state| state.was_editing)
 }
 
 /// The widget focused when this frame's input arrived. egui drops the focus
 /// on Escape (the remote's Back) before the app sees the key.
 #[must_use]
-pub fn focused_before_input(ctx: &Context) -> Option<Id> {
+pub(crate) fn focused_before_input(ctx: &Context) -> Option<Id> {
     with_state(ctx, |state| state.focused_before_input)
 }

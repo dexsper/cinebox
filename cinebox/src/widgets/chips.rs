@@ -6,7 +6,7 @@ use rust_i18n::t;
 use super::button::{self, Opts};
 use crate::theme::Theme;
 
-pub fn toggle<T: Copy + PartialEq>(selected: &mut Vec<T>, value: T) {
+pub(crate) fn toggle<T: Copy + PartialEq>(selected: &mut Vec<T>, value: T) {
     if let Some(index) = selected.iter().position(|item| *item == value) {
         selected.remove(index);
         return;
@@ -15,7 +15,7 @@ pub fn toggle<T: Copy + PartialEq>(selected: &mut Vec<T>, value: T) {
     selected.push(value);
 }
 
-pub fn multi_row<T: Copy + PartialEq>(
+pub(crate) fn multi_row<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     selected: &mut Vec<T>,
@@ -28,7 +28,7 @@ pub fn multi_row<T: Copy + PartialEq>(
         ui.spacing_mut().item_spacing.x = 6.0;
         let any_on = selected.is_empty();
         let any_clicked = chip(ui, theme, t!("filter.any").as_ref(), any_on);
-        
+
         if any_clicked && !any_on {
             selected.clear();
             changed = true;

@@ -1,19 +1,18 @@
 //! Shared services owned by the thin app dispatcher. Screens borrow this.
 
-pub mod discovery;
-pub mod images;
-pub mod jobs;
-pub mod library;
-pub mod settings_input;
-pub mod toasts;
+pub(crate) mod discovery;
+pub(crate) mod images;
+pub(crate) mod jobs;
+pub(crate) mod library;
+pub(crate) mod settings_input;
+pub(crate) mod toasts;
 
 use std::collections::HashSet;
 use std::future::Future;
 use std::sync::Arc;
 
 use cinebox_core::{
-    LibraryMark, ListStatus, MediaKind, Settings, SettingsStore, Store, StoreError, TmdbId,
-    allowed_image_sizes,
+    LibraryMark, ListStatus, MediaKind, Settings, SettingsStore, Store, StoreError, TmdbId, allowed_image_sizes,
 };
 use cinebox_player::{Features, Player};
 use rust_i18n::t;
@@ -23,9 +22,9 @@ use crate::screens::play::WatchCard;
 use crate::services::images::ImageCache;
 use crate::services::library::Library;
 use crate::services::toasts::Toasts;
-use crate::widgets::poster::TileMarks;
+use crate::widgets::poster::{Posters, TileMarks};
 
-pub struct Services {
+pub(crate) struct Services {
     pub settings: Settings,
     pub store: Option<SettingsStore>,
     pub db: Option<Arc<Store>>,
@@ -40,17 +39,13 @@ pub struct Services {
 }
 
 impl Services {
-    pub fn boot(player: Option<Arc<dyn Player>>) -> Self {
+    pub(crate) fn boot(player: Option<Arc<dyn Player>>) -> Self {
         let (store, mut settings, load_error) = open_settings_store();
         let upgraded = mark_existing_setup_onboarded(&mut settings);
         let db = open_app_db(&settings);
         let images = ImageCache::with_db(db.clone());
-        let watched = db
-            .as_ref()
-            .and_then(|db| db_block_on(db.watched_keys()).ok())
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
+        let watched_keys = db.as_ref().and_then(|db| db_block_on(db.watched_keys()).ok());
+        let watched = watched_keys.unwrap_or_default().into_iter().collect();
 
         let library = db
             .as_ref()
@@ -99,60 +94,53 @@ impl Services {
     /// What the player lets the user change; everything while there is none,
     /// since the settings still apply to the next run.
     #[must_use]
-    pub fn player_features(&self) -> Features {
-        self.player
-            .as_ref()
-            .map_or(Features::ALL, |player| player.features())
+    pub(crate) fn player_features(&self) -> Features {
+        self.player.as_ref().map_or(Features::ALL, |player| player.features())
     }
 
     #[must_use]
-    pub fn is_watched(&self, kind: MediaKind, id: TmdbId) -> bool {
+    pub(crate) fn is_watched(&self, kind: MediaKind, id: TmdbId) -> bool {
         self.watched.contains(&(kind, id))
     }
 
-    pub fn mark_watched(&mut self, kind: MediaKind, id: TmdbId) {
+    pub(crate) fn mark_watched(&mut self, kind: MediaKind, id: TmdbId) {
         self.watched.insert((kind, id));
         self.home_needs_refresh = true;
     }
 
     #[must_use]
-    pub fn library_mark(&self, kind: MediaKind, id: TmdbId) -> LibraryMark {
+    pub(crate) fn library_mark(&self, kind: MediaKind, id: TmdbId) -> LibraryMark {
         self.library.mark(kind, id)
     }
 
     #[must_use]
-    pub fn tile_marks(&self, kind: MediaKind, id: TmdbId) -> TileMarks {
-        TileMarks {
-            watched: self.is_watched(kind, id),
-            library: self.library_mark(kind, id),
-        }
+    pub(crate) fn tile_marks(&self, kind: MediaKind, id: TmdbId) -> TileMarks {
+        TileMarks { watched: self.is_watched(kind, id), library: self.library_mark(kind, id) }
     }
 
-    pub fn set_list_status(&mut self, card: &WatchCard, status: Option<ListStatus>) {
+    /// Catalog tile posters at the size the settings ask for.
+    #[must_use]
+    pub(crate) fn posters(&self) -> Posters<'_> {
+        Posters { images: &self.images, size: self.settings.tmdb.poster_size }
+    }
+
+    pub(crate) fn set_list_status(&mut self, card: &WatchCard, status: Option<ListStatus>) {
         let item = card.item();
         self.library.set_status(&item, card.section, status);
         if let Some(db) = &self.db {
-            warn_library_write(db_block_on(db.set_library_status(
-                &item,
-                card.section,
-                status,
-            )));
+            warn_library_write(db_block_on(db.set_library_status(&item, card.section, status)));
         }
     }
 
-    pub fn set_liked(&mut self, card: &WatchCard, liked: bool) {
+    pub(crate) fn set_liked(&mut self, card: &WatchCard, liked: bool) {
         let item = card.item();
         self.library.set_liked(&item, card.section, liked);
         if let Some(db) = &self.db {
-            warn_library_write(db_block_on(db.set_library_liked(
-                &item,
-                card.section,
-                liked,
-            )));
+            warn_library_write(db_block_on(db.set_library_liked(&item, card.section, liked)));
         }
     }
 
-    pub fn mark_watching_if_unset(&mut self, card: &WatchCard) {
+    pub(crate) fn mark_watching_if_unset(&mut self, card: &WatchCard) {
         let item = card.item();
         if !self.library.mark_watching_if_unset(&item, card.section) {
             return;
@@ -163,7 +151,7 @@ impl Services {
         }
     }
 
-    pub fn persist(&mut self) {
+    pub(crate) fn persist(&mut self) {
         self.save_error = None;
         let Some(store) = &self.store else {
             return;
@@ -175,7 +163,7 @@ impl Services {
         }
     }
 
-    pub fn clear_tmdb_cache(&mut self) {
+    pub(crate) fn clear_tmdb_cache(&mut self) {
         if let Some(db) = &self.db {
             if let Err(error) = db_block_on(db.clear_tmdb()) {
                 error!(%error, "failed to clear tmdb cache");
@@ -186,7 +174,7 @@ impl Services {
     }
 
     /// Surface boot failures that would otherwise only show inside the settings drawer.
-    pub fn announce_boot_problems(&mut self, now: f64) {
+    pub(crate) fn announce_boot_problems(&mut self, now: f64) {
         if self.load_error.is_some() {
             self.toasts.error(t!("settings.load_error"), now);
         }
@@ -196,7 +184,7 @@ impl Services {
         }
     }
 
-    pub fn take_home_refresh(&mut self) -> bool {
+    pub(crate) fn take_home_refresh(&mut self) -> bool {
         std::mem::take(&mut self.home_needs_refresh)
     }
 }

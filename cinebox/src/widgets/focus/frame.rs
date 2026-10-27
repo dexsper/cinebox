@@ -7,7 +7,7 @@ use crate::theme::Theme;
 
 /// Before egui sees the frame's input (`raw_input_hook`): settle where focus
 /// should be, using what the previous frame registered.
-pub fn begin_frame(ctx: &Context, raw_input: &mut RawInput) {
+pub(crate) fn begin_frame(ctx: &Context, raw_input: &mut RawInput) {
     if !directional(ctx) {
         return;
     }
@@ -20,7 +20,7 @@ pub fn begin_frame(ctx: &Context, raw_input: &mut RawInput) {
         outer_focus: last.outer_focus.clone(),
         last_allowed: last.last_allowed,
         was_editing: ctx.text_edit_focused(),
-        focused_before_input: ctx.memory(|mem| mem.focused()),
+        focused_before_input: ctx.memory(egui::Memory::focused),
         revealed: last.revealed,
         ..State::default()
     };
@@ -36,7 +36,7 @@ pub fn begin_frame(ctx: &Context, raw_input: &mut RawInput) {
 }
 
 /// After every widget of the frame is shown.
-pub fn end_frame(ctx: &Context, theme: &Theme) {
+pub(crate) fn end_frame(ctx: &Context, theme: &Theme) {
     if !directional(ctx) {
         return;
     }

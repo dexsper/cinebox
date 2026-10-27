@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use cinebox_core::WatchHistoryEntry;
+use cinebox_core::{WatchHistoryEntry, WatchKey};
 use tracing::warn;
 
 use crate::services::Services;
@@ -38,15 +38,9 @@ impl PlayerScreen {
 
     /// Persists progress off the UI thread; the returned handle is only
     /// awaited by tests.
-    pub(super) fn save_progress(
-        &mut self,
-        svc: &mut Services,
-        force: bool,
-    ) -> Option<tokio::task::JoinHandle<()>> {
+    pub(super) fn save_progress(&mut self, svc: &mut Services, force: bool) -> Option<tokio::task::JoinHandle<()>> {
         if !force {
-            let recent = self
-                .progress_saved_at
-                .is_some_and(|at| at.elapsed() < Duration::from_secs(10));
+            let recent = self.progress_saved_at.is_some_and(|at| at.elapsed() < Duration::from_secs(10));
 
             if recent {
                 return None;
@@ -96,22 +90,15 @@ impl PlayerScreen {
 
             (entry, hash, time, duration, state.card.clone(), file_id)
         };
-        let (kind, id) = (card.kind, card.id);
 
+        let key = WatchKey { kind: card.kind, id: card.id, season: entry.season, episode: entry.episode };
         let track = svc.settings.torrserver.track_timecode;
 
         let db_job = svc.db.clone().map(|db| {
             let history_hash = hash.clone();
 
             egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-                let timeline = db.upsert_watch_timeline(
-                    kind,
-                    id,
-                    entry.season,
-                    entry.episode,
-                    time,
-                    duration,
-                );
+                let timeline = db.upsert_watch_timeline(key, time, duration);
 
                 if let Err(error) = timeline.await {
                     warn!(%error, "failed to save watch timeline");
@@ -123,7 +110,7 @@ impl PlayerScreen {
             })
         });
 
-        svc.mark_watched(kind, id);
+        svc.mark_watched(key.kind, key.id);
         svc.mark_watching_if_unset(&card);
         self.progress_saved_at = Some(Instant::now());
 
@@ -133,9 +120,7 @@ impl PlayerScreen {
 
         let torr = jobs::TorrCtx::from(&svc.settings);
         self.viewed_job.request(async move {
-            cinebox_torrserver::viewed_set(&torr.server, &hash, file_id, time)
-                .await
-                .map_err(jobs::JobError::from)
+            cinebox_torrserver::viewed_set(&torr.server, &hash, file_id, time).await.map_err(jobs::JobError::from)
         });
 
         db_job
@@ -144,6 +129,8 @@ impl PlayerScreen {
 
 #[cfg(test)]
 mod tests {
+    use cinebox_core::WatchKey;
+
     use super::super::tests::{spec, youtube_spec};
     use super::super::{PlayerPhase, PlayerScreen, PlayerState};
     use crate::services::{Services, db_block_on};
@@ -169,7 +156,8 @@ mod tests {
 
         let kind = cinebox_core::MediaKind::Tv;
         let id = cinebox_core::TmdbId::new(1);
-        let got = db_block_on(db.get_watch_timeline(kind, id, Some(1), Some(2)))?;
+        let key = WatchKey { kind, id, season: Some(1), episode: Some(2) };
+        let got = db_block_on(db.get_watch_timeline(key))?;
 
         assert_eq!(got, Some((42.0, 2400.0)));
 

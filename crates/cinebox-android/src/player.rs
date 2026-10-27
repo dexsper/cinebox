@@ -5,8 +5,7 @@ use std::sync::{Mutex, PoisonError};
 
 use cinebox_core::VideoScale;
 use cinebox_player::{
-    Error, Failure, Features, Media, PixelRect, Player, Snapshot, Track, TrackKind, VideoDecoder,
-    VideoOutput,
+    Error, Failure, Features, Media, PixelRect, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
 };
 use jni::objects::{JObject, JString, JValue};
 use jni::refs::Global;
@@ -44,9 +43,7 @@ impl ExoPlayer {
     pub fn attach(java: &Java) -> Option<Self> {
         let player = java.with_activity("videoPlayer", |env, activity| {
             let sig = jni_sig!("()Lio/github/dexsper/cinebox/VideoPlayer;");
-            let player = env
-                .call_method(activity, jni_str!("videoPlayer"), sig, &[])?
-                .l()?;
+            let player = env.call_method(activity, jni_str!("videoPlayer"), sig, &[])?.l()?;
 
             env.new_global_ref(&player)
         })?;
@@ -56,11 +53,7 @@ impl ExoPlayer {
             return None;
         }
 
-        Some(Self {
-            vm: java.vm().clone(),
-            player,
-            placed: Mutex::new(None),
-        })
+        Some(Self { vm: java.vm().clone(), player, placed: Mutex::new(None) })
     }
 
     fn call<T, F>(&self, what: &str, call: F) -> Result<T, Error>
@@ -106,12 +99,7 @@ impl Player for ExoPlayer {
             let url = env.new_string(media.url)?;
             let headers = env.new_string(&headers)?;
             let audio = optional_string(env, media.audio_url)?;
-            let args = [
-                JValue::Object(&url),
-                JValue::Object(&headers),
-                JValue::Object(&audio),
-                JValue::Long(start_ms),
-            ];
+            let args = [JValue::Object(&url), JValue::Object(&headers), JValue::Object(&audio), JValue::Long(start_ms)];
 
             let sig = jni_sig!("(Ljava/lang/String;Ljava/lang/String;Ljava/lang/String;J)V");
             env.call_method(player, jni_str!("load"), sig, &args)?.v()
@@ -120,8 +108,8 @@ impl Player for ExoPlayer {
 
     fn stop(&self) {
         let result = self.call("stop", |env, player| {
-            env.call_method(player, jni_str!("stop"), jni_sig!("()V"), &[])?
-                .v()
+            let sig = jni_sig!("()V");
+            env.call_method(player, jni_str!("stop"), sig, &[])?.v()
         });
 
         if let Err(error) = result {
@@ -132,24 +120,21 @@ impl Player for ExoPlayer {
     fn set_paused(&self, paused: bool) -> Result<(), Error> {
         self.call("set_paused", |env, player| {
             let args = [JValue::Bool(paused)];
-            env.call_method(player, jni_str!("setPaused"), jni_sig!("(Z)V"), &args)?
-                .v()
+            env.call_method(player, jni_str!("setPaused"), jni_sig!("(Z)V"), &args)?.v()
         })
     }
 
     fn seek_by(&self, seconds: f64) -> Result<(), Error> {
         self.call("seek_by", |env, player| {
             let args = [JValue::Long(to_millis(seconds))];
-            env.call_method(player, jni_str!("seekBy"), jni_sig!("(J)V"), &args)?
-                .v()
+            env.call_method(player, jni_str!("seekBy"), jni_sig!("(J)V"), &args)?.v()
         })
     }
 
     fn seek_to(&self, seconds: f64) -> Result<(), Error> {
         self.call("seek_to", |env, player| {
             let args = [JValue::Long(to_millis(seconds))];
-            env.call_method(player, jni_str!("seekTo"), jni_sig!("(J)V"), &args)?
-                .v()
+            env.call_method(player, jni_str!("seekTo"), jni_sig!("(J)V"), &args)?.v()
         })
     }
 
@@ -178,8 +163,7 @@ impl Player for ExoPlayer {
 
         self.call("select_audio", |env, player| {
             let args = [JValue::Int(id)];
-            env.call_method(player, jni_str!("selectAudio"), jni_sig!("(I)V"), &args)?
-                .v()
+            env.call_method(player, jni_str!("selectAudio"), jni_sig!("(I)V"), &args)?.v()
         })
     }
 
@@ -189,8 +173,7 @@ impl Player for ExoPlayer {
 
         self.call("select_subtitle", |env, player| {
             let args = [JValue::Int(id)];
-            env.call_method(player, jni_str!("selectSubtitle"), jni_sig!("(I)V"), &args)?
-                .v()
+            env.call_method(player, jni_str!("selectSubtitle"), jni_sig!("(I)V"), &args)?.v()
         })
     }
 
@@ -205,9 +188,7 @@ impl Player for ExoPlayer {
     }
 
     fn tracks(&self) -> Vec<Track> {
-        let read = self.call("tracks", |env, player| {
-            text(env, player, jni_str!("tracks"))
-        });
+        let read = self.call("tracks", |env, player| text(env, player, jni_str!("tracks")));
 
         match read {
             Ok(lines) => parse_tracks(&lines.unwrap_or_default()),
@@ -254,11 +235,7 @@ impl Player for ExoPlayer {
         let format = format.unwrap_or_default();
         let (codec, color) = format.split_once('\t').unwrap_or((format.as_str(), ""));
 
-        Some(VideoDecoder {
-            hwdec: name?,
-            codec: codec.to_owned(),
-            pixel_format: color.to_owned(),
-        })
+        Some(VideoDecoder { hwdec: name?, codec: codec.to_owned(), pixel_format: color.to_owned() })
     }
 
     fn place_video(&self, rect: PixelRect) {
@@ -268,14 +245,8 @@ impl Player for ExoPlayer {
         }
 
         let result = self.call("place", |env, player| {
-            let args = [
-                JValue::Int(rect.x),
-                JValue::Int(rect.y),
-                JValue::Int(rect.width),
-                JValue::Int(rect.height),
-            ];
-            env.call_method(player, jni_str!("place"), jni_sig!("(IIII)V"), &args)?
-                .v()
+            let args = [JValue::Int(rect.x), JValue::Int(rect.y), JValue::Int(rect.width), JValue::Int(rect.height)];
+            env.call_method(player, jni_str!("place"), jni_sig!("(IIII)V"), &args)?.v()
         });
 
         match result {
@@ -293,14 +264,8 @@ fn long(env: &mut Env, player: &JObject, name: &'static JNIStr) -> jni::errors::
     env.call_method(player, name, jni_sig!("()J"), &[])?.j()
 }
 
-fn text(
-    env: &mut Env,
-    player: &JObject,
-    name: &'static JNIStr,
-) -> jni::errors::Result<Option<String>> {
-    let value = env
-        .call_method(player, name, jni_sig!("()Ljava/lang/String;"), &[])?
-        .l()?;
+fn text(env: &mut Env, player: &JObject, name: &'static JNIStr) -> jni::errors::Result<Option<String>> {
+    let value = env.call_method(player, name, jni_sig!("()Ljava/lang/String;"), &[])?.l()?;
 
     let value = env.cast_local::<JString>(value)?;
     if value.as_raw().is_null() {
@@ -344,13 +309,7 @@ fn parse_track(line: &str) -> Option<Track> {
     let lang = non_empty(fields.next());
     let title = non_empty(fields.next());
 
-    Some(Track {
-        id,
-        kind,
-        lang,
-        title,
-        selected,
-    })
+    Some(Track { id, kind, lang, title, selected })
 }
 
 fn non_empty(field: Option<&str>) -> Option<String> {

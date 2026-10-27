@@ -80,19 +80,14 @@ pub async fn list(server: &Server) -> Result<Vec<ListedTorrent>, Error> {
     let url = torrents_url(server)?;
     let client = http_client()?;
     let post = client.post(&url).timeout(Duration::from_secs(15));
-    let request = server
-        .authorize(post)
-        .json(&serde_json::json!({ "action": "list" }));
+    let request = server.authorize(post).json(&serde_json::json!({ "action": "list" }));
 
     let parsed: Vec<ListedRaw> = send_json(request).await?;
     Ok(parsed
         .into_iter()
         .filter_map(|row| {
             let hash = row.hash.filter(|h| !h.is_empty())?;
-            Some(ListedTorrent {
-                title: row.title.unwrap_or_default(),
-                hash,
-            })
+            Some(ListedTorrent { title: row.title.unwrap_or_default(), hash })
         })
         .collect())
 }
@@ -153,8 +148,7 @@ pub async fn wait_files(server: &Server, hash: &str) -> Result<TorrentStatus, Er
     for attempt in 0..FILE_POLL_MAX {
         match get(server, hash).await {
             Ok(status) if !status.file_stats.is_empty() => return Ok(status),
-            Ok(_) => {}
-            Err(Error::NotFound) => {}
+            Ok(_) | Err(Error::NotFound) => {}
             Err(error) => return Err(error),
         }
 
@@ -195,11 +189,7 @@ pub async fn drop_torrent(server: &Server, hash: &str) -> Result<(), Error> {
 /// # Errors
 ///
 /// Empty URL/link, HTTP failures, missing hash, or file-list timeout.
-pub async fn open_magnet(
-    server: &Server,
-    spec: &AddSpec,
-    track_timecode: bool,
-) -> Result<OpenedTorrent, Error> {
+pub async fn open_magnet(server: &Server, spec: &AddSpec, track_timecode: bool) -> Result<OpenedTorrent, Error> {
     let added = add(server, spec).await?;
     if added.hash.is_empty() {
         return Err(Error::EmptyHash);
@@ -209,16 +199,13 @@ pub async fn open_magnet(
     let status = match wait_or_use(server, added).await {
         Ok(status) => status,
         Err(error) => {
-            let _ = drop_torrent(server, &hash).await;
+            // The wait's error is the one to report; a torrent left loaded only holds server memory.
+            drop(drop_torrent(server, &hash).await);
             return Err(error);
         }
     };
 
-    let viewed = if track_timecode {
-        viewed_list(server, &hash).await.unwrap_or_default()
-    } else {
-        Vec::new()
-    };
+    let viewed = if track_timecode { viewed_list(server, &hash).await.unwrap_or_default() } else { Vec::new() };
 
     Ok(opened_from(status, &viewed))
 }
@@ -237,29 +224,18 @@ fn opened_from(status: TorrentStatus, viewed: &[Viewed]) -> OpenedTorrent {
         .map(|file| OpenedFile {
             id: file.id,
             path: file.path,
-            length: file.length.max(0) as u64,
+            length: u64::try_from(file.length).unwrap_or(0),
             timecode: timecode_for(viewed, file.id),
         })
         .collect();
 
-    let resume_id = files
-        .iter()
-        .find(|file| file.timecode > 0.0)
-        .map(|file| file.id);
+    let resume_id = files.iter().find(|file| file.timecode > 0.0).map(|file| file.id);
 
-    OpenedTorrent {
-        hash: status.hash,
-        files,
-        resume_id,
-    }
+    OpenedTorrent { hash: status.hash, files, resume_id }
 }
 
 fn timecode_for(viewed: &[Viewed], file_id: i32) -> f64 {
-    viewed
-        .iter()
-        .find(|row| row.file_index == file_id)
-        .map(|row| row.timecode)
-        .unwrap_or(0.0)
+    viewed.iter().find(|row| row.file_index == file_id).map_or(0.0, |row| row.timecode)
 }
 
 #[cfg(test)]
@@ -279,24 +255,12 @@ mod tests {
             active_peers: 0,
             total_peers: 0,
             file_stats: vec![
-                FileStat {
-                    id: 1,
-                    path: String::from("a.mkv"),
-                    length: 10,
-                },
-                FileStat {
-                    id: 2,
-                    path: String::from("b.mkv"),
-                    length: 10,
-                },
+                FileStat { id: 1, path: String::from("a.mkv"), length: 10 },
+                FileStat { id: 2, path: String::from("b.mkv"), length: 10 },
             ],
         };
 
-        let viewed = vec![Viewed {
-            hash: String::from("ab"),
-            file_index: 2,
-            timecode: 12.5,
-        }];
+        let viewed = vec![Viewed { hash: String::from("ab"), file_index: 2, timecode: 12.5 }];
 
         let opened = opened_from(status, &viewed);
         assert_eq!(opened.resume_id, Some(2));

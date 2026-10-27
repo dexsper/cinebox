@@ -20,11 +20,7 @@ struct State<T> {
 
 impl<T> State<T> {
     fn new() -> Self {
-        Self {
-            theme: Theme::dark(),
-            fonts: false,
-            out: None,
-        }
+        Self { theme: Theme::dark(), fonts: false, out: None }
     }
 }
 
@@ -32,23 +28,21 @@ impl<T> State<T> {
 fn harness<T: 'static>(
     mut paint: impl FnMut(&mut egui::Ui, &Theme) -> Option<T> + 'static,
 ) -> Harness<'static, State<T>> {
-    Harness::builder()
-        .with_size(vec2(640.0, 480.0))
-        .build_ui_state(
-            move |ui, state: &mut State<T>| {
-                if !state.fonts {
-                    crate::theme::fonts::install(ui.ctx());
-                    state.theme.apply(ui.ctx());
-                    state.fonts = true;
-                    return;
-                }
+    Harness::builder().with_size(vec2(640.0, 480.0)).build_ui_state(
+        move |ui, state: &mut State<T>| {
+            if !state.fonts {
+                crate::theme::fonts::install(ui.ctx());
+                state.theme.apply(ui.ctx());
+                state.fonts = true;
+                return;
+            }
 
-                if let Some(out) = paint(ui, &state.theme) {
-                    state.out = Some(out);
-                }
-            },
-            State::new(),
-        )
+            if let Some(out) = paint(ui, &state.theme) {
+                state.out = Some(out);
+            }
+        },
+        State::new(),
+    )
 }
 
 #[test]
@@ -59,9 +53,7 @@ fn collapsed_rail_item_is_clickable_by_its_label() {
     });
     harness.run();
 
-    harness
-        .get_by_role_and_label(Role::Button, t!("rail.anime").as_ref())
-        .click();
+    harness.get_by_role_and_label(Role::Button, t!("rail.anime").as_ref()).click();
     harness.run();
 
     assert_eq!(harness.state().out, Some(RailEntry::Section(Section::Anime)));
@@ -79,13 +71,11 @@ fn collapsed_icon_button_is_clickable_by_its_label() {
             tint: theme.title,
             selected: false,
         };
-        button::expanding_icon(ui, theme, spec).clicked().then_some(())
+        button::expanding_icon(ui, theme, &spec).clicked().then_some(())
     });
     harness.run();
 
-    harness
-        .get_by_role_and_label(Role::Button, t!("media.trailers").as_ref())
-        .click();
+    harness.get_by_role_and_label(Role::Button, t!("media.trailers").as_ref()).click();
     harness.run();
 
     assert_eq!(harness.state().out, Some(()));
@@ -100,34 +90,21 @@ mod lists_menu {
 
     #[test]
     fn picking_a_status_replaces_the_current_one() {
-        let mut harness = menu_harness(LibraryMark {
-            status: Some(ListStatus::Planned),
-            liked: false,
-        });
+        let mut harness = menu_harness(LibraryMark { status: Some(ListStatus::Planned), liked: false });
         harness.run();
 
-        harness
-            .get_by_role_and_label(Role::CheckBox, t!("library.completed").as_ref())
-            .click();
+        harness.get_by_role_and_label(Role::CheckBox, t!("library.completed").as_ref()).click();
         harness.run();
 
-        assert_eq!(
-            harness.state().out,
-            Some(MenuPick::Status(Some(ListStatus::Completed)))
-        );
+        assert_eq!(harness.state().out, Some(MenuPick::Status(Some(ListStatus::Completed))));
     }
 
     #[test]
     fn picking_the_active_status_clears_it() {
-        let mut harness = menu_harness(LibraryMark {
-            status: Some(ListStatus::Watching),
-            liked: true,
-        });
+        let mut harness = menu_harness(LibraryMark { status: Some(ListStatus::Watching), liked: true });
         harness.run();
 
-        harness
-            .get_by_role_and_label(Role::CheckBox, t!("library.watching").as_ref())
-            .click();
+        harness.get_by_role_and_label(Role::CheckBox, t!("library.watching").as_ref()).click();
         harness.run();
 
         assert_eq!(harness.state().out, Some(MenuPick::Status(None)));

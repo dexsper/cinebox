@@ -42,17 +42,12 @@ pub async fn viewed_list(server: &Server, hash: &str) -> Result<Vec<Viewed>, Err
     send_json(request).await
 }
 
-/// `POST /viewed` with `action: set`. Server stores `timecode` only when TrackTimecode is on.
+/// `POST /viewed` with `action: set`. Server stores `timecode` only when `TrackTimecode` is on.
 ///
 /// # Errors
 ///
 /// Empty URL/hash or HTTP failures.
-pub async fn viewed_set(
-    server: &Server,
-    hash: &str,
-    file_index: i32,
-    timecode: f64,
-) -> Result<(), Error> {
+pub async fn viewed_set(server: &Server, hash: &str, file_index: i32, timecode: f64) -> Result<(), Error> {
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
@@ -85,8 +80,7 @@ mod tests {
             { "hash": "abc", "file_index": 3 }
         ]"#;
 
-        let rows: Vec<Viewed> =
-            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
+        let rows: Vec<Viewed> = serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].file_index, 1);

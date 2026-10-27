@@ -62,10 +62,7 @@ fn resolver() -> Option<&'static Resolver> {
             };
 
             match connect() {
-                Ok(portal) => Some(Resolver {
-                    portal,
-                    cache: Mutex::new(HashMap::new()),
-                }),
+                Ok(portal) => Some(Resolver { portal, cache: Mutex::new(HashMap::new()) }),
                 Err(error) => {
                     tracing::warn!(%error, "proxy resolver portal unavailable; connecting directly");
                     None
@@ -83,10 +80,7 @@ fn lookup(scheme: &str, host: &str, port: Option<u16>) -> Option<String> {
         None => format!("{scheme}://{host}"),
     };
 
-    let mut cache = resolver
-        .cache
-        .lock()
-        .unwrap_or_else(PoisonError::into_inner);
+    let mut cache = resolver.cache.lock().unwrap_or_else(PoisonError::into_inner);
 
     if let Some(answer) = cache.get(&origin) {
         return answer.clone();
@@ -147,26 +141,17 @@ mod tests {
 
     #[test]
     fn http_proxy_is_used_as_is() {
-        assert_eq!(
-            answer(&["http://proxy:3128"]).as_deref(),
-            Some("http://proxy:3128")
-        );
+        assert_eq!(answer(&["http://proxy:3128"]).as_deref(), Some("http://proxy:3128"));
     }
 
     #[test]
     fn generic_socks_becomes_socks5() {
-        assert_eq!(
-            answer(&["socks://proxy:1080"]).as_deref(),
-            Some("socks5://proxy:1080")
-        );
+        assert_eq!(answer(&["socks://proxy:1080"]).as_deref(), Some("socks5://proxy:1080"));
     }
 
     #[test]
     fn unsupported_entries_are_skipped_in_order() {
-        assert_eq!(
-            answer(&["ftp://proxy:21", "http://proxy:3128", "direct://"]).as_deref(),
-            Some("http://proxy:3128")
-        );
+        assert_eq!(answer(&["ftp://proxy:21", "http://proxy:3128", "direct://"]).as_deref(), Some("http://proxy:3128"));
     }
 
     #[test]

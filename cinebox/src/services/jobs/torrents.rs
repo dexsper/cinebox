@@ -3,7 +3,7 @@
 use std::sync::Arc;
 
 use cinebox_core::{
-    KIND_SEASON, MediaDetails, MediaKind, SEASON_TTL, Store, TmdbId, language_key,
+    CacheKey, KIND_SEASON, MediaDetails, MediaKind, SEASON_TTL, Store, TmdbId, WatchKey, language_key,
     normalize_tmdb_path, season_cache_id, tmdb_image_url,
 };
 use cinebox_indexer::{SortMode, TorrentHit, sort_hits};
@@ -14,7 +14,7 @@ use tracing::warn;
 use super::{JobError, OpenTarget, ParserCtx, TmdbCtx, TorrCtx};
 use crate::screens::torrents::{MovieBits, ReadyFiles, TorrentFileRow};
 
-pub async fn load_torrents(
+pub(crate) async fn load_torrents(
     parser: ParserCtx,
     torr: TorrCtx,
     details: MediaDetails,
@@ -32,14 +32,7 @@ pub async fn load_torrents(
     };
 
     let runtime = details.runtime_minutes;
-    let raw = cinebox_indexer::search(
-        parser.kind,
-        &parser.url,
-        &parser.api_key,
-        &query,
-        &parser.net,
-    )
-    .await?;
+    let raw = cinebox_indexer::search(parser.kind, &parser.url, &parser.api_key, &query, &parser.net).await?;
 
     let started = cinebox_torrserver::list(&torr.server)
         .await
@@ -58,16 +51,14 @@ pub async fn load_torrents(
         None => Vec::new(),
     };
 
-    let mut hits: Vec<TorrentHit> = raw
-        .into_iter()
-        .map(|hit| TorrentHit::new(hit, runtime, &hashes, &local_hashes))
-        .collect();
+    let ranked = raw.into_iter().map(|hit| TorrentHit::new(hit, runtime, &hashes, &local_hashes));
+    let mut hits: Vec<TorrentHit> = ranked.collect();
 
     sort_hits(&mut hits, kind, SortMode::Popular);
     Ok(hits)
 }
 
-pub async fn open_magnet(
+pub(crate) async fn open_magnet(
     torr: TorrCtx,
     tmdb: TmdbCtx,
     spec: cinebox_torrserver::AddSpec,
@@ -104,10 +95,7 @@ async fn season_catalog(
         return Vec::new();
     }
 
-    let mut seasons: Vec<u32> = files
-        .iter()
-        .filter_map(|file| parse_file_episode(&file.path, true).season)
-        .collect();
+    let mut seasons: Vec<u32> = files.iter().filter_map(|file| parse_file_episode(&file.path, true).season).collect();
 
     seasons.sort_unstable();
     seasons.dedup();
@@ -124,7 +112,11 @@ async fn season_catalog(
         let cache_id = season_cache_id(id, season);
         let cached = match db.as_ref() {
             Some(db) => db
-                .get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(lang, KIND_SEASON, &cache_id)
+                .get_json::<Vec<cinebox_tmdb::SeasonEpisode>>(CacheKey {
+                    language: lang,
+                    kind: KIND_SEASON,
+                    id: &cache_id,
+                })
                 .await
                 .ok()
                 .flatten(),
@@ -152,11 +144,8 @@ async fn season_catalog(
 
     if let Some(db) = db {
         for season in need {
-            let eps: Vec<cinebox_tmdb::SeasonEpisode> = fetched
-                .iter()
-                .filter(|ep| ep.season == season)
-                .cloned()
-                .collect();
+            let in_season = fetched.iter().filter(|episode| episode.season == season);
+            let eps: Vec<cinebox_tmdb::SeasonEpisode> = in_season.cloned().collect();
 
             // Nothing back can be a network failure as well as a missing season,
             // so it is asked again next time instead of hiding names for a day.
@@ -166,9 +155,7 @@ async fn season_catalog(
 
             let paths = episode_paths(&eps);
             let cache_id = season_cache_id(id, season);
-            let saved = db
-                .put_json(lang, KIND_SEASON, &cache_id, &eps, &paths)
-                .await;
+            let saved = db.put_json(CacheKey { language: lang, kind: KIND_SEASON, id: &cache_id }, &eps, &paths).await;
 
             if let Err(error) = saved {
                 warn!(%error, "failed to persist season episodes");
@@ -197,12 +184,7 @@ fn episode_paths(episodes: &[cinebox_tmdb::SeasonEpisode]) -> Vec<String> {
     paths
 }
 
-fn file_title(
-    named: Option<&cinebox_tmdb::SeasonEpisode>,
-    serial: bool,
-    human: String,
-    movie_title: &str,
-) -> String {
+fn file_title(named: Option<&cinebox_tmdb::SeasonEpisode>, serial: bool, human: String, movie_title: &str) -> String {
     if let Some(ep) = named {
         return ep.name.clone();
     }
@@ -228,34 +210,28 @@ async fn decorate_files(
     let mut rows = Vec::new();
     for (index, file) in opened.files.into_iter().enumerate() {
         let parsed = parse_file_episode(&file.path, serial);
-        let tmdb = catalog
-            .iter()
-            .find(|ep| parsed.season == Some(ep.season) && parsed.episode == Some(ep.episode));
+        let tmdb = catalog.iter().find(|ep| parsed.season == Some(ep.season) && parsed.episode == Some(ep.episode));
 
         let human = file_display_name(&file.path);
         let named = tmdb.filter(|ep| !ep.name.is_empty());
         let title = file_title(named, serial, human, &movie.title);
 
-        let still_url = tmdb
-            .and_then(|ep| tmdb_image_url(ep.still_path.as_deref(), "w300"))
-            .or_else(|| fallback_still.clone());
+        let tmdb_still = tmdb.and_then(|episode| tmdb_image_url(episode.still_path.as_deref(), "w300"));
+        let still_url = tmdb_still.or_else(|| fallback_still.clone());
 
         let runtime = tmdb.and_then(|ep| ep.runtime_minutes).or(runtime_minutes);
         let number = parsed.episode.unwrap_or((index as u32).saturating_add(1));
-        let air_date = tmdb
-            .and_then(|ep| ep.air_date.as_deref())
-            .filter(|d| !d.is_empty())
-            .map(crate::i18n::format_release_date);
+        let tmdb_air_date = tmdb.and_then(|episode| episode.air_date.as_deref()).filter(|date| !date.is_empty());
+        let air_date = tmdb_air_date.map(crate::i18n::format_release_date);
 
         let local = match timeline {
-            Some((db, kind, id)) => db
-                .get_watch_timeline(kind, id, parsed.season, parsed.episode)
-                .await
-                .ok()
-                .flatten(),
+            Some((db, kind, id)) => {
+                let key = WatchKey { kind, id, season: parsed.season, episode: parsed.episode };
+                db.get_watch_timeline(key).await.ok().flatten()
+            }
             None => None,
         };
-        let timecode = local.map(|(time, _)| time).unwrap_or(file.timecode);
+        let timecode = local.map_or(file.timecode, |(time, _)| time);
 
         rows.push(TorrentFileRow {
             id: file.id,
@@ -285,7 +261,7 @@ async fn decorate_files(
     ReadyFiles::from_rows(opened.hash, rows)
 }
 
-pub async fn wait_stream(
+pub(crate) async fn wait_stream(
     torr: TorrCtx,
     file_path: String,
     hash: String,
@@ -293,11 +269,7 @@ pub async fn wait_stream(
     resume_bytes: Option<u64>,
     on_event: impl FnMut(cinebox_torrserver::PreloadEvent) + Send,
 ) -> Result<(), JobError> {
-    let target = cinebox_torrserver::PreloadTarget {
-        file_path: &file_path,
-        hash: &hash,
-        index: file_id,
-    };
+    let target = cinebox_torrserver::PreloadTarget { file_path: &file_path, hash: &hash, index: file_id };
 
     if let Some(offset) = resume_bytes {
         cinebox_torrserver::wait_preload_at_bytes(&torr.server, target, offset, on_event).await?;

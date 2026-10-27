@@ -4,7 +4,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cinebox_core::{KIND_CONFIG, ParserKind, ParserPreset, ServicePresets, Store, presets};
+use cinebox_core::{CacheKey, KIND_CONFIG, ParserKind, ParserPreset, ServicePresets, Store, presets};
 use cinebox_net::NetConfig;
 use cinebox_torrserver::FoundServer;
 use futures_util::future::{join, join_all};
@@ -15,12 +15,12 @@ use crate::services::jobs::JobError;
 const MDNS_WINDOW: Duration = Duration::from_secs(2);
 const PARSER_WAIT: Duration = Duration::from_secs(5);
 const FETCH_TIMEOUT: Duration = Duration::from_secs(5);
-const PRESETS_TTL: Duration = Duration::from_secs(24 * 3600);
+const PRESETS_TTL: Duration = Duration::from_hours(24);
 const PRESETS_CACHE_ID: &str = "service-presets";
 
 /// A parser address that answered, fastest first in [`Discovery::parsers`].
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct FoundParser {
+pub(crate) struct FoundParser {
     pub kind: ParserKind,
     pub url: String,
     /// Shared server that works without an API key.
@@ -31,14 +31,14 @@ pub struct FoundParser {
 }
 
 #[derive(Clone, Debug, Default)]
-pub struct Discovery {
+pub(crate) struct Discovery {
     pub torrservers: Vec<FoundServer>,
     pub parsers: Vec<FoundParser>,
 }
 
 /// Where discovery reads the preset list from.
 #[derive(Clone)]
-pub struct DiscoveryCtx {
+pub(crate) struct DiscoveryCtx {
     pub net: NetConfig,
     pub db: Option<Arc<Store>>,
     /// Folder of `settings.json`, which may hold the user's `presets.json`.
@@ -46,7 +46,7 @@ pub struct DiscoveryCtx {
 }
 
 /// Never fails: an unreachable service is simply not listed.
-pub async fn discover_services(ctx: DiscoveryCtx) -> Result<Discovery, JobError> {
+pub(crate) async fn discover_services(ctx: DiscoveryCtx) -> Result<Discovery, JobError> {
     let presets = load_presets(&ctx).await;
     let torr = &presets.torrserver;
 
@@ -54,10 +54,7 @@ pub async fn discover_services(ctx: DiscoveryCtx) -> Result<Discovery, JobError>
     let parsers = probe_parsers(&presets.parsers, &ctx.net);
     let (torrservers, parsers) = join(servers, parsers).await;
 
-    Ok(Discovery {
-        torrservers,
-        parsers,
-    })
+    Ok(Discovery { torrservers, parsers })
 }
 
 async fn load_presets(ctx: &DiscoveryCtx) -> ServicePresets {
@@ -89,7 +86,7 @@ async fn latest_presets(ctx: &DiscoveryCtx) -> Option<ServicePresets> {
 
 async fn cache_presets(db: &Store, presets: &ServicePresets) {
     let id = PRESETS_CACHE_ID;
-    let saved = db.put_json("", KIND_CONFIG, id, presets, &[]).await;
+    let saved = db.put_json(CacheKey { language: "", kind: KIND_CONFIG, id }, presets, &[]).await;
 
     if let Err(error) = saved {
         warn!(%error, "failed to cache service presets");
@@ -97,7 +94,7 @@ async fn cache_presets(db: &Store, presets: &ServicePresets) {
 }
 
 async fn cached_presets(db: Option<&Store>) -> Option<ServicePresets> {
-    let lookup = db?.get_json("", KIND_CONFIG, PRESETS_CACHE_ID);
+    let lookup = db?.get_json(CacheKey { language: "", kind: KIND_CONFIG, id: PRESETS_CACHE_ID });
     let hit = lookup.await.ok()??;
 
     if !hit.is_fresh(PRESETS_TTL) {

@@ -19,17 +19,14 @@ const IDLE_OPACITY: f32 = 0.45;
 /// Semi-transparent white countdown fill painted on top of the Skip button.
 const COUNTDOWN_TINT: Color32 = Color32::from_rgba_premultiplied(40, 40, 40, 40);
 
-pub struct SkipBannerOut {
+pub(super) struct SkipBannerOut {
     pub skip_clicked: bool,
     pub cancel_clicked: bool,
 }
 
 impl SkipBannerOut {
     fn none() -> Self {
-        Self {
-            skip_clicked: false,
-            cancel_clicked: false,
-        }
+        Self { skip_clicked: false, cancel_clicked: false }
     }
 }
 
@@ -37,7 +34,7 @@ impl SkipBannerOut {
 ///
 /// `seek_rect` is `Rect::NOTHING` when the footer overlay is hidden.
 /// `now` is `ui.input(|i| i.time)`.
-pub fn show(
+pub(super) fn show(
     skip: &SkipState,
     ctx: &egui::Context,
     theme: &Theme,
@@ -55,11 +52,7 @@ pub fn show(
 
     let safe = video - crate::platform::edge_inset(ctx);
     let footer_visible = seek_rect != Rect::NOTHING;
-    let anchor_bottom = if footer_visible {
-        seek_rect.top() - BOTTOM_GAP
-    } else {
-        safe.bottom() - BOTTOM_GAP
-    };
+    let anchor_bottom = if footer_visible { seek_rect.top() - BOTTOM_GAP } else { safe.bottom() - BOTTOM_GAP };
 
     let anchor = pos2(safe.right() - RIGHT_MARGIN, anchor_bottom);
     let area_id = Id::new("player-skip-banner");
@@ -67,7 +60,7 @@ pub fn show(
     let directional = crate::platform::profile(ctx).is_directional();
     let banner = ctx.read_response(area_id);
     let appeared = banner.is_none();
-    let pointed = banner.as_ref().is_some_and(|r| r.contains_pointer());
+    let pointed = banner.as_ref().is_some_and(egui::Response::contains_pointer);
     let focused_layer = focus::focused_layer(ctx);
     let focused = directional && banner.is_some_and(|r| focused_layer == Some(r.layer_id));
     let hovered = pointed || focused;
@@ -90,12 +83,7 @@ pub fn show(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = BTN_GAP;
 
-                    cancel_clicked = button::label(
-                        ui,
-                        theme,
-                        t!("player.cancel").as_ref(),
-                        Opts::secondary(btn_size),
-                    );
+                    cancel_clicked = button::label(ui, theme, t!("player.cancel").as_ref(), Opts::secondary(btn_size));
 
                     let frac = active.countdown_frac(now);
                     let is_counting = active.countdown_started_at.is_some();
@@ -110,10 +98,7 @@ pub fn show(
         ctx.request_repaint();
     }
 
-    SkipBannerOut {
-        skip_clicked,
-        cancel_clicked,
-    }
+    SkipBannerOut { skip_clicked, cancel_clicked }
 }
 
 fn skip_btn(
@@ -131,17 +116,9 @@ fn skip_btn(
         SegmentType::Preview => t!("player.skip_preview"),
     };
 
-    let text = RichText::new(caption.as_ref())
-        .size(theme.text_body)
-        .color(theme.btn_primary_fg);
+    let text = RichText::new(caption.as_ref()).size(theme.text_body).color(theme.btn_primary_fg);
 
-    let response = button::add_named(
-        ui,
-        theme,
-        text,
-        Opts::primary(btn_size),
-        Some(caption.as_ref()),
-    );
+    let response = button::add_named(ui, theme, text, Opts::primary(btn_size), Some(caption.as_ref()));
 
     // Countdown fill: semi-transparent overlay drawn left-to-right over the button.
     if frac > 0.0 {

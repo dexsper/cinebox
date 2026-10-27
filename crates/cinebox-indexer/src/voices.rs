@@ -80,14 +80,9 @@ fn whole_word(text: &str, start: usize, end: usize) -> bool {
 
 /// Detected studios in catalog order (same sequence as `voices.txt`).
 #[must_use]
-pub fn studios_in_catalog_order(
-    found: impl IntoIterator<Item = &'static str>,
-) -> Vec<&'static str> {
+pub fn studios_in_catalog_order(found: impl IntoIterator<Item = &'static str>) -> Vec<&'static str> {
     let have: Vec<&'static str> = found.into_iter().collect();
-    VOICES
-        .iter()
-        .filter_map(|(_, display)| have.contains(display).then_some(*display))
-        .collect()
+    VOICES.iter().filter_map(|(_, display)| have.contains(display).then_some(*display)).collect()
 }
 
 #[cfg(test)]
@@ -98,12 +93,12 @@ mod tests {
     fn finds_lostfilm_and_skips_missing() {
         let found = voices("Dune.2021.WEB-DL.LostFilm");
         assert!(found.contains(&"LostFilm"), "{found:?}");
-        assert!(voices("Dune.2021.WEB-DL").is_empty());
+        assert_eq!(voices("Dune.2021.WEB-DL"), Vec::<&str>::new());
     }
 
     #[test]
     fn a_studio_inside_another_word_is_not_found() {
-        assert!(voices("Интерстеллар / Interstellar (2014) BDRip").is_empty());
+        assert_eq!(voices("Интерстеллар / Interstellar (2014) BDRip"), Vec::<&str>::new());
         assert_eq!(voices("Офис / The Office | Интер"), vec!["Интер"]);
     }
 
@@ -115,11 +110,8 @@ mod tests {
 
     #[test]
     fn studios_come_in_title_order() {
-        let found = voices("Dune (2021) | LostFilm, HDrezka Studio");
-        assert_eq!(found, vec!["LostFilm", "HDrezka"]);
-
-        let found = voices("Dune (2021) | HDrezka Studio, LostFilm");
-        assert_eq!(found, vec!["HDrezka", "LostFilm"]);
+        assert_eq!(voices("Dune (2021) | LostFilm, HDrezka Studio"), vec!["LostFilm", "HDrezka"]);
+        assert_eq!(voices("Dune (2021) | HDrezka Studio, LostFilm"), vec!["HDrezka", "LostFilm"]);
     }
 
     #[test]

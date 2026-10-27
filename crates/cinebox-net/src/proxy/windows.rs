@@ -7,9 +7,7 @@ pub(super) fn wininet_proxy() -> Option<SystemProxy> {
     use winreg::enums::HKEY_CURRENT_USER;
 
     let hkcu = RegKey::predef(HKEY_CURRENT_USER);
-    let key = hkcu
-        .open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings")
-        .ok()?;
+    let key = hkcu.open_subkey(r"Software\Microsoft\Windows\CurrentVersion\Internet Settings").ok()?;
 
     let enabled: u32 = key.get_value("ProxyEnable").unwrap_or(0);
     let server: String = key.get_value("ProxyServer").unwrap_or_default();
@@ -37,11 +35,7 @@ fn parse_proxy_server(raw: &str) -> SystemProxy {
     if !raw.contains('=') {
         let url = with_proxy_scheme(raw.trim(), "http://");
 
-        return SystemProxy {
-            http: Some(url.clone()),
-            https: Some(url),
-            ..SystemProxy::default()
-        };
+        return SystemProxy { http: Some(url.clone()), https: Some(url), ..SystemProxy::default() };
     }
 
     let mut proxy = SystemProxy::default();
@@ -78,18 +72,12 @@ mod tests {
 
     #[test]
     fn bare_host_port_gets_http_scheme() {
-        assert_eq!(
-            stream_url("127.0.0.1:7890").as_deref(),
-            Some("http://127.0.0.1:7890")
-        );
+        assert_eq!(stream_url("127.0.0.1:7890").as_deref(), Some("http://127.0.0.1:7890"));
     }
 
     #[test]
     fn keeps_existing_scheme() {
-        assert_eq!(
-            stream_url("http://127.0.0.1:7890").as_deref(),
-            Some("http://127.0.0.1:7890")
-        );
+        assert_eq!(stream_url("http://127.0.0.1:7890").as_deref(), Some("http://127.0.0.1:7890"));
     }
 
     #[test]
@@ -100,9 +88,6 @@ mod tests {
 
     #[test]
     fn socks_only_uses_socks5() {
-        assert_eq!(
-            stream_url("socks=127.0.0.1:1080").as_deref(),
-            Some("socks5://127.0.0.1:1080")
-        );
+        assert_eq!(stream_url("socks=127.0.0.1:1080").as_deref(), Some("socks5://127.0.0.1:1080"));
     }
 }

@@ -21,7 +21,7 @@ enum TrailersPhase {
     Failed,
 }
 
-pub struct TrailersModal {
+pub(super) struct TrailersModal {
     open: bool,
     phase: TrailersPhase,
     items: Vec<Trailer>,
@@ -58,7 +58,7 @@ impl Default for TrailersModal {
 }
 
 impl TrailersModal {
-    pub fn open(&mut self, card: WatchCard, backdrop_path: Option<String>, items: Vec<Trailer>) {
+    pub(super) fn open(&mut self, card: WatchCard, backdrop_path: Option<String>, items: Vec<Trailer>) {
         if items.is_empty() {
             return;
         }
@@ -76,11 +76,11 @@ impl TrailersModal {
     }
 
     #[must_use]
-    pub fn is_open(&self) -> bool {
+    pub(super) fn is_open(&self) -> bool {
         self.open
     }
 
-    pub fn close(&mut self) -> bool {
+    pub(super) fn close(&mut self) -> bool {
         if !self.open {
             return false;
         }
@@ -93,11 +93,11 @@ impl TrailersModal {
         true
     }
 
-    pub fn take_play(&mut self) -> Option<PlayRequest> {
+    pub(super) fn take_play(&mut self) -> Option<PlayRequest> {
         self.pending_play.take()
     }
 
-    pub fn poll(&mut self) {
+    pub(super) fn poll(&mut self) {
         if self.phase != TrailersPhase::Resolving {
             return;
         }
@@ -120,7 +120,7 @@ impl TrailersModal {
         }
     }
 
-    pub fn show(&mut self, ctx: &egui::Context, svc: &Services, theme: &Theme) {
+    pub(super) fn show(&mut self, ctx: &egui::Context, svc: &Services, theme: &Theme) {
         if !self.open {
             return;
         }
@@ -229,11 +229,7 @@ impl TrailersModal {
             return;
         };
 
-        let title = if self.pending_title.is_empty() {
-            card.title.clone()
-        } else {
-            self.pending_title.clone()
-        };
+        let title = if self.pending_title.is_empty() { card.title.clone() } else { self.pending_title.clone() };
 
         self.pending_play = Some(PlayRequest {
             card,
@@ -273,37 +269,24 @@ fn trailer_list(
             let row_id = ui.id().with(("media-trailer", index));
             let bg = button::fill_for_hover(ui, row_id, theme.panel, theme.widget_hover);
 
-            let shown = Frame::new()
-                .fill(bg)
-                .corner_radius(6)
-                .inner_margin(12.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        poster::rounded_image(
-                            ui,
-                            Vec2::new(theme.still_w, theme.still_h),
-                            theme,
-                            || {
-                                svc.images.poster_key(
-                                    card.kind,
-                                    card.id,
-                                    card.poster_path.as_deref(),
-                                    svc.settings.tmdb.poster_size,
-                                )
-                            },
-                        );
+            let shown = Frame::new().fill(bg).corner_radius(6).inner_margin(12.0).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    poster::rounded_image(ui, Vec2::new(theme.still_w, theme.still_h), theme, || {
+                        svc.images.poster_key(
+                            card.kind,
+                            card.id,
+                            card.poster_path.as_deref(),
+                            svc.settings.tmdb.poster_size,
+                        )
+                    });
 
-                        ui.vertical(|ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.label(
-                                RichText::new(&trailer.name)
-                                    .size(theme.text_section)
-                                    .color(theme.title),
-                            );
-                        });
+                    ui.vertical(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.label(RichText::new(&trailer.name).size(theme.text_section).color(theme.title));
                     });
                 });
+            });
 
             let response = button::click_rect(ui, row_id, shown.response.rect);
             if picked == Some(index) {

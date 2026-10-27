@@ -12,10 +12,7 @@ const IMAGE_BASE: &str = "https://image.tmdb.org/t/p";
 pub fn tmdb_image_url(path: Option<&str>, size: &str) -> Option<String> {
     let path = normalize_tmdb_path(path)?;
 
-    Some(format!(
-        "{IMAGE_BASE}/{size}/{}",
-        path.trim_start_matches('/')
-    ))
+    Some(format!("{IMAGE_BASE}/{size}/{}", path.trim_start_matches('/')))
 }
 
 /// Canonical TMDB file path (`/abc.jpg`), or `None` if empty.
@@ -146,11 +143,7 @@ pub struct HomeRow {
 impl HomeRow {
     #[must_use]
     pub fn empty(id: HomeRowId) -> Self {
-        Self {
-            id,
-            items: Vec::new(),
-            error: None,
-        }
+        Self { id, items: Vec::new(), error: None }
     }
 
     /// Poster paths on this shelf.
@@ -199,10 +192,7 @@ mod tests {
             poster_path: Some(String::from("/abc.jpg")),
         };
 
-        assert_eq!(
-            item.poster_url(PosterSize::W342).as_deref(),
-            Some("https://image.tmdb.org/t/p/w342/abc.jpg")
-        );
+        assert_eq!(item.poster_url(PosterSize::W342).as_deref(), Some("https://image.tmdb.org/t/p/w342/abc.jpg"));
 
         assert_eq!(
             parse_tmdb_image_url("https://image.tmdb.org/t/p/w500/abc.jpg"),

@@ -12,7 +12,7 @@ use crate::widgets::{focus, rail};
 impl App {
     pub(super) fn apply_nav(&mut self, action: NavAction, now: f64, ctx: &Context) {
         let before = self.nav.current();
-        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
+        self.nav.mark_focus(ctx.memory(egui::Memory::focused));
         self.apply_nav_action(action, now, ctx);
 
         let returned = self.nav.current() != before;
@@ -64,10 +64,7 @@ impl App {
                 }
             }
             NavAction::OpenMedia { item } => {
-                self.nav.push(Screen::Media {
-                    kind: item.kind,
-                    id: item.id,
-                });
+                self.nav.push(Screen::Media { kind: item.kind, id: item.id });
                 self.media.seed(item);
             }
             NavAction::OpenPerson { person } => {
@@ -82,8 +79,7 @@ impl App {
                     return;
                 };
 
-                self.torrents
-                    .ensure_open(details, &self.services.settings.parser.default_quality);
+                self.torrents.ensure_open(details, &self.services.settings.parser.default_quality);
                 self.nav.push(Screen::Torrents { kind, id });
             }
         }
@@ -166,7 +162,7 @@ impl App {
         let kind = req.card.kind;
 
         self.player.start(req, &mut self.services, ctx);
-        self.nav.mark_focus(ctx.memory(|mem| mem.focused()));
+        self.nav.mark_focus(ctx.memory(egui::Memory::focused));
         self.nav.push(Screen::Player { kind, id });
     }
 }

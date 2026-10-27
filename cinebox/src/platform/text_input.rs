@@ -46,10 +46,7 @@ pub(crate) fn field(response: &mut Response, spec: TextInputSpec, text: &mut Str
         response.mark_changed();
     }
 
-    let shown = FieldText {
-        text: text.clone(),
-        selection: selection(&ctx, edit_id, text),
-    };
+    let shown = FieldText { text: text.clone(), selection: selection(&ctx, edit_id, text) };
     with_state(&ctx, |state| state.shown.push((edit_id, spec, shown)));
 }
 
@@ -91,7 +88,7 @@ pub(crate) fn sync(ctx: &Context) {
         return;
     }
 
-    let focused = ctx.memory(|mem| mem.focused());
+    let focused = ctx.memory(egui::Memory::focused);
     let editing = focused.filter(|_| ctx.text_edit_focused());
     let was_open = with_state(ctx, |state| std::mem::replace(&mut state.open, editing));
     let current = shown.into_iter().find(|(id, _, _)| Some(*id) == editing);

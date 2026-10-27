@@ -33,21 +33,9 @@ struct DohProvider {
 
 /// Built-in RFC 8484 providers, all serving on `/dns-query` over port 443.
 const PROVIDERS: [DohProvider; 3] = [
-    DohProvider {
-        host: "dns.quad9.net",
-        ips: [Ipv4Addr::new(9, 9, 9, 9), Ipv4Addr::new(149, 112, 112, 112)],
-    },
-    DohProvider {
-        host: "doh.dns.sb",
-        ips: [
-            Ipv4Addr::new(185, 222, 222, 222),
-            Ipv4Addr::new(45, 11, 45, 11),
-        ],
-    },
-    DohProvider {
-        host: "dns.alidns.com",
-        ips: [Ipv4Addr::new(223, 5, 5, 5), Ipv4Addr::new(223, 6, 6, 6)],
-    },
+    DohProvider { host: "dns.quad9.net", ips: [Ipv4Addr::new(9, 9, 9, 9), Ipv4Addr::new(149, 112, 112, 112)] },
+    DohProvider { host: "doh.dns.sb", ips: [Ipv4Addr::new(185, 222, 222, 222), Ipv4Addr::new(45, 11, 45, 11)] },
+    DohProvider { host: "dns.alidns.com", ips: [Ipv4Addr::new(223, 5, 5, 5), Ipv4Addr::new(223, 6, 6, 6)] },
 ];
 
 /// `reqwest` DNS hook that resolves through every DoH provider and falls
@@ -88,9 +76,7 @@ impl DohResolve {
             return None;
         }
 
-        Some(Self {
-            providers: providers.into(),
-        })
+        Some(Self { providers: providers.into() })
     }
 }
 
@@ -115,13 +101,13 @@ impl Resolve for DohResolve {
                 Err(error) => return Err(error.into()),
             };
 
-            let addrs = public_addrs(system.map(|addr| addr.ip()));
-            if addrs.is_empty() {
+            let system_addrs = public_addrs(system.map(|addr| addr.ip()));
+            if system_addrs.is_empty() {
                 return Err("dns bypass: no public ip (system dns looks poisoned)".into());
             }
 
             warn!(host, "using system dns after doh miss");
-            Ok(boxed_addrs(addrs))
+            Ok(boxed_addrs(system_addrs))
         })
     }
 }
@@ -243,9 +229,7 @@ async fn custom_name_servers(url: &str) -> Vec<NameServerConfig> {
     };
 
     let path = parsed.path().to_owned();
-    addrs
-        .map(|addr| name_server(addr.ip(), &host, &path))
-        .collect()
+    addrs.map(|addr| name_server(addr.ip(), &host, &path)).collect()
 }
 
 /// ISP sinkholes often map blocked names to loopback. Connecting there looks
@@ -253,17 +237,10 @@ async fn custom_name_servers(url: &str) -> Vec<NameServerConfig> {
 fn is_public_ip(ip: IpAddr) -> bool {
     match ip {
         IpAddr::V4(ip) => {
-            !ip.is_unspecified()
-                && !ip.is_loopback()
-                && !ip.is_link_local()
-                && !ip.is_broadcast()
-                && !ip.is_multicast()
+            !ip.is_unspecified() && !ip.is_loopback() && !ip.is_link_local() && !ip.is_broadcast() && !ip.is_multicast()
         }
         IpAddr::V6(ip) => {
-            !ip.is_unspecified()
-                && !ip.is_loopback()
-                && !ip.is_multicast()
-                && !ip.is_unicast_link_local()
+            !ip.is_unspecified() && !ip.is_loopback() && !ip.is_multicast() && !ip.is_unicast_link_local()
         }
     }
 }
@@ -303,48 +280,29 @@ mod tests {
     #[tokio::test]
     #[ignore = "hits live TMDB over DoH"]
     async fn https_to_tmdb_via_doh_client() {
-        let net = crate::NetConfig {
-            use_system_proxy: false,
-            dns_bypass: true,
-            custom_doh_url: String::new(),
-        };
+        let net = crate::NetConfig { use_system_proxy: false, dns_bypass: true, custom_doh_url: String::new() };
 
-        let response = crate::send_resilient(
-            &net,
-            Duration::from_secs(8),
-            Some("cinebox-net-test"),
-            |client| client.get("https://api.themoviedb.org/3"),
-        )
+        let response = crate::send_resilient(&net, Duration::from_secs(8), Some("cinebox-net-test"), |client| {
+            client.get("https://api.themoviedb.org/3")
+        })
         .await;
 
         match response {
             Ok(response) => {
                 let status = response.status().as_u16();
-                assert!(
-                    (200..500).contains(&status),
-                    "unexpected HTTP {status} from TMDB"
-                );
+                assert!((200..500).contains(&status), "unexpected HTTP {status} from TMDB");
             }
-            Err(error) => panic!(
-                "DoH HTTPS to TMDB failed: {error:?}"
-            ),
+            Err(error) => panic!("DoH HTTPS to TMDB failed: {error:?}"),
         }
     }
 
     #[tokio::test]
     #[ignore = "hits live TMDB images over DoH"]
     async fn tmdb_images_load_via_doh_client() {
-        let net = crate::NetConfig {
-            use_system_proxy: false,
-            dns_bypass: true,
-            custom_doh_url: String::new(),
-        };
+        let net = crate::NetConfig { use_system_proxy: false, dns_bypass: true, custom_doh_url: String::new() };
 
         let poster = "https://image.tmdb.org/t/p/w92/wwemzKWzjKYJFfCeiB57q3r4Bcm.png";
-        let response = crate::send_resilient(&net, Duration::from_secs(8), None, |client| {
-            client.get(poster)
-        })
-        .await;
+        let response = crate::send_resilient(&net, Duration::from_secs(8), None, |client| client.get(poster)).await;
 
         let status = response.map(|response| response.status().as_u16());
         assert_eq!(status.ok(), Some(200), "an image edge some provider names must answer");
@@ -363,11 +321,11 @@ mod tests {
 
     #[tokio::test]
     async fn bad_custom_url_is_ignored() {
-        let servers = custom_name_servers("not a url").await;
-        assert!(servers.is_empty());
+        let from_bad_url = custom_name_servers("not a url").await;
+        assert!(from_bad_url.is_empty());
 
-        let servers = custom_name_servers("").await;
-        assert!(servers.is_empty());
+        let from_empty = custom_name_servers("").await;
+        assert!(from_empty.is_empty());
     }
 
     #[test]
@@ -380,10 +338,7 @@ mod tests {
 
     #[test]
     fn public_addrs_drops_sinkhole() {
-        let addrs = public_addrs([
-            IpAddr::V4(Ipv4Addr::LOCALHOST),
-            IpAddr::V4(Ipv4Addr::new(104, 16, 1, 1)),
-        ]);
+        let addrs = public_addrs([IpAddr::V4(Ipv4Addr::LOCALHOST), IpAddr::V4(Ipv4Addr::new(104, 16, 1, 1))]);
 
         assert_eq!(addrs.len(), 1);
         assert_eq!(addrs[0].ip(), IpAddr::V4(Ipv4Addr::new(104, 16, 1, 1)));

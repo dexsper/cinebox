@@ -1,5 +1,7 @@
 //! Where TorrServer is and how to sign in to it.
 
+use std::fmt;
+
 use cinebox_core::normalize_base_url;
 
 use super::error::Error;
@@ -23,5 +25,16 @@ impl Server {
         }
 
         request.basic_auth(&self.username, Some(&self.password))
+    }
+}
+
+impl fmt::Debug for Server {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter
+            .debug_struct("Server")
+            .field("url", &self.url)
+            .field("username", &self.username)
+            .field("password", &"redacted")
+            .finish()
     }
 }

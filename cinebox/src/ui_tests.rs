@@ -1,8 +1,8 @@
 //! UI tests via `egui_kittest`. Interaction only no GPU snapshots.
 
 mod browse;
-mod field;
 mod chrome;
+mod field;
 mod home;
 mod interact;
 mod onboarding;

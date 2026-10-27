@@ -1,24 +1,24 @@
-pub mod backdrop;
-pub mod button;
-pub mod chips;
-pub mod chrome;
-pub mod combo;
-pub mod drawer;
-pub mod field;
-pub mod flyout;
-pub mod focus;
-pub mod intro;
-pub mod lazy_rows;
-pub mod lists;
-pub mod multiselect;
-pub mod overscan;
-pub mod page_state;
-pub mod poster;
-pub mod rail;
-pub mod rating;
-pub mod scroll;
-pub mod search;
-pub mod skeleton;
+pub(crate) mod backdrop;
+pub(crate) mod button;
+pub(crate) mod chips;
+pub(crate) mod chrome;
+pub(crate) mod combo;
+pub(crate) mod drawer;
+pub(crate) mod field;
+pub(crate) mod flyout;
+pub(crate) mod focus;
+pub(crate) mod intro;
+pub(crate) mod lazy_rows;
+pub(crate) mod lists;
+pub(crate) mod multiselect;
+pub(crate) mod overscan;
+pub(crate) mod page_state;
+pub(crate) mod poster;
+pub(crate) mod rail;
+pub(crate) mod rating;
+pub(crate) mod scroll;
+pub(crate) mod search;
+pub(crate) mod skeleton;
 
 use egui::{Align, Color32, Direction, Layout, RichText, Sense, Ui, UiBuilder, Vec2, vec2};
 
@@ -40,15 +40,13 @@ fn fill_remaining(ui: &mut Ui) -> Option<egui::Rect> {
 }
 
 /// Full-page loading spinner, centered, no caption.
-pub fn page_spinner(ui: &mut Ui, theme: &Theme) {
+pub(crate) fn page_spinner(ui: &mut Ui, theme: &Theme) {
     let Some(rect) = fill_remaining(ui) else {
         return;
     };
 
     ui.scope_builder(
-        UiBuilder::new()
-            .max_rect(rect)
-            .layout(Layout::centered_and_justified(Direction::TopDown)),
+        UiBuilder::new().max_rect(rect).layout(Layout::centered_and_justified(Direction::TopDown)),
         |ui| {
             ui.add(egui::Spinner::new().size(PAGE_SPINNER).color(theme.muted));
         },
@@ -56,13 +54,9 @@ pub fn page_spinner(ui: &mut Ui, theme: &Theme) {
 }
 
 /// Centered status copy (errors, empty lists).
-pub fn page_message(ui: &mut Ui, theme: &Theme, text: &str, color: Color32) {
+pub(crate) fn page_message(ui: &mut Ui, theme: &Theme, text: &str, color: Color32) {
     in_remaining(ui, |ui| {
-        ui.label(
-            RichText::new(text)
-                .font(theme.title_font(theme.text_display))
-                .color(color),
-        );
+        ui.label(RichText::new(text).font(theme.title_font(theme.text_display)).color(color));
     });
 }
 
@@ -72,21 +66,14 @@ fn in_remaining<R>(ui: &mut Ui, add: impl FnOnce(&mut Ui) -> R) -> Option<R> {
     let mut out = None;
 
     ui.scope_builder(
-        UiBuilder::new()
-            .max_rect(rect)
-            .layout(Layout::centered_and_justified(Direction::TopDown)),
+        UiBuilder::new().max_rect(rect).layout(Layout::centered_and_justified(Direction::TopDown)),
         |ui| {
             let slot = body_slot(ui, id, rect.width());
-            ui.scope_builder(
-                UiBuilder::new()
-                    .max_rect(slot)
-                    .layout(Layout::top_down(Align::Center)),
-                |ui| {
-                    ui.set_width(slot.width());
-                    out = Some(add(ui));
-                    remember_body_size(ui, id);
-                },
-            );
+            ui.scope_builder(UiBuilder::new().max_rect(slot).layout(Layout::top_down(Align::Center)), |ui| {
+                ui.set_width(slot.width());
+                out = Some(add(ui));
+                remember_body_size(ui, id);
+            });
         },
     );
 

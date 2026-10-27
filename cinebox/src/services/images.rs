@@ -22,7 +22,7 @@ const FAILED_CAP: usize = 256;
 
 /// What's in a poster well: texture, in-flight download, or nothing.
 #[derive(Clone, Copy)]
-pub enum ImageSlot<'a> {
+pub(crate) enum ImageSlot<'a> {
     Ready(&'a TextureHandle),
     Loading,
     Missing,
@@ -30,7 +30,7 @@ pub enum ImageSlot<'a> {
 
 impl ImageSlot<'_> {
     #[must_use]
-    pub fn or_else(self, fallback: impl FnOnce() -> Self) -> Self {
+    pub(crate) fn or_else(self, fallback: impl FnOnce() -> Self) -> Self {
         match self {
             Self::Missing => fallback(),
             other => other,
@@ -44,7 +44,7 @@ struct CachedTexture {
     last_used: Cell<u64>,
 }
 
-pub struct ImageCache {
+pub(crate) struct ImageCache {
     textures: HashMap<String, CachedTexture>,
     resident_bytes: usize,
     epoch: Cell<u64>,
@@ -58,12 +58,12 @@ pub struct ImageCache {
 
 impl ImageCache {
     #[must_use]
-    pub fn new() -> Self {
+    pub(crate) fn new() -> Self {
         Self::with_db(None)
     }
 
     #[must_use]
-    pub fn with_db(db: Option<Arc<Store>>) -> Self {
+    pub(crate) fn with_db(db: Option<Arc<Store>>) -> Self {
         let (tx, rx) = mpsc::channel();
         Self {
             textures: HashMap::new(),
@@ -78,7 +78,7 @@ impl ImageCache {
         }
     }
 
-    pub fn poll(&mut self, ctx: &Context, net: &NetConfig) {
+    pub(crate) fn poll(&mut self, ctx: &Context, net: &NetConfig) {
         if self.net != *net {
             self.net = net.clone();
         }
@@ -102,29 +102,29 @@ impl ImageCache {
     }
 
     /// Drop cold textures after this frame's paints, then advance the epoch.
-    pub fn end_frame(&mut self) {
+    pub(crate) fn end_frame(&mut self) {
         self.trim();
         self.epoch.set(self.epoch.get().saturating_add(1));
     }
 
     #[must_use]
-    pub fn slot(&self, url: Option<&str>) -> ImageSlot<'_> {
+    pub(crate) fn slot(&self, url: Option<&str>) -> ImageSlot<'_> {
         self.lookup(url, false)
     }
 
     /// Same as [`Self::slot`], but decodes a softened backdrop.
     #[must_use]
-    pub fn backdrop(&self, url: Option<&str>) -> ImageSlot<'_> {
+    pub(crate) fn backdrop(&self, url: Option<&str>) -> ImageSlot<'_> {
         self.lookup(url, true)
     }
 
     #[must_use]
-    pub fn poster(&self, item: &CatalogItem, size: cinebox_core::PosterSize) -> ImageSlot<'_> {
+    pub(crate) fn poster(&self, item: &CatalogItem, size: cinebox_core::PosterSize) -> ImageSlot<'_> {
         self.slot(item.poster_url(size).as_deref())
     }
 
     #[must_use]
-    pub fn poster_key(
+    pub(crate) fn poster_key(
         &self,
         kind: MediaKind,
         id: TmdbId,
@@ -179,7 +179,7 @@ impl ImageCache {
         });
     }
 
-    pub fn clear(&mut self) {
+    pub(crate) fn clear(&mut self) {
         self.textures.clear();
         self.resident_bytes = 0;
         self.epoch.set(0);
@@ -193,14 +193,7 @@ impl ImageCache {
         }
 
         self.resident_bytes = self.resident_bytes.saturating_add(bytes);
-        self.textures.insert(
-            url,
-            CachedTexture {
-                handle,
-                bytes,
-                last_used: Cell::new(epoch),
-            },
-        );
+        self.textures.insert(url, CachedTexture { handle, bytes, last_used: Cell::new(epoch) });
     }
 
     fn remember_failed(&mut self, url: String) {
@@ -244,18 +237,27 @@ impl Default for ImageCache {
     }
 }
 
+impl std::fmt::Debug for ImageCache {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("ImageCache")
+            .field("textures", &self.textures.len())
+            .field("resident_bytes", &self.resident_bytes)
+            .field("epoch", &self.epoch.get())
+            .field("pending", &self.pending.borrow().len())
+            .field("failed", &self.failed.len())
+            .field("has_db", &self.db.is_some())
+            .finish_non_exhaustive()
+    }
+}
+
 struct Resident<'a> {
     url: &'a str,
     bytes: usize,
     last_used: u64,
 }
 
-fn victims<'a>(
-    items: impl Iterator<Item = Resident<'a>>,
-    epoch: u64,
-    mut total: usize,
-    budget: usize,
-) -> Vec<String> {
+fn victims<'a>(items: impl Iterator<Item = Resident<'a>>, epoch: u64, mut total: usize, budget: usize) -> Vec<String> {
     if total <= budget {
         return Vec::new();
     }
@@ -286,12 +288,7 @@ fn request_repaint() {
     }
 }
 
-async fn load_image(
-    url: String,
-    soften: bool,
-    net: NetConfig,
-    db: Option<Arc<Store>>,
-) -> Result<ColorImage, String> {
+async fn load_image(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, String> {
     if let Some(db) = &db
         && let Some((size, path)) = parse_tmdb_image_url(&url)
     {
@@ -304,15 +301,8 @@ async fn load_image(
     download(url, soften, net, db).await
 }
 
-async fn download(
-    url: String,
-    soften: bool,
-    net: NetConfig,
-    db: Option<Arc<Store>>,
-) -> Result<ColorImage, String> {
-    let bytes = cinebox_tmdb::download_image(&url, &net)
-        .await
-        .map_err(|error| error.to_string())?;
+async fn download(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, String> {
+    let bytes = cinebox_tmdb::download_image(&url, &net).await.map_err(|error| error.to_string())?;
 
     let bytes = if soften {
         match crate::widgets::backdrop::soften(&bytes) {
@@ -339,9 +329,7 @@ async fn download(
 }
 
 fn decode(bytes: &[u8]) -> Result<ColorImage, String> {
-    let img = image::load_from_memory(bytes)
-        .map_err(|error| error.to_string())?
-        .into_rgba8();
+    let img = image::load_from_memory(bytes).map_err(|error| error.to_string())?.into_rgba8();
 
     let size = [img.width() as usize, img.height() as usize];
     Ok(ColorImage::from_rgba_unmultiplied(size, &img))
@@ -352,11 +340,7 @@ mod tests {
     use super::*;
 
     fn item(url: &'static str, bytes: usize, last_used: u64) -> Resident<'static> {
-        Resident {
-            url,
-            bytes,
-            last_used,
-        }
+        Resident { url, bytes, last_used }
     }
 
     #[test]
@@ -369,25 +353,16 @@ mod tests {
     #[test]
     fn pending_url_is_loading() {
         let cache = ImageCache::new();
-        cache
-            .pending
-            .borrow_mut()
-            .insert(String::from("https://img/a.jpg"));
+        cache.pending.borrow_mut().insert(String::from("https://img/a.jpg"));
 
-        assert!(matches!(
-            cache.slot(Some("https://img/a.jpg")),
-            ImageSlot::Loading
-        ));
+        assert!(matches!(cache.slot(Some("https://img/a.jpg")), ImageSlot::Loading));
     }
 
     #[test]
     fn failed_url_is_missing() {
         let mut cache = ImageCache::new();
         cache.failed.insert(String::from("https://img/a.jpg"));
-        assert!(matches!(
-            cache.slot(Some("https://img/a.jpg")),
-            ImageSlot::Missing
-        ));
+        assert!(matches!(cache.slot(Some("https://img/a.jpg")), ImageSlot::Missing));
     }
 
     #[test]
@@ -413,7 +388,7 @@ mod tests {
     fn under_budget_keeps_cold() {
         let items = [item("old", 10, 0), item("hot", 10, 1)];
         let drop = victims(items.into_iter(), 1, 20, 32);
-        assert!(drop.is_empty());
+        assert_eq!(drop, [] as [String; 0]);
     }
 
     #[test]
@@ -427,7 +402,7 @@ mod tests {
     fn hot_working_set_can_exceed_budget() {
         let items = [item("a", 80, 3), item("b", 80, 3)];
         let drop = victims(items.into_iter(), 3, 160, 100);
-        assert!(drop.is_empty());
+        assert_eq!(drop, [] as [String; 0]);
     }
 
     #[test]

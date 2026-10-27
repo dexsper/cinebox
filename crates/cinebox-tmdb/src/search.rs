@@ -34,6 +34,14 @@ impl SearchKind {
     }
 }
 
+/// One page of a name search; `page` starts at 1.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SearchQuery<'a> {
+    pub text: &'a str,
+    pub kind: SearchKind,
+    pub page: u32,
+}
+
 #[derive(Debug, Deserialize)]
 struct ListResponse {
     page: Option<u32>,
@@ -41,26 +49,21 @@ struct ListResponse {
     results: Option<Vec<CatalogListItem>>,
 }
 
-/// One TMDB search page (`page` starts at 1). Empty / whitespace queries skip the network.
+/// One TMDB search page. Empty / whitespace queries skip the network.
 ///
 /// # Errors
 ///
 /// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
-pub async fn fetch_search_page(
+pub(crate) async fn fetch_search_page(
     api_key: &str,
-    query: &str,
-    kind: SearchKind,
-    page: u32,
+    search: SearchQuery<'_>,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
+    let SearchQuery { text: query, kind, page } = search;
     let query = query.trim();
     if query.is_empty() {
-        return Ok(CatalogPage {
-            items: Vec::new(),
-            page: page.max(1),
-            total_pages: 1,
-        });
+        return Ok(CatalogPage { items: Vec::new(), page: page.max(1), total_pages: 1 });
     }
 
     let api_key = crate::prepare_api_key(api_key)?.to_owned();
@@ -72,15 +75,12 @@ pub async fn fetch_search_page(
     let query = query.to_owned();
 
     let parsed: ListResponse = send_json(net, |client| {
-        let mut request = client
-            .get(&url)
-            .timeout(std::time::Duration::from_secs(20))
-            .query(&[
-                ("api_key", api_key.as_str()),
-                ("query", query.as_str()),
-                ("page", page_s.as_str()),
-                ("include_adult", "false"),
-            ]);
+        let mut request = client.get(&url).timeout(std::time::Duration::from_secs(20)).query(&[
+            ("api_key", api_key.as_str()),
+            ("query", query.as_str()),
+            ("page", page_s.as_str()),
+            ("include_adult", "false"),
+        ]);
 
         if let Some(language) = language.as_deref() {
             request = request.query(&[("language", language)]);
@@ -93,18 +93,12 @@ pub async fn fetch_search_page(
     let raw = parsed.results.unwrap_or_default();
     let items = match kind {
         SearchKind::Person => person_items_from(raw, MAX_ROW_ITEMS),
-        SearchKind::Movie | SearchKind::Tv => {
-            catalog_items_from(raw, kind.fallback_kind(), MAX_ROW_ITEMS)
-        }
+        SearchKind::Movie | SearchKind::Tv => catalog_items_from(raw, kind.fallback_kind(), MAX_ROW_ITEMS),
     };
 
     let (page, total_pages) = page_bounds(page, parsed.page, parsed.total_pages, items.len());
 
-    Ok(CatalogPage {
-        items,
-        page,
-        total_pages,
-    })
+    Ok(CatalogPage { items, page, total_pages })
 }
 
 #[cfg(test)]
@@ -114,12 +108,13 @@ mod tests {
     #[tokio::test]
     async fn empty_query_skips_network() {
         let net = NetConfig::direct();
-        let result = fetch_search_page("key", "  ", SearchKind::Movie, 1, None, &net).await;
+        let search = SearchQuery { text: "  ", kind: SearchKind::Movie, page: 1 };
+        let result = fetch_search_page("key", search, None, &net).await;
         let Ok(page) = result else {
             panic!("empty query should skip the network");
         };
 
-        assert!(page.items.is_empty());
+        assert_eq!(page.items, []);
         assert_eq!(page.page, 1);
         assert_eq!(page.total_pages, 1);
     }

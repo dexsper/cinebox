@@ -2,7 +2,7 @@
 
 /// How a committed text field is cleaned up before it reaches [`cinebox_core::Settings`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InputKind {
+pub(crate) enum InputKind {
     /// Kept byte for byte (passwords).
     Raw,
     Plain,
@@ -13,7 +13,7 @@ pub enum InputKind {
 impl InputKind {
     /// Which on-screen keyboard layout suits the field.
     #[must_use]
-    pub fn text_purpose(self) -> crate::platform::TextPurpose {
+    pub(crate) fn text_purpose(self) -> crate::platform::TextPurpose {
         match self {
             Self::Plain => crate::platform::TextPurpose::Text,
             Self::Url => crate::platform::TextPurpose::Url,
@@ -24,7 +24,7 @@ impl InputKind {
 
 /// Problem with a TMDB key that is visible without a request.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum KeyHint {
+pub(crate) enum KeyHint {
     /// A v4 read access token (`eyJ…`) pasted where the v3 key belongs.
     AccessToken,
     /// Not 32 hex characters.
@@ -34,7 +34,7 @@ pub enum KeyHint {
 const TMDB_KEY_LEN: usize = 32;
 
 #[must_use]
-pub fn normalize(kind: InputKind, raw: &str) -> String {
+pub(crate) fn normalize(kind: InputKind, raw: &str) -> String {
     match kind {
         InputKind::Raw => raw.to_owned(),
         InputKind::Plain => raw.trim().to_owned(),
@@ -46,7 +46,7 @@ pub fn normalize(kind: InputKind, raw: &str) -> String {
 /// The normalized committed draft, or `None` when nothing was committed or
 /// normalization lands on the value already stored.
 #[must_use]
-pub fn changed_value(draft: Option<String>, kind: InputKind, current: &str) -> Option<String> {
+pub(crate) fn changed_value(draft: Option<String>, kind: InputKind, current: &str) -> Option<String> {
     let next = normalize(kind, &draft?);
     if next == current {
         return None;
@@ -57,7 +57,7 @@ pub fn changed_value(draft: Option<String>, kind: InputKind, current: &str) -> O
 
 /// Trim, default to `http://` when no scheme is given, drop trailing slashes.
 #[must_use]
-pub fn normalize_url(raw: &str) -> String {
+pub(crate) fn normalize_url(raw: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -73,12 +73,12 @@ pub fn normalize_url(raw: &str) -> String {
 
 /// Drop every whitespace character; pasted keys often carry a newline or a space.
 #[must_use]
-pub fn normalize_key(raw: &str) -> String {
+pub(crate) fn normalize_key(raw: &str) -> String {
     raw.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 #[must_use]
-pub fn tmdb_key_hint(key: &str) -> Option<KeyHint> {
+pub(crate) fn tmdb_key_hint(key: &str) -> Option<KeyHint> {
     if key.is_empty() {
         return None;
     }
@@ -97,7 +97,7 @@ pub fn tmdb_key_hint(key: &str) -> Option<KeyHint> {
 
 /// DNS-over-HTTPS needs an `https://` endpoint; empty means "use the built-in resolvers".
 #[must_use]
-pub fn doh_url_ok(url: &str) -> bool {
+pub(crate) fn doh_url_ok(url: &str) -> bool {
     url.is_empty() || url.starts_with("https://")
 }
 

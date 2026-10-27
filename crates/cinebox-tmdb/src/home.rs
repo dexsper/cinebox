@@ -7,7 +7,7 @@ use serde::Deserialize;
 
 use crate::catalog_map::{CatalogListItem, catalog_items_from};
 use crate::discover::{Date, DiscoverQuery};
-use crate::shelves::{ShelfId, ShelfSource, fetch_source_page};
+use crate::shelves::{ShelfId, ShelfSource, SourcePage, fetch_source_page};
 use crate::{Error, send_json};
 
 const API_BASE: &str = crate::API_BASE;
@@ -87,53 +87,29 @@ pub(crate) async fn fetch_list(
         .unwrap_or_default()
         .into_iter()
         .filter(|item| {
-            request.exclude_language.is_none()
-                || item.original_language.as_deref() != request.exclude_language
+            request.exclude_language.is_none() || item.original_language.as_deref() != request.exclude_language
         })
         .collect();
 
     let items = catalog_items_from(raw, request.kind, MAX_ROW_ITEMS);
     let (page, total_pages) = page_bounds(page, parsed.page, parsed.total_pages, items.len());
 
-    Ok(CatalogPage {
-        items,
-        page,
-        total_pages,
-    })
+    Ok(CatalogPage { items, page, total_pages })
 }
 
-async fn fetch_row(
-    net: &NetConfig,
-    api_key: &str,
-    language: Option<&str>,
-    id: HomeRowId,
-    today: Date,
-) -> HomeRow {
+async fn fetch_row(net: &NetConfig, api_key: &str, language: Option<&str>, id: HomeRowId, today: Date) -> HomeRow {
     let source = ShelfId::Home(id).source(today);
-    match fetch_source_page(net, api_key, language, &source, 1, today).await {
-        Ok(page) => HomeRow {
-            id,
-            items: page.items,
-            error: None,
-        },
-        Err(error) => HomeRow {
-            id,
-            items: Vec::new(),
-            error: Some(error.to_string()),
-        },
+    let request = SourcePage { source: &source, page: 1, today };
+    match fetch_source_page(net, api_key, language, request).await {
+        Ok(page) => HomeRow { id, items: page.items, error: None },
+        Err(error) => HomeRow { id, items: Vec::new(), error: Some(error.to_string()) },
     }
 }
 
-pub async fn fetch_home(
-    api_key: &str,
-    language: Option<&str>,
-    net: &NetConfig,
-) -> Result<HomeCatalog, Error> {
+pub(crate) async fn fetch_home(api_key: &str, language: Option<&str>, net: &NetConfig) -> Result<HomeCatalog, Error> {
     let api_key = crate::prepare_api_key(api_key)?;
     let today = Date::today();
-    let futs = HomeRowId::REMOTE
-        .into_iter()
-        .map(|id| fetch_row(net, api_key, language, id, today));
+    let futs = HomeRowId::REMOTE.into_iter().map(|id| fetch_row(net, api_key, language, id, today));
 
     let mut rows = Vec::with_capacity(HomeRowId::ALL.len());
     rows.extend(HomeRowId::LOCAL.into_iter().map(HomeRow::empty));
@@ -142,7 +118,7 @@ pub async fn fetch_home(
     Ok(HomeCatalog { rows })
 }
 
-pub async fn fetch_catalog_page(
+pub(crate) async fn fetch_catalog_page(
     api_key: &str,
     id: ShelfId,
     page: u32,
@@ -152,18 +128,14 @@ pub async fn fetch_catalog_page(
     let today = Date::today();
     let source = id.source(today);
     if source == ShelfSource::Local {
-        return Ok(CatalogPage {
-            items: Vec::new(),
-            page: page.max(1),
-            total_pages: 1,
-        });
+        return Ok(CatalogPage { items: Vec::new(), page: page.max(1), total_pages: 1 });
     }
 
     let api_key = crate::prepare_api_key(api_key)?;
-    fetch_source_page(net, api_key, language, &source, page, today).await
+    fetch_source_page(net, api_key, language, SourcePage { source: &source, page, today }).await
 }
 
-pub async fn fetch_discover_page(
+pub(crate) async fn fetch_discover_page(
     api_key: &str,
     query: &DiscoverQuery,
     page: u32,
@@ -172,8 +144,9 @@ pub async fn fetch_discover_page(
 ) -> Result<CatalogPage, Error> {
     let api_key = crate::prepare_api_key(api_key)?;
     let source = ShelfSource::Discover(Box::new(query.clone()));
+    let request = SourcePage { source: &source, page, today: Date::today() };
 
-    fetch_source_page(net, api_key, language, &source, page, Date::today()).await
+    fetch_source_page(net, api_key, language, request).await
 }
 
 #[cfg(test)]

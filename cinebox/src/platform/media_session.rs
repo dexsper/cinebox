@@ -58,10 +58,7 @@ impl SessionPublisher {
 }
 
 fn same_apart_from_position(a: &MediaSessionState, b: &MediaSessionState) -> bool {
-    let b_at_a = MediaSessionState {
-        position: a.position,
-        ..b.clone()
-    };
+    let b_at_a = MediaSessionState { position: a.position, ..b.clone() };
 
     *a == b_at_a
 }
@@ -89,7 +86,7 @@ mod tests {
 
     impl Recorder {
         fn count(&self) -> usize {
-            self.updates.lock().map(|updates| updates.len()).unwrap_or(0)
+            self.updates.lock().map_or(0, |updates| updates.len())
         }
     }
 
@@ -124,10 +121,7 @@ mod tests {
         let mut publisher = SessionPublisher::default();
 
         publisher.publish(&device, playing_at(10.0), 0.0);
-        let paused = MediaSessionState {
-            playing: false,
-            ..playing_at(11.0)
-        };
+        let paused = MediaSessionState { playing: false, ..playing_at(11.0) };
         publisher.publish(&device, paused, 1.0);
         publisher.publish(&device, playing_at(300.0), 2.0);
 
@@ -138,10 +132,7 @@ mod tests {
     fn a_paused_session_does_not_drift() {
         let device = Recorder::default();
         let mut publisher = SessionPublisher::default();
-        let paused = MediaSessionState {
-            playing: false,
-            ..playing_at(42.0)
-        };
+        let paused = MediaSessionState { playing: false, ..playing_at(42.0) };
 
         publisher.publish(&device, paused.clone(), 0.0);
         publisher.publish(&device, paused, 30.0);

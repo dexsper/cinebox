@@ -2,12 +2,10 @@
 
 use cinebox_core::{MediaKind, QualityBand};
 use cinebox_indexer::{
-    AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options,
-    voice_filter_options, year_options,
+    AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options, voice_filter_options, year_options,
 };
 use egui::{
-    Align, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, StrokeKind, Ui,
-    Vec2, pos2, vec2,
+    Align, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_RESTART_ALT};
 use rust_i18n::t;
@@ -15,6 +13,7 @@ use rust_i18n::t;
 use super::state::{TorrentHits, TorrentState};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
+use crate::widgets::combo::Choices;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, chips, combo, focus, multiselect, scroll};
@@ -49,9 +48,7 @@ pub(super) fn list_pane(
             let rows = &mut state.rows;
 
             ui.label(
-                RichText::new(format!("{} / {}", visible.len(), hits.len()))
-                    .size(theme.text_small)
-                    .color(theme.label),
+                RichText::new(format!("{} / {}", visible.len(), hits.len())).size(theme.text_small).color(theme.label),
             );
 
             if visible.is_empty() {
@@ -60,22 +57,13 @@ pub(super) fn list_pane(
             }
 
             scroll::vertical(ui, "torrent-hits", |ui| {
-                let ring_room = egui::Margin {
-                    left: RING_INSET,
-                    right: 0,
-                    top: RING_INSET,
-                    bottom: 0,
-                };
+                let ring_room = egui::Margin { left: RING_INSET, right: 0, top: RING_INSET, bottom: 0 };
 
-                let context = RowContext {
-                    kind: state.kind,
-                    runtime: state.runtime_minutes,
-                    year: state.year,
-                };
+                let context = RowContext { kind: state.kind, runtime: state.runtime_minutes, year: state.year };
 
                 Frame::new().inner_margin(ring_room).show(ui, |ui| {
                     ui.spacing_mut().item_spacing.y = 10.0;
-                    let focused = ui.memory(|mem| mem.focused());
+                    let focused = ui.memory(egui::Memory::focused);
                     let keep = visible.iter().position(|&index| {
                         let hit = hits.get(index);
                         hit.is_some_and(|hit| Some(hit_id(ui, hit)) == focused)
@@ -102,20 +90,10 @@ fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut O
         ui.spacing_mut().item_spacing.x = 8.0;
         let combo_w = (ui.available_width() - FILTERS_BTN_W - 8.0).max(160.0);
 
-        ui.allocate_ui_with_layout(
-            vec2(combo_w, combo::HEIGHT),
-            Layout::left_to_right(Align::Center),
-            |ui| {
-                combo::show_with(
-                    ui,
-                    theme,
-                    "torrent-sort",
-                    &mut state.sort,
-                    SortMode::ALL,
-                    |mode| sort_label(mode).into_owned(),
-                );
-            },
-        );
+        ui.allocate_ui_with_layout(vec2(combo_w, combo::HEIGHT), Layout::left_to_right(Align::Center), |ui| {
+            let label = |mode| sort_label(mode).into_owned();
+            combo::show_with(ui, theme, "torrent-sort", &mut state.sort, Choices { options: SortMode::ALL, label });
+        });
 
         let open = filters.is_open();
         if filters_button(ui, theme, open, state.filter.active_count()) {
@@ -167,9 +145,7 @@ fn filters_label(active: bool) -> String {
 
 pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Theme) {
     ui.label(
-        RichText::new(t!("filter.filters").as_ref())
-            .font(theme.title_font(theme.text_display))
-            .color(theme.title),
+        RichText::new(t!("filter.filters").as_ref()).font(theme.title_font(theme.text_display)).color(theme.title),
     );
 
     ui.add_space(12.0);
@@ -181,13 +157,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
     scroll::vertical(ui, "torrent-filters", |ui| {
         ui.spacing_mut().item_spacing.y = 10.0;
         section_label(ui, theme, t!("filter.quality").as_ref());
-        chips::multi_row(
-            ui,
-            theme,
-            &mut state.filter.quality,
-            QualityBand::ALL,
-            |band| band.label().to_owned(),
-        );
+        chips::multi_row(ui, theme, &mut state.filter.quality, QualityBand::ALL, |band| band.label().to_owned());
 
         section_label(ui, theme, t!("filter.hdr").as_ref());
         tri_row(ui, theme, &mut state.filter.hdr);
@@ -198,55 +168,45 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
 
         let hits = match &state.hits {
             TorrentHits::Ready(hits) => hits.as_slice(),
-            _ => &[],
+            TorrentHits::Loading | TorrentHits::Failed(_) => &[],
         };
 
         let voices = voice_filter_options(hits, &state.filter.voice);
+        let label = |voice| voice_label(voice).into_owned();
         section_label(ui, theme, t!("filter.translation").as_ref());
         multiselect::show_with(
             ui,
             theme,
             "torrent-voice",
             &mut state.filter.voice,
-            &voices,
-            |voice| voice_label(voice).into_owned(),
+            Choices { options: &voices, label },
         );
 
+        let label = |lang| audio_lang_label(lang).into_owned();
+        let choices = Choices { options: AudioLang::ALL, label };
         section_label(ui, theme, t!("filter.language").as_ref());
-        multiselect::show_with(
-            ui,
-            theme,
-            "torrent-lang",
-            &mut state.filter.lang,
-            AudioLang::ALL,
-            |lang| audio_lang_label(lang).into_owned(),
-        );
+        multiselect::show_with(ui, theme, "torrent-lang", &mut state.filter.lang, choices);
 
         let years = year_options(hits, state.year, &state.filter.year);
         if years.len() > 1 {
+            let label = |year: u16| year.to_string();
             section_label(ui, theme, t!("filter.year").as_ref());
             multiselect::show_with(
                 ui,
                 theme,
                 "torrent-year",
                 &mut state.filter.year,
-                &years,
-                |year| year.to_string(),
+                Choices { options: &years, label },
             );
         }
 
         if state.kind == MediaKind::Tv {
             let seasons = season_options(hits);
             if !seasons.is_empty() {
+                let label = |season| format!("{} {season}", t!("media.season"));
+                let choices = Choices { options: &seasons, label };
                 section_label(ui, theme, t!("media.season").as_ref());
-                multiselect::show_with(
-                    ui,
-                    theme,
-                    "torrent-season",
-                    &mut state.filter.season,
-                    &seasons,
-                    |season| format!("{} {season}", t!("media.season")),
-                );
+                multiselect::show_with(ui, theme, "torrent-season", &mut state.filter.season, choices);
             }
         }
     });
@@ -256,11 +216,7 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
 
 fn section_label(ui: &mut Ui, theme: &Theme, label: &str) {
     ui.add_space(4.0);
-    ui.label(
-        RichText::new(label)
-            .size(theme.text_small)
-            .color(theme.muted_bright),
-    );
+    ui.label(RichText::new(label).size(theme.text_small).color(theme.muted_bright));
 }
 
 fn tri_row(ui: &mut Ui, theme: &Theme, value: &mut TriChoice) {
@@ -319,13 +275,7 @@ fn chip(ui: &mut Ui, theme: &Theme, label: &str, active: bool) -> bool {
 
 fn reset_button(ui: &mut Ui, theme: &Theme) -> bool {
     let width = ui.available_width();
-    button::icon_label(
-        ui,
-        theme,
-        ICON_RESTART_ALT,
-        t!("filter.reset").as_ref(),
-        Opts::secondary(vec2(width, 36.0)),
-    )
+    button::icon_label(ui, theme, ICON_RESTART_ALT, t!("filter.reset").as_ref(), Opts::secondary(vec2(width, 36.0)))
 }
 
 /// What every row needs from the title the list is for.
@@ -402,13 +352,7 @@ fn meta_line(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext
         ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
             let size_label = hit.size_label();
             pill(ui, theme, &size_label, theme.size_pill_bg, theme.size_pill_fg);
-            metrics_bar(
-                ui,
-                theme,
-                bitrate.as_deref(),
-                &hit.seeders.to_string(),
-                &hit.peers.to_string(),
-            );
+            metrics_bar(ui, theme, bitrate.as_deref(), &hit.seeders.to_string(), &hit.peers.to_string());
 
             ui.with_layout(Layout::left_to_right(Align::Center), |ui| {
                 ui.spacing_mut().item_spacing.x = 12.0;
@@ -418,9 +362,7 @@ fn meta_line(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext
                 ui.label(RichText::new(date).size(META_SIZE).color(theme.muted));
 
                 if hit.local_rank.is_some() || hit.started {
-                    let started = RichText::new(t!("torrents.started").as_ref())
-                        .size(META_SIZE)
-                        .color(theme.ok);
+                    let started = RichText::new(t!("torrents.started").as_ref()).size(META_SIZE).color(theme.ok);
                     ui.label(started);
                 }
 
@@ -447,10 +389,7 @@ struct Tag {
 
 impl Tag {
     fn new(text: impl Into<String>, tone: TagTone) -> Self {
-        Self {
-            text: text.into(),
-            tone,
-        }
+        Self { text: text.into(), tone }
     }
 }
 
@@ -474,10 +413,10 @@ fn row_tags(hit: &cinebox_indexer::TorrentHit, context: RowContext) -> Vec<Tag> 
     }
 
     let picture = [
-        info.resolution.map(|band| band.as_str()),
+        info.resolution.map(cinebox_indexer::Resolution::as_str),
         info.hdr.map(hdr_label),
-        info.quality.map(|quality| quality.as_str()),
-        info.codec.map(|codec| codec.as_str()),
+        info.quality.map(cinebox_indexer::SourceQuality::as_str),
+        info.codec.map(cinebox_indexer::Codec::as_str),
     ];
     for text in picture.into_iter().flatten() {
         tags.push(Tag::new(text, TagTone::Picture));
@@ -624,8 +563,7 @@ fn paint_tag(ui: &mut Ui, theme: &Theme, tag: &Tag) {
     let size = vec2(galley.size().x + 2.0 * TAG_PAD_X, TAG_H);
     let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
 
-    ui.painter()
-        .rect(rect, CornerRadius::same(4), fill, stroke, StrokeKind::Inside);
+    ui.painter().rect(rect, CornerRadius::same(4), fill, stroke, StrokeKind::Inside);
     let pos = pos2(rect.left() + TAG_PAD_X, rect.center().y - galley.size().y * 0.5);
     ui.painter().galley(pos, galley, text);
 }
@@ -642,12 +580,7 @@ fn hit_ring(ui: &Ui, rect: Rect, theme: &Theme) {
     let ring = rect.expand(pad);
     let radius = theme.radius_card + pad;
 
-    ui.painter().rect_stroke(
-        ring,
-        CornerRadius::same(radius.round() as u8),
-        Stroke::new(theme.ring_w, theme.ring),
-        StrokeKind::Inside,
-    );
+    ui.painter().rect_stroke(ring, theme.rounding(radius), Stroke::new(theme.ring_w, theme.ring), StrokeKind::Inside);
 }
 
 const HIT_RING_GAP: f32 = 2.0;
@@ -669,10 +602,7 @@ pub(super) fn format_bitrate(kind: MediaKind, mbps: Option<f64>) -> Option<Strin
         return None;
     }
 
-    Some(
-        mbps.map(|mbps| format!("{mbps:.1}"))
-            .unwrap_or_else(|| String::from("—")),
-    )
+    Some(mbps.map_or_else(|| String::from("—"), |mbps| format!("{mbps:.1}")))
 }
 
 /// Pairs go straight into the right-to-left row (a nested `horizontal` breaks
@@ -699,19 +629,15 @@ fn metric_pair(ui: &mut Ui, label: &str, value: &str, theme: &Theme) {
 
 /// Fixed `METRIC_VAL_H` content height keeps every pill in the row the same height.
 fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
-    Frame::new()
-        .fill(bg)
-        .corner_radius(4)
-        .inner_margin(egui::Margin::symmetric(9, 4))
-        .show(ui, |ui| {
-            let font = theme.ui_font(META_SIZE);
-            let galley = ui.painter().layout_no_wrap(text.to_owned(), font, fg);
-            let size = Vec2::new(galley.size().x, METRIC_VAL_H);
-            let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
-            let pos = pos2(rect.left(), rect.center().y - galley.size().y * 0.5);
+    Frame::new().fill(bg).corner_radius(4).inner_margin(egui::Margin::symmetric(9, 4)).show(ui, |ui| {
+        let font = theme.ui_font(META_SIZE);
+        let galley = ui.painter().layout_no_wrap(text.to_owned(), font, fg);
+        let size = Vec2::new(galley.size().x, METRIC_VAL_H);
+        let (rect, _) = ui.allocate_exact_size(size, Sense::hover());
+        let pos = pos2(rect.left(), rect.center().y - galley.size().y * 0.5);
 
-            ui.painter().galley(pos, galley, fg);
-        });
+        ui.painter().galley(pos, galley, fg);
+    });
 }
 
 #[cfg(test)]
@@ -735,10 +661,7 @@ mod tests {
 
     #[test]
     fn bitrate_only_for_movies() {
-        assert_eq!(
-            format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(),
-            Some("8.2")
-        );
+        assert_eq!(format_bitrate(MediaKind::Movie, Some(8.2)).as_deref(), Some("8.2"));
 
         assert_eq!(format_bitrate(MediaKind::Movie, None).as_deref(), Some("—"));
         assert_eq!(format_bitrate(MediaKind::Tv, Some(8.2)), None);

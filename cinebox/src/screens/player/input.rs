@@ -13,7 +13,7 @@ use super::{PlayerPhase, PlayerScreen, Popup};
 impl PlayerScreen {
     /// Escape while the player is on screen: leave a settings submenu, close
     /// a popup, then exit fullscreen. `true` when consumed (navigation must not pop).
-    pub fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
+    pub(crate) fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
         match self.popup {
             Popup::None => {}
             Popup::Settings(page) if page != Page::Root => {
@@ -46,7 +46,7 @@ impl PlayerScreen {
             return;
         }
 
-        if ui.input(|i| i.key_pressed(egui::Key::Space)) {
+        if ui.input(|i| i.key_pressed(Key::Space)) {
             self.toggle(svc);
             self.focus_play_from_remote(ui.ctx());
         }
@@ -58,31 +58,25 @@ impl PlayerScreen {
             return;
         }
 
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowLeft)) {
+        if ui.input(|i| i.key_pressed(Key::ArrowLeft)) {
             self.seek(svc, -SEEK_SECS);
         }
 
-        if ui.input(|i| i.key_pressed(egui::Key::ArrowRight)) {
+        if ui.input(|i| i.key_pressed(Key::ArrowRight)) {
             self.seek(svc, SEEK_SECS);
         }
     }
 
     /// The video holds D-pad focus while nothing else does, so the arrows seek
     /// and OK pauses. `true` when Up/Down asked for the controls.
-    pub(super) fn dpad_video_focus(
-        &mut self,
-        ui: &Ui,
-        video: &Response,
-        popup_open: bool,
-        now: f64,
-    ) -> bool {
+    pub(super) fn dpad_video_focus(&mut self, ui: &Ui, video: &Response, popup_open: bool, now: f64) -> bool {
         if !platform::profile(ui.ctx()).is_directional() {
             return false;
         }
 
         focus::hold_arrows(ui, video.id, true, true);
 
-        let unfocused = ui.ctx().memory(|mem| mem.focused()).is_none();
+        let unfocused = ui.ctx().memory(egui::Memory::focused).is_none();
         let returning = popup_open || focus::popup_was_open(ui.ctx());
         if unfocused && !returning {
             video.request_focus();
@@ -133,7 +127,7 @@ impl PlayerScreen {
             if self.was_maximized {
                 ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
             }
-            
+
             ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
             return;
         }
@@ -185,10 +179,7 @@ mod tests {
     #[test]
     fn escape_leaves_a_settings_submenu_for_its_row() {
         let ctx = egui::Context::default();
-        let mut screen = PlayerScreen {
-            popup: Popup::Settings(Page::Speed),
-            ..PlayerScreen::default()
-        };
+        let mut screen = PlayerScreen { popup: Popup::Settings(Page::Speed), ..PlayerScreen::default() };
 
         assert!(screen.consume_escape(&ctx));
         assert!(screen.popup == Popup::Settings(Page::Root));
@@ -201,11 +192,7 @@ mod tests {
     #[test]
     fn escape_closes_popup_before_leaving_fullscreen() {
         let ctx = egui::Context::default();
-        let mut screen = PlayerScreen {
-            fullscreen: true,
-            popup: Popup::Playlist,
-            ..PlayerScreen::default()
-        };
+        let mut screen = PlayerScreen { fullscreen: true, popup: Popup::Playlist, ..PlayerScreen::default() };
 
         assert!(screen.consume_escape(&ctx));
         assert!(screen.popup == Popup::None);

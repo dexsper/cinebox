@@ -3,8 +3,8 @@
 
 use cinebox_core::Overscan;
 use egui::{
-    Align2, Context, FontId, Id, Key, LayerId, Order, PointerButton, Pos2, Rect, Response, Sense,
-    Stroke, StrokeKind, Ui, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Context, FontId, Id, Key, LayerId, Order, PointerButton, Pos2, Rect, Response, Sense, Stroke, StrokeKind,
+    Ui, WidgetInfo, WidgetType, pos2, vec2,
 };
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_CHEVRON_LEFT, ICON_CHEVRON_RIGHT};
@@ -43,7 +43,7 @@ impl Change {
 
 /// An L in each corner of the area the controls keep to. Calibrated right,
 /// all four are fully visible and touch the screen's edges.
-pub fn corner_marks(ctx: &Context, theme: &Theme) {
+pub(crate) fn corner_marks(ctx: &Context, theme: &Theme) {
     let safe = ctx.content_rect() - platform::edge_inset(ctx);
     let layer = LayerId::new(Order::Tooltip, Id::new("cinebox-overscan-marks"));
     let painter = ctx.layer_painter(layer);
@@ -67,7 +67,7 @@ pub fn corner_marks(ctx: &Context, theme: &Theme) {
 
 /// One focus stop: Left and Right on the remote crop less or more; with a
 /// pointer the chevrons do.
-pub fn stepper(ui: &mut Ui, theme: &Theme, overscan: &mut Overscan, label: &str) -> Response {
+pub(crate) fn stepper(ui: &mut Ui, theme: &Theme, overscan: &mut Overscan, label: &str) -> Response {
     let size = vec2(ui.available_width(), STEPPER_H);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let mut response = button::pointing(response);
@@ -123,20 +123,13 @@ fn arrow_change(ui: &Ui) -> Option<Change> {
 
 /// The edge margin is read at the start of a frame, so the next one shows it.
 fn on_changed(ui: &Ui, change: Change) {
-    let sound = UiSound::Navigate {
-        direction: change.direction(),
-        repeat: false,
-    };
+    let sound = UiSound::Navigate { direction: change.direction(), repeat: false };
     platform::device(ui.ctx()).play_sound(sound);
     ui.ctx().request_repaint();
 }
 
 fn paint(ui: &Ui, theme: &Theme, response: &Response, rect: Rect, overscan: Overscan) {
-    let fill = if focus::lit(response) {
-        theme.widget_hover
-    } else {
-        theme.input_bg
-    };
+    let fill = if focus::lit(response) { theme.widget_hover } else { theme.input_bg };
 
     let painter = ui.painter();
     let radius = theme.rounding(theme.radius_card);
@@ -154,11 +147,7 @@ fn paint(ui: &Ui, theme: &Theme, response: &Response, rect: Rect, overscan: Over
 }
 
 fn chevron(ui: &Ui, theme: &Theme, icon: MaterialIcon, at: Pos2, enabled: bool) {
-    let color = if enabled {
-        theme.muted_bright
-    } else {
-        theme.muted.gamma_multiply(0.4)
-    };
+    let color = if enabled { theme.muted_bright } else { theme.muted.gamma_multiply(0.4) };
 
     let font = FontId::new(theme.text_icon_lg, icon.font_family());
     let painter = ui.painter();

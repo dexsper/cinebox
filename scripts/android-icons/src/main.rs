@@ -8,13 +8,7 @@ use resvg::tiny_skia::{Pixmap, Transform};
 use resvg::usvg;
 
 /// Launcher icon edge per density bucket (48dp).
-const LAUNCHER: [(&str, u32); 5] = [
-    ("mdpi", 48),
-    ("hdpi", 72),
-    ("xhdpi", 96),
-    ("xxhdpi", 144),
-    ("xxxhdpi", 192),
-];
+const LAUNCHER: [(&str, u32); 5] = [("mdpi", 48), ("hdpi", 72), ("xhdpi", 96), ("xxhdpi", 144), ("xxxhdpi", 192)];
 
 /// Android TV banner: 160x90dp, shipped at xhdpi.
 const BANNER_W: u32 = 320;
@@ -36,24 +30,15 @@ fn main() -> Result<()> {
 
     let banner = banner_svg();
     let tree = usvg::Tree::from_str(&banner, &options).context("parse banner")?;
-    save(
-        &render(&tree, BANNER_W, BANNER_H)?,
-        &res.join("drawable-xhdpi/banner.png"),
-    )
+    save(&render(&tree, BANNER_W, BANNER_H)?, &res.join("drawable-xhdpi/banner.png"))
 }
 
 /// `href="icon.svg"` and the Plex font resolve against the app assets.
 fn options(assets: &Path) -> Result<usvg::Options<'static>> {
-    let mut options = usvg::Options {
-        resources_dir: Some(assets.to_path_buf()),
-        ..usvg::Options::default()
-    };
+    let mut options = usvg::Options { resources_dir: Some(assets.to_path_buf()), ..usvg::Options::default() };
 
     let font = assets.join("fonts/IBMPlexSans-Medium.ttf");
-    options
-        .fontdb_mut()
-        .load_font_file(&font)
-        .with_context(|| format!("load {}", font.display()))?;
+    options.fontdb_mut().load_font_file(&font).with_context(|| format!("load {}", font.display()))?;
 
     Ok(options)
 }
@@ -81,11 +66,7 @@ fn render(tree: &usvg::Tree, width: u32, height: u32) -> Result<Pixmap> {
 
     let scale_x = width as f32 / size.width();
     let scale_y = height as f32 / size.height();
-    resvg::render(
-        tree,
-        Transform::from_scale(scale_x, scale_y),
-        &mut pixmap.as_mut(),
-    );
+    resvg::render(tree, Transform::from_scale(scale_x, scale_y), &mut pixmap.as_mut());
 
     Ok(pixmap)
 }
@@ -95,7 +76,5 @@ fn save(pixmap: &Pixmap, path: &Path) -> Result<()> {
         fs::create_dir_all(dir).with_context(|| format!("create {}", dir.display()))?;
     }
 
-    pixmap
-        .save_png(path)
-        .with_context(|| format!("write {}", path.display()))
+    pixmap.save_png(path).with_context(|| format!("write {}", path.display()))
 }

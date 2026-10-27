@@ -6,12 +6,10 @@ use cinebox_player::Features;
 use crate::app::nav::SettingsPage;
 use crate::services::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
 use egui_material_icons::MaterialIcon;
-use egui_material_icons::icons::{
-    ICON_CLOUD, ICON_MOVIE, ICON_PLAY_CIRCLE, ICON_SEARCH, ICON_TUNE,
-};
+use egui_material_icons::icons::{ICON_CLOUD, ICON_MOVIE, ICON_PLAY_CIRCLE, ICON_SEARCH, ICON_TUNE};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum CategoryId {
+pub(super) enum CategoryId {
     General,
     Player,
     Parser,
@@ -21,7 +19,7 @@ pub enum CategoryId {
 
 impl CategoryId {
     #[must_use]
-    pub fn as_key(self) -> &'static str {
+    pub(super) fn as_key(self) -> &'static str {
         match self {
             Self::General => "general",
             Self::Player => "player",
@@ -43,7 +41,7 @@ impl From<SettingsPage> for CategoryId {
     }
 }
 
-pub struct Category {
+pub(super) struct Category {
     pub id: CategoryId,
     pub title: &'static str,
     pub subtitle: &'static str,
@@ -51,18 +49,18 @@ pub struct Category {
     pub fields: &'static [Field],
 }
 
-pub enum SelectId {
+pub(super) enum SelectId {
     Language,
     ParserKind,
     PosterSize,
 }
 
-pub enum MultiSelectId {
+pub(super) enum MultiSelectId {
     Quality,
     HomeRows,
 }
 
-pub enum Field {
+pub(super) enum Field {
     Toggle {
         label: &'static str,
         hint: Option<&'static str>,
@@ -101,7 +99,7 @@ pub enum Field {
     /// `field`, while the player has what it sets.
     PlayerOnly {
         needs: fn(&Features) -> bool,
-        field: &'static Field,
+        field: &'static Self,
     },
     ProbeParser,
     ProbeTorr,
@@ -111,7 +109,7 @@ pub enum Field {
 }
 
 /// Returns the i18n key of a warning shown under the committed value.
-pub type Check = fn(&str) -> Option<&'static str>;
+pub(super) type Check = fn(&str) -> Option<&'static str>;
 
 fn check_tmdb_key(key: &str) -> Option<&'static str> {
     tmdb_key_hint(key).map(|hint| match hint {
@@ -124,11 +122,11 @@ fn check_doh_url(url: &str) -> Option<&'static str> {
     (!doh_url_ok(url)).then_some("settings.doh_needs_https")
 }
 
-pub fn catalog() -> &'static [Category] {
+pub(super) fn catalog() -> &'static [Category] {
     CATALOG
 }
 
-pub fn category(id: CategoryId) -> &'static Category {
+pub(super) fn category(id: CategoryId) -> &'static Category {
     for cat in catalog() {
         if cat.id == id {
             return cat;
@@ -177,18 +175,8 @@ const CATALOG: &[Category] = &[
 ];
 
 const GENERAL: &[Field] = &[
-    Field::Select {
-        id: "language",
-        label: "filter.language",
-        hint: None,
-        which: SelectId::Language,
-    },
-    Field::MultiSelect {
-        id: "home-rows",
-        label: "settings.home_shelves",
-        hint: None,
-        which: MultiSelectId::HomeRows,
-    },
+    Field::Select { id: "language", label: "filter.language", hint: None, which: SelectId::Language },
+    Field::MultiSelect { id: "home-rows", label: "settings.home_shelves", hint: None, which: MultiSelectId::HomeRows },
     Field::Toggle {
         label: "settings.use_system_proxy",
         hint: Some("settings.use_system_proxy_hint"),
@@ -264,12 +252,7 @@ const PLAYER: &[Field] = &[
 ];
 
 const PARSER: &[Field] = &[
-    Field::Select {
-        id: "parser-kind",
-        label: "settings.parser_type",
-        hint: None,
-        which: SelectId::ParserKind,
-    },
+    Field::Select { id: "parser-kind", label: "settings.parser_type", hint: None, which: SelectId::ParserKind },
     Field::Text {
         label: "settings.url",
         hint: None,
@@ -354,12 +337,7 @@ const TMDB: &[Field] = &[
         get: |s| s.tmdb.api_key.clone(),
         set: |s, v| s.tmdb.api_key = v,
     },
-    Field::Select {
-        id: "poster-size",
-        label: "settings.poster_size",
-        hint: None,
-        which: SelectId::PosterSize,
-    },
+    Field::Select { id: "poster-size", label: "settings.poster_size", hint: None, which: SelectId::PosterSize },
     Field::ProbeTmdb,
     Field::ClearCache,
 ];

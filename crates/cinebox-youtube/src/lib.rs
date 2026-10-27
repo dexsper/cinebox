@@ -12,5 +12,5 @@ mod resolve;
 
 pub use error::Error;
 pub use id::VideoId;
-pub use jsinterp::{JSInterpreter, JsFunction, JsValue};
-pub use resolve::{resolve, Playback};
+pub use jsinterp::{JsFunction, JsInterpreter, JsRegex, JsValue};
+pub use resolve::{Playback, resolve};

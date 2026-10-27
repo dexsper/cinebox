@@ -28,6 +28,14 @@ struct JackettIndexer {
     error: Option<String>,
 }
 
+/// Where one indexer request goes and how it signs in.
+#[derive(Clone, Copy)]
+struct Endpoint<'a> {
+    net: &'a NetConfig,
+    url: &'a str,
+    api_key: &'a str,
+}
+
 #[derive(Clone, Copy)]
 enum JackettMode {
     /// Aggregator extras (`title`, `year`, `is_serial`) without `Category[]`.
@@ -89,22 +97,23 @@ async fn search_jackett(
     net: &NetConfig,
 ) -> Result<Vec<Hit>, Error> {
     let url = join_url(base, "api/v2.0/indexers/all/results");
-    let parsed = jackett_get(net, &url, api_key, query, q, JackettMode::Full).await?;
+    let endpoint = Endpoint { net, url: &url, api_key };
+    let parsed = jackett_get(endpoint, query, q, JackettMode::Full).await?;
 
     log_jackett_indexers(&parsed, q);
     let mut hits: Vec<Hit> = parsed.results.iter().filter_map(hit_from_jackett).collect();
 
     if hits.is_empty() {
         warn!(query = %q, "jackett empty; retrying with Query only");
-        let parsed = jackett_get(net, &url, api_key, query, q, JackettMode::QueryOnly).await?;
+        let retried = jackett_get(endpoint, query, q, JackettMode::QueryOnly).await?;
 
-        log_jackett_indexers(&parsed, q);
-        hits = parsed.results.iter().filter_map(hit_from_jackett).collect();
+        log_jackett_indexers(&retried, q);
+        hits = retried.results.iter().filter_map(hit_from_jackett).collect();
 
         if hits.is_empty() {
             warn!(
                 query = %q,
-                indexers = parsed.indexers.len(),
+                indexers = retried.indexers.len(),
                 "jackett returned no results"
             );
         }
@@ -114,30 +123,22 @@ async fn search_jackett(
 }
 
 async fn jackett_get(
-    net: &NetConfig,
-    url: &str,
-    api_key: &str,
+    endpoint: Endpoint<'_>,
     query: &SearchQuery,
     q: &str,
     mode: JackettMode,
 ) -> Result<JackettResults, Error> {
+    let Endpoint { net, url, api_key } = endpoint;
     let year = query.year.map(|year| year.to_string());
-    let genres = if query.genres.is_empty() {
-        None
-    } else {
-        Some(query.genres.join(","))
-    };
+    let genres = if query.genres.is_empty() { None } else { Some(query.genres.join(",")) };
 
     let response = send(net, |client| {
-        let mut request = client
-            .get(url)
-            .timeout(SEARCH_TIMEOUT)
-            .query(&[("apikey", api_key), ("Query", q)]);
+        let mut request = client.get(url).timeout(SEARCH_TIMEOUT).query(&[("apikey", api_key), ("Query", q)]);
 
         if matches!(mode, JackettMode::Full) {
             let is_serial = match query.kind {
                 MediaKind::Tv => "2",
-                _ => "1",
+                MediaKind::Movie | MediaKind::Person => "1",
             };
 
             request = request.query(&[("is_serial", is_serial)]);
@@ -178,43 +179,44 @@ async fn search_prowlarr(
     net: &NetConfig,
 ) -> Result<Vec<Hit>, Error> {
     let url = join_url(base, "api/v1/search");
+    let endpoint = Endpoint { net, url: &url, api_key };
     let search_type = match query.kind {
         MediaKind::Tv => "tvsearch",
-        _ => "search",
+        MediaKind::Movie | MediaKind::Person => "search",
     };
 
-    let parsed = prowlarr_get(net, &url, api_key, q, search_type, Some(query)).await?;
+    let parsed = prowlarr_get(endpoint, q, search_type, Some(query)).await?;
     let mut hits: Vec<Hit> = parsed.iter().filter_map(hit_from_prowlarr).collect();
 
     if hits.is_empty() {
         warn!(query = %q, "prowlarr empty; retrying without categories");
-        let parsed = prowlarr_get(net, &url, api_key, q, search_type, None).await?;
-        hits = parsed.iter().filter_map(hit_from_prowlarr).collect();
+        let retried = prowlarr_get(endpoint, q, search_type, None).await?;
+        hits = retried.iter().filter_map(hit_from_prowlarr).collect();
     }
 
     Ok(hits)
 }
 
 async fn prowlarr_get(
-    net: &NetConfig,
-    url: &str,
-    api_key: &str,
+    endpoint: Endpoint<'_>,
     q: &str,
     search_type: &str,
     query: Option<&SearchQuery>,
 ) -> Result<Vec<Value>, Error> {
+    let Endpoint { net, url, api_key } = endpoint;
     let response = send(net, |client| {
-        let mut request = client
-            .get(url)
-            .timeout(SEARCH_TIMEOUT)
-            .header("X-Api-Key", api_key)
-            .query(&[("apikey", api_key), ("query", q), ("type", search_type)]);
+        let mut request = client.get(url).timeout(SEARCH_TIMEOUT).header("X-Api-Key", api_key).query(&[
+            ("apikey", api_key),
+            ("query", q),
+            ("type", search_type),
+        ]);
 
         if let Some(query) = query {
             let category = match query.kind {
                 MediaKind::Tv => "5000",
-                _ => "2000",
+                MediaKind::Movie | MediaKind::Person => "2000",
             };
+
             request = request.query(&[("categories", category)]);
             if query.is_anime {
                 request = request.query(&[("categories", "5070")]);
@@ -247,22 +249,18 @@ mod tests {
         };
 
         assert_eq!(parsed.results.len(), 1);
-        assert_eq!(
-            hit_from_jackett(&parsed.results[0]).map(|h| h.title),
-            Some(String::from("A"))
-        );
+        assert_eq!(hit_from_jackett(&parsed.results[0]).map(|h| h.title), Some(String::from("A")));
     }
 
     #[test]
     fn jackett_parses_indexer_errors() {
-        let parsed: JackettResults = match serde_json::from_str(
-            r#"{"Results":[],"Indexers":[{"Name":"rutor","Error":"timeout"}]}"#,
-        ) {
+        let json = r#"{"Results":[],"Indexers":[{"Name":"rutor","Error":"timeout"}]}"#;
+        let parsed: JackettResults = match serde_json::from_str(json) {
             Ok(parsed) => parsed,
             Err(error) => panic!("{error}"),
         };
 
-        assert!(parsed.results.is_empty());
+        assert_eq!(parsed.results, Vec::<Value>::new());
         assert_eq!(parsed.indexers.len(), 1);
         assert_eq!(parsed.indexers[0].name, "rutor");
         assert_eq!(parsed.indexers[0].error.as_deref(), Some("timeout"));

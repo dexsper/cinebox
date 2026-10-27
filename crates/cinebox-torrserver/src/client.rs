@@ -12,8 +12,7 @@ use super::error::Error;
 /// the config is forced direct: no WinINet / env proxies and no DoH. Set
 /// request timeouts with [`reqwest::RequestBuilder::timeout`].
 pub(crate) fn http_client() -> Result<reqwest::Client, Error> {
-    cinebox_net::plain_client(&NetConfig::direct(), Duration::from_secs(5), None)
-        .map_err(Error::Client)
+    cinebox_net::plain_client(&NetConfig::direct(), Duration::from_secs(5), None).map_err(Error::Client)
 }
 
 pub(crate) fn check_status(status: StatusCode) -> Result<(), Error> {
@@ -26,9 +25,7 @@ pub(crate) fn check_status(status: StatusCode) -> Result<(), Error> {
     Ok(())
 }
 
-pub(crate) async fn send_json<T: DeserializeOwned>(
-    request: reqwest::RequestBuilder,
-) -> Result<T, Error> {
+pub(crate) async fn send_json<T: DeserializeOwned>(request: reqwest::RequestBuilder) -> Result<T, Error> {
     let response = request.send().await.map_err(Error::Request)?;
     check_status(response.status())?;
     let body = response.bytes().await.map_err(Error::Request)?;

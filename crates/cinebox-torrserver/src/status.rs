@@ -77,6 +77,8 @@ impl TorrentStatus {
         if self.preload_size <= 0 {
             return 100.0;
         }
+
+        #[expect(clippy::cast_precision_loss, reason = "a percent needs far less than the 52 bits `f64` keeps")]
         let progress = (self.preloaded_bytes as f64) * 100.0 / (self.preload_size as f64);
 
         progress.clamp(0.0, 100.0)
@@ -85,8 +87,8 @@ impl TorrentStatus {
 
 /// Playable video extensions.
 const VIDEO_EXT: &[&str] = &[
-    "asf", "wmv", "divx", "avi", "mp4", "m4v", "mov", "3gp", "3g2", "mkv", "trp", "tp", "mts",
-    "mpg", "mpeg", "dat", "vob", "rm", "rmvb", "m2ts", "ts",
+    "asf", "wmv", "divx", "avi", "mp4", "m4v", "mov", "3gp", "3g2", "mkv", "trp", "tp", "mts", "mpg", "mpeg", "dat",
+    "vob", "rm", "rmvb", "m2ts", "ts",
 ];
 
 /// True when the path looks like a video file.
@@ -102,19 +104,13 @@ pub fn is_playable_path(path: &str) -> bool {
 /// Video files, or every non-empty file when the torrent has no known video ext.
 #[must_use]
 pub fn files_for_list(stats: &[FileStat]) -> Vec<FileStat> {
-    let playable: Vec<FileStat> = stats
-        .iter()
-        .filter(|file| file.id > 0 && is_playable_path(&file.path))
-        .cloned()
-        .collect();
+    let playable_files = stats.iter().filter(|file| file.id > 0 && is_playable_path(&file.path));
+    let playable: Vec<FileStat> = playable_files.cloned().collect();
     if !playable.is_empty() {
         return playable;
     }
-    stats
-        .iter()
-        .filter(|file| file.id > 0 && file.length > 0)
-        .cloned()
-        .collect()
+
+    stats.iter().filter(|file| file.id > 0 && file.length > 0).cloned().collect()
 }
 
 #[cfg(test)]
@@ -130,11 +126,7 @@ mod tests {
 
     #[test]
     fn falls_back_when_no_video_ext() {
-        let stats = vec![FileStat {
-            id: 1,
-            path: String::from("disc.iso"),
-            length: 1000,
-        }];
+        let stats = vec![FileStat { id: 1, path: String::from("disc.iso"), length: 1000 }];
         assert_eq!(files_for_list(&stats).len(), 1);
     }
 
@@ -191,8 +183,7 @@ mod tests {
             ]
         }"#;
 
-        let status: TorrentStatus =
-            serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
+        let status: TorrentStatus = serde_json::from_str(fixture).unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(status.hash, "abcdef0123456789abcdef0123456789abcdef01");
         assert_eq!(status.stat_kind(), TorrentStat::Working);
@@ -203,11 +194,10 @@ mod tests {
 
     #[test]
     fn missing_fields_default_and_unknown_stat_maps() {
-        let status: TorrentStatus =
-            serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
+        let status: TorrentStatus = serde_json::from_str("{}").unwrap_or_else(|error| panic!("fixture: {error}"));
 
         assert_eq!(status.hash, "");
-        assert!(status.file_stats.is_empty());
+        assert_eq!(status.file_stats, []);
         assert_eq!(status.stat_kind(), TorrentStat::Added);
 
         assert_eq!(TorrentStat::from(42), TorrentStat::Unknown(42));

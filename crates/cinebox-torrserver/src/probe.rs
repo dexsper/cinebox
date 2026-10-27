@@ -28,8 +28,7 @@ impl SpeedReport {
     /// Throughput in megabits per second.
     #[must_use]
     pub fn megabits_per_sec(&self) -> f64 {
-        let secs = self.elapsed.as_secs_f64().max(f64::EPSILON);
-        (self.bytes as f64) * 8.0 / secs / 1_000_000.0
+        megabits_per_sec(self.bytes, self.elapsed.as_secs_f64().max(f64::EPSILON))
     }
 
     /// Short UI line, no URLs.
@@ -49,11 +48,7 @@ impl SpeedReport {
 #[derive(Clone, Copy, Debug)]
 pub enum SpeedEvent {
     Testing,
-    Sample {
-        mbps: f64,
-        elapsed: Duration,
-        bytes: u64,
-    },
+    Sample { mbps: f64, elapsed: Duration, bytes: u64 },
 }
 
 /// `GET /echo` unauthenticated version string (ping).
@@ -82,15 +77,17 @@ pub async fn echo(server: &Server) -> Result<String, Error> {
     Ok(version.to_owned())
 }
 
+#[expect(clippy::cast_precision_loss, reason = "a speed reading needs far less than the 52 bits `f64` keeps")]
+fn megabits_per_sec(bytes: u64, secs: f64) -> f64 {
+    (bytes as f64) * 8.0 / secs / 1_000_000.0
+}
+
 /// `GET /download/{n}` with a 10s read cap. Needs Basic auth when the server has `HttpAuth`.
 ///
 /// # Errors
 ///
 /// Empty URL, HTTP failures, or zero bytes read.
-pub async fn speed_test(
-    server: &Server,
-    mut on_event: impl FnMut(SpeedEvent) + Send,
-) -> Result<SpeedReport, Error> {
+pub async fn speed_test(server: &Server, mut on_event: impl FnMut(SpeedEvent) + Send) -> Result<SpeedReport, Error> {
     let base = server.base()?;
     let path = format!("download/{SPEED_TEST_FILE_MB}");
     let url = join_url(&base, &path);
@@ -122,18 +119,16 @@ pub async fn speed_test(
         let elapsed = started.elapsed();
         let secs = elapsed.as_secs_f64();
         let warmed_up = secs >= MIN_SAMPLE_SECS;
+
         if warmed_up {
-            let mbps = (bytes as f64) * 8.0 / secs / 1_000_000.0;
-            on_event(SpeedEvent::Sample {
-                mbps,
-                elapsed,
-                bytes,
-            });
+            let mbps = megabits_per_sec(bytes, secs);
+            on_event(SpeedEvent::Sample { mbps, elapsed, bytes });
         }
 
         if started.elapsed() >= Duration::from_secs(SPEED_TEST_MAX_SECS) {
             break;
         }
+
         if bytes >= SPEED_TEST_MAX_BYTES {
             break;
         }
@@ -142,11 +137,7 @@ pub async fn speed_test(
         return Err(Error::NoData);
     }
 
-    Ok(SpeedReport {
-        size_mb: SPEED_TEST_FILE_MB,
-        bytes,
-        elapsed: started.elapsed(),
-    })
+    Ok(SpeedReport { size_mb: SPEED_TEST_FILE_MB, bytes, elapsed: started.elapsed() })
 }
 
 #[cfg(test)]
@@ -155,11 +146,7 @@ mod tests {
 
     #[test]
     fn mbps_ten_megabytes_in_eight_seconds() {
-        let report = SpeedReport {
-            size_mb: 10,
-            bytes: 10_000_000,
-            elapsed: Duration::from_secs(8),
-        };
+        let report = SpeedReport { size_mb: 10, bytes: 10_000_000, elapsed: Duration::from_secs(8) };
         let mbps = report.megabits_per_sec();
         assert!((mbps - 10.0).abs() < 0.01, "{mbps}");
     }

@@ -1,24 +1,28 @@
 //! Pure TMDB JSON → domain mapping (no HTTP).
 
 use cinebox_core::{
-    CreditPerson, MediaDetails, MediaKind, PersonDetails, TmdbId, Trailer, decode_certification,
-    year_from_date,
+    CreditPerson, MediaDetails, MediaKind, PersonDetails, TmdbId, Trailer, decode_certification, year_from_date,
 };
 
 use crate::Error;
 use crate::catalog_map::catalog_items_from;
 use crate::details_dto::{
-    CertDate, CombinedCredits, ContentRating, CreditRaw, CreditsBlock, MediaBody, PersonBody,
-    ReleaseCountry, VideoRaw,
+    CertDate, CombinedCredits, ContentRating, CreditRaw, CreditsBlock, MediaBody, PersonBody, ReleaseCountry, VideoRaw,
 };
 
 pub(crate) const MAX_CAST: usize = 20;
 pub(crate) const MAX_ROW: usize = 20;
 pub(crate) const MAX_PERSON_CREDITS: usize = 40;
 
+#[derive(Clone, Copy)]
 enum CreditSource {
     Cast,
     Crew,
+}
+
+#[expect(clippy::trivially_copy_pass_by_ref, reason = "`Option::filter` hands its predicate a reference")]
+fn is_positive(id: &u32) -> bool {
+    *id > 0
 }
 
 pub(crate) fn media_from_body(
@@ -26,7 +30,7 @@ pub(crate) fn media_from_body(
     kind: MediaKind,
     language: Option<&str>,
 ) -> Result<(MediaDetails, Option<u32>), Error> {
-    let Some(id) = body.id.filter(|id| *id > 0) else {
+    let Some(id) = body.id.filter(is_positive) else {
         return Err(Error::IncompletePayload);
     };
 
@@ -54,24 +58,12 @@ pub(crate) fn media_from_body(
     };
 
     let countries = if kind == MediaKind::Tv {
-        body.origin_country
-            .unwrap_or_default()
-            .into_iter()
-            .filter(|c| !c.is_empty())
-            .collect()
+        body.origin_country.unwrap_or_default().into_iter().filter(|c| !c.is_empty()).collect()
     } else {
-        names(
-            body.production_countries
-                .unwrap_or_default()
-                .into_iter()
-                .filter_map(|c| c.name),
-        )
+        names(body.production_countries.unwrap_or_default().into_iter().filter_map(|c| c.name))
     };
 
-    let credits = body.credits.unwrap_or(CreditsBlock {
-        cast: None,
-        crew: None,
-    });
+    let credits = body.credits.unwrap_or(CreditsBlock { cast: None, crew: None });
 
     let directors = credits
         .crew
@@ -97,15 +89,10 @@ pub(crate) fn media_from_body(
     cast.truncate(MAX_CAST);
 
     let cast: Vec<CreditPerson> = cast.into_iter().map(|(_, person)| person).collect();
-    let collection_id = body
-        .belongs_to_collection
-        .and_then(|c| c.id.filter(|id| *id > 0));
+    let collection_id = body.belongs_to_collection.and_then(|collection| collection.id.filter(is_positive));
 
     let genre_rows = body.genres.unwrap_or_default();
-    let genre_ids = genre_rows
-        .iter()
-        .filter_map(|g| g.id.filter(|id| *id > 0))
-        .collect();
+    let genre_ids = genre_rows.iter().filter_map(|genre| genre.id.filter(is_positive)).collect();
 
     Ok((
         MediaDetails {
@@ -134,17 +121,11 @@ pub(crate) fn media_from_body(
             cast,
             collection: Vec::new(),
             recommendations: catalog_items_from(
-                body.recommendations
-                    .and_then(|b| b.results)
-                    .unwrap_or_default(),
+                body.recommendations.and_then(|b| b.results).unwrap_or_default(),
                 Some(kind),
                 MAX_ROW,
             ),
-            similar: catalog_items_from(
-                body.similar.and_then(|b| b.results).unwrap_or_default(),
-                Some(kind),
-                MAX_ROW,
-            ),
+            similar: catalog_items_from(body.similar.and_then(|b| b.results).unwrap_or_default(), Some(kind), MAX_ROW),
             trailers: trailers_from(body.videos.and_then(|v| v.results).unwrap_or_default()),
         },
         collection_id,
@@ -152,39 +133,22 @@ pub(crate) fn media_from_body(
 }
 
 fn pick_certification(body: &MediaBody, language: Option<&str>) -> Option<String> {
-    let tv = body
-        .content_ratings
-        .as_ref()
-        .and_then(|block| block.results.as_deref())
-        .unwrap_or(&[]);
+    let tv = body.content_ratings.as_ref().and_then(|block| block.results.as_deref()).unwrap_or(&[]);
 
-    let movie = body
-        .release_dates
-        .as_ref()
-        .and_then(|block| block.results.as_deref())
-        .unwrap_or(&[]);
+    let movie = body.release_dates.as_ref().and_then(|block| block.results.as_deref()).unwrap_or(&[]);
 
     for region in preferred_regions(language) {
         if let Some(rating) = tv.iter().find_map(|row| rating_for_region(row, &region)) {
             return decode_certification(&rating);
         }
-        if let Some(cert) = movie
-            .iter()
-            .find_map(|row| movie_cert_for_region(row, &region))
-        {
+        if let Some(cert) = movie.iter().find_map(|row| movie_cert_for_region(row, &region)) {
             return decode_certification(&cert);
         }
     }
 
     tv.iter()
         .find_map(|row| nonempty_ref(row.rating.as_deref()))
-        .or_else(|| {
-            movie.iter().find_map(|row| {
-                row.release_dates
-                    .as_ref()
-                    .and_then(|dates| first_cert(dates))
-            })
-        })
+        .or_else(|| movie.iter().find_map(|row| row.release_dates.as_ref().and_then(|dates| first_cert(dates))))
         .and_then(|raw| decode_certification(&raw))
 }
 
@@ -206,46 +170,26 @@ fn preferred_regions(language: Option<&str>) -> Vec<String> {
 }
 
 fn rating_for_region(row: &ContentRating, region: &str) -> Option<String> {
-    row.iso_3166_1
-        .as_deref()
-        .filter(|code| code.eq_ignore_ascii_case(region))?;
+    row.iso_3166_1.as_deref().filter(|code| code.eq_ignore_ascii_case(region))?;
     nonempty_ref(row.rating.as_deref())
 }
 
 fn movie_cert_for_region(row: &ReleaseCountry, region: &str) -> Option<String> {
-    row.iso_3166_1
-        .as_deref()
-        .filter(|code| code.eq_ignore_ascii_case(region))?;
+    row.iso_3166_1.as_deref().filter(|code| code.eq_ignore_ascii_case(region))?;
 
-    row.release_dates
-        .as_ref()
-        .and_then(|dates| first_cert(dates))
+    row.release_dates.as_ref().and_then(|dates| first_cert(dates))
 }
 
 fn first_cert(dates: &[CertDate]) -> Option<String> {
-    dates
-        .iter()
-        .find_map(|date| nonempty_ref(date.certification.as_deref()))
+    dates.iter().find_map(|date| nonempty_ref(date.certification.as_deref()))
 }
 
 fn pick_runtime(body: &MediaBody) -> Option<u32> {
     body.runtime
         .filter(|mins| *mins > 0)
-        .or_else(|| {
-            body.episode_run_time
-                .as_ref()
-                .and_then(|times| times.iter().copied().find(|mins| *mins > 0))
-        })
-        .or_else(|| {
-            body.last_episode_to_air
-                .as_ref()
-                .and_then(|ep| ep.runtime.filter(|mins| *mins > 0))
-        })
-        .or_else(|| {
-            body.next_episode_to_air
-                .as_ref()
-                .and_then(|ep| ep.runtime.filter(|mins| *mins > 0))
-        })
+        .or_else(|| body.episode_run_time.as_ref().and_then(|times| times.iter().copied().find(|mins| *mins > 0)))
+        .or_else(|| body.last_episode_to_air.as_ref().and_then(|ep| ep.runtime.filter(|mins| *mins > 0)))
+        .or_else(|| body.next_episode_to_air.as_ref().and_then(|ep| ep.runtime.filter(|mins| *mins > 0)))
 }
 
 fn names(iter: impl Iterator<Item = String>) -> Vec<String> {
@@ -261,19 +205,14 @@ fn nonempty_ref(value: Option<&str>) -> Option<String> {
 }
 
 fn credit_person(raw: CreditRaw, source: CreditSource) -> Option<CreditPerson> {
-    let id = raw.id.filter(|id| *id > 0)?;
+    let id = raw.id.filter(is_positive)?;
     let name = raw.name.filter(|n| !n.is_empty())?;
     let role = match source {
         CreditSource::Crew => raw.job.unwrap_or_default(),
         CreditSource::Cast => raw.character.unwrap_or_default(),
     };
 
-    Some(CreditPerson {
-        id: TmdbId::new(id),
-        name,
-        role,
-        profile_path: nonempty(raw.profile_path),
-    })
+    Some(CreditPerson { id: TmdbId::new(id), name, role, profile_path: nonempty(raw.profile_path) })
 }
 
 fn trailers_from(videos: Vec<VideoRaw>) -> Vec<Trailer> {
@@ -292,31 +231,19 @@ fn trailers_from(videos: Vec<VideoRaw>) -> Vec<Trailer> {
             continue;
         };
 
-        let name = video
-            .name
-            .filter(|n| !n.is_empty())
-            .unwrap_or_else(|| String::from(kind));
-        out.push(Trailer {
-            name,
-            youtube_key: key,
-        });
+        let name = video.name.filter(|n| !n.is_empty()).unwrap_or_else(|| String::from(kind));
+        out.push(Trailer { name, youtube_key: key });
     }
     out
 }
 
 pub(crate) fn person_from_body(body: PersonBody) -> Result<PersonDetails, Error> {
-    let Some(id) = body.id.filter(|id| *id > 0) else {
+    let Some(id) = body.id.filter(is_positive) else {
         return Err(Error::IncompletePayload);
     };
 
-    let name = body
-        .name
-        .filter(|n| !n.is_empty())
-        .ok_or(Error::IncompletePayload)?;
-    let credits_raw = body.combined_credits.unwrap_or(CombinedCredits {
-        cast: None,
-        crew: None,
-    });
+    let name = body.name.filter(|n| !n.is_empty()).ok_or(Error::IncompletePayload)?;
+    let credits_raw = body.combined_credits.unwrap_or(CombinedCredits { cast: None, crew: None });
 
     let mut combined = credits_raw.cast.unwrap_or_default();
     combined.extend(credits_raw.crew.unwrap_or_default());
@@ -354,10 +281,7 @@ mod tests {
         ];
         let trailers = trailers_from(videos);
         assert_eq!(trailers.len(), 1);
-        assert_eq!(
-            trailers[0].watch_url(),
-            "https://www.youtube.com/watch?v=abc"
-        );
+        assert_eq!(trailers[0].watch_url(), "https://www.youtube.com/watch?v=abc");
     }
 
     #[test]
@@ -462,7 +386,7 @@ mod tests {
             Ok(body) => body,
             Err(error) => panic!("{error}"),
         };
-        
+
         let ru = match media_from_body(parse(), MediaKind::Movie, Some("ru")) {
             Ok((details, _)) => details,
             Err(error) => panic!("{error}"),

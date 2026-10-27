@@ -12,7 +12,7 @@ const EDGE_VEIL: f32 = 0.74;
 const BOTTOM_BLUR_START: f32 = 0.60;
 
 /// Cover-fit wallpaper plus left/bottom page-bg fades.
-pub fn paint(ui: &mut Ui, texture: &TextureHandle, theme: &Theme) {
+pub(crate) fn paint(ui: &mut Ui, texture: &TextureHandle, theme: &Theme) {
     let rect = ui.max_rect();
     paint_cover(ui, texture, rect);
     paint_left_fade(ui, rect, theme.page_bg);
@@ -29,9 +29,7 @@ fn paint_cover(ui: &Ui, texture: &TextureHandle, rect: Rect) {
     let drawn = size * scale;
     let image_rect = Rect::from_center_size(rect.center(), drawn);
     let uv = Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0));
-    ui.painter()
-        .with_clip_rect(rect)
-        .image(texture.id(), image_rect, uv, Color32::WHITE);
+    ui.painter().with_clip_rect(rect).image(texture.id(), image_rect, uv, Color32::WHITE);
 }
 
 fn paint_left_fade(ui: &Ui, rect: Rect, page: Color32) {
@@ -42,10 +40,7 @@ fn paint_left_fade(ui: &Ui, rect: Rect, page: Color32) {
 
 fn paint_bottom_fade(ui: &Ui, rect: Rect, page: Color32) {
     let h = rect.height() * 0.45;
-    let band = Rect::from_min_max(
-        egui::pos2(rect.left(), rect.bottom() - h),
-        rect.right_bottom(),
-    );
+    let band = Rect::from_min_max(egui::pos2(rect.left(), rect.bottom() - h), rect.right_bottom());
     gradient_v(ui, band, with_a(page, 0), with_a(page, 107));
 }
 
@@ -62,8 +57,7 @@ fn gradient_h(ui: &Ui, rect: Rect, left: Color32, right: Color32) {
     mesh.vertices.push(vert(rect.right_top(), right));
     mesh.vertices.push(vert(rect.right_bottom(), right));
     mesh.vertices.push(vert(rect.left_bottom(), left));
-    mesh.indices
-        .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 
@@ -75,17 +69,12 @@ fn gradient_v(ui: &Ui, rect: Rect, top: Color32, bottom: Color32) {
     mesh.vertices.push(vert(rect.right_top(), top));
     mesh.vertices.push(vert(rect.right_bottom(), bottom));
     mesh.vertices.push(vert(rect.left_bottom(), bottom));
-    mesh.indices
-        .extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
+    mesh.indices.extend_from_slice(&[i, i + 1, i + 2, i, i + 2, i + 3]);
     ui.painter().add(egui::Shape::mesh(mesh));
 }
 
 fn vert(pos: Pos2, color: Color32) -> Vertex {
-    Vertex {
-        pos,
-        uv: Pos2::ZERO,
-        color,
-    }
+    Vertex { pos, uv: Pos2::ZERO, color }
 }
 
 /// Blur the left and bottom edges and veil the frame with a darkened accent from the image.
@@ -93,10 +82,8 @@ fn vert(pos: Pos2, color: Color32) -> Vertex {
 /// # Errors
 ///
 /// Decode or PNG encode failure.
-pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
-    let rgba = image::load_from_memory(bytes)
-        .map_err(|error| error.to_string())?
-        .to_rgba8();
+pub(crate) fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
+    let rgba = image::load_from_memory(bytes).map_err(|error| error.to_string())?.to_rgba8();
 
     let (width, height) = rgba.dimensions();
     if width < 2 || height < 2 {
@@ -117,12 +104,8 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
             let edge = 1.0 - (1.0 - left) * (1.0 - bottom);
             let sharp = rgba.get_pixel(x, y).0;
             let soft = blurred.get_pixel(x, y).0;
-            let mixed = [
-                lerp(sharp[0], soft[0], edge),
-                lerp(sharp[1], soft[1], edge),
-                lerp(sharp[2], soft[2], edge),
-                255,
-            ];
+            let channel = |index: usize| lerp(sharp[index], soft[index], edge);
+            let mixed = [channel(0), channel(1), channel(2), 255];
 
             let veil = CENTER_VEIL + edge * EDGE_VEIL;
             out.put_pixel(
@@ -139,9 +122,7 @@ pub fn soften(bytes: &[u8]) -> Result<Vec<u8>, String> {
     }
 
     let mut encoded = Cursor::new(Vec::new());
-    DynamicImage::ImageRgba8(out)
-        .write_to(&mut encoded, ImageFormat::Png)
-        .map_err(|error| error.to_string())?;
+    DynamicImage::ImageRgba8(out).write_to(&mut encoded, ImageFormat::Png).map_err(|error| error.to_string())?;
 
     Ok(encoded.into_inner())
 }
@@ -184,11 +165,7 @@ fn accent_wash(src: &RgbaImage) -> [u8; 3] {
         }
     }
     let rgb = if chroma_w > 0.12 {
-        [
-            chroma[0] / chroma_w,
-            chroma[1] / chroma_w,
-            chroma[2] / chroma_w,
-        ]
+        [chroma[0] / chroma_w, chroma[1] / chroma_w, chroma[2] / chroma_w]
     } else if count > 0.0 {
         [mean[0] / count, mean[1] / count, mean[2] / count]
     } else {
@@ -268,15 +245,9 @@ mod tests {
         let left = out.get_pixel(2, 24).0;
         let bottom = out.get_pixel(24, 45).0;
 
-        assert!(
-            luma(left) < luma(highlight),
-            "left {left:?} should be darker than top-right {highlight:?}"
-        );
+        assert!(luma(left) < luma(highlight), "left {left:?} should be darker than top-right {highlight:?}");
 
-        assert!(
-            luma(bottom) < luma(highlight),
-            "bottom {bottom:?} should be darker than top-right {highlight:?}"
-        );
+        assert!(luma(bottom) < luma(highlight), "bottom {bottom:?} should be darker than top-right {highlight:?}");
     }
 
     #[test]
@@ -285,24 +256,12 @@ mod tests {
         let center = out.get_pixel(40, 8).0;
         let left = out.get_pixel(2, 24).0;
 
-        assert!(
-            center[0] < 220 && center[0] > 120,
-            "center should be slightly muted, got {center:?}"
-        );
+        assert!(center[0] < 220 && center[0] > 120, "center should be slightly muted, got {center:?}");
 
-        assert!(
-            i16::from(center[0]) - i16::from(center[1]) > 40,
-            "center should stay red-tinted, got {center:?}"
-        );
+        assert!(i16::from(center[0]) - i16::from(center[1]) > 40, "center should stay red-tinted, got {center:?}");
 
-        assert!(
-            luma(left) < luma(center),
-            "left edge {left:?} should be a stronger veil than center {center:?}"
-        );
+        assert!(luma(left) < luma(center), "left edge {left:?} should be a stronger veil than center {center:?}");
 
-        assert!(
-            i16::from(left[0]) - i16::from(left[1]) > 20,
-            "edge veil should keep the image accent, got {left:?}"
-        );
+        assert!(i16::from(left[0]) - i16::from(left[1]) > 20, "edge veil should keep the image accent, got {left:?}");
     }
 }

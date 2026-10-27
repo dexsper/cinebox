@@ -1,22 +1,18 @@
 use std::borrow::Cow;
 use std::sync::LazyLock;
 
+use crate::PRIVATE;
 use crate::engine::{Context, Typograf};
 use crate::re;
-use crate::PRIVATE;
 
-pub fn digit_grouping<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn digit_grouping<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static GROUPED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile_m(&format!(
-            "(^ ?|\\D |{PRIVATE})(\\d{{1,3}}([ \u{00A0}\u{202F}\u{2009}]\\d{{3}})+)(?! ?[\\d-])"
-        ))
+        re::compile_m(&format!("(^ ?|\\D |{PRIVATE})(\\d{{1,3}}([ \u{00A0}\u{202F}\u{2009}]\\d{{3}})+)(?! ?[\\d-])"))
     });
-    
+
     static SPACE_RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("\\s"));
     static LONG: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\d{5,}([.,]\\d+)?)"));
-    static INT_RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile("(\\d)(?=(\\d{3})+([^\\d]|$))")
-    });
+    static INT_RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\d)(?=(\\d{3})+([^\\d]|$))"));
 
     let space = "\u{202F}";
     let step = re::replace_all_fn(&GROUPED, text, |caps| {
@@ -41,7 +37,7 @@ pub fn digit_grouping<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> 
     })
 }
 
-pub fn fraction<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn fraction<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static HALF: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|\\D)1/2(\\D|$)"));
     static QUARTER: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|\\D)1/4(\\D|$)"));
     static THREE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|\\D)3/4(\\D|$)"));
@@ -51,7 +47,7 @@ pub fn fraction<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a
     re::chain(&THREE, b, "$1¾$2")
 }
 
-pub fn math_signs<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn math_signs<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static NE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("!="));
     static LE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("<="));
     static GE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^=])>="));
@@ -72,10 +68,8 @@ pub fn math_signs<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<
     re::chain(&PM, out, "$1±")
 }
 
-pub fn times<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile("(\\d)[ \u{00A0}]?[xх][ \u{00A0}]?(\\d)")
-    });
+pub(super) fn times<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\d)[ \u{00A0}]?[xх][ \u{00A0}]?(\\d)"));
 
     re::replace_all(&RE, text, "$1×$2")
 }

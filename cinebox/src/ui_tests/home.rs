@@ -16,34 +16,26 @@ struct HeadingState {
 
 #[test]
 fn shelf_heading_click_is_a_button() {
-    let mut harness = Harness::builder()
-        .with_size(vec2(400.0, 80.0))
-        .build_ui_state(
-            |ui, state| {
-                if !state.fonts {
-                    crate::theme::fonts::install(ui.ctx());
-                    state.theme.apply(ui.ctx());
-                    state.fonts = true;
-                    return;
-                }
+    let mut harness = Harness::builder().with_size(vec2(400.0, 80.0)).build_ui_state(
+        |ui, state| {
+            if !state.fonts {
+                crate::theme::fonts::install(ui.ctx());
+                state.theme.apply(ui.ctx());
+                state.fonts = true;
+                return;
+            }
 
-                let title = t!("home.now_playing");
-                let clicked = crate::screens::shelf::shelf_heading(ui, &title, &state.theme);
-                if clicked {
-                    state.clicked = true;
-                }
-            },
-            HeadingState {
-                theme: Theme::dark(),
-                fonts: false,
-                clicked: false,
-            },
-        );
+            let title = t!("home.now_playing");
+            let clicked = crate::screens::shelf::shelf_heading(ui, &title, &state.theme);
+            if clicked {
+                state.clicked = true;
+            }
+        },
+        HeadingState { theme: Theme::dark(), fonts: false, clicked: false },
+    );
     harness.run();
 
-    harness
-        .get_by_role_and_label(Role::Button, t!("home.now_playing").as_ref())
-        .click();
+    harness.get_by_role_and_label(Role::Button, t!("home.now_playing").as_ref()).click();
 
     harness.run();
     assert!(harness.state().clicked);
@@ -57,29 +49,23 @@ struct GateState {
 
 #[test]
 fn missing_tmdb_key_gate_opens_tmdb_settings() {
-    let mut harness = Harness::builder()
-        .with_size(vec2(800.0, 600.0))
-        .build_ui_state(
-            |ui, state| {
-                if !state.fonts {
-                    crate::theme::fonts::install(ui.ctx());
-                    state.theme.apply(ui.ctx());
-                    state.fonts = true;
-                    return;
-                }
+    let mut harness = Harness::builder().with_size(vec2(800.0, 600.0)).build_ui_state(
+        |ui, state| {
+            if !state.fonts {
+                crate::theme::fonts::install(ui.ctx());
+                state.theme.apply(ui.ctx());
+                state.fonts = true;
+                return;
+            }
 
-                let problem = TmdbKeyProblem::Missing;
-                let action = gate::tmdb_key(ui, &state.theme, problem);
-                if action.is_some() {
-                    state.action = action;
-                }
-            },
-            GateState {
-                theme: Theme::dark(),
-                fonts: false,
-                action: None,
-            },
-        );
+            let problem = TmdbKeyProblem::Missing;
+            let action = gate::tmdb_key(ui, &state.theme, problem);
+            if action.is_some() {
+                state.action = action;
+            }
+        },
+        GateState { theme: Theme::dark(), fonts: false, action: None },
+    );
     harness.run();
 
     let label = t!("gate.tmdb_open_settings");

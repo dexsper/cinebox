@@ -72,7 +72,7 @@ impl std::error::Error for JsError {}
 
 impl From<JsError> for Error {
     fn from(err: JsError) -> Self {
-        Error::Js(err)
+        Self::Js(err)
     }
 }
 

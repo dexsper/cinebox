@@ -5,7 +5,7 @@ use crate::ids::TmdbId;
 use crate::library::{LibraryEntry, LibraryMark, ListStatus};
 use crate::section::Section;
 
-use super::types::{media_kind_from_key, media_kind_key, unix_now};
+use super::types::{media_kind_from_key, media_kind_key, unix_now, vote_from_real};
 use super::{Store, StoreError};
 
 /// Card columns shared by every library upsert.
@@ -71,14 +71,11 @@ impl Store {
                     kind,
                     title: row.title,
                     year: row.year.and_then(|year| u16::try_from(year).ok()),
-                    vote: row.vote.map(|vote| vote as f32),
+                    vote: row.vote.map(vote_from_real),
                     poster_path: row.poster_path,
                 },
                 section,
-                mark: LibraryMark {
-                    status,
-                    liked: row.liked != 0,
-                },
+                mark: LibraryMark { status, liked: row.liked != 0 },
             });
         }
 
@@ -140,12 +137,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn set_library_liked(
-        &self,
-        item: &CatalogItem,
-        section: Section,
-        liked: bool,
-    ) -> Result<(), StoreError> {
+    pub async fn set_library_liked(&self, item: &CatalogItem, section: Section, liked: bool) -> Result<(), StoreError> {
         let card = Snapshot::new(item, section);
         let liked = i64::from(liked);
         let mut tx = self.pool.begin().await?;
@@ -190,11 +182,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn mark_watching_if_unset(
-        &self,
-        item: &CatalogItem,
-        section: Section,
-    ) -> Result<(), StoreError> {
+    pub async fn mark_watching_if_unset(&self, item: &CatalogItem, section: Section) -> Result<(), StoreError> {
         let card = Snapshot::new(item, section);
         let watching = ListStatus::Watching.as_key();
 
@@ -227,11 +215,7 @@ impl Store {
     }
 }
 
-async fn prune_empty(
-    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
-    kind: &str,
-    id: i64,
-) -> Result<(), StoreError> {
+async fn prune_empty(tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>, kind: &str, id: i64) -> Result<(), StoreError> {
     sqlx::query!(
         r#"
         DELETE FROM library
@@ -263,28 +247,18 @@ mod tests {
     }
 
     fn mark_of(entries: &[LibraryEntry], id: u32) -> Option<LibraryMark> {
-        entries
-            .iter()
-            .find(|entry| entry.item.id == TmdbId::new(id))
-            .map(|entry| entry.mark)
+        entries.iter().find(|entry| entry.item.id == TmdbId::new(id)).map(|entry| entry.mark)
     }
 
     #[tokio::test]
     async fn new_status_replaces_previous_status() -> Result<(), StoreError> {
         let store = Store::memory().await?;
 
-        store
-            .set_library_status(&show(1), Section::Tv, Some(ListStatus::Planned))
-            .await?;
-        store
-            .set_library_status(&show(1), Section::Tv, Some(ListStatus::Completed))
-            .await?;
+        store.set_library_status(&show(1), Section::Tv, Some(ListStatus::Planned)).await?;
+        store.set_library_status(&show(1), Section::Tv, Some(ListStatus::Completed)).await?;
 
         let entries = store.library_entries().await?;
-        assert_eq!(
-            mark_of(&entries, 1).and_then(|mark| mark.status),
-            Some(ListStatus::Completed)
-        );
+        assert_eq!(mark_of(&entries, 1).and_then(|mark| mark.status), Some(ListStatus::Completed));
 
         Ok(())
     }
@@ -294,19 +268,11 @@ mod tests {
         let store = Store::memory().await?;
 
         store.set_library_liked(&show(1), Section::Tv, true).await?;
-        store
-            .set_library_status(&show(1), Section::Tv, Some(ListStatus::Dropped))
-            .await?;
+        store.set_library_status(&show(1), Section::Tv, Some(ListStatus::Dropped)).await?;
         store.set_library_status(&show(1), Section::Tv, None).await?;
 
         let entries = store.library_entries().await?;
-        assert_eq!(
-            mark_of(&entries, 1),
-            Some(LibraryMark {
-                status: None,
-                liked: true
-            })
-        );
+        assert_eq!(mark_of(&entries, 1), Some(LibraryMark { status: None, liked: true }));
 
         Ok(())
     }
@@ -315,12 +281,10 @@ mod tests {
     async fn row_is_removed_when_nothing_is_set() -> Result<(), StoreError> {
         let store = Store::memory().await?;
 
-        store
-            .set_library_status(&show(1), Section::Tv, Some(ListStatus::Watching))
-            .await?;
+        store.set_library_status(&show(1), Section::Tv, Some(ListStatus::Watching)).await?;
         store.set_library_status(&show(1), Section::Tv, None).await?;
 
-        assert!(store.library_entries().await?.is_empty());
+        assert_eq!(store.library_entries().await?, []);
 
         Ok(())
     }
@@ -329,16 +293,11 @@ mod tests {
     async fn mark_watching_does_not_override_chosen_status() -> Result<(), StoreError> {
         let store = Store::memory().await?;
 
-        store
-            .set_library_status(&show(1), Section::Tv, Some(ListStatus::Planned))
-            .await?;
+        store.set_library_status(&show(1), Section::Tv, Some(ListStatus::Planned)).await?;
         store.mark_watching_if_unset(&show(1), Section::Tv).await?;
 
         let entries = store.library_entries().await?;
-        assert_eq!(
-            mark_of(&entries, 1).and_then(|mark| mark.status),
-            Some(ListStatus::Planned)
-        );
+        assert_eq!(mark_of(&entries, 1).and_then(|mark| mark.status), Some(ListStatus::Planned));
 
         Ok(())
     }
@@ -351,13 +310,7 @@ mod tests {
         store.mark_watching_if_unset(&show(1), Section::Tv).await?;
 
         let entries = store.library_entries().await?;
-        assert_eq!(
-            mark_of(&entries, 1),
-            Some(LibraryMark {
-                status: Some(ListStatus::Watching),
-                liked: true
-            })
-        );
+        assert_eq!(mark_of(&entries, 1), Some(LibraryMark { status: Some(ListStatus::Watching), liked: true }));
 
         Ok(())
     }

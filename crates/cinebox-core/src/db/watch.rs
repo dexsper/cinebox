@@ -5,8 +5,8 @@ use crate::ids::{MediaKind, TmdbId};
 use crate::section::Section;
 
 use super::types::{
-    RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, WatchHistoryEntry, episode_key, media_kind_from_key,
-    media_kind_key, unix_now,
+    RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, WatchHistoryEntry, WatchKey, episode_key, media_kind_from_key,
+    media_kind_key, unix_now, vote_from_real,
 };
 use super::{Store, StoreError};
 
@@ -17,15 +17,8 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn upsert_watch_timeline(
-        &self,
-        kind: MediaKind,
-        id: TmdbId,
-        season: Option<u32>,
-        episode: Option<u32>,
-        time: f64,
-        duration: f64,
-    ) -> Result<(), StoreError> {
+    pub async fn upsert_watch_timeline(&self, key: WatchKey, time: f64, duration: f64) -> Result<(), StoreError> {
+        let WatchKey { kind, id, season, episode } = key;
         let kind = media_kind_key(kind);
         let id = i64::from(id.get());
         let season = episode_key(season);
@@ -57,13 +50,8 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn get_watch_timeline(
-        &self,
-        kind: MediaKind,
-        id: TmdbId,
-        season: Option<u32>,
-        episode: Option<u32>,
-    ) -> Result<Option<(f64, f64)>, StoreError> {
+    pub async fn get_watch_timeline(&self, key: WatchKey) -> Result<Option<(f64, f64)>, StoreError> {
+        let WatchKey { kind, id, season, episode } = key;
         let kind = media_kind_key(kind);
         let id = i64::from(id.get());
         let season = episode_key(season);
@@ -93,11 +81,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn upsert_watch_history(
-        &self,
-        entry: &WatchHistoryEntry,
-        hash: Option<&str>,
-    ) -> Result<(), StoreError> {
+    pub async fn upsert_watch_history(&self, entry: &WatchHistoryEntry, hash: Option<&str>) -> Result<(), StoreError> {
         let kind = media_kind_key(entry.kind);
         let id = i64::from(entry.id.get());
         let year = entry.year.map(i64::from);
@@ -182,7 +166,7 @@ impl Store {
             };
 
             let year = row.year.and_then(|year| u16::try_from(year).ok());
-            let vote = row.vote.map(|vote| vote as f32);
+            let vote = row.vote.map(vote_from_real);
 
             items.push(CatalogItem {
                 id: TmdbId::new(id),
@@ -203,9 +187,7 @@ impl Store {
     ///
     /// Sqlite failures.
     pub async fn watched_keys(&self) -> Result<Vec<(MediaKind, TmdbId)>, StoreError> {
-        let rows = sqlx::query!("SELECT kind, id FROM watch_history")
-            .fetch_all(&self.pool)
-            .await?;
+        let rows = sqlx::query!("SELECT kind, id FROM watch_history").fetch_all(&self.pool).await?;
 
         let mut keys = Vec::new();
         for row in rows {
@@ -228,11 +210,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn watch_release_hashes(
-        &self,
-        kind: MediaKind,
-        id: TmdbId,
-    ) -> Result<Vec<String>, StoreError> {
+    pub async fn watch_release_hashes(&self, kind: MediaKind, id: TmdbId) -> Result<Vec<String>, StoreError> {
         let kind = media_kind_key(kind);
         let id = i64::from(id.get());
         let limit = i64::try_from(RECENT_RELEASE_LIMIT).unwrap_or(3);

@@ -25,12 +25,7 @@ pub enum SegmentType {
 }
 
 impl SegmentType {
-    pub const ALL: [SegmentType; 4] = [
-        SegmentType::Intro,
-        SegmentType::Recap,
-        SegmentType::Credits,
-        SegmentType::Preview,
-    ];
+    pub const ALL: [Self; 4] = [Self::Intro, Self::Recap, Self::Credits, Self::Preview];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -102,13 +97,11 @@ impl MediaSegments {
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        SegmentType::ALL
-            .iter()
-            .all(|ty| self.segments_of(*ty).is_empty())
+        SegmentType::ALL.iter().all(|ty| self.segments_of(*ty).is_empty())
     }
 
     /// Takes `fallback`'s ranges for each kind that has none of its own.
-    pub fn fill_missing_from(&mut self, fallback: &MediaSegments) {
+    pub fn fill_missing_from(&mut self, fallback: &Self) {
         for ty in SegmentType::ALL {
             let ranges = self.segments_of_mut(ty);
 
@@ -128,6 +121,7 @@ impl MediaSegments {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegmentQuery {
     pub tmdb_id: u64,
     pub kind: MediaKind,
@@ -143,27 +137,17 @@ pub struct SegmentQuery {
 /// A source of skip-segment data.
 ///
 /// `Ok(None)` means no data for this media (404 / duration mismatch).
-#[allow(async_fn_in_trait)]
+#[expect(async_fn_in_trait, reason = "providers are awaited in place, so callers need no `Send` bound")]
 pub trait SegmentProvider {
-    async fn fetch(
-        &self,
-        query: &SegmentQuery,
-        net: &cinebox_net::NetConfig,
-    ) -> Result<Option<MediaSegments>, Error>;
+    async fn fetch(&self, query: &SegmentQuery, net: &cinebox_net::NetConfig) -> Result<Option<MediaSegments>, Error>;
 }
 
-pub(crate) async fn send<F>(
-    net: &cinebox_net::NetConfig,
-    build: F,
-) -> Result<reqwest::Response, Error>
+pub(crate) async fn send<F>(net: &cinebox_net::NetConfig, build: F) -> Result<reqwest::Response, Error>
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
-        .await
-        .map_err(|e| Error::Request(e.without_url()))
+    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await.map_err(|e| Error::Request(e.without_url()))
 }
-
 
 #[cfg(test)]
 mod tests {

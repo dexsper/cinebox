@@ -63,9 +63,6 @@ mod tests {
 
     #[test]
     fn join_avoids_double_slash() {
-        assert_eq!(
-            join_url("http://127.0.0.1:8090/", "/echo"),
-            "http://127.0.0.1:8090/echo"
-        );
+        assert_eq!(join_url("http://127.0.0.1:8090/", "/echo"), "http://127.0.0.1:8090/echo");
     }
 }

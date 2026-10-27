@@ -3,21 +3,22 @@ use std::cell::RefCell;
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
+use crate::PRIVATE_SEPARATE;
 use crate::data;
 use crate::entities;
 use crate::re;
 use crate::rules::{self, Live, Queue, Rule};
 use crate::safe_tags::{self, SafeTags};
-use crate::{PRIVATE_SEPARATE};
 
 #[derive(Clone, Debug)]
-pub struct Prefs {
+pub(crate) struct Prefs {
     pub locale: Vec<String>,
     pub live: bool,
     pub html_attrs_only: bool,
     pub processing_separate_parts: bool,
 }
 
+#[derive(Debug)]
 pub struct Context<'a> {
     pub locale: Vec<String>,
     pub live: bool,
@@ -32,7 +33,7 @@ impl Context<'_> {
     }
 
     pub fn primary_locale(&self) -> &str {
-        self.locale.first().map(String::as_str).unwrap_or("common")
+        self.locale.first().map_or("common", String::as_str)
     }
 
     pub fn short_word(&self) -> Option<&'static str> {
@@ -53,6 +54,7 @@ pub enum LocaleError {
     Unsupported(String),
 }
 
+#[derive(Debug)]
 pub struct Typograf {
     prefs: Prefs,
     enabled: HashMap<String, bool>,
@@ -90,12 +92,7 @@ impl Typograf {
         }
 
         Ok(Self {
-            prefs: Prefs {
-                locale,
-                live: false,
-                html_attrs_only: false,
-                processing_separate_parts: true,
-            },
+            prefs: Prefs { locale, live: false, html_attrs_only: false, processing_separate_parts: true },
             enabled,
             safe_tags: RefCell::new(SafeTags::new()),
         })
@@ -111,9 +108,7 @@ impl Typograf {
             return String::new();
         }
 
-        let locale = locale
-            .map(|s| s.to_vec())
-            .unwrap_or_else(|| self.prefs.locale.clone());
+        let locale = locale.map_or_else(|| self.prefs.locale.clone(), <[String]>::to_vec);
 
         let mut ctx = Context {
             locale,
@@ -194,12 +189,9 @@ impl Typograf {
         self.enabled.get(name).copied().unwrap_or(true)
     }
 
+    #[must_use]
     pub fn rule_enabled_by_default(name: &str) -> bool {
-        rules::all()
-            .iter()
-            .find(|r| r.name == name && !r.inner)
-            .map(|r| r.enabled)
-            .unwrap_or(false)
+        rules::all().iter().find(|r| r.name == name && !r.inner).is_some_and(|r| r.enabled)
     }
 
     /// Inner-rule tests: run only inner handlers with this name, no execute pipeline.
@@ -287,7 +279,7 @@ impl Typograf {
     }
 
     pub fn execute_nested(&self, text: &str, ctx: &Context<'_>) -> String {
-        let nested = Typograf {
+        let nested = Self {
             prefs: Prefs {
                 locale: ctx.locale.clone(),
                 live: ctx.live,
@@ -306,12 +298,7 @@ static QUEUE_RULES: LazyLock<Vec<(Queue, Vec<&'static Rule>)>> = LazyLock::new(|
     let queues = rules::QUEUES.iter().map(|&queue| {
         let mut batch: Vec<&'static Rule> = rules::all().iter().filter(|r| r.queue == queue).collect();
 
-        batch.sort_by(|a, b| {
-            b.inner
-                .cmp(&a.inner)
-                .then(a.index.cmp(&b.index))
-                .then(a.order.cmp(&b.order))
-        });
+        batch.sort_by(|a, b| b.inner.cmp(&a.inner).then(a.index.cmp(&b.index)).then(a.order.cmp(&b.order)));
 
         (queue, batch)
     });
@@ -320,11 +307,7 @@ static QUEUE_RULES: LazyLock<Vec<(Queue, Vec<&'static Rule>)>> = LazyLock::new(|
 });
 
 fn queue_rules(queue: Queue) -> &'static [&'static Rule] {
-    QUEUE_RULES
-        .iter()
-        .find(|(q, _)| *q == queue)
-        .map(|(_, batch)| batch.as_slice())
-        .unwrap_or(&[])
+    QUEUE_RULES.iter().find(|(q, _)| *q == queue).map_or(&[], |(_, batch)| batch.as_slice())
 }
 
 fn split_parts(text: &str, split: bool) -> Vec<String> {
@@ -342,16 +325,9 @@ fn split_parts(text: &str, split: bool) -> Vec<String> {
         };
 
         if position != mat.start() {
-            let prefix = if position == 0 {
-                String::new()
-            } else {
-                PRIVATE_SEPARATE.to_string()
-            };
+            let prefix = if position == 0 { String::new() } else { PRIVATE_SEPARATE.to_string() };
 
-            parts.push(format!(
-                "{prefix}{}{PRIVATE_SEPARATE}",
-                &text[position..mat.start()]
-            ));
+            parts.push(format!("{prefix}{}{PRIVATE_SEPARATE}", &text[position..mat.start()]));
         }
 
         parts.push(mat.as_str().to_string());

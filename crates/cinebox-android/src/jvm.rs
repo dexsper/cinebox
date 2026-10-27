@@ -1,6 +1,8 @@
 //! The process's JVM: one-time setup the Rust side cannot do on its own, and
 //! calls into `CineboxActivity`.
 
+#![expect(unsafe_code, reason = "wraps the raw JavaVM and activity pointers from android-activity")]
+
 use std::sync::OnceLock;
 
 use jni::objects::{JObject, JValue};
@@ -29,9 +31,7 @@ impl Java {
     where
         F: FnOnce(&mut Env, &JObject) -> jni::errors::Result<T>,
     {
-        let result = self
-            .vm
-            .attach_current_thread(|env| call(env, self.activity.as_obj()));
+        let result = self.vm.attach_current_thread(|env| call(env, self.activity.as_obj()));
 
         match result {
             Ok(value) => Some(value),
@@ -67,12 +67,7 @@ pub fn init(app: &AndroidApp) -> Option<Java> {
 
 fn init_with_activity(env: &mut Env, activity: &JObject) -> jni::errors::Result<()> {
     let context = env
-        .call_method(
-            activity,
-            jni_str!("getApplicationContext"),
-            jni_sig!("()Landroid/content/Context;"),
-            &[],
-        )?
+        .call_method(activity, jni_str!("getApplicationContext"), jni_sig!("()Landroid/content/Context;"), &[])?
         .l()?;
     let global = env.new_global_ref(&context)?;
     let context = APP_CONTEXT.get_or_init(|| global);
@@ -111,16 +106,9 @@ fn acquire_multicast_lock(env: &mut Env, context: &JObject) -> jni::errors::Resu
         )?
         .l()?;
 
-    env.call_method(
-        &lock,
-        jni_str!("setReferenceCounted"),
-        jni_sig!("(Z)V"),
-        &[JValue::Bool(false)],
-    )?
-    .v()?;
+    env.call_method(&lock, jni_str!("setReferenceCounted"), jni_sig!("(Z)V"), &[JValue::Bool(false)])?.v()?;
 
-    env.call_method(&lock, jni_str!("acquire"), jni_sig!("()V"), &[])?
-        .v()?;
+    env.call_method(&lock, jni_str!("acquire"), jni_sig!("()V"), &[])?.v()?;
 
     let _ = MULTICAST_LOCK.set(env.new_global_ref(&lock)?);
     Ok(())

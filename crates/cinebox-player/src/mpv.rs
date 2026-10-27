@@ -2,7 +2,10 @@
 //! GL context. The only `unsafe` in the crate: a `Send` impl (all access goes
 //! through the mutex) and the self-referential render-context setup.
 
+#![expect(unsafe_code, reason = "wraps libmpv's render context behind a safe player API")]
+
 use std::ffi::{CStr, CString, c_void};
+use std::fmt;
 use std::ptr::NonNull;
 use std::sync::{Arc, Mutex, MutexGuard};
 
@@ -12,9 +15,7 @@ use libmpv2::render::{OpenGLInitParams, RenderContext, RenderParam, RenderParamA
 use tracing::{info, warn};
 
 use crate::error::Error;
-use crate::player::{
-    Chapter, Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput,
-};
+use crate::player::{Chapter, Features, Media, Player, Snapshot, Track, TrackKind, VideoDecoder, VideoOutput};
 
 /// eframe glow `get_proc_address` loader.
 pub type GlLoader = Arc<dyn Fn(&CStr) -> *const c_void + Send + Sync>;
@@ -43,6 +44,12 @@ pub struct MpvPlayer {
 struct Engine {
     render: Option<RenderContext<'static>>,
     mpv: Box<Mpv>,
+}
+
+impl fmt::Debug for MpvPlayer {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.debug_struct("MpvPlayer").finish_non_exhaustive()
+    }
 }
 
 // SAFETY: `Engine` is driven exclusively on the eframe/glow UI thread, but the
@@ -84,29 +91,21 @@ impl MpvPlayer {
             })
             .map_err(|_| Error::MpvInit)?,
         );
+        // SAFETY: `mpv` is boxed, and `Engine` declares `render` before `mpv`, so the
+        // context is dropped first.
         let render = unsafe { create_render(&mpv, loader, display)? };
         info!("mpv render context attached");
 
-        let engine = Engine {
-            render: Some(render),
-            mpv,
-        };
-        Ok(Self {
-            engine: Mutex::new(engine),
-        })
+        let engine = Engine { render: Some(render), mpv };
+        Ok(Self { engine: Mutex::new(engine) })
     }
 
     fn engine(&self) -> MutexGuard<'_, Engine> {
-        self.engine
-            .lock()
-            .unwrap_or_else(|poison| poison.into_inner())
+        self.engine.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
     fn set<T: libmpv2::SetData>(&self, name: &str, value: T) -> Result<(), Error> {
-        self.engine()
-            .mpv
-            .set_property(name, value)
-            .map_err(|error| Error::mpv_prop(name, error))
+        self.engine().mpv.set_property(name, value).map_err(|error| Error::mpv_prop(name, error))
     }
 
     fn command(&self, name: &str, args: &[&str]) -> Result<(), Error> {
@@ -142,7 +141,9 @@ impl Player for MpvPlayer {
     }
 
     fn stop(&self) {
-        let _ = self.command("stop", &[]);
+        if let Err(error) = self.command("stop", &[]) {
+            warn!(%error, "mpv stop failed");
+        }
     }
 
     fn set_paused(&self, paused: bool) -> Result<(), Error> {
@@ -208,9 +209,7 @@ impl Player for MpvPlayer {
         let mut tracks = Vec::new();
 
         for index in 0..count {
-            let kind_raw: String = mpv
-                .get_property(&format!("track-list/{index}/type"))
-                .unwrap_or_default();
+            let kind_raw: String = mpv.get_property(&format!("track-list/{index}/type")).unwrap_or_default();
 
             let Some(kind) = track_kind(&kind_raw) else {
                 continue;
@@ -222,17 +221,9 @@ impl Player for MpvPlayer {
 
             let lang: Option<String> = mpv.get_property(&format!("track-list/{index}/lang")).ok();
             let title: Option<String> = mpv.get_property(&format!("track-list/{index}/title")).ok();
-            let selected: bool = mpv
-                .get_property(&format!("track-list/{index}/selected"))
-                .unwrap_or(false);
+            let selected: bool = mpv.get_property(&format!("track-list/{index}/selected")).unwrap_or(false);
 
-            tracks.push(Track {
-                id,
-                kind,
-                lang,
-                title,
-                selected,
-            });
+            tracks.push(Track { id, kind, lang, title, selected });
         }
 
         tracks
@@ -283,13 +274,7 @@ impl Player for MpvPlayer {
 
     fn video_decoder(&self) -> Option<VideoDecoder> {
         let engine = self.engine();
-        let text = |name: &str| {
-            engine
-                .mpv
-                .get_property::<String>(name)
-                .ok()
-                .filter(|value| !value.is_empty())
-        };
+        let text = |name: &str| engine.mpv.get_property::<String>(name).ok().filter(|value| !value.is_empty());
 
         Some(VideoDecoder {
             hwdec: text("hwdec-current")?,
@@ -309,23 +294,18 @@ impl Player for MpvPlayer {
         if width <= 0 || height <= 0 {
             return Ok(());
         }
-        render
-            .render::<()>(fbo as i32, width, height, true)
-            .map_err(Error::mpv)
+        // mpv takes the GL framebuffer name as a C `int`: the same bits, not the same value.
+        render.render::<()>(fbo.cast_signed(), width, height, true).map_err(Error::mpv)
     }
 }
 
-unsafe fn create_render(
-    mpv: &Mpv,
-    loader: GlLoader,
-    display: NativeDisplay,
-) -> Result<RenderContext<'static>, Error> {
+/// # Safety
+///
+/// The returned context borrows `mpv` for `'static`: `mpv` must not move and must outlive it.
+unsafe fn create_render(mpv: &Mpv, loader: GlLoader, display: NativeDisplay) -> Result<RenderContext<'static>, Error> {
     let mut params = vec![
         RenderParam::ApiType(RenderParamApiType::OpenGl),
-        RenderParam::InitParams(OpenGLInitParams {
-            get_proc_address: load_gl,
-            ctx: loader,
-        }),
+        RenderParam::InitParams(OpenGLInitParams { get_proc_address: load_gl, ctx: loader }),
     ];
 
     match display {
@@ -343,7 +323,7 @@ fn load_gl(loader: &GlLoader, name: &str) -> *mut c_void {
     let Ok(cname) = CString::new(name) else {
         return std::ptr::null_mut();
     };
-    loader(cname.as_c_str()) as *mut c_void
+    loader(cname.as_c_str()).cast_mut()
 }
 
 /// Stream kind from mpv `track-list/N/type`.
@@ -368,12 +348,7 @@ fn display_size(width: i64, height: i64) -> Option<[u32; 2]> {
 fn loadfile_args(url: &str, start_seconds: f64) -> Vec<String> {
     let start = start_seconds.max(0.0);
     if start > 0.5 {
-        return vec![
-            url.to_owned(),
-            String::from("replace"),
-            String::from("-1"),
-            format!("start={start}"),
-        ];
+        return vec![url.to_owned(), String::from("replace"), String::from("-1"), format!("start={start}")];
     }
 
     vec![url.to_owned(), String::from("replace")]
@@ -390,11 +365,7 @@ fn apply_play_opts(mpv: &Mpv, media: &Media<'_>) -> Result<(), Error> {
     let proxy = media.http_proxy.unwrap_or("");
     set_prop(mpv, "http-proxy", proxy.to_owned())?;
 
-    let hwdec = if media.hardware_decoding {
-        "auto"
-    } else {
-        "no"
-    };
+    let hwdec = if media.hardware_decoding { "auto" } else { "no" };
     set_prop(mpv, "hwdec", hwdec.to_owned())?;
 
     if media.loudnorm {
@@ -425,11 +396,7 @@ struct ScaleParams {
 
 fn scale_params(scale: VideoScale) -> ScaleParams {
     let keep_aspect = scale != VideoScale::Fill;
-    let panscan = if scale == VideoScale::Expand {
-        1.0
-    } else {
-        0.0
-    };
+    let panscan = if scale == VideoScale::Expand { 1.0 } else { 0.0 };
 
     let zoom = match scale {
         VideoScale::Zoom115 => 1.15f64.log2(),
@@ -437,11 +404,7 @@ fn scale_params(scale: VideoScale) -> ScaleParams {
         VideoScale::Default | VideoScale::Expand | VideoScale::Fill => 0.0,
     };
 
-    ScaleParams {
-        keep_aspect,
-        panscan,
-        zoom,
-    }
+    ScaleParams { keep_aspect, panscan, zoom }
 }
 
 #[cfg(test)]
@@ -473,10 +436,7 @@ mod tests {
     #[test]
     fn loadfile_without_resume_has_no_start_option() {
         let args = loadfile_args("http://ts/stream", 0.0);
-        assert_eq!(
-            args,
-            vec![String::from("http://ts/stream"), String::from("replace")]
-        );
+        assert_eq!(args, vec![String::from("http://ts/stream"), String::from("replace")]);
     }
 
     #[test]

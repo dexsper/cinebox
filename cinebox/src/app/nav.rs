@@ -4,7 +4,7 @@ use cinebox_tmdb::ShelfId;
 use crate::screens::discover::DiscoverFilters;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum Screen {
+pub(crate) enum Screen {
     Home,
     Section { section: Section },
     Category { id: ShelfId },
@@ -17,9 +17,16 @@ pub enum Screen {
     Player { kind: MediaKind, id: TmdbId },
 }
 
+/// A movie or series a detail screen shows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) struct MediaRef {
+    pub(crate) kind: MediaKind,
+    pub(crate) id: TmdbId,
+}
+
 /// Top-level destination in the side rail.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum RailEntry {
+pub(crate) enum RailEntry {
     Home,
     Section(Section),
     Library,
@@ -28,7 +35,7 @@ pub enum RailEntry {
 impl Screen {
     /// Browse screens get the side rail; detail and playback screens do not.
     #[must_use]
-    pub const fn shows_rail(self) -> bool {
+    pub(crate) const fn shows_rail(self) -> bool {
         matches!(
             self,
             Self::Home
@@ -42,21 +49,21 @@ impl Screen {
 
     /// Opened from the side menu itself rather than from another screen.
     #[must_use]
-    pub const fn is_rail_destination(self) -> bool {
+    pub(crate) const fn is_rail_destination(self) -> bool {
         matches!(self, Self::Home | Self::Section { .. } | Self::Library)
     }
 
     /// Rail entry highlighted while this screen is shown.
     #[must_use]
-    pub const fn rail_entry(self) -> Option<RailEntry> {
+    pub(crate) const fn rail_entry(self) -> Option<RailEntry> {
         match self {
             Self::Home => Some(RailEntry::Home),
-            Self::Section { section } | Self::Discover { section } => {
-                Some(RailEntry::Section(section))
-            }
+            Self::Section { section } | Self::Discover { section } => Some(RailEntry::Section(section)),
             Self::Category { id } => Some(shelf_rail_entry(id)),
             Self::Library => Some(RailEntry::Library),
-            _ => None,
+            Self::Search | Self::Media { .. } | Self::Person { .. } | Self::Torrents { .. } | Self::Player { .. } => {
+                None
+            }
         }
     }
 }
@@ -71,7 +78,7 @@ const fn shelf_rail_entry(id: ShelfId) -> RailEntry {
 
 /// Settings page that a "fix it" button on an error or empty state jumps to.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum SettingsPage {
+pub(crate) enum SettingsPage {
     General,
     Parser,
     TorrServer,
@@ -79,37 +86,23 @@ pub enum SettingsPage {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum NavAction {
+pub(crate) enum NavAction {
     OpenSettings,
     OpenSettingsAt(SettingsPage),
     OpenOnboarding,
     GoBack,
     OpenRail(RailEntry),
-    OpenCategory {
-        id: ShelfId,
-        items: Vec<CatalogItem>,
-    },
-    OpenDiscover {
-        section: Section,
-        filters: DiscoverFilters,
-    },
-    OpenLibrary {
-        list: LibraryList,
-    },
-    OpenSearch {
-        query: String,
-    },
-    OpenMedia {
-        item: CatalogItem,
-    },
-    OpenPerson {
-        person: CreditPerson,
-    },
+    OpenCategory { id: ShelfId, items: Vec<CatalogItem> },
+    OpenDiscover { section: Section, filters: DiscoverFilters },
+    OpenLibrary { list: LibraryList },
+    OpenSearch { query: String },
+    OpenMedia { item: CatalogItem },
+    OpenPerson { person: CreditPerson },
     WatchTorrents,
 }
 
 #[derive(Debug, Clone)]
-pub struct Nav {
+pub(crate) struct Nav {
     stack: Vec<Screen>,
     /// Widget focused on each stacked screen when the next one opened, so Back
     /// on a remote lands where the user left off.
@@ -117,30 +110,27 @@ pub struct Nav {
 }
 
 impl Nav {
-    pub fn new() -> Self {
-        Self {
-            stack: vec![Screen::Home],
-            focus: vec![None],
-        }
+    pub(crate) fn new() -> Self {
+        Self { stack: vec![Screen::Home], focus: vec![None] }
     }
 
-    pub fn current(&self) -> Screen {
+    pub(crate) fn current(&self) -> Screen {
         self.stack.last().copied().unwrap_or(Screen::Home)
     }
 
     /// Nothing to go back to.
-    pub fn is_root(&self) -> bool {
+    pub(crate) fn is_root(&self) -> bool {
         self.stack.len() <= 1
     }
 
-    pub fn push(&mut self, screen: Screen) {
+    pub(crate) fn push(&mut self, screen: Screen) {
         if self.current() != screen {
             self.stack.push(screen);
             self.focus.push(None);
         }
     }
 
-    pub fn pop(&mut self) {
+    pub(crate) fn pop(&mut self) {
         if self.stack.len() > 1 {
             self.stack.pop();
             self.focus.pop();
@@ -148,21 +138,21 @@ impl Nav {
     }
 
     /// Jump to a top-level screen: the stack becomes `[Home, screen]`, so Back returns Home.
-    pub fn switch_top(&mut self, screen: Screen) {
+    pub(crate) fn switch_top(&mut self, screen: Screen) {
         self.stack.truncate(1);
         self.focus.truncate(1);
         self.push(screen);
     }
 
     /// Remember the focused widget of the current screen.
-    pub fn mark_focus(&mut self, id: Option<egui::Id>) {
+    pub(crate) fn mark_focus(&mut self, id: Option<egui::Id>) {
         if let Some(slot) = self.focus.last_mut() {
             *slot = id;
         }
     }
 
     /// Focus remembered for the current screen.
-    pub fn focus_mark(&self) -> Option<egui::Id> {
+    pub(crate) fn focus_mark(&self) -> Option<egui::Id> {
         self.focus.last().copied().flatten()
     }
 }
@@ -186,10 +176,7 @@ mod tests {
         nav.pop();
         assert_eq!(nav.current(), Screen::Home);
 
-        let movie = Screen::Media {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let movie = Screen::Media { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
         nav.push(movie);
         assert_eq!(nav.current(), movie);
@@ -204,16 +191,10 @@ mod tests {
     #[test]
     fn media_and_person_stack() {
         let mut nav = Nav::new();
-        let movie = Screen::Media {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let movie = Screen::Media { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
         let person = Screen::Person { id: TmdbId::new(7) };
-        let other = Screen::Media {
-            kind: MediaKind::Tv,
-            id: TmdbId::new(2),
-        };
+        let other = Screen::Media { kind: MediaKind::Tv, id: TmdbId::new(2) };
 
         nav.push(movie);
         nav.push(person);
@@ -233,15 +214,9 @@ mod tests {
     #[test]
     fn torrents_stack_on_media() {
         let mut nav = Nav::new();
-        let movie = Screen::Media {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let movie = Screen::Media { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
-        let torrents = Screen::Torrents {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let torrents = Screen::Torrents { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
         nav.push(movie);
         nav.push(torrents);
@@ -254,15 +229,9 @@ mod tests {
     #[test]
     fn player_stacks_on_torrents() {
         let mut nav = Nav::new();
-        let torrents = Screen::Torrents {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let torrents = Screen::Torrents { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
-        let player = Screen::Player {
-            kind: MediaKind::Movie,
-            id: TmdbId::new(1),
-        };
+        let player = Screen::Player { kind: MediaKind::Movie, id: TmdbId::new(1) };
 
         nav.push(torrents);
         nav.push(player);
@@ -289,9 +258,7 @@ mod tests {
     #[test]
     fn category_stacks_on_home() {
         let mut nav = Nav::new();
-        let category = Screen::Category {
-            id: ShelfId::Home(cinebox_core::HomeRowId::NowPlaying),
-        };
+        let category = Screen::Category { id: ShelfId::Home(cinebox_core::HomeRowId::NowPlaying) };
 
         nav.push(category);
         assert_eq!(nav.current(), category);
@@ -306,18 +273,11 @@ mod tests {
         #[test]
         fn back_from_switched_section_returns_home() {
             let mut nav = Nav::new();
-            nav.switch_top(Screen::Section {
-                section: Section::Movies,
-            });
+            nav.switch_top(Screen::Section { section: Section::Movies });
 
-            nav.push(Screen::Media {
-                kind: MediaKind::Movie,
-                id: TmdbId::new(1),
-            });
+            nav.push(Screen::Media { kind: MediaKind::Movie, id: TmdbId::new(1) });
 
-            nav.switch_top(Screen::Section {
-                section: Section::Tv,
-            });
+            nav.switch_top(Screen::Section { section: Section::Tv });
 
             nav.pop();
             assert_eq!(nav.current(), Screen::Home);

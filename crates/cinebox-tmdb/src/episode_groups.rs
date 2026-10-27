@@ -69,15 +69,15 @@ pub(crate) async fn digital_numbering(
     tv_id: TmdbId,
     wanted: &[u32],
 ) -> Result<Option<Vec<Renumber>>, Error> {
-    let Some(last) = wanted.iter().copied().max() else {
+    let Some(last_season) = wanted.iter().copied().max() else {
         return Ok(None);
     };
 
-    let url = format!("{API_BASE}/tv/{}/episode_groups", tv_id.get());
-    let list: GroupListBody = fetch(net, api_key, &url).await?;
+    let list_url = format!("{API_BASE}/tv/{}/episode_groups", tv_id.get());
+    let group_list: GroupListBody = fetch(net, api_key, &list_url).await?;
 
-    let groups = list.results.into_iter();
-    let candidates = groups.filter(|group| may_cover(group, last));
+    let groups = group_list.results.into_iter();
+    let candidates = groups.filter(|group| may_cover(group, last_season));
 
     for group in candidates {
         // The id goes into the URL path, so anything but a plain TMDB id is skipped.
@@ -85,8 +85,8 @@ pub(crate) async fn digital_numbering(
             continue;
         }
 
-        let url = format!("{API_BASE}/tv/episode_group/{}", group.id);
-        let body: GroupBody = fetch(net, api_key, &url).await?;
+        let group_url = format!("{API_BASE}/tv/episode_group/{}", group.id);
+        let body: GroupBody = fetch(net, api_key, &group_url).await?;
 
         if let Some(found) = numbering(body, wanted) {
             return Ok(Some(found));
@@ -97,13 +97,7 @@ pub(crate) async fn digital_numbering(
 }
 
 async fn fetch<T: DeserializeOwned>(net: &NetConfig, api_key: &str, url: &str) -> Result<T, Error> {
-    send_json(net, |client| {
-        client
-            .get(url)
-            .timeout(REQUEST_TIMEOUT)
-            .query(&[("api_key", api_key)])
-    })
-    .await
+    send_json(net, |client| client.get(url).timeout(REQUEST_TIMEOUT).query(&[("api_key", api_key)])).await
 }
 
 fn may_cover(group: &GroupSummary, last: u32) -> bool {
@@ -112,8 +106,7 @@ fn may_cover(group: &GroupSummary, last: u32) -> bool {
 }
 
 fn is_plain_id(id: &str) -> bool {
-    id.chars()
-        .all(|character| character.is_ascii_alphanumeric())
+    id.chars().all(|character| character.is_ascii_alphanumeric())
 }
 
 fn is_regular(episode: &GroupEpisode) -> bool {
@@ -139,12 +132,7 @@ fn numbering(body: GroupBody, wanted: &[u32]) -> Option<Vec<Renumber>> {
 
         let regular = part.episodes.iter().filter(|episode| is_regular(episode));
         for (episode, tmdb) in (1..).zip(regular) {
-            out.push(Renumber {
-                season,
-                episode,
-                tmdb_season: tmdb.season_number,
-                tmdb_episode: tmdb.episode_number,
-            });
+            out.push(Renumber { season, episode, tmdb_season: tmdb.season_number, tmdb_episode: tmdb.episode_number });
         }
     }
 
@@ -187,24 +175,14 @@ mod tests {
     }
 
     fn renumber(season: u32, episode: u32, tmdb_season: u32, tmdb_episode: u32) -> Renumber {
-        Renumber {
-            season,
-            episode,
-            tmdb_season,
-            tmdb_episode,
-        }
+        Renumber { season, episode, tmdb_season, tmdb_episode }
     }
 
     #[test]
     fn maps_part_n_to_season_n_in_episode_order() {
         let mapped = numbering(body(PARTS), &[2, 3]);
 
-        let expected = vec![
-            renumber(2, 1, 1, 6),
-            renumber(2, 2, 1, 7),
-            renumber(3, 1, 3, 1),
-            renumber(3, 2, 3, 2),
-        ];
+        let expected = vec![renumber(2, 1, 1, 6), renumber(2, 2, 1, 7), renumber(3, 1, 3, 1), renumber(3, 2, 3, 2)];
         assert_eq!(mapped, Some(expected));
     }
 

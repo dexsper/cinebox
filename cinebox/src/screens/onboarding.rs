@@ -41,22 +41,10 @@ enum Step {
 struct Route(&'static [Step]);
 
 impl Route {
-    const CROPPING_SCREEN: [Step; 6] = [
-        Step::Language,
-        Step::Screen,
-        Step::Tmdb,
-        Step::Parser,
-        Step::TorrServer,
-        Step::Done,
-    ];
+    const CROPPING_SCREEN: [Step; 6] =
+        [Step::Language, Step::Screen, Step::Tmdb, Step::Parser, Step::TorrServer, Step::Done];
 
-    const WHOLE_SCREEN: [Step; 5] = [
-        Step::Language,
-        Step::Tmdb,
-        Step::Parser,
-        Step::TorrServer,
-        Step::Done,
-    ];
+    const WHOLE_SCREEN: [Step; 5] = [Step::Language, Step::Tmdb, Step::Parser, Step::TorrServer, Step::Done];
 
     fn of(ctx: &Context) -> Self {
         if platform::profile(ctx).overscan {
@@ -104,15 +92,11 @@ struct Probes {
 
 impl Default for Probes {
     fn default() -> Self {
-        Self {
-            tmdb: Bind::new(true),
-            parser: Bind::new(true),
-            torr: Bind::new(true),
-        }
+        Self { tmdb: Bind::new(true), parser: Bind::new(true), torr: Bind::new(true) }
     }
 }
 
-pub struct OnboardingScreen {
+pub(crate) struct OnboardingScreen {
     open: bool,
     opened_at: Option<f64>,
     step: Step,
@@ -139,12 +123,12 @@ impl Default for OnboardingScreen {
 
 impl OnboardingScreen {
     #[must_use]
-    pub fn is_open(&self) -> bool {
+    pub(crate) fn is_open(&self) -> bool {
         self.open
     }
 
     /// Start from the first step and look for local services in the background.
-    pub fn open(&mut self, svc: &Services, now: f64) {
+    pub(crate) fn open(&mut self, svc: &Services, now: f64) {
         *self = Self::default();
         self.open = true;
         self.opened_at = Some(now);
@@ -167,7 +151,7 @@ impl OnboardingScreen {
         self.open = true;
     }
 
-    pub fn ui(&mut self, ctx: &Context, svc: &mut Services, theme: &Theme) {
+    pub(crate) fn ui(&mut self, ctx: &Context, svc: &mut Services, theme: &Theme) {
         if !self.open {
             return;
         }
@@ -193,13 +177,7 @@ impl OnboardingScreen {
         }
     }
 
-    fn card_contents(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        max_body_h: f32,
-    ) -> Option<WizardNav> {
+    fn card_contents(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, max_body_h: f32) -> Option<WizardNav> {
         let later = self.header(ui, theme);
         ui.add_space(16.0);
         self.title(ui, theme);
@@ -336,7 +314,7 @@ fn step_copy(step: Step) -> (Cow<'static, str>, Cow<'static, str>) {
 }
 
 fn discovery_ctx(svc: &Services) -> DiscoveryCtx {
-    let settings_file = svc.store.as_ref().map(|store| store.path());
+    let settings_file = svc.store.as_ref().map(cinebox_core::SettingsStore::path);
     let config_dir = settings_file.and_then(std::path::Path::parent);
 
     DiscoveryCtx {
