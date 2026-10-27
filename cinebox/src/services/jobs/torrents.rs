@@ -131,11 +131,11 @@ async fn season_catalog(
             None => None,
         };
 
-        if let Some(hit) = cached {
-            if hit.is_fresh(SEASON_TTL) {
-                out.extend(hit.value);
-                continue;
-            }
+        // An empty list is never written now, but older builds cached one after a failed fetch.
+        let usable = cached.filter(|hit| hit.is_fresh(SEASON_TTL) && !hit.value.is_empty());
+        if let Some(hit) = usable {
+            out.extend(hit.value);
+            continue;
         }
 
         need.push(season);
@@ -157,6 +157,12 @@ async fn season_catalog(
                 .filter(|ep| ep.season == season)
                 .cloned()
                 .collect();
+
+            // Nothing back can be a network failure as well as a missing season,
+            // so it is asked again next time instead of hiding names for a day.
+            if eps.is_empty() {
+                continue;
+            }
 
             let paths = episode_paths(&eps);
             let cache_id = season_cache_id(id, season);

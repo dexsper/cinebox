@@ -7,6 +7,7 @@ mod details;
 mod details_dto;
 mod details_map;
 mod discover;
+mod episode_groups;
 mod genres;
 mod home;
 mod search;
@@ -248,6 +249,9 @@ pub async fn fetch_person(
 }
 
 /// TV season episodes: names and `still_path` for the file-list preview.
+///
+/// Seasons TMDB lacks are looked up through the show's Digital episode group,
+/// so a release numbered by streaming "parts" still matches.
 ///
 /// # Errors
 ///

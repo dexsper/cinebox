@@ -4,6 +4,7 @@ use cinebox_core::TmdbId;
 use cinebox_net::NetConfig;
 use serde::{Deserialize, Serialize};
 
+use crate::episode_groups::{Renumber, digital_numbering};
 use crate::{API_BASE, Error, prepare_api_key, send_json};
 
 /// One episode from a season payload.
@@ -41,6 +42,10 @@ struct EpisodeBody {
 
 /// Fetch episode stills/names for the given season numbers, in parallel.
 ///
+/// When TMDB lacks one of the seasons, the release is taken to count seasons
+/// the way the show's Digital episode group does, and every season is
+/// renumbered through it.
+///
 /// # Errors
 ///
 /// Empty key. A failed season is logged and skipped instead of failing the
@@ -58,21 +63,96 @@ pub async fn fetch_season_episodes(
     wanted.sort_unstable();
     wanted.dedup();
 
-    let fetches = wanted
+    let results = fetch_seasons(net, api_key, tv_id, &wanted, language).await;
+
+    let is_missing = results
+        .iter()
+        .any(|(_, result)| matches!(result, Err(Error::Http(404))));
+
+    if is_missing {
+        match regrouped(net, api_key, tv_id, &wanted, language).await {
+            Ok(Some(episodes)) => return Ok(episodes),
+            Ok(None) => {}
+            Err(error) => tracing::warn!(%error, "tmdb episode group fetch failed"),
+        }
+    }
+
+    Ok(fetched_episodes(results))
+}
+
+async fn fetch_seasons(
+    net: &NetConfig,
+    api_key: &str,
+    tv_id: TmdbId,
+    seasons: &[u32],
+    language: Option<&str>,
+) -> Vec<(u32, Result<Vec<SeasonEpisode>, Error>)> {
+    let fetches = seasons
         .iter()
         .map(|season| fetch_one_season(net, api_key, tv_id, *season, language));
 
-    let mut out = Vec::new();
     let results = futures_util::future::join_all(fetches).await;
+    seasons.iter().copied().zip(results).collect()
+}
 
-    for (season, result) in wanted.iter().zip(results) {
+fn fetched_episodes(results: Vec<(u32, Result<Vec<SeasonEpisode>, Error>)>) -> Vec<SeasonEpisode> {
+    let mut out = Vec::new();
+
+    for (season, result) in results {
         match result {
             Ok(episodes) => out.extend(episodes),
             Err(error) => tracing::warn!(%error, season, "tmdb season fetch failed"),
         }
     }
 
-    Ok(out)
+    out
+}
+
+async fn regrouped(
+    net: &NetConfig,
+    api_key: &str,
+    tv_id: TmdbId,
+    wanted: &[u32],
+    language: Option<&str>,
+) -> Result<Option<Vec<SeasonEpisode>>, Error> {
+    let Some(numbering) = digital_numbering(net, api_key, tv_id, wanted).await? else {
+        return Ok(None);
+    };
+
+    let mut tmdb_seasons: Vec<u32> = numbering
+        .iter()
+        .map(|renumber| renumber.tmdb_season)
+        .collect();
+
+    tmdb_seasons.sort_unstable();
+    tmdb_seasons.dedup();
+
+    // Names and stills come from the seasons, not the group: TMDB never translates a group payload.
+    let results = fetch_seasons(net, api_key, tv_id, &tmdb_seasons, language).await;
+    let catalog = fetched_episodes(results);
+
+    Ok(Some(renumbered(&numbering, &catalog)))
+}
+
+fn renumbered(numbering: &[Renumber], catalog: &[SeasonEpisode]) -> Vec<SeasonEpisode> {
+    let mut out = Vec::with_capacity(numbering.len());
+
+    for renumber in numbering {
+        let target = (renumber.tmdb_season, renumber.tmdb_episode);
+        let found = catalog
+            .iter()
+            .find(|episode| (episode.season, episode.episode) == target);
+
+        let Some(episode) = found else { continue };
+
+        out.push(SeasonEpisode {
+            season: renumber.season,
+            episode: renumber.episode,
+            ..episode.clone()
+        });
+    }
+
+    out
 }
 
 async fn fetch_one_season(
@@ -216,6 +296,30 @@ mod tests {
         assert_eq!(episodes[0].still_path, None);
         assert_eq!(episodes[0].runtime_minutes, None);
         assert_eq!(episodes[0].air_date, None);
+    }
+
+    #[test]
+    fn renumbers_tmdb_episodes_into_release_numbering() {
+        let named = |season, episode, name: &str| SeasonEpisode {
+            season,
+            episode,
+            name: String::from(name),
+            still_path: None,
+            runtime_minutes: None,
+            air_date: None,
+        };
+        let catalog = vec![named(3, 1, "first"), named(3, 2, "second")];
+        let into_part_4 = |episode, tmdb_episode| Renumber {
+            season: 4,
+            episode,
+            tmdb_season: 3,
+            tmdb_episode,
+        };
+        let numbering = [into_part_4(1, 1), into_part_4(2, 9), into_part_4(3, 2)];
+
+        let episodes = renumbered(&numbering, &catalog);
+
+        assert_eq!(episodes, vec![named(4, 1, "first"), named(4, 3, "second")]);
     }
 
     #[test]
