@@ -19,7 +19,7 @@ use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs, VideoScale};
 use cinebox_player::{
     Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video,
 };
-use egui::{Align, Align2, Color32, Rect, RichText, Sense, Ui, pos2};
+use egui::{Align, Align2, Color32, CursorIcon, Rect, RichText, Sense, Ui, pos2};
 use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{info, warn};
@@ -558,7 +558,7 @@ impl PlayerScreen {
         }
 
         let alpha = self.activity.visual_t(now);
-        let header_rect = overlay::header(&ctx, theme, rect, &view.title, alpha);
+        overlay::header(&ctx, theme, rect, &view.title, alpha);
 
         let profile = crate::platform::profile(&ctx);
         let footer_view = FooterView {
@@ -582,14 +582,6 @@ impl PlayerScreen {
 
         let focused = ctx.memory(|mem| mem.focused());
         self.controls_focused = focused.is_some_and(|id| id != input::video_id());
-
-        let pointer = ctx.pointer_latest_pos();
-        let over_chrome = pointer.is_some_and(|pos| {
-            header_rect.is_some_and(|header| header.contains(pos)) || footer.rect.contains(pos)
-        });
-        if over_chrome {
-            self.activity.poke(now);
-        }
 
         self.popups(&ctx, svc, theme, &footer);
 
@@ -666,6 +658,12 @@ impl PlayerScreen {
         }
         if footer.volume_hovered && self.popup == Popup::None {
             self.popup = Popup::Volume;
+        }
+
+        // Set last so it wins over the pointing hand of the clickable video.
+        let rests_on_video = ctx.pointer_hover_pos().is_some_and(|pos| rect.contains(pos));
+        if alpha <= 0.0 && rests_on_video && profile.is_desktop_window() {
+            ctx.set_cursor_icon(CursorIcon::None);
         }
 
         if alpha > 0.0 && alpha < 1.0 {

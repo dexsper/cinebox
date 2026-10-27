@@ -90,7 +90,6 @@ pub struct FooterOut {
     pub volume_clicked: bool,
     pub volume_hovered: bool,
     pub fullscreen_clicked: bool,
-    pub rect: Rect,
     pub seek_rect: Rect,
     pub playlist_rect: Rect,
     pub settings_rect: Rect,
@@ -112,7 +111,6 @@ impl FooterOut {
             volume_clicked: false,
             volume_hovered: false,
             fullscreen_clicked: false,
-            rect: Rect::NOTHING,
             seek_rect: Rect::NOTHING,
             playlist_rect: Rect::NOTHING,
             settings_rect: Rect::NOTHING,
@@ -122,21 +120,15 @@ impl FooterOut {
     }
 }
 
-/// Title over a scrim, top-left of the video. Returns the painted rect.
-pub fn header(
-    ctx: &egui::Context,
-    theme: &Theme,
-    video: Rect,
-    title: &str,
-    alpha: f32,
-) -> Option<Rect> {
+/// Title over a scrim, top-left of the video.
+pub fn header(ctx: &egui::Context, theme: &Theme, video: Rect, title: &str, alpha: f32) {
     if alpha <= 0.01 {
-        return None;
+        return;
     }
 
     let safe = video - crate::platform::edge_inset(ctx);
     let max_w = (safe.width() - 48.0).max(280.0);
-    let response = Area::new(Id::new("player-header"))
+    Area::new(Id::new("player-header"))
         .order(Order::Foreground)
         .fixed_pos(safe.left_top() + vec2(16.0, 16.0))
         .constrain(false)
@@ -158,10 +150,7 @@ pub fn header(
                         .wrap(),
                     );
                 });
-        })
-        .response;
-
-    Some(response.rect)
+        });
 }
 
 /// Transport bar over the bottom of the video.
@@ -176,7 +165,6 @@ pub fn footer(ctx: &egui::Context, theme: &Theme, video: Rect, view: &FooterView
     let top = safe.bottom() - FOOTER_H;
     let rect = Rect::from_min_max(pos2(video.left(), top), video.right_bottom());
     let controls = Rect::from_x_y_ranges(safe.x_range(), top..=safe.bottom());
-    out.rect = rect;
 
     Area::new(Id::new("player-footer"))
         .order(Order::Foreground)
