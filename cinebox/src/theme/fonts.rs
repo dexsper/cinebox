@@ -62,9 +62,9 @@ pub(crate) fn install(ctx: &Context) {
     install_named(ctx, FAMILY_BOLD, BOLD);
     egui_material_icons::initialize(ctx);
 
-    install_fallbacks(ctx, FontFamily::Proportional, &SCRIPTS_REGULAR);
-    install_fallbacks(ctx, FontFamily::Name(FAMILY_MEDIUM.into()), &SCRIPTS_MEDIUM);
-    install_fallbacks(ctx, FontFamily::Name(FAMILY_BOLD.into()), &SCRIPTS_BOLD);
+    install_fallbacks(ctx, &FontFamily::Proportional, &SCRIPTS_REGULAR);
+    install_fallbacks(ctx, &FontFamily::Name(FAMILY_MEDIUM.into()), &SCRIPTS_MEDIUM);
+    install_fallbacks(ctx, &FontFamily::Name(FAMILY_BOLD.into()), &SCRIPTS_BOLD);
 }
 
 /// Display / headings (Medium).
@@ -85,7 +85,7 @@ fn install_named(ctx: &Context, name: &'static str, ttf: &'static [u8]) {
     ctx.add_font(FontInsert::new(name, FontData::from_static(ttf), vec![family]));
 }
 
-fn install_fallbacks(ctx: &Context, family: FontFamily, scripts: &[Script]) {
+fn install_fallbacks(ctx: &Context, family: &FontFamily, scripts: &[Script]) {
     for script in scripts {
         let fallback = InsertFontFamily { family: family.clone(), priority: FontPriority::Lowest };
 

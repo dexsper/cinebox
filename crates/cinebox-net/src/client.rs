@@ -168,11 +168,11 @@ where
 struct Causes<'a>(&'a dyn Error);
 
 impl fmt::Display for Causes<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)?;
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)?;
         let mut source = self.0.source();
         while let Some(cause) = source {
-            write!(f, ": {cause}")?;
+            write!(formatter, ": {cause}")?;
             source = cause.source();
         }
 

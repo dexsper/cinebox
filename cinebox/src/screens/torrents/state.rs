@@ -86,14 +86,13 @@ pub(crate) struct TorrentFileRow {
 /// "Season N · Episode M" line shared by the files modal and player playlist.
 #[must_use]
 pub(crate) fn season_episode_line(season: u32, episode: Option<u32>) -> String {
-    let mut line = format!("{} {season}", t!("media.season"));
+    let line = format!("{} {season}", t!("media.season"));
 
     let Some(episode) = episode else {
         return line;
     };
 
-    line.push_str(&format!("  ·  {} {episode}", t!("media.episode")));
-    line
+    format!("{line}  ·  {} {episode}", t!("media.episode"))
 }
 
 impl TorrentFileRow {

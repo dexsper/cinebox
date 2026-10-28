@@ -399,13 +399,13 @@ fn ready(ui: &mut Ui, details: &MediaDetails, svc: &Services, theme: &Theme, lay
         if !details.directors.is_empty() {
             let title = t!("media.directors");
             let row = CardRow { title: title.as_ref(), salt: "media-directors", items: &details.directors };
-            people(ui, row, svc, theme, &mut out.action);
+            out.action = people(ui, &row, svc, theme).or(out.action.take());
         }
 
         if !details.cast.is_empty() {
             let title = t!("media.cast");
             let row = CardRow { title: title.as_ref(), salt: "media-cast", items: &details.cast };
-            people(ui, row, svc, theme, &mut out.action);
+            out.action = people(ui, &row, svc, theme).or(out.action.take());
         }
 
         let collection = t!("media.collection");
@@ -417,8 +417,8 @@ fn ready(ui: &mut Ui, details: &MediaDetails, svc: &Services, theme: &Theme, lay
             CardRow { title: similar.as_ref(), salt: "media-similar", items: &details.similar },
         ];
 
-        for row in rows {
-            shelf(ui, row, svc, theme, &mut out.action);
+        for row in &rows {
+            out.action = shelf(ui, row, svc, theme).or(out.action.take());
         }
     });
 
@@ -568,7 +568,7 @@ struct Hero<'a> {
 fn hero(ui: &mut Ui, svc: &Services, theme: &Theme, hero: &Hero<'_>, meta: impl FnOnce(&mut Ui, f32)) {
     ui.horizontal(|ui| {
         let poster = poster::rounded_image(ui, hero.sizes.poster, theme, || {
-            svc.images.poster_key(hero.kind, hero.id, hero.poster_path, svc.settings.tmdb.poster_size)
+            svc.images.poster_path(hero.poster_path, svc.settings.tmdb.poster_size)
         });
         let marks = svc.tile_marks(hero.kind, hero.id);
         poster::paint_marks(ui, poster, marks, theme, poster::UNSCALED);
@@ -671,7 +671,7 @@ fn fact(ui: &mut Ui, label: &str, value: String, theme: &Theme) {
     ui.add_space(24.0);
 }
 
-fn people(ui: &mut Ui, row: CardRow<'_, CreditPerson>, svc: &Services, theme: &Theme, action: &mut Option<NavAction>) {
+fn people(ui: &mut Ui, row: &CardRow<'_, CreditPerson>, svc: &Services, theme: &Theme) -> Option<NavAction> {
     const TILE_W: f32 = 100.0;
     const PHOTO: Vec2 = vec2(100.0, 150.0);
     const CAPTION_GAP: f32 = 4.0;
@@ -694,6 +694,8 @@ fn people(ui: &mut Ui, row: CardRow<'_, CreditPerson>, svc: &Services, theme: &T
 
     let well_w = tile_w + pad * 2.0;
     let tile_h = pad + photo.y + caption_gap + name_slot + line_gap + role_slot;
+    let mut action = None;
+
     scroll::horizontal(ui, row.salt, |ui| {
         ui.horizontal_top(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
@@ -704,7 +706,7 @@ fn people(ui: &mut Ui, row: CardRow<'_, CreditPerson>, svc: &Services, theme: &T
 
                 if !poster::in_load_window(ui, rect) {
                     if response.clicked() {
-                        *action = Some(NavAction::OpenPerson { person: person.clone() });
+                        action = Some(NavAction::OpenPerson { person: person.clone() });
                     }
 
                     continue;
@@ -730,33 +732,40 @@ fn people(ui: &mut Ui, row: CardRow<'_, CreditPerson>, svc: &Services, theme: &T
                 ui.painter().galley(name_pos + vec2(0.0, name_h + line_gap), role, theme.muted);
 
                 if response.clicked() {
-                    *action = Some(NavAction::OpenPerson { person: person.clone() });
+                    action = Some(NavAction::OpenPerson { person: person.clone() });
                 }
             }
         });
     });
+
+    action
 }
 
-fn shelf(ui: &mut Ui, row: CardRow<'_, CatalogItem>, svc: &Services, theme: &Theme, action: &mut Option<NavAction>) {
+fn shelf(ui: &mut Ui, row: &CardRow<'_, CatalogItem>, svc: &Services, theme: &Theme) -> Option<NavAction> {
     if row.items.is_empty() {
-        return;
+        return None;
     }
 
     ui.add_space(12.0);
     ui.label(RichText::new(row.title).font(theme.title_font(theme.text_section)).color(theme.title));
 
     let scale = poster::card_scale(ui.available_width());
+    let mut action = None;
+
     scroll::horizontal(ui, row.salt, |ui| {
         ui.horizontal(|ui| {
             ui.spacing_mut().item_spacing.x = 12.0;
+
             for item in row.items {
                 let look = TileLook { marks: svc.tile_marks(item.kind, item.id), scale };
                 if let Some(nav) = poster::catalog_tile(ui, theme, item, svc.posters(), look) {
-                    *action = Some(nav);
+                    action = Some(nav);
                 }
             }
         });
     });
+
+    action
 }
 
 fn scroll_page(ui: &mut Ui, kind: MediaKind, id: TmdbId, is_scroll_reset: bool, add: impl FnOnce(&mut Ui)) {

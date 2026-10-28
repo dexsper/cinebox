@@ -20,17 +20,26 @@ use crate::widgets::{self, chips, combo, focus, multiselect, scroll};
 
 const FILTERS_BTN_W: f32 = 152.0;
 
+/// What the user did in the hit list this frame.
+#[derive(Debug, Default)]
+pub(super) struct ListOutcome {
+    pub error_choice: Option<ErrorChoice>,
+    /// Index of the picked hit in the unfiltered list.
+    pub pick: Option<usize>,
+}
+
+/// `intro` is how far the page intro has run, from 0 to 1.
 pub(super) fn list_pane(
     ui: &mut Ui,
     state: &mut TorrentState,
     theme: &Theme,
-    error_choice: &mut Option<ErrorChoice>,
-    pick: &mut Option<usize>,
-    t: f32,
+    intro: f32,
     filters: &mut Overlay,
-) {
-    if t < 0.22 {
-        return;
+) -> ListOutcome {
+    let mut outcome = ListOutcome::default();
+
+    if intro < 0.22 {
+        return outcome;
     }
 
     toolbar(ui, state, theme, filters);
@@ -41,7 +50,7 @@ pub(super) fn list_pane(
             widgets::page_spinner(ui, theme);
         }
         TorrentHits::Failed(error) => {
-            *error_choice = error_page(ui, theme, error);
+            outcome.error_choice = error_page(ui, theme, error);
         }
         TorrentHits::Ready(hits) => {
             let visible = &state.visible;
@@ -53,7 +62,7 @@ pub(super) fn list_pane(
 
             if visible.is_empty() {
                 widgets::page_message(ui, theme, t!("torrents.none").as_ref(), theme.muted);
-                return;
+                return outcome;
             }
 
             scroll::vertical(ui, "torrent-hits", |ui| {
@@ -75,7 +84,9 @@ pub(super) fn list_pane(
                             return;
                         };
 
-                        hit_row(ui, hit, context, theme, pick, index);
+                        if hit_row(ui, hit, context, theme) {
+                            outcome.pick = Some(index);
+                        }
                     });
                 });
 
@@ -83,6 +94,8 @@ pub(super) fn list_pane(
             });
         }
     }
+
+    outcome
 }
 
 fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut Overlay) {
@@ -172,42 +185,27 @@ pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Them
         };
 
         let voices = voice_filter_options(hits, &state.filter.voice);
-        let label = |voice| voice_label(voice).into_owned();
+        let voice_choices = Choices { options: &voices, label: |voice| voice_label(voice).into_owned() };
         section_label(ui, theme, t!("filter.translation").as_ref());
-        multiselect::show_with(
-            ui,
-            theme,
-            "torrent-voice",
-            &mut state.filter.voice,
-            Choices { options: &voices, label },
-        );
+        multiselect::show_with(ui, theme, "torrent-voice", &mut state.filter.voice, voice_choices);
 
-        let label = |lang| audio_lang_label(lang).into_owned();
-        let choices = Choices { options: AudioLang::ALL, label };
+        let lang_choices = Choices { options: AudioLang::ALL, label: |lang| audio_lang_label(lang).into_owned() };
         section_label(ui, theme, t!("filter.language").as_ref());
-        multiselect::show_with(ui, theme, "torrent-lang", &mut state.filter.lang, choices);
+        multiselect::show_with(ui, theme, "torrent-lang", &mut state.filter.lang, lang_choices);
 
         let years = year_options(hits, state.year, &state.filter.year);
         if years.len() > 1 {
-            let label = |year: u16| year.to_string();
+            let year_choices = Choices { options: &years, label: |year: u16| year.to_string() };
             section_label(ui, theme, t!("filter.year").as_ref());
-            multiselect::show_with(
-                ui,
-                theme,
-                "torrent-year",
-                &mut state.filter.year,
-                Choices { options: &years, label },
-            );
+            multiselect::show_with(ui, theme, "torrent-year", &mut state.filter.year, year_choices);
         }
 
-        if state.kind == MediaKind::Tv {
-            let seasons = season_options(hits);
-            if !seasons.is_empty() {
-                let label = |season| format!("{} {season}", t!("media.season"));
-                let choices = Choices { options: &seasons, label };
-                section_label(ui, theme, t!("media.season").as_ref());
-                multiselect::show_with(ui, theme, "torrent-season", &mut state.filter.season, choices);
-            }
+        let seasons = if state.kind == MediaKind::Tv { season_options(hits) } else { Vec::new() };
+        if !seasons.is_empty() {
+            let season_label = |season| format!("{} {season}", t!("media.season"));
+            let season_choices = Choices { options: &seasons, label: season_label };
+            section_label(ui, theme, t!("media.season").as_ref());
+            multiselect::show_with(ui, theme, "torrent-season", &mut state.filter.season, season_choices);
         }
     });
 
@@ -287,15 +285,8 @@ struct RowContext {
 }
 
 /// The names, then a line of tags read from the title, then where and how
-/// well it is shared.
-fn hit_row(
-    ui: &mut Ui,
-    hit: &cinebox_indexer::TorrentHit,
-    context: RowContext,
-    theme: &Theme,
-    pick: &mut Option<usize>,
-    index: usize,
-) {
+/// well it is shared. `true` when the hit was picked.
+fn hit_row(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext, theme: &Theme) -> bool {
     let id = hit_id(ui, hit);
     let shown = Frame::new()
         .fill(theme.card)
@@ -327,9 +318,8 @@ fn hit_row(
     }
 
     let response = response.on_hover_text(&hit.display_title);
-    if response.clicked() && !hit.magnet.is_empty() {
-        *pick = Some(index);
-    }
+
+    response.clicked() && !hit.magnet.is_empty()
 }
 
 /// Up to two lines; the full title has no place left that needs it.

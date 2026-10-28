@@ -13,6 +13,7 @@ use crate::services::Services;
 use crate::services::jobs;
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
+use crate::widgets::combo::Choices;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::{chips, combo, scroll};
 
@@ -335,13 +336,15 @@ fn filters_drawer(ui: &mut Ui, section: Section, filters: &mut DiscoverFilters, 
         section_label(ui, theme, t!("discover.decade").as_ref());
         let all_years = t!("discover.all_years");
         wrapped(ui, |ui| {
-            optional_chips(ui, theme, &mut filters.decade, &Decade::ALL, &all_years, Decade::label);
+            let decades = Choices { options: &Decade::ALL, label: Decade::label };
+            optional_chips(ui, theme, &mut filters.decade, &all_years, &decades);
         });
 
         section_label(ui, theme, t!("discover.rating").as_ref());
         let any = t!("discover.any");
         wrapped(ui, |ui| {
-            optional_chips(ui, theme, &mut filters.min_vote, &RATINGS, &any, |vote| format!("{vote}+"));
+            let ratings = Choices { options: &RATINGS, label: |vote| format!("{vote}+") };
+            optional_chips(ui, theme, &mut filters.min_vote, &any, &ratings);
         });
 
         section_label(ui, theme, t!("discover.sort").as_ref());
@@ -373,17 +376,16 @@ fn optional_chips<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     value: &mut Option<T>,
-    options: &[T],
     any_label: &str,
-    label: impl Fn(T) -> String,
+    choices: &Choices<'_, T, impl Fn(T) -> String>,
 ) {
     if button::label(ui, theme, any_label, Opts::chip(value.is_none())) {
         *value = None;
     }
 
-    for option in options {
-        let active = *value == Some(*option);
-        if button::label(ui, theme, &label(*option), Opts::chip(active)) {
+    for option in choices.options {
+        let is_active = *value == Some(*option);
+        if button::label(ui, theme, &(choices.label)(*option), Opts::chip(is_active)) {
             *value = Some(*option);
         }
     }

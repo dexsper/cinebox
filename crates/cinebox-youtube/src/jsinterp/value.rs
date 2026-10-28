@@ -85,7 +85,7 @@ impl JsRegex {
 
         let compiled = match builder.build() {
             Ok(re) => re,
-            Err(err) => return Err(JsError::msg(err.to_string())),
+            Err(error) => return Err(JsError::msg(error.to_string())),
         };
 
         Ok(Self { source, flags, compiled })
@@ -145,14 +145,14 @@ pub(super) struct FunctionCode {
 }
 
 impl fmt::Debug for JsFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.inner.repr)
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.inner.repr)
     }
 }
 
 impl fmt::Display for JsFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.inner.repr)
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.inner.repr)
     }
 }
 

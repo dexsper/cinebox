@@ -145,9 +145,8 @@ pub(crate) async fn load_search_page(
 ) -> Result<cinebox_tmdb::CatalogPage, JobError> {
     let language = Some(tmdb.language);
     let search = cinebox_tmdb::SearchQuery { text: &query, kind, page };
-    let page = fetch_search_page(&tmdb.api_key, search, language, &tmdb.net).await?;
 
-    Ok(page)
+    Ok(fetch_search_page(&tmdb.api_key, search, language, &tmdb.net).await?)
 }
 
 pub(crate) async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {

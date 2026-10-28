@@ -1,6 +1,6 @@
 //! Files modal and per-file rows.
 
-use cinebox_core::{MediaKind, TmdbId};
+use cinebox_core::MediaKind;
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
 use rust_i18n::t;
 
@@ -10,15 +10,21 @@ use crate::theme::Theme;
 use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, button, focus, poster, scroll};
 
+/// What the user did in the files modal this frame.
+#[derive(Debug, Default)]
+pub(super) struct FilesOutcome {
+    pub pick_file: Option<i32>,
+    pub error_choice: Option<ErrorChoice>,
+    pub is_closed: bool,
+}
+
 pub(super) fn files_modal(
     ctx: &egui::Context,
     state: &mut TorrentState,
     svc: &Services,
     theme: &Theme,
-    pick_file: &mut Option<i32>,
-    error_choice: &mut Option<ErrorChoice>,
-    close_files: &mut bool,
-) {
+) -> FilesOutcome {
+    let mut outcome = FilesOutcome::default();
     let screen = ctx.content_rect().size();
     let size = files_modal_size(screen);
     let modal = Modal::new(Id::new("torrent-files"))
@@ -43,42 +49,38 @@ pub(super) fn files_modal(
                     widgets::page_spinner(ui, theme);
                 }
                 FilesPane::Failed(error) => {
-                    *error_choice = error_page(ui, theme, error);
+                    outcome.error_choice = error_page(ui, theme, error);
                 }
                 FilesPane::Ready(files) => {
-                    let media = FileListMedia {
-                        kind: state.kind,
-                        id: state.id,
-                        poster_path: state.movie.poster_path.as_deref(),
-                    };
-                    file_list(ui, media, files, svc, theme, pick_file);
+                    let media = FileListMedia { kind: state.kind, poster_path: state.movie.poster_path.as_deref() };
+                    outcome.pick_file = file_list(ui, media, files, svc, theme);
                 }
             }
         });
+
     // Not `should_close`: Escape is the app's Back, which closes this itself.
-    if modal.backdrop_response.clicked() {
-        *close_files = true;
-    }
+    outcome.is_closed = modal.backdrop_response.clicked();
+
+    outcome
 }
 
 #[derive(Clone, Copy)]
 struct FileListMedia<'a> {
     kind: MediaKind,
-    id: TmdbId,
     poster_path: Option<&'a str>,
 }
 
+/// The id of the file picked this frame.
 fn file_list(
     ui: &mut Ui,
     media: FileListMedia<'_>,
     files: &mut ReadyFiles,
     svc: &Services,
     theme: &Theme,
-    pick_file: &mut Option<i32>,
-) {
+) -> Option<i32> {
     if files.files.is_empty() {
         ui.label(RichText::new(t!("torrents.no_playable").as_ref()).color(theme.muted));
-        return;
+        return None;
     }
 
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
@@ -87,6 +89,8 @@ fn file_list(
 
     let serial = media.kind == MediaKind::Tv;
     let mut revealed = false;
+    let mut picked = None;
+
     scroll::vertical(ui, ("torrent-files", files.hash.as_str()), |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
@@ -111,14 +115,9 @@ fn file_list(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     poster::rounded_image(ui, Vec2::new(theme.still_w, theme.still_h), theme, || {
-                        svc.images.slot(file.still_url.as_deref()).or_else(|| {
-                            svc.images.poster_key(
-                                media.kind,
-                                media.id,
-                                media.poster_path,
-                                svc.settings.tmdb.poster_size,
-                            )
-                        })
+                        let poster = || svc.images.poster_path(media.poster_path, svc.settings.tmdb.poster_size);
+
+                        svc.images.slot(file.still_url.as_deref()).or_else(poster)
                     });
 
                     ui.vertical(|ui| {
@@ -161,7 +160,7 @@ fn file_list(
             }
 
             if response.clicked() {
-                *pick_file = Some(file.id);
+                picked = Some(file.id);
             }
         }
     });
@@ -169,6 +168,8 @@ fn file_list(
     if revealed {
         files.reveal_selected = false;
     }
+
+    picked
 }
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {

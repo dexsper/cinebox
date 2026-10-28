@@ -932,7 +932,7 @@ fn header_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     };
 
     let bar = Rect::from_min_size(pos2(170.0, 8.0), vec2(300.0, 28.0));
-    let _ = state.search.show(ui, &theme, bar);
+    state.search.show(ui, &theme, bar);
 
     let settings_rect = Rect::from_min_size(pos2(596.0, 6.0), vec2(32.0, 32.0));
     let settings = ui
@@ -1325,7 +1325,7 @@ fn wizard_dpad_walks_the_card_not_the_screen_behind() {
 #[test]
 fn wizard_fits_the_screen_with_left_and_right() {
     let mut harness = wizard_harness(UiLanguage::English);
-    let inset = |harness: &Harness<'_, WizardTv>| platform::edge_inset(&harness.ctx);
+    let inset = |wizard: &Harness<'_, WizardTv>| platform::edge_inset(&wizard.ctx);
     let before = inset(&harness);
 
     for _ in 0..3 {

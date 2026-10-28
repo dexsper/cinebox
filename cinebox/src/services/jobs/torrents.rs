@@ -42,7 +42,7 @@ pub(crate) async fn load_torrents(
     let hashes: Vec<String> = started.into_iter().map(|row| row.hash).collect();
     let local_hashes = match db.as_ref() {
         Some(db) => match db.watch_release_hashes(kind, details.id).await {
-            Ok(hashes) => hashes,
+            Ok(local) => local,
             Err(error) => {
                 warn!(%error, "failed to load local torrent hashes");
                 Vec::new()
@@ -58,30 +58,45 @@ pub(crate) async fn load_torrents(
     Ok(hits)
 }
 
+/// A magnet to add to TorrServer and the title its files belong to.
+#[derive(Debug)]
+pub(crate) struct OpenMagnet {
+    pub spec: cinebox_torrserver::AddSpec,
+    pub movie: MovieBits,
+    pub target: OpenTarget,
+}
+
+/// A torrent file to wait for until TorrServer has preloaded it.
+#[derive(Debug)]
+pub(crate) struct StreamFile {
+    pub path: String,
+    pub hash: String,
+    pub id: i32,
+    /// Preload from this byte offset instead of the start.
+    pub resume_bytes: Option<u64>,
+}
+
+struct EpisodeHints<'a> {
+    is_serial: bool,
+    runtime_minutes: Option<u32>,
+    catalog: &'a [cinebox_tmdb::SeasonEpisode],
+}
+
 pub(crate) async fn open_magnet(
     torr: TorrCtx,
     tmdb: TmdbCtx,
-    spec: cinebox_torrserver::AddSpec,
-    movie: MovieBits,
-    target: OpenTarget,
+    request: OpenMagnet,
     db: Option<Arc<Store>>,
 ) -> Result<ReadyFiles, JobError> {
+    let OpenMagnet { spec, movie, target } = request;
     let opened = cinebox_torrserver::open_magnet(&torr.server, &spec, torr.track_timecode).await?;
 
-    let serial = target.kind == MediaKind::Tv || movie.number_of_seasons.is_some();
-    let catalog = season_catalog(&opened.files, serial, target.id, &tmdb, db.clone()).await;
+    let is_serial = target.kind == MediaKind::Tv || movie.number_of_seasons.is_some();
+    let catalog = season_catalog(&opened.files, is_serial, target.id, &tmdb, db.clone()).await;
+    let hints = EpisodeHints { is_serial, runtime_minutes: target.runtime_minutes, catalog: &catalog };
+    let timeline = db.as_deref().map(|db| (db, target.kind, target.id));
 
-    let files = decorate_files(
-        opened,
-        &movie,
-        serial,
-        target.runtime_minutes,
-        &catalog,
-        db.as_deref().map(|db| (db, target.kind, target.id)),
-    )
-    .await;
-
-    Ok(files)
+    Ok(decorate_files(opened, &movie, &hints, timeline).await)
 }
 
 async fn season_catalog(
@@ -199,28 +214,31 @@ fn file_title(named: Option<&cinebox_tmdb::SeasonEpisode>, serial: bool, human: 
 async fn decorate_files(
     opened: cinebox_torrserver::OpenedTorrent,
     movie: &MovieBits,
-    serial: bool,
-    runtime_minutes: Option<u32>,
-    catalog: &[cinebox_tmdb::SeasonEpisode],
+    hints: &EpisodeHints<'_>,
     timeline: Option<(&Store, MediaKind, TmdbId)>,
 ) -> ReadyFiles {
-    let fallback_still = tmdb_image_url(movie.backdrop_path.as_deref(), "w300")
-        .or_else(|| tmdb_image_url(movie.poster_path.as_deref(), "w300"));
-
+    let EpisodeHints { is_serial, runtime_minutes, catalog } = *hints;
+    let backdrop_still = tmdb_image_url(movie.backdrop_path.as_deref(), "w300");
+    let fallback_still = backdrop_still.or_else(|| tmdb_image_url(movie.poster_path.as_deref(), "w300"));
     let mut rows = Vec::new();
+
     for (index, file) in opened.files.into_iter().enumerate() {
-        let parsed = parse_file_episode(&file.path, serial);
-        let tmdb = catalog.iter().find(|ep| parsed.season == Some(ep.season) && parsed.episode == Some(ep.episode));
+        let parsed = parse_file_episode(&file.path, is_serial);
+        let is_parsed = |episode: &&cinebox_tmdb::SeasonEpisode| {
+            parsed.season == Some(episode.season) && parsed.episode == Some(episode.episode)
+        };
+        let tmdb = catalog.iter().find(is_parsed);
 
         let human = file_display_name(&file.path);
-        let named = tmdb.filter(|ep| !ep.name.is_empty());
-        let title = file_title(named, serial, human, &movie.title);
+        let named = tmdb.filter(|episode| !episode.name.is_empty());
+        let title = file_title(named, is_serial, human, &movie.title);
 
         let tmdb_still = tmdb.and_then(|episode| tmdb_image_url(episode.still_path.as_deref(), "w300"));
         let still_url = tmdb_still.or_else(|| fallback_still.clone());
 
-        let runtime = tmdb.and_then(|ep| ep.runtime_minutes).or(runtime_minutes);
-        let number = parsed.episode.unwrap_or((index as u32).saturating_add(1));
+        let runtime = tmdb.and_then(|episode| episode.runtime_minutes).or(runtime_minutes);
+        let position = u32::try_from(index).unwrap_or(u32::MAX);
+        let number = parsed.episode.unwrap_or(position.saturating_add(1));
         let tmdb_air_date = tmdb.and_then(|episode| episode.air_date.as_deref()).filter(|date| !date.is_empty());
         let air_date = tmdb_air_date.map(crate::i18n::format_release_date);
 
@@ -248,13 +266,12 @@ async fn decorate_files(
         });
     }
 
-    if serial {
-        rows.sort_by(|a, b| {
-            a.season
-                .unwrap_or(0)
-                .cmp(&b.season.unwrap_or(0))
-                .then(a.episode.unwrap_or(0).cmp(&b.episode.unwrap_or(0)))
-                .then(a.path.cmp(&b.path))
+    if is_serial {
+        rows.sort_by(|left, right| {
+            let left_key = (left.season.unwrap_or(0), left.episode.unwrap_or(0), &left.path);
+            let right_key = (right.season.unwrap_or(0), right.episode.unwrap_or(0), &right.path);
+
+            left_key.cmp(&right_key)
         });
     }
 
@@ -263,15 +280,12 @@ async fn decorate_files(
 
 pub(crate) async fn wait_stream(
     torr: TorrCtx,
-    file_path: String,
-    hash: String,
-    file_id: i32,
-    resume_bytes: Option<u64>,
+    file: StreamFile,
     on_event: impl FnMut(cinebox_torrserver::PreloadEvent) + Send,
 ) -> Result<(), JobError> {
-    let target = cinebox_torrserver::PreloadTarget { file_path: &file_path, hash: &hash, index: file_id };
+    let target = cinebox_torrserver::PreloadTarget { file_path: &file.path, hash: &file.hash, index: file.id };
 
-    if let Some(offset) = resume_bytes {
+    if let Some(offset) = file.resume_bytes {
         cinebox_torrserver::wait_preload_at_bytes(&torr.server, target, offset, on_event).await?;
         return Ok(());
     }

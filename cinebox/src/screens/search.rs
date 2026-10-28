@@ -67,13 +67,13 @@ impl Default for SearchScreen {
 }
 
 impl SearchScreen {
-    pub(crate) fn seed(&mut self, query: String) {
-        let query = query.trim().to_owned();
+    pub(crate) fn seed(&mut self, query: &str) {
+        let query = query.trim();
         if self.query == query {
             return;
         }
 
-        self.query = query;
+        query.clone_into(&mut self.query);
         self.tab = SearchTab::Movies;
         self.reset_tabs();
         self.is_scroll_reset = true;
@@ -247,11 +247,11 @@ mod tests {
     #[test]
     fn seed_resets_tabs_and_new_query() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("  dune  "));
+        screen.seed("  dune  ");
         screen.tabs[0].items.push(movie(1, "A"));
         screen.tab = SearchTab::Tv;
 
-        screen.seed(String::from("alien"));
+        screen.seed("alien");
 
         assert_eq!(screen.query, "alien");
         assert_eq!(screen.tab, SearchTab::Movies);
@@ -262,10 +262,10 @@ mod tests {
     #[test]
     fn same_query_does_not_reset() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("dune"));
+        screen.seed("dune");
         screen.tabs[0].items.push(movie(1, "A"));
 
-        screen.seed(String::from("dune"));
+        screen.seed("dune");
 
         assert_eq!(screen.tabs[0].items.len(), 1);
     }
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn tabs_keep_separate_items() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("dune"));
+        screen.seed("dune");
         screen.tabs[SearchTab::Movies.index()].items.push(movie(1, "A"));
 
         screen.tabs[SearchTab::Tv.index()].items.push(movie(2, "B"));

@@ -62,10 +62,11 @@ pub(crate) fn menu(ui: &mut Ui, theme: &Theme, mark: LibraryMark) -> Option<Menu
     ui.spacing_mut().item_spacing.y = 2.0;
 
     for status in ListStatus::ALL {
-        let active = mark.status == Some(status);
+        let is_active = mark.status == Some(status);
         let label = crate::i18n::list_status_label(status);
-        if row(ui, theme, status_icon(status), label.as_ref(), active, theme.title) {
-            let next = if active { None } else { Some(status) };
+        let status_row = Row { icon: status_icon(status), label: label.as_ref(), is_active, tint: theme.title };
+        if row(ui, theme, &status_row) {
+            let next = if is_active { None } else { Some(status) };
             pick = Some(MenuPick::Status(next));
         }
     }
@@ -74,39 +75,56 @@ pub(crate) fn menu(ui: &mut Ui, theme: &Theme, mark: LibraryMark) -> Option<Menu
     ui.separator();
     ui.add_space(4.0);
 
-    let (heart, tint) = if mark.liked { (ICON_FAVORITE, theme.liked) } else { (ICON_FAVORITE_BORDER, theme.title) };
-    if row(ui, theme, heart, t!("library.liked").as_ref(), mark.liked, tint) {
+    let (icon, tint) = if mark.liked { (ICON_FAVORITE, theme.liked) } else { (ICON_FAVORITE_BORDER, theme.title) };
+    let liked_label = t!("library.liked");
+    let liked_row = Row { icon, label: liked_label.as_ref(), is_active: mark.liked, tint };
+    if row(ui, theme, &liked_row) {
         pick = Some(MenuPick::Liked(!mark.liked));
     }
 
-    if !mark.is_empty() && row(ui, theme, ICON_DELETE, t!("library.remove").as_ref(), false, theme.muted) {
+    if mark.is_empty() {
+        return pick;
+    }
+
+    let remove_label = t!("library.remove");
+    let remove_row = Row { icon: ICON_DELETE, label: remove_label.as_ref(), is_active: false, tint: theme.muted };
+    if row(ui, theme, &remove_row) {
         pick = Some(MenuPick::Clear);
     }
 
     pick
 }
 
-fn row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, active: bool, tint: egui::Color32) -> bool {
+struct Row<'a> {
+    icon: MaterialIcon,
+    label: &'a str,
+    is_active: bool,
+    tint: egui::Color32,
+}
+
+fn row_fill(response: &egui::Response, is_active: bool, theme: &Theme) -> egui::Color32 {
+    if focus::lit(response) {
+        return theme.widget_hover;
+    }
+
+    if is_active { theme.widget_active } else { egui::Color32::TRANSPARENT }
+}
+
+fn row(ui: &mut Ui, theme: &Theme, row: &Row<'_>) -> bool {
+    let &Row { icon, label, is_active, tint } = row;
     let size = vec2(ui.available_width(), ROW_H);
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let response = button::pointing(response);
-    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, active, label));
+    response.widget_info(|| egui::WidgetInfo::selected(egui::WidgetType::Checkbox, true, is_active, label));
 
-    let fill = if focus::lit(&response) {
-        theme.widget_hover
-    } else if active {
-        theme.widget_active
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-    ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), fill);
+    ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), row_fill(&response, is_active, theme));
 
     let inner = Rect::from_min_max(rect.min + vec2(10.0, 0.0), rect.max - vec2(10.0, 0.0));
     ui.scope_builder(egui::UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)), |ui| {
         ui.spacing_mut().item_spacing.x = 10.0;
         ui.label(icon.rich_text().size(theme.text_icon_md).color(tint));
         ui.label(RichText::new(label).size(theme.text_body).color(theme.title));
-        if active {
+        if is_active {
             ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                 ui.label(ICON_CHECK.rich_text().size(theme.text_icon).color(theme.title));
             });

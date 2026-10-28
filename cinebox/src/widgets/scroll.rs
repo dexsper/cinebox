@@ -20,7 +20,7 @@ const BUILDING: &str = "cinebox-scroll-building";
 const GLIDE_TOP: &str = "cinebox-scroll-glide-top";
 const BOTTOM_FADE_SIZE: f32 = 56.0;
 const BOTTOM_FADE_STRENGTH: f32 = 0.72;
-const BOTTOM_FADE_BANDS: i32 = 12;
+const BOTTOM_FADE_BANDS: u8 = 12;
 
 /// Gutter kept clear on the scrollbar side so the floating bar never sits on top of content.
 const SCROLL_GUTTER: i8 = 10;
@@ -138,21 +138,37 @@ fn source() -> ScrollSource {
     ScrollSource { scroll_bar: true, drag: DragScroll::Always, mouse_wheel: false }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct AreaOptions {
+    enabled: Vec2b,
+    auto_shrink: Vec2b,
+    max_height: Option<f32>,
+    /// This frame starts at the top.
+    is_reset: bool,
+}
+
+impl AreaOptions {
+    const fn vertical() -> Self {
+        Self { enabled: Vec2b { x: false, y: true }, auto_shrink: Vec2b::FALSE, max_height: None, is_reset: false }
+    }
+}
+
 /// Vertical page scroll with overlay bar, drag, and inertia.
 pub(crate) fn vertical(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, false, add);
+    show(ui, id, AreaOptions::vertical(), add);
 }
 
 /// Like [`vertical`], but with `is_reset` this frame starts at the top (new title, re-entry).
 pub(crate) fn page(ui: &mut Ui, id: impl AsIdSalt, is_reset: bool, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(false, true), Vec2b::FALSE, None, is_reset, add);
+    show(ui, id, AreaOptions { is_reset, ..AreaOptions::vertical() }, add);
 }
 
 /// Like [`vertical`], but capped: grows with content up to `max_height` (popups).
 pub(crate) fn vertical_capped(ui: &mut Ui, id: impl AsIdSalt, max_height: f32, add: impl FnOnce(&mut Ui)) {
     let auto_shrink = Vec2b::new(false, true);
+    let options = AreaOptions { auto_shrink, max_height: Some(max_height), ..AreaOptions::vertical() };
 
-    show(ui, id, Vec2b::new(false, true), auto_shrink, Some(max_height), false, add);
+    show(ui, id, options, add);
 }
 
 /// The scroll areas whose content is being built right now, outermost first.
@@ -268,22 +284,22 @@ fn pass_reveal_out(ui: &Ui, enabled: Vec2b) {
 
 /// Horizontal shelf: height follows content.
 pub(crate) fn horizontal(ui: &mut Ui, id: impl AsIdSalt, add: impl FnOnce(&mut Ui)) {
-    show(ui, id, Vec2b::new(true, false), Vec2b::new(false, true), None, false, add);
+    let options = AreaOptions {
+        enabled: Vec2b::new(true, false),
+        auto_shrink: Vec2b::new(false, true),
+        max_height: None,
+        is_reset: false,
+    };
+
+    show(ui, id, options, add);
 }
 
-fn show(
-    ui: &mut Ui,
-    salt: impl AsIdSalt,
-    enabled: Vec2b,
-    auto_shrink: Vec2b,
-    max_height: Option<f32>,
-    to_top: bool,
-    add: impl FnOnce(&mut Ui),
-) {
+fn show(ui: &mut Ui, salt: impl AsIdSalt, options: AreaOptions, add: impl FnOnce(&mut Ui)) {
+    let AreaOptions { enabled, auto_shrink, max_height, is_reset } = options;
     let coast_id = ui.id().with(("coast", &salt));
     let mut coast: Coast = ui.ctx().data(|d| d.get_temp(coast_id)).unwrap_or_default();
 
-    if to_top {
+    if is_reset {
         coast.offset = Vec2::ZERO;
         coast.stop();
     }
@@ -319,7 +335,7 @@ fn show(
         area = area.max_height(height);
     }
 
-    let [forced_x, forced_y] = forced_offsets(to_top, coasting, coast.offset);
+    let [forced_x, forced_y] = forced_offsets(is_reset, coasting, coast.offset);
     if let Some(x) = forced_x.filter(|_| enabled[0]) {
         area = area.horizontal_scroll_offset(x);
     }
@@ -345,15 +361,13 @@ fn show(
         pass_reveal_out(ui, enabled);
     }
 
-    let hit = hover_rect(
+    let band = Band {
         origin,
-        ui.cursor().min,
-        ui.spacing().item_spacing,
-        output.inner_rect,
-        output.content_size,
-        enabled,
-        ui.clip_rect(),
-    );
+        bottom: ui.cursor().min.y - ui.spacing().item_spacing.y,
+        inner: output.inner_rect,
+        content: output.content_size,
+    };
+    let hit = hover_rect(&band, enabled, ui.clip_rect());
 
     if enabled[1] {
         paint_bottom_fade(ui, output.inner_rect, output.content_size, output.state.offset);
@@ -416,8 +430,8 @@ fn glides_on(coast: &Coast, revealed_inside: bool) -> bool {
 }
 
 /// What this frame sets the offset to, per axis; `None` leaves it to egui.
-fn forced_offsets(to_top: bool, coasting: bool, offset: Vec2) -> [Option<f32>; 2] {
-    if to_top {
+fn forced_offsets(is_reset: bool, coasting: bool, offset: Vec2) -> [Option<f32>; 2] {
+    if is_reset {
         return [Some(0.0), Some(0.0)];
     }
 
@@ -449,10 +463,11 @@ fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
     let bg = ui.visuals().panel_fill;
     let fade = Rect::from_min_max(pos2(inner.left(), inner.bottom() - BOTTOM_FADE_SIZE), inner.right_bottom());
 
-    let n = BOTTOM_FADE_BANDS as f32;
+    let bands = f32::from(BOTTOM_FADE_BANDS);
+
     for i in 0..BOTTOM_FADE_BANDS {
-        let a0 = i as f32 / n;
-        let a1 = (i + 1) as f32 / n;
+        let a0 = f32::from(i) / bands;
+        let a1 = f32::from(i + 1) / bands;
         let c0 = bg.gamma_multiply(peak * a0 * a0);
         let c1 = bg.gamma_multiply(peak * a1 * a1);
         let y0 = fade.top() + fade.height() * a0;
@@ -463,22 +478,25 @@ fn paint_bottom_fade(ui: &Ui, inner: Rect, content: Vec2, offset: Vec2) {
     }
 }
 
+/// Where a scroll area was laid out in its parent.
+#[derive(Debug, Clone, Copy)]
+struct Band {
+    origin: Pos2,
+    /// The parent's cursor after the area, less the item spacing.
+    bottom: f32,
+    inner: Rect,
+    content: Vec2,
+}
+
 /// Visible hover target from the parent layout band, not `inner_rect`.
 ///
 /// Nested `ScrollArea::inner_rect` can follow a clipped `available_rect` after
 /// the parent has scrolled, so the first shelves keep covering the viewport.
-fn hover_rect(
-    origin: Pos2,
-    cursor_after: Pos2,
-    spacing: Vec2,
-    inner: Rect,
-    content: Vec2,
-    enabled: Vec2b,
-    clip: Rect,
-) -> Rect {
+fn hover_rect(band: &Band, enabled: Vec2b, clip: Rect) -> Rect {
+    let Band { origin, bottom, inner, content } = *band;
     // Do not min() with inner.size(): after the parent scrolls, inner_rect can be
     // the clipped viewport, so the first shelves would keep covering it.
-    let mut bottom_right = pos2(origin.x + inner.width(), cursor_after.y - spacing.y);
+    let mut bottom_right = pos2(origin.x + inner.width(), bottom);
     if !enabled[0] {
         bottom_right.x = origin.x + content.x.min(inner.width().max(1.0));
     }
@@ -624,24 +642,23 @@ mod tests {
     #[test]
     fn hover_rect_uses_layout_origin_not_clipped_inner() {
         let clip = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 220.0));
-        let spacing = vec2(8.0, 8.0);
         let clipped_inner = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 600.0));
         let content = vec2(4000.0, 72.0);
         let enabled = Vec2b::new(true, false);
+        let band = |top: f32, bottom: f32, inner: Rect| Band { origin: pos2(0.0, top), bottom, inner, content };
 
-        let offscreen =
-            hover_rect(pos2(0.0, -180.0), pos2(0.0, -100.0), spacing, clipped_inner, content, enabled, clip);
+        let offscreen = hover_rect(&band(-180.0, -108.0, clipped_inner), enabled, clip);
         assert!(
             !offscreen.contains(pos2(80.0, 40.0)),
             "off-screen shelf must not steal the viewport, hit={offscreen:?}"
         );
 
-        let visible = hover_rect(pos2(0.0, 40.0), pos2(0.0, 120.0), spacing, clipped_inner, content, enabled, clip);
+        let visible = hover_rect(&band(40.0, 112.0, clipped_inner), enabled, clip);
         assert!(visible.contains(pos2(80.0, 70.0)), "visible lower shelf should receive the pointer, hit={visible:?}");
         assert!(!visible.contains(pos2(80.0, 20.0)), "visible shelf must not cover the viewport top, hit={visible:?}");
 
         let squeezed_inner = Rect::from_min_size(pos2(0.0, 0.0), vec2(640.0, 10.0));
-        let squeezed = hover_rect(pos2(0.0, 40.0), pos2(0.0, 50.0), spacing, squeezed_inner, content, enabled, clip);
+        let squeezed = hover_rect(&band(40.0, 42.0, squeezed_inner), enabled, clip);
         assert!(
             squeezed.contains(pos2(80.0, 70.0)),
             "clipped inner height must not shrink the shelf hit, hit={squeezed:?}"

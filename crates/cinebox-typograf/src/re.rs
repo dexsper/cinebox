@@ -5,7 +5,7 @@ use std::sync::{Arc, LazyLock, RwLock};
 use fancy_regex::{Captures, Regex};
 
 pub(crate) fn compile(pat: &str) -> Regex {
-    Regex::new(pat).unwrap_or_else(|e| panic!("typograf: invalid regex {e} in {pat:?}"))
+    Regex::new(pat).unwrap_or_else(|error| panic!("typograf: invalid regex {error} in {pat:?}"))
 }
 
 pub(crate) fn compile_i(pat: &str) -> Regex {

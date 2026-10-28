@@ -956,7 +956,9 @@ impl PlayerScreen {
         let repaint = ctx.clone();
 
         job.request(async move {
-            jobs::wait_stream(torr, path, hash_owned, file_id, resume_bytes, move |event| {
+            let file = jobs::StreamFile { path, hash: hash_owned, id: file_id, resume_bytes };
+
+            jobs::wait_stream(torr, file, move |event| {
                 live.on_event(event);
                 repaint.request_repaint();
             })

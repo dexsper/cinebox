@@ -200,7 +200,8 @@ impl JsInterpreter {
         let pat = format!(
             r"(?s)(?:function\s+{escaped}|[{{;,]\s*{escaped}\s*=\s*function|(?:var|const|let)\s+{escaped}\s*=\s*function)\s*\((?P<args>[^)]*)\)\s*(?P<code>\{{.+}})"
         );
-        let re = Regex::new(&pat).map_err(|err| JsError::msg(err.to_string()))?;
+
+        let re = Regex::new(&pat).map_err(|error| JsError::msg(error.to_string()))?;
         let missing = format!("could not find JS function \"{name}\"");
         let Some(caps) = re.captures(&self.code) else {
             return Err(JsError::msg(missing));
@@ -878,7 +879,7 @@ impl JsInterpreter {
         should_return: bool,
     ) -> Result<(JsValue, bool), JsError> {
         let (try_expr, mut rest) = separate_at_paren(expr, Some('}'))?;
-        let mut err: Option<JsError> = None;
+        let mut uncaught: Option<JsError> = None;
         let mut pending = (JsValue::Null, false);
 
         match self.interpret_statement(&try_expr, local, rec) {
@@ -887,7 +888,7 @@ impl JsInterpreter {
                     return Ok((value, true));
                 }
             }
-            Err(e) => err = Some(e),
+            Err(error) => uncaught = Some(error),
         }
 
         rest = rest.trim_start().to_owned();
@@ -900,7 +901,7 @@ impl JsInterpreter {
 
             rest = outer;
 
-            if let Some(caught) = err.take() {
+            if let Some(caught) = uncaught.take() {
                 let catch_map = Rc::new(RefCell::new(HashMap::new()));
 
                 if let Some(key) = err_name {
@@ -934,8 +935,8 @@ impl JsInterpreter {
             return Ok(pending);
         }
 
-        if let Some(e) = err {
-            return Err(e);
+        if let Some(error) = uncaught {
+            return Err(error);
         }
 
         Ok((pending.0, should_return))
@@ -980,7 +981,7 @@ impl JsInterpreter {
                 }
                 Err(JsError::Break) => break,
                 Err(JsError::Continue) => {}
-                Err(e) => return Err(e),
+                Err(error) => return Err(error),
             }
 
             if let Some(inc) = &increment {
@@ -1041,7 +1042,7 @@ impl JsInterpreter {
                         matched = true;
                         break;
                     }
-                    Err(e) => return Err(e),
+                    Err(error) => return Err(error),
                 }
             }
             if matched {
@@ -1352,7 +1353,7 @@ impl JsInterpreter {
     fn extract_object(&self, objname: &str) -> Result<JsValue, JsError> {
         let name = regex::escape(objname);
         let pat = format!(r"(?s){NAME}\s*\.\s*{name}|{name}\s*=\s*\{{(?P<fields>[^}}]*)\}}\s*;");
-        let re = Regex::new(&pat).map_err(|e| JsError::msg(e.to_string()))?;
+        let re = Regex::new(&pat).map_err(|error| JsError::msg(error.to_string()))?;
         let Some(caps) = re.captures(&self.code) else {
             return Err(JsError::msg(format!("could not find object {objname}")));
         };

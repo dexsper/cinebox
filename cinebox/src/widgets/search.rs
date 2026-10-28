@@ -53,7 +53,7 @@ impl SearchBar {
         self.history.retain(|item| item.to_lowercase() != query_lower);
         self.history.insert(0, query.to_owned());
         self.history.truncate(SEARCH_HISTORY_LIMIT);
-        self.query = query.to_owned();
+        query.clone_into(&mut self.query);
         self.history_open = false;
     }
 
@@ -85,7 +85,7 @@ impl SearchBar {
         self.listening = false;
         self.history_open = false;
         let action = submit(text)?;
-        self.query = text.trim().to_owned();
+        text.trim().clone_into(&mut self.query);
 
         Some(action)
     }
@@ -152,14 +152,14 @@ impl SearchBar {
             .order(Order::Foreground)
             .constrain(false)
             .fixed_pos(rect.min)
-            .show(&ctx, |ui| {
+            .show(&ctx, |area_ui| {
                 if attached {
-                    return self.paint_open(ui, theme, rect, &mut picked);
+                    return self.paint_open(area_ui, theme, rect, &mut picked);
                 }
 
-                let (local, _) = ui.allocate_exact_size(rect.size(), Sense::hover());
+                let (local, _) = area_ui.allocate_exact_size(rect.size(), Sense::hover());
 
-                self.paint_closed(ui, theme, local)
+                self.paint_closed(area_ui, theme, local)
             });
 
         if attached && flyout::pressed_outside(&ctx, layer.response.rect, rect) {
@@ -172,7 +172,7 @@ impl SearchBar {
         }
 
         if let Some(query) = picked {
-            self.query = query.clone();
+            self.query.clone_from(&query);
             self.history_open = false;
             return Some(NavAction::OpenSearch { query });
         }
@@ -334,6 +334,7 @@ fn submit(query: &str) -> Option<NavAction> {
     Some(NavAction::OpenSearch { query: query.to_owned() })
 }
 
+#[expect(clippy::cast_precision_loss, reason = "the history holds at most `SEARCH_HISTORY_LIMIT` rows")]
 fn history_body_h(count: usize, row_h: f32) -> f32 {
     if count == 0 {
         return 0.0;

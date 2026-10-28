@@ -45,8 +45,8 @@ impl From<&str> for SecretString {
 }
 
 impl fmt::Debug for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("***")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("***")
     }
 }
 
@@ -110,8 +110,8 @@ impl UiLanguage {
 }
 
 impl fmt::Display for UiLanguage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::English => "English",
             Self::Russian => "Russian",
             Self::Ukrainian => "Ukrainian",
@@ -133,8 +133,8 @@ impl ParserKind {
 }
 
 impl fmt::Display for ParserKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::Jackett => "Jackett",
             Self::Prowlarr => "Prowlarr",
         })
@@ -163,8 +163,8 @@ impl VideoScale {
 }
 
 impl fmt::Display for VideoScale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::Default => "Default",
             Self::Expand => "Expand",
             Self::Fill => "Fill",
@@ -202,8 +202,8 @@ impl QualityBand {
 }
 
 impl fmt::Display for QualityBand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.label())
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
     }
 }
 
@@ -234,8 +234,8 @@ impl PosterSize {
 }
 
 impl fmt::Display for PosterSize {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.tmdb_path())
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.tmdb_path())
     }
 }
 

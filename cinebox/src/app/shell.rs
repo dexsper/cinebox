@@ -147,7 +147,7 @@ fn screen_ui(app: &mut App, ui: &mut Ui, screen: Screen, theme: &Theme) -> Optio
         Screen::Media { kind, id } => app.media.ui(ui, &mut app.services, theme, MediaRef { kind, id }),
         Screen::Person { id } => app.person.ui(ui, &mut app.services, theme, id),
         Screen::Torrents { kind, id } => {
-            let nav = app.torrents.ui(ui, &mut app.services, theme, kind, id);
+            let nav = app.torrents.ui(ui, &mut app.services, theme, MediaRef { kind, id });
             if app.torrents.intro_animating(ui.input(|i| i.time)) {
                 ui.ctx().request_repaint();
             }

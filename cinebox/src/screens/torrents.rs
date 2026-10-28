@@ -17,7 +17,8 @@ use rust_i18n::t;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::app::nav::{NavAction, SettingsPage};
+use self::list::ListOutcome;
+use crate::app::nav::{MediaRef, NavAction, SettingsPage};
 use crate::i18n::errors::UserError;
 use crate::screens::play::PlaySource;
 use crate::screens::player::Played;
@@ -135,19 +136,12 @@ impl TorrentsScreen {
         intro::running(self.intro_at, now)
     }
 
-    pub(crate) fn ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        kind: MediaKind,
-        id: TmdbId,
-    ) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, media: MediaRef) -> Option<NavAction> {
         let now = ui.input(|i| i.time);
         let arriving = !self.on_screen;
         self.on_screen = true;
 
-        let matches = self.state.as_ref().is_some_and(|state| state.matches(kind, id));
+        let matches = self.state.as_ref().is_some_and(|state| state.matches(media.kind, media.id));
         if !matches {
             widgets::page_spinner(ui, theme);
             return None;
@@ -163,11 +157,7 @@ impl TorrentsScreen {
         self.poll_opened(svc, ui.ctx());
 
         let t = intro::t(self.intro_at, ui.input(|i| i.time));
-        let mut hits_choice = None;
-        let mut pick = None;
-        let mut pick_file = None;
-        let mut files_choice = None;
-        let mut close_files = false;
+        let mut listed = ListOutcome::default();
 
         let full = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(full);
@@ -184,7 +174,7 @@ impl TorrentsScreen {
         ui.scope_builder(UiBuilder::new().max_rect(right_rect).layout(Layout::top_down(Align::Min)), |ui| {
             ui.set_clip_rect(ui.clip_rect().intersect(right_rect));
             if let Some(state) = &mut self.state {
-                list::list_pane(ui, state, theme, &mut hits_choice, &mut pick, t, &mut self.filters);
+                listed = list::list_pane(ui, state, theme, t, &mut self.filters);
             }
         });
 
@@ -196,34 +186,32 @@ impl TorrentsScreen {
         }
         self.filters = overlay;
 
-        if let Some(state) = &mut self.state {
-            if state.files.is_open() {
-                files::files_modal(ui.ctx(), state, svc, theme, &mut pick_file, &mut files_choice, &mut close_files);
-            }
-        }
+        let open_files = self.state.as_mut().filter(|state| state.files.is_open());
+        let modal = open_files.map(|state| files::files_modal(ui.ctx(), state, svc, theme));
+        let files = modal.unwrap_or_default();
 
-        if hits_choice == Some(ErrorChoice::Retry) {
+        if listed.error_choice == Some(ErrorChoice::Retry) {
             self.refresh_hits();
         }
 
-        if let Some(index) = pick {
+        if let Some(index) = listed.pick {
             self.pick_torrent(svc, index);
         }
 
-        if files_choice == Some(ErrorChoice::Retry) {
+        if files.error_choice == Some(ErrorChoice::Retry) {
             self.retry_files(svc);
         }
 
-        if let Some(file_id) = pick_file {
+        if let Some(file_id) = files.pick_file {
             self.pick_file(file_id);
         }
 
-        let files_fix = files_choice.and_then(ErrorChoice::nav);
-        if close_files || files_fix.is_some() {
+        let files_fix = files.error_choice.and_then(ErrorChoice::nav);
+        if files.is_closed || files_fix.is_some() {
             self.leave_files_if_open();
         }
 
-        hits_choice.and_then(ErrorChoice::nav).or(files_fix)
+        listed.error_choice.and_then(ErrorChoice::nav).or(files_fix)
     }
 
     fn left_pane(&self, ui: &mut Ui, svc: &Services, theme: &Theme, t: f32) {
@@ -242,12 +230,7 @@ impl TorrentsScreen {
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
                 let poster = poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
-                    svc.images.poster_key(
-                        state.kind,
-                        state.id,
-                        state.movie.poster_path.as_deref(),
-                        svc.settings.tmdb.poster_size,
-                    )
+                    svc.images.poster_path(state.movie.poster_path.as_deref(), svc.settings.tmdb.poster_size)
                 });
                 let marks = svc.tile_marks(state.kind, state.id);
                 poster::paint_marks(ui, poster, marks, theme, poster::UNSCALED);
@@ -444,16 +427,12 @@ impl TorrentsScreen {
     }
 
     fn retry_files(&mut self, svc: &Services) {
-        let Some(state) = &self.state else {
-            return;
-        };
-        let Some(spec) = state.pending_add.clone() else {
-            return;
-        };
+        let Some(state) = &mut self.state else { return };
+
+        let Some(spec) = state.pending_add.clone() else { return };
+
         if svc.settings.torrserver.url.trim().is_empty() {
-            if let Some(state) = &mut self.state {
-                state.files = FilesPane::Failed(needs_torrserver());
-            }
+            state.files = FilesPane::Failed(needs_torrserver());
             return;
         }
 
@@ -472,8 +451,9 @@ impl TorrentsScreen {
         let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let movie = state.movie.clone();
         let target = jobs::OpenTarget { kind: state.kind, id: state.id, runtime_minutes: state.runtime_minutes };
+        let request = jobs::OpenMagnet { spec, movie, target };
         self.opened.clear();
-        self.opened.request(jobs::open_magnet(torr, tmdb, spec, movie, target, svc.db.clone()));
+        self.opened.request(jobs::open_magnet(torr, tmdb, request, svc.db.clone()));
     }
 
     /// Hand off to the player immediately; buffering (if any) is the player's job.
@@ -594,7 +574,7 @@ mod tests {
 
         screen.refresh_hits();
 
-        assert!(matches!(screen.state.as_ref().map(|state| &state.hits), Some(TorrentHits::Loading)));
+        assert!(matches!(screen.state.as_ref().map(|torrent| &torrent.hits), Some(TorrentHits::Loading)));
     }
 
     #[test]

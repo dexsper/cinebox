@@ -1,4 +1,4 @@
-//! Poster and extra-image download cache → `egui::TextureHandle`.
+//! Poster and extra-image download cache that hands out `egui::TextureHandle`s.
 //!
 //! `slot()` starts a fetch only for tiles that actually paint. GPU textures are
 //! generational LRU: anything shown this frame stays, cold entries drop after
@@ -10,15 +10,28 @@ use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use std::sync::mpsc::{self, Receiver, Sender};
 
-use cinebox_core::{CatalogItem, MediaKind, Store, TmdbId, image_size_key, parse_tmdb_image_url};
+use cinebox_core::{CatalogItem, Store, image_size_key, parse_tmdb_image_url};
 use cinebox_net::NetConfig;
 use egui::{ColorImage, Context, TextureHandle, TextureOptions};
+use thiserror::Error;
 use tracing::warn;
 
+const KIBIBYTE: usize = 1_024;
 /// Cap on decoded GPU pixels. The on-screen working set is never evicted, even
 /// if it is larger; this only bounds textures from screens you already left.
-const TEXTURE_BUDGET: usize = 256 * 1024 * 1024;
+const TEXTURE_BUDGET: usize = 256 * KIBIBYTE * KIBIBYTE;
 const FAILED_CAP: usize = 256;
+
+#[derive(Debug, Error)]
+enum ImageError {
+    #[error("cannot download image")]
+    Download(#[from] cinebox_tmdb::Error),
+
+    #[error("cannot decode image")]
+    Decode(#[from] image::ImageError),
+}
+
+type Loaded = (String, Result<ColorImage, ImageError>);
 
 /// What's in a poster well: texture, in-flight download, or nothing.
 #[derive(Clone, Copy)]
@@ -33,7 +46,7 @@ impl ImageSlot<'_> {
     pub(crate) fn or_else(self, fallback: impl FnOnce() -> Self) -> Self {
         match self {
             Self::Missing => fallback(),
-            other => other,
+            Self::Ready(_) | Self::Loading => self,
         }
     }
 }
@@ -51,8 +64,8 @@ pub(crate) struct ImageCache {
     pending: RefCell<HashSet<String>>,
     failed: HashSet<String>,
     net: NetConfig,
-    tx: Sender<(String, Result<ColorImage, String>)>,
-    rx: Receiver<(String, Result<ColorImage, String>)>,
+    tx: Sender<Loaded>,
+    rx: Receiver<Loaded>,
     db: Option<Arc<Store>>,
 }
 
@@ -94,7 +107,7 @@ impl ImageCache {
                     self.insert_texture(url, texture, bytes, epoch);
                 }
                 Err(error) => {
-                    warn!(error, url, "image failed to load");
+                    warn!(error = &error as &dyn std::error::Error, url, "image failed to load");
                     self.remember_failed(url);
                 }
             }
@@ -124,21 +137,12 @@ impl ImageCache {
     }
 
     #[must_use]
-    pub(crate) fn poster_key(
-        &self,
-        kind: MediaKind,
-        id: TmdbId,
-        poster_path: Option<&str>,
-        size: cinebox_core::PosterSize,
-    ) -> ImageSlot<'_> {
-        let _ = (kind, id);
+    pub(crate) fn poster_path(&self, poster_path: Option<&str>, size: cinebox_core::PosterSize) -> ImageSlot<'_> {
         self.slot(cinebox_core::tmdb_image_url(poster_path, size.tmdb_path()).as_deref())
     }
 
     fn lookup(&self, url: Option<&str>, soften: bool) -> ImageSlot<'_> {
-        let Some(url) = url.filter(|u| !u.is_empty()) else {
-            return ImageSlot::Missing;
-        };
+        let Some(url) = url.filter(|url| !url.is_empty()) else { return ImageSlot::Missing };
 
         if let Some(entry) = self.textures.get(url) {
             entry.last_used.set(self.epoch.get());
@@ -174,7 +178,12 @@ impl ImageCache {
 
         egui_async::bind::ASYNC_RUNTIME.spawn(async move {
             let result = load_image(url.clone(), soften, net, db).await;
-            let _ = tx.send((url, result));
+
+            // The cache was dropped while the image loaded, so nothing waits for it or needs a repaint.
+            if tx.send((url, result)).is_err() {
+                return;
+            }
+
             request_repaint();
         });
     }
@@ -210,21 +219,15 @@ impl ImageCache {
         }
 
         let epoch = self.epoch.get();
-        let drop = victims(
-            self.textures.iter().map(|(url, entry)| Resident {
-                url,
-                bytes: entry.bytes,
-                last_used: entry.last_used.get(),
-            }),
-            epoch,
-            self.resident_bytes,
-            TEXTURE_BUDGET,
-        );
+        let residents = self.textures.iter().map(|(url, entry)| Resident {
+            url,
+            bytes: entry.bytes,
+            last_used: entry.last_used.get(),
+        });
+        let cold = victims(residents, epoch, self.resident_bytes, TEXTURE_BUDGET);
 
-        for url in drop {
-            let Some(entry) = self.textures.remove(&url) else {
-                continue;
-            };
+        for url in cold {
+            let Some(entry) = self.textures.remove(&url) else { continue };
 
             self.resident_bytes = self.resident_bytes.saturating_sub(entry.bytes);
         }
@@ -263,7 +266,7 @@ fn victims<'a>(items: impl Iterator<Item = Resident<'a>>, epoch: u64, mut total:
     }
 
     let mut cold: Vec<Resident<'a>> = items.filter(|item| item.last_used < epoch).collect();
-    cold.sort_unstable_by(|a, b| a.last_used.cmp(&b.last_used).then(b.bytes.cmp(&a.bytes)));
+    cold.sort_unstable_by(|left, right| left.last_used.cmp(&right.last_used).then(right.bytes.cmp(&left.bytes)));
 
     let mut out = Vec::new();
     for item in cold {
@@ -288,51 +291,60 @@ fn request_repaint() {
     }
 }
 
-async fn load_image(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, String> {
-    if let Some(db) = &db
-        && let Some((size, path)) = parse_tmdb_image_url(&url)
-    {
-        let key = image_size_key(&size, soften);
-        if let Ok(Some(bytes)) = db.get_image(&key, &path).await {
-            return decode(&bytes);
-        }
+async fn load_image(
+    url: String,
+    soften: bool,
+    net: NetConfig,
+    db: Option<Arc<Store>>,
+) -> Result<ColorImage, ImageError> {
+    let cached = match db.as_deref().zip(cache_key(&url, soften)) {
+        // A missing or unreadable row only means the image comes from the network again.
+        Some((store, (key, path))) => store.get_image(&key, &path).await.ok().flatten(),
+        None => None,
+    };
+
+    if let Some(bytes) = cached {
+        return decode(&bytes);
     }
 
     download(url, soften, net, db).await
 }
 
-async fn download(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, String> {
-    let bytes = cinebox_tmdb::download_image(&url, &net).await.map_err(|error| error.to_string())?;
+async fn download(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, ImageError> {
+    let downloaded = cinebox_tmdb::download_image(&url, &net).await?;
+    let bytes = if soften { soften_or_keep(downloaded) } else { downloaded };
 
-    let bytes = if soften {
-        match crate::widgets::backdrop::soften(&bytes) {
-            Ok(soft) => soft,
-            Err(error) => {
-                warn!(%error, "backdrop soften failed");
-                bytes
-            }
-        }
-    } else {
-        bytes
-    };
+    let Some((store, (key, path))) = db.as_deref().zip(cache_key(&url, soften)) else { return decode(&bytes) };
 
-    if let Some(db) = db {
-        if let Some((size, path)) = parse_tmdb_image_url(&url) {
-            let key = image_size_key(&size, soften);
-            if let Err(error) = db.put_image(&key, &path, &bytes).await {
-                warn!(%error, "failed to persist tmdb image");
-            }
-        }
+    if let Err(error) = store.put_image(&key, &path, &bytes).await {
+        warn!(%error, "failed to persist tmdb image");
     }
 
     decode(&bytes)
 }
 
-fn decode(bytes: &[u8]) -> Result<ColorImage, String> {
-    let img = image::load_from_memory(bytes).map_err(|error| error.to_string())?.into_rgba8();
+/// The size key and path a TMDB image is cached under; `None` for any other URL.
+fn cache_key(url: &str, soften: bool) -> Option<(String, String)> {
+    let (size, path) = parse_tmdb_image_url(url)?;
 
-    let size = [img.width() as usize, img.height() as usize];
-    Ok(ColorImage::from_rgba_unmultiplied(size, &img))
+    Some((image_size_key(&size, soften), path))
+}
+
+fn soften_or_keep(bytes: Vec<u8>) -> Vec<u8> {
+    match crate::widgets::backdrop::soften(&bytes) {
+        Ok(softened) => softened,
+        Err(error) => {
+            warn!(error = &error as &dyn std::error::Error, "backdrop soften failed");
+            bytes
+        }
+    }
+}
+
+fn decode(bytes: &[u8]) -> Result<ColorImage, ImageError> {
+    let decoded = image::load_from_memory(bytes)?.into_rgba8();
+    let size = [decoded.width() as usize, decoded.height() as usize];
+
+    Ok(ColorImage::from_rgba_unmultiplied(size, &decoded))
 }
 
 #[cfg(test)]

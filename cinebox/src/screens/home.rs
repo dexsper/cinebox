@@ -3,7 +3,7 @@ use cinebox_tmdb::ShelfId;
 use egui::Ui;
 
 use super::gate;
-use super::shelf::shelf;
+use super::shelf::{Shelf, shelf};
 use crate::app::nav::NavAction;
 use crate::i18n::errors::UserError;
 use crate::services::Services;
@@ -95,7 +95,12 @@ fn catalog_view(ui: &mut Ui, catalog: &HomeCatalog, svc: &Services, theme: &Them
             let nav = match library_status(row.id) {
                 Some(status) => library_shelf(ui, row.id, status, svc, theme),
                 None if !row.id.is_remote() && row.items.is_empty() => continue,
-                None => shelf(ui, ShelfId::Home(row.id), &row.items, row.error.as_deref(), svc, theme),
+                None => {
+                    let id = ShelfId::Home(row.id);
+                    let home_shelf = Shelf { id, items: &row.items, error: row.error.as_deref() };
+
+                    shelf(ui, &home_shelf, svc, theme)
+                }
             };
 
             if nav.is_some() {
@@ -136,5 +141,5 @@ fn library_shelf(ui: &mut Ui, id: HomeRowId, status: ListStatus, svc: &Services,
         return None;
     }
 
-    shelf(ui, ShelfId::Home(id), &items, None, svc, theme)
+    shelf(ui, &Shelf { id: ShelfId::Home(id), items: &items, error: None }, svc, theme)
 }

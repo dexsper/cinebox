@@ -31,6 +31,8 @@ impl LazyRows {
     pub(crate) fn show(&mut self, ui: &mut Ui, count: usize, keep: Option<usize>, mut row: impl FnMut(&mut Ui, usize)) {
         // Text wraps differently at another width.
         let width = ui.available_width();
+
+        #[expect(clippy::float_cmp, reason = "any change of width rewraps text, however small")]
         if width != self.width {
             self.width = width;
             self.spans.clear();

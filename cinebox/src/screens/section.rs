@@ -10,7 +10,7 @@ use rust_i18n::t;
 
 use super::discover::DiscoverFilters;
 use super::gate;
-use super::shelf::shelf;
+use super::shelf::{Shelf, shelf};
 use super::swr::{Cached, Swr};
 use crate::app::nav::NavAction;
 use crate::i18n::errors::UserError;
@@ -47,8 +47,8 @@ impl SectionScreen {
 
         let fresh = cache.disk.as_ref().is_some_and(|(_, fresh)| *fresh);
         let tmdb = jobs::TmdbCtx::from(&svc.settings);
-        let db = svc.db.clone();
-        let outcome = cache.resolve(fresh, move || jobs::load_section(tmdb, section, db));
+        let store = svc.db.clone();
+        let outcome = cache.resolve(fresh, move || jobs::load_section(tmdb, section, store));
 
         let rows = match outcome.view {
             Swr::Live => match cache.bind.read() {
@@ -79,7 +79,8 @@ impl SectionScreen {
                     continue;
                 }
 
-                let nav = shelf(ui, row.id, &row.items, row.error.as_deref(), svc, theme);
+                let section_shelf = Shelf { id: row.id, items: &row.items, error: row.error.as_deref() };
+                let nav = shelf(ui, &section_shelf, svc, theme);
                 if nav.is_some() {
                     action = nav;
                 }

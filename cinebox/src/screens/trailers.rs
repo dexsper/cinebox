@@ -161,7 +161,8 @@ impl TrailersModal {
                     match phase {
                         TrailersPhase::List => {
                             if let Some(card) = card {
-                                trailer_list(ui, card, items, svc, theme, picked, &mut pick);
+                                let list = TrailerList { poster_path: card.poster_path.as_deref(), items, picked };
+                                pick = trailer_list(ui, &list, svc, theme);
                             }
                         }
                         TrailersPhase::Resolving => widgets::page_spinner(ui, theme),
@@ -248,19 +249,23 @@ impl TrailersModal {
     }
 }
 
-fn trailer_list(
-    ui: &mut egui::Ui,
-    card: &WatchCard,
-    items: &[Trailer],
-    svc: &Services,
-    theme: &Theme,
+struct TrailerList<'a> {
+    poster_path: Option<&'a str>,
+    items: &'a [Trailer],
+    /// The trailer picked before, which gets the focus back.
     picked: Option<usize>,
-    pick: &mut Option<usize>,
-) {
+}
+
+/// The index of the trailer picked this frame.
+fn trailer_list(ui: &mut egui::Ui, list: &TrailerList<'_>, svc: &Services, theme: &Theme) -> Option<usize> {
+    let &TrailerList { poster_path, items, picked } = list;
+
     if items.is_empty() {
         ui.label(RichText::new(t!("common.failed").as_ref()).color(theme.muted));
-        return;
+        return None;
     }
+
+    let mut pick = None;
 
     scroll::vertical(ui, "media-trailers-list", |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
@@ -273,12 +278,7 @@ fn trailer_list(
                 ui.horizontal(|ui| {
                     ui.spacing_mut().item_spacing.x = 12.0;
                     poster::rounded_image(ui, Vec2::new(theme.still_w, theme.still_h), theme, || {
-                        svc.images.poster_key(
-                            card.kind,
-                            card.id,
-                            card.poster_path.as_deref(),
-                            svc.settings.tmdb.poster_size,
-                        )
+                        svc.images.poster_path(poster_path, svc.settings.tmdb.poster_size)
                     });
 
                     ui.vertical(|ui| {
@@ -289,14 +289,18 @@ fn trailer_list(
             });
 
             let response = button::click_rect(ui, row_id, shown.response.rect);
+
             if picked == Some(index) {
                 focus::prefer(&response);
             }
+
             if response.clicked() {
-                *pick = Some(index);
+                pick = Some(index);
             }
         }
     });
+
+    pick
 }
 
 const TRAILERS_MODAL_MIN_W: f32 = 720.0;

@@ -57,13 +57,13 @@ pub enum JsError {
 }
 
 impl fmt::Display for JsError {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::Recursion => f.write_str("recursion limit reached"),
-            Self::Break => f.write_str("invalid break"),
-            Self::Continue => f.write_str("invalid continue"),
-            Self::Throw(msg) => write!(f, "uncaught exception {msg}"),
-            Self::Msg(msg) => f.write_str(msg),
+            Self::Recursion => formatter.write_str("recursion limit reached"),
+            Self::Break => formatter.write_str("invalid break"),
+            Self::Continue => formatter.write_str("invalid continue"),
+            Self::Throw(msg) => write!(formatter, "uncaught exception {msg}"),
+            Self::Msg(msg) => formatter.write_str(msg),
         }
     }
 }

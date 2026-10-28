@@ -58,7 +58,7 @@ impl App {
                     }
                 }
 
-                self.search.seed(query);
+                self.search.seed(&query);
                 if !matches!(self.nav.current(), Screen::Search) {
                     self.nav.push(Screen::Search);
                 }

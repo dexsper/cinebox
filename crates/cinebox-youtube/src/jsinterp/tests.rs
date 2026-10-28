@@ -4,7 +4,7 @@ fn call(code: &str, func: &str, args: &[JsValue]) -> JsValue {
     let mut jsi = JsInterpreter::new(code);
     match jsi.call_function(func, args) {
         Ok(val) => val,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     }
 }
 
@@ -42,7 +42,7 @@ fn test_basic() {
     let mut jsi = JsInterpreter::new("function f(){;}");
     let func = match jsi.extract_function("f") {
         Ok(func) => func,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
     assert_eq!(func.to_string(), "F<f>");
     assert_eq!(call("function f(){;}", "f", &[]), JsValue::Null);
@@ -406,9 +406,9 @@ fn test_while_loop() {
 #[test]
 fn while_true_hits_iteration_limit() {
     let mut jsi = JsInterpreter::new("function f() { while (true) {} }");
-    let Err(err) = jsi.call_function("f", &[]) else { panic!("infinite loop returned") };
+    let Err(error) = jsi.call_function("f", &[]) else { panic!("infinite loop returned") };
 
-    assert_eq!(err.to_string(), "loop iteration limit reached");
+    assert_eq!(error.to_string(), "loop iteration limit reached");
 }
 
 #[test]
@@ -416,12 +416,12 @@ fn invoke_clears_scratch() {
     let mut jsi = JsInterpreter::new("function x() { return [1, function(){return 1}][1] }");
     let func = match jsi.extract_function("x") {
         Ok(func) => func,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
 
     let got = match jsi.invoke(&func, &[], None) {
         Ok(val) => val,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
 
     assert!(matches!(got, JsValue::Function(_)));
@@ -560,14 +560,14 @@ fn test_return_function() {
     );
     let inner = match jsi.call_function("x", &[]) {
         Ok(val) => val,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
     let JsValue::Function(func) = inner else {
         panic!("expected function, got {inner:?}");
     };
     match func.call(&[]) {
         Ok(val) => assert_eq!(val, num(1.0)),
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     }
 }
 
@@ -628,7 +628,7 @@ fn test_undefined() {
     );
     let got = match jsi.call_function("x", &[]) {
         Ok(val) => val,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
     let JsValue::Array(items) = got else {
         panic!("expected array");
@@ -907,11 +907,11 @@ fn test_extract_function() {
     let mut jsi = JsInterpreter::new("function a(b) { return b + 1; }");
     let func = match jsi.extract_function("a") {
         Ok(func) => func,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
     match func.call(&[num(2.0)]) {
         Ok(val) => assert_eq!(val, num(3.0)),
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     }
 }
 
@@ -925,10 +925,10 @@ fn test_extract_function_with_global_stack() {
     fg.insert(String::from("g"), num(1000.0));
     let func = match jsi.extract_function_with("c", vec![e, fg]) {
         Ok(func) => func,
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     };
     match func.call(&[num(1.0)]) {
         Ok(val) => assert_eq!(val, num(1111.0)),
-        Err(err) => panic!("{err}"),
+        Err(error) => panic!("{error}"),
     }
 }

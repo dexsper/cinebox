@@ -68,27 +68,28 @@ pub(crate) fn column_center(ctx: &egui::Context, left: f32) -> f32 {
 
 /// Paint the rail along the left edge of `body`, which starts at the title bar's bottom edge.
 /// Returns the entry clicked this frame.
-pub(crate) fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Option<RailEntry> {
-    let ctx = ui.ctx();
+pub(crate) fn show(parent: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>) -> Option<RailEntry> {
+    let ctx = parent.ctx();
     let id = Id::new("cinebox-rail");
-    let hovered = ctx.read_response(id).is_some_and(|response| response.contains_pointer());
-    let t = ctx.animate_bool_with_time(id.with("expand"), hovered || focused(ctx), EXPAND_SECS);
+    let is_hovered = ctx.read_response(id).is_some_and(|response| response.contains_pointer());
+    let reveal = ctx.animate_bool_with_time(id.with("expand"), is_hovered || focused(ctx), EXPAND_SECS);
     // The background runs to the screen edge; the items keep clear of it.
     let edge = platform::edge_inset(ctx).leftf();
-    let column_w = egui::lerp(WIDTH..=EXPANDED_W, t);
+    let column_w = egui::lerp(WIDTH..=EXPANDED_W, reveal);
     let width = edge + column_w;
-    let top = body.top() - BAR_RULE_TOP - BAR_RULE_BOTTOM;
-    let rect = Rect::from_min_max(pos2(body.left(), top), pos2(body.left() + width, body.bottom()));
+    let rail_top = body.top() - BAR_RULE_TOP - BAR_RULE_BOTTOM;
+    let rect = Rect::from_min_max(pos2(body.left(), rail_top), pos2(body.left() + width, body.bottom()));
     let edge_top = body.top() - BAR_RULE_TOP;
     let mut clicked = None;
 
     Area::new(id.with("area")).order(Order::Middle).fixed_pos(rect.min).constrain(false).show(ctx, |ui| {
         // Area hit-testing uses its content size, so claim the whole strip.
         ui.set_min_size(rect.size());
-        let _ = ui.interact(rect, id, Sense::hover());
+        ui.interact(rect, id, Sense::hover());
 
-        if t > 0.0 {
-            let shadow = egui::epaint::Shadow { offset: [0, 0], blur: 24, spread: 0, color: theme.overlay_at(t) };
+        if reveal > 0.0 {
+            let color = theme.overlay_at(reveal);
+            let shadow = egui::epaint::Shadow { offset: [0, 0], blur: 24, spread: 0, color };
             // Only over the content: never onto the title bar or back over the rail.
             let content = Rect::from_min_max(pos2(rect.right(), body.top() - BAR_RULE_BOTTOM), body.right_bottom());
             ui.painter().with_clip_rect(content).add(shadow.as_shape(rect, CornerRadius::ZERO));
@@ -100,6 +101,7 @@ pub(crate) fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>
 
         let column_left = rect.left() + edge;
         let mut top = body.top() + ITEM_INSET;
+
         for (index, entry) in ENTRIES.into_iter().enumerate() {
             if entry == RailEntry::Library {
                 let y = top + ITEM_GAP;
@@ -109,10 +111,12 @@ pub(crate) fn show(ui: &Ui, body: Rect, theme: &Theme, active: Option<RailEntry>
             }
 
             let item_size = vec2(column_w - ITEM_INSET * 2.0, ITEM_H);
-            let item = Rect::from_min_size(pos2(column_left + ITEM_INSET, top), item_size);
-            if item_ui(ui, item, entry, active == Some(entry), t, theme, index) {
+            let item_rect = Rect::from_min_size(pos2(column_left + ITEM_INSET, top), item_size);
+            let item = Item { rect: item_rect, entry, index, is_active: active == Some(entry), reveal };
+            if item_ui(ui, &item, theme) {
                 clicked = Some(entry);
             }
+
             top += ITEM_H + ITEM_GAP;
         }
 
@@ -155,28 +159,39 @@ pub(crate) fn focus(ctx: &egui::Context, entry: RailEntry) {
     ctx.memory_mut(|mem| mem.request_focus(item_id(index)));
 }
 
-fn item_ui(ui: &Ui, rect: Rect, entry: RailEntry, active: bool, t: f32, theme: &Theme, index: usize) -> bool {
+struct Item {
+    rect: Rect,
+    entry: RailEntry,
+    index: usize,
+    is_active: bool,
+    /// How far the rail has widened, from 0 (icons only) to 1 (full labels).
+    reveal: f32,
+}
+
+fn item_fill(response: &egui::Response, is_active: bool, theme: &Theme) -> Color32 {
+    if focus::own_mark(response) {
+        return theme.widget_hover;
+    }
+
+    if is_active { theme.widget_active } else { Color32::TRANSPARENT }
+}
+
+fn item_ui(ui: &Ui, item: &Item, theme: &Theme) -> bool {
+    let Item { rect, entry, index, is_active, reveal } = *item;
     let text = label(entry);
     let response = pointing(ui.interact(rect, item_id(index), Sense::click()));
-    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, active, text.as_ref()));
+    response.widget_info(|| WidgetInfo::selected(WidgetType::Button, true, is_active, text.as_ref()));
 
-    let fill = if focus::own_mark(&response) {
-        theme.widget_hover
-    } else if active {
-        theme.widget_active
-    } else {
-        Color32::TRANSPARENT
-    };
     let painter = ui.painter();
-    painter.rect_filled(rect, theme.rounding(theme.radius_card), fill);
+    painter.rect_filled(rect, theme.rounding(theme.radius_card), item_fill(&response, is_active, theme));
 
-    if active {
+    if is_active {
         let accent_top = rect.center().y - ITEM_H * 0.25;
         let accent = Rect::from_min_size(pos2(rect.left(), accent_top), vec2(ACCENT_W, ITEM_H * 0.5));
         painter.rect_filled(accent, theme.rounding(ACCENT_W), theme.title);
     }
 
-    let fg = if active { theme.title } else { theme.muted_bright };
+    let foreground = if is_active { theme.title } else { theme.muted_bright };
     let icon_center = pos2(rect.left() + (WIDTH - ITEM_INSET * 2.0) * 0.5, rect.center().y);
     let glyph = icon(entry);
     painter.text(
@@ -184,12 +199,12 @@ fn item_ui(ui: &Ui, rect: Rect, entry: RailEntry, active: bool, t: f32, theme: &
         egui::Align2::CENTER_CENTER,
         glyph.codepoint,
         egui::FontId::new(theme.text_icon_lg, glyph.font_family()),
-        fg,
+        foreground,
     );
 
-    if t > 0.0 {
+    if reveal > 0.0 {
         let text_pos = pos2(rect.left() + WIDTH - ITEM_INSET, rect.center().y);
-        let color = fg.gamma_multiply(t);
+        let color = foreground.gamma_multiply(reveal);
         painter.with_clip_rect(rect).text(
             text_pos,
             egui::Align2::LEFT_CENTER,

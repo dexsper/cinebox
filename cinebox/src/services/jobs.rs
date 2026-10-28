@@ -12,7 +12,7 @@ pub(crate) use catalog::{
 };
 pub(crate) use health::{ping_parser, ping_tmdb, ping_torrserver, speed_test};
 pub(crate) use skip::{fetch_skip_choices, fetch_skip_segments, save_skip_choice, skip_cache_id};
-pub(crate) use torrents::{load_torrents, open_magnet, wait_stream};
+pub(crate) use torrents::{OpenMagnet, StreamFile, load_torrents, open_magnet, wait_stream};
 pub(crate) use youtube::resolve_youtube;
 
 use cinebox_core::{MediaKind, ParserKind, Settings, TmdbId};
@@ -115,7 +115,7 @@ impl From<&Settings> for TorrCtx {
 }
 
 /// The media an opened torrent belongs to.
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy)]
 pub(crate) struct OpenTarget {
     pub kind: MediaKind,
     pub id: TmdbId,

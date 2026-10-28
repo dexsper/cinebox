@@ -146,7 +146,9 @@ pub(crate) async fn send<F>(net: &cinebox_net::NetConfig, build: F) -> Result<re
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await.map_err(|e| Error::Request(e.without_url()))
+    let sent = cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await;
+
+    sent.map_err(|error| Error::Request(error.without_url()))
 }
 
 #[cfg(test)]

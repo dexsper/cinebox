@@ -15,14 +15,17 @@ use crate::widgets::scroll;
 
 const HEADING_ICON_GAP: f32 = 4.0;
 
-pub(crate) fn shelf(
-    ui: &mut Ui,
-    id: ShelfId,
-    items: &[CatalogItem],
-    error: Option<&str>,
-    svc: &Services,
-    theme: &Theme,
-) -> Option<NavAction> {
+/// A row of posters under a heading.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Shelf<'a> {
+    pub id: ShelfId,
+    pub items: &'a [CatalogItem],
+    /// Why the row could not be loaded, shown next to whatever items it still has.
+    pub error: Option<&'a str>,
+}
+
+pub(crate) fn shelf(ui: &mut Ui, shelf: &Shelf<'_>, svc: &Services, theme: &Theme) -> Option<NavAction> {
+    let &Shelf { id, items, error } = shelf;
     ui.add_space(12.0);
 
     let is_heading_clicked = shelf_heading(ui, crate::i18n::shelf_title(id).as_ref(), theme);

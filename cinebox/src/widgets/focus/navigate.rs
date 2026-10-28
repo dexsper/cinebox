@@ -113,6 +113,7 @@ fn arrow_press(event: &egui::Event) -> Option<ArrowPress> {
         return None;
     };
 
+    #[expect(clippy::wildcard_enum_match_arm, reason = "only the four arrows of egui's many keys move focus")]
     let direction = match key {
         egui::Key::ArrowUp => Direction::Up,
         egui::Key::ArrowDown => Direction::Down,

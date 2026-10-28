@@ -408,7 +408,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(play.video_url, media);
         assert!(play.audio_url.is_none());
@@ -441,7 +441,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         let sig = query_param(&play.video_url, "sig");
         assert_eq!(sig.as_deref(), Some("abcd"));
@@ -460,7 +460,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         let n = query_param(&play.video_url, "n");
         assert_eq!(n.as_deref(), Some("zyx"));
@@ -517,7 +517,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(play.video_url, "https://googlevideo.example/video");
         assert_eq!(play.audio_url.as_deref(), Some("https://googlevideo.example/audio"));
