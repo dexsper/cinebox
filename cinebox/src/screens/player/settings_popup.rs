@@ -1,7 +1,6 @@
 //! In-player Settings flyout: nested menu for video size, speed, subtitles, audio.
 
-use cinebox_core::TorrentPlaybackPrefs;
-use cinebox_core::VideoScale;
+use cinebox_core::{TorrentPlaybackPrefs, VideoScale};
 use cinebox_player::{Features, Track, TrackKind};
 use egui::{Align, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
@@ -47,111 +46,148 @@ pub(super) struct View<'a> {
     pub left: Option<Page>,
 }
 
+/// A subtitle track to show, or none at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SubtitlePick {
+    Off,
+    Track(i64),
+}
+
+impl SubtitlePick {
+    /// The id the player selects; `None` turns subtitles off.
+    #[must_use]
+    pub(super) fn track_id(self) -> Option<i64> {
+        match self {
+            Self::Off => None,
+            Self::Track(id) => Some(id),
+        }
+    }
+}
+
 /// Choices made this frame.
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub(super) struct Out {
     pub page: Option<Page>,
     pub scale: Option<VideoScale>,
     pub speed: Option<f64>,
     pub audio: Option<i64>,
-    /// `Some(None)` turns subtitles off.
-    pub sub: Option<Option<i64>>,
+    pub sub: Option<SubtitlePick>,
     pub sub_scale: Option<f64>,
     pub sub_delay: Option<f64>,
 }
 
+/// A row on the root page that opens a submenu.
+struct Entry<'a> {
+    page: Page,
+    label: &'a str,
+    /// The current choice on that page, shown on the right.
+    value: &'a str,
+}
+
 pub(super) fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    match view.page {
+        Page::Root => Out { page: root_page(ui, theme, view), ..Out::default() },
+        Page::VideoSize => video_size_page(ui, theme, view),
+        Page::Speed => speed_page(ui, theme, view),
+        Page::Subtitles => subtitles_page(ui, theme, view),
+        Page::Audio => audio_page(ui, theme, view),
+    }
+}
+
+/// The submenu opened this frame.
+fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Option<Page> {
+    let video_size = t!("player.video_size");
+    let scale = scale_label(view.prefs.scale);
+    let mut opened = submenu(ui, theme, view, &Entry { page: Page::VideoSize, label: &video_size, value: &scale });
+
+    if view.features.speed {
+        let playback_speed = t!("player.playback_speed");
+        let speed = speed_label(view.prefs.speed);
+        let entry = Entry { page: Page::Speed, label: &playback_speed, value: &speed };
+        opened = submenu(ui, theme, view, &entry).or(opened);
+    }
+
+    let subtitle_track = t!("player.subtitle_track");
+    let sub = selected_sub_label(view.tracks);
+    opened = submenu(ui, theme, view, &Entry { page: Page::Subtitles, label: &subtitle_track, value: &sub }).or(opened);
+
+    let audio_count = count_tracks(view.tracks, TrackKind::Audio);
+    if audio_count <= 1 {
+        return opened;
+    }
+
+    let audio_track = t!("player.audio_track");
+    let audio = selected_audio_label(view.tracks);
+
+    submenu(ui, theme, view, &Entry { page: Page::Audio, label: &audio_track, value: &audio }).or(opened)
+}
+
+/// `entry.page` when its row was clicked.
+fn submenu(ui: &mut Ui, theme: &Theme, view: &View<'_>, entry: &Entry<'_>) -> Option<Page> {
+    let row = submenu_row(ui, theme, entry.label, entry.value);
+    if view.left == Some(entry.page) {
+        focus::prefer(&row);
+    }
+
+    row.clicked().then_some(entry.page)
+}
+
+fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
     let mut out = Out::default();
 
-    match view.page {
-        Page::Root => root_page(ui, theme, view, &mut out),
-        Page::VideoSize => video_size_page(ui, theme, view, &mut out),
-        Page::Speed => speed_page(ui, theme, view, &mut out),
-        Page::Subtitles => subtitles_page(ui, theme, view, &mut out),
-        Page::Audio => audio_page(ui, theme, view, &mut out),
+    if back_row(ui, theme, t!("player.video_size").as_ref()) {
+        out.page = Some(Page::Root);
+        return out;
+    }
+
+    for scale in VideoScale::ALL {
+        let is_selected = *scale == view.prefs.scale;
+        if radio_row(ui, theme, scale_label(*scale).as_ref(), is_selected) {
+            out.scale = Some(*scale);
+            out.page = Some(Page::Root);
+        }
     }
 
     out
 }
 
-fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    let scale = scale_label(view.prefs.scale);
-    submenu(ui, theme, view, out, Page::VideoSize, t!("player.video_size").as_ref(), &scale);
+fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
 
-    if view.features.speed {
-        let speed = speed_label(view.prefs.speed);
-        submenu(ui, theme, view, out, Page::Speed, t!("player.playback_speed").as_ref(), &speed);
-    }
-
-    let sub = selected_sub_label(view.tracks);
-    submenu(ui, theme, view, out, Page::Subtitles, t!("player.subtitle_track").as_ref(), &sub);
-
-    let audio_count = count_tracks(view.tracks, TrackKind::Audio);
-    if audio_count <= 1 {
-        return;
-    }
-
-    let audio = selected_audio_label(view.tracks);
-    submenu(ui, theme, view, out, Page::Audio, t!("player.audio_track").as_ref(), &audio);
-}
-
-fn submenu(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out, page: Page, label: &str, value: &str) {
-    let row = submenu_row(ui, theme, label, value);
-    if view.left == Some(page) {
-        focus::prefer(&row);
-    }
-
-    if row.clicked() {
-        out.page = Some(page);
-    }
-}
-
-fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, t!("player.video_size").as_ref()) {
-        out.page = Some(Page::Root);
-        return;
-    }
-
-    for scale in VideoScale::ALL {
-        let selected = *scale == view.prefs.scale;
-        if radio_row(ui, theme, scale_label(*scale).as_ref(), selected) {
-            out.scale = Some(*scale);
-            out.page = Some(Page::Root);
-        }
-    }
-}
-
-fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     if back_row(ui, theme, t!("player.playback_speed").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
     for speed in SPEEDS {
-        let selected = (view.prefs.speed - speed).abs() < 0.01;
-        if radio_row(ui, theme, &speed_label(*speed), selected) {
+        let is_selected = (view.prefs.speed - speed).abs() < 0.01;
+        if radio_row(ui, theme, &speed_label(*speed), is_selected) {
             out.speed = Some(*speed);
             out.page = Some(Page::Root);
         }
     }
+
+    out
 }
 
-fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
+fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
+
     if back_row(ui, theme, t!("player.subtitle_track").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
     let subs: Vec<&Track> = view.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).collect();
-    let none_selected = !subs.iter().any(|track| track.selected);
+    let is_none_selected = !subs.iter().any(|track| track.selected);
 
-    if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), none_selected) {
-        out.sub = Some(None);
+    if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), is_none_selected) {
+        out.sub = Some(SubtitlePick::Off);
     }
 
     for track in &subs {
         if radio_row(ui, theme, &track_label(track), track.selected) {
-            out.sub = Some(Some(track.id));
+            out.sub = Some(SubtitlePick::Track(track.id));
         }
     }
 
@@ -166,7 +202,7 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     }
 
     if !view.features.subtitle_delay {
-        return;
+        return out;
     }
 
     let delay_text = format!("{:+.1}s", view.sub_delay);
@@ -175,12 +211,16 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         let next = view.sub_delay + f64::from(delay_step) * SUB_DELAY_STEP;
         out.sub_delay = Some(next.clamp(SUB_DELAY_MIN, SUB_DELAY_MAX));
     }
+
+    out
 }
 
-fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
+fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
+
     if back_row(ui, theme, t!("player.audio_track").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
     let audio = view.tracks.iter().filter(|track| track.kind == TrackKind::Audio);
@@ -191,12 +231,14 @@ fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
             out.page = Some(Page::Root);
         }
     }
+
+    out
 }
 
 /// Human label for one mpv track.
 pub(super) fn track_label(track: &Track) -> String {
-    let title = track.title.as_deref().filter(|s| !s.is_empty());
-    let lang = track.lang.as_deref().filter(|s| !s.is_empty());
+    let title = track.title.as_deref().filter(|title| !title.is_empty());
+    let lang = track.lang.as_deref().filter(|lang| !lang.is_empty());
 
     match (title, lang) {
         (Some(title), Some(lang)) => format!("{title} ({lang})"),
@@ -343,14 +385,13 @@ fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     response.clicked()
 }
 
-fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
+fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, is_selected: bool) -> bool {
     let (rect, mut response) = hover_row(ui, label);
-    if selected {
+    if is_selected {
         focus::prefer(&response);
     }
 
-    let idle = if selected { theme.card_selected } else { egui::Color32::TRANSPARENT };
-
+    let idle = if is_selected { theme.card_selected } else { egui::Color32::TRANSPARENT };
     let fill = if focus::lit(&response) { theme.widget_hover } else { idle };
 
     if fill != egui::Color32::TRANSPARENT {
@@ -364,7 +405,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     let check_text = check.codepoint.to_owned();
     let check_galley = ui.painter().layout_no_wrap(check_text, check_font, theme.title);
 
-    let trailing = if selected { check_galley.size().x + ROW_GAP } else { 0.0 };
+    let trailing = if is_selected { check_galley.size().x + ROW_GAP } else { 0.0 };
 
     let text_w = (inner.width() - trailing).max(1.0);
     let label_font = theme.ui_font(theme.text_body);
@@ -382,7 +423,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
     ui.painter().galley(label_pos, label_galley, theme.label);
 
-    if selected {
+    if is_selected {
         let check_pos = pos2(inner.right() - check_galley.size().x, galley_y(inner, check_galley.size().y));
         ui.painter().galley(check_pos, check_galley, theme.title);
     }
@@ -390,7 +431,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     response.clicked()
 }
 
-/// Label + value with −/+ buttons. Returns -1.0, 0.0, or 1.0.
+/// Label and value with minus and plus buttons. -1.0, 0.0 or 1.0 for the button pressed.
 fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
     let mut step = 0.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
@@ -411,17 +452,17 @@ fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
         Label::new(RichText::new(label).size(theme.text_small).color(theme.label)).truncate(),
     );
 
-    row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
+    row.with_layout(Layout::right_to_left(Align::Center), |buttons| {
+        buttons.spacing_mut().item_spacing.x = 6.0;
         let opts = button::Opts::secondary(vec2(STEPPER_BTN, STEPPER_BTN)).pad_y(0.0);
 
-        if button::label(ui, theme, "+", opts) {
+        if button::label(buttons, theme, "+", opts) {
             step = 1.0;
         }
 
-        ui.label(RichText::new(value).size(theme.text_small).color(theme.muted_bright));
+        buttons.label(RichText::new(value).size(theme.text_small).color(theme.muted_bright));
 
-        if button::label(ui, theme, "−", opts) {
+        if button::label(buttons, theme, "−", opts) {
             step = -1.0;
         }
     });

@@ -3,12 +3,11 @@
 use cinebox_player::SEEK_SECS;
 use egui::{Id, Key, Response, Ui, Vec2, ViewportCommand};
 
+use super::settings_popup::Page;
+use super::{PlayerPhase, PlayerScreen, Popup, seek_by};
 use crate::platform;
 use crate::services::Services;
 use crate::widgets::focus;
-
-use super::settings_popup::Page;
-use super::{PlayerPhase, PlayerScreen, Popup};
 
 impl PlayerScreen {
     /// Escape while the player is on screen: leave a settings submenu, close
@@ -26,14 +25,14 @@ impl PlayerScreen {
             }
         }
 
-        if self.fullscreen {
+        if self.is_fullscreen {
             self.set_fullscreen(ctx, false);
             return true;
         }
 
         // Back from the controls returns the D-pad to the video before leaving.
-        if self.controls_focused && platform::profile(ctx).is_directional() {
-            self.controls_focused = false;
+        if self.has_controls_focus && platform::profile(ctx).is_directional() {
+            self.has_controls_focus = false;
             self.activity.hide();
             return true;
         }
@@ -52,33 +51,33 @@ impl PlayerScreen {
         }
 
         // With a D-pad the arrows also walk the controls; they seek only from the video.
-        let directional = platform::profile(ui.ctx()).is_directional();
-        let on_video = ui.ctx().memory(|mem| mem.has_focus(video_id()));
-        if directional && !on_video {
+        let is_directional = platform::profile(ui.ctx()).is_directional();
+        let is_on_video = ui.ctx().memory(|mem| mem.has_focus(video_id()));
+        if is_directional && !is_on_video {
             return;
         }
 
         if ui.input(|i| i.key_pressed(Key::ArrowLeft)) {
-            self.seek(svc, -SEEK_SECS);
+            seek_by(svc, -SEEK_SECS);
         }
 
         if ui.input(|i| i.key_pressed(Key::ArrowRight)) {
-            self.seek(svc, SEEK_SECS);
+            seek_by(svc, SEEK_SECS);
         }
     }
 
     /// The video holds D-pad focus while nothing else does, so the arrows seek
     /// and OK pauses. `true` when Up/Down asked for the controls.
-    pub(super) fn dpad_video_focus(&mut self, ui: &Ui, video: &Response, popup_open: bool, now: f64) -> bool {
+    pub(super) fn dpad_video_focus(&mut self, ui: &Ui, video: &Response, is_popup_open: bool, now: f64) -> bool {
         if !platform::profile(ui.ctx()).is_directional() {
             return false;
         }
 
         focus::hold_arrows(ui, video.id, true, true);
 
-        let unfocused = ui.ctx().memory(egui::Memory::focused).is_none();
-        let returning = popup_open || focus::popup_was_open(ui.ctx());
-        if unfocused && !returning {
+        let is_unfocused = ui.ctx().memory(egui::Memory::focused).is_none();
+        let is_returning = is_popup_open || focus::popup_was_open(ui.ctx());
+        if is_unfocused && !is_returning {
             video.request_focus();
             return false;
         }
@@ -87,29 +86,29 @@ impl PlayerScreen {
             return false;
         }
 
-        let vertical = ui.input(|i| i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::ArrowDown));
-        if vertical {
+        let is_vertical = ui.input(|i| i.key_pressed(Key::ArrowUp) || i.key_pressed(Key::ArrowDown));
+        if is_vertical {
             self.activity.poke(now);
         }
 
-        vertical
+        is_vertical
     }
 
     pub(super) fn update_activity(&mut self, ui: &Ui, now: f64) {
-        let interacted = ui.input(|i| {
+        let has_interacted = ui.input(|i| {
             i.pointer.delta() != Vec2::ZERO
                 || i.pointer.any_down()
                 || i.smooth_scroll_delta != Vec2::ZERO
                 || i.events.iter().any(is_activity_key)
         });
 
-        if interacted {
+        if has_interacted {
             self.activity.poke(now);
         }
     }
 
-    pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, on: bool) {
-        if self.fullscreen == on {
+    pub(super) fn set_fullscreen(&mut self, ctx: &egui::Context, is_on: bool) {
+        if self.is_fullscreen == is_on {
             return;
         }
 
@@ -118,8 +117,8 @@ impl PlayerScreen {
             return;
         }
 
-        self.fullscreen = on;
-        if on {
+        self.is_fullscreen = is_on;
+        if is_on {
             // A maximized undecorated window overhangs the screen edges on
             // Windows; going borderless-fullscreen from it keeps that stale
             // geometry (footer lands below the screen). Un-maximize first.
@@ -140,18 +139,18 @@ impl PlayerScreen {
     }
 
     pub(super) fn sync_fullscreen(&mut self, ctx: &egui::Context) {
-        if !self.fullscreen {
+        if !self.is_fullscreen {
             return;
         }
 
-        let maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
-        if maximized {
+        let is_maximized = ctx.input(|i| i.viewport().maximized).unwrap_or(false);
+        if is_maximized {
             self.was_maximized = true;
             ctx.send_viewport_cmd(ViewportCommand::Maximized(false));
         }
 
-        let fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
-        if !fullscreen {
+        let is_os_fullscreen = ctx.input(|i| i.viewport().fullscreen).unwrap_or(true);
+        if !is_os_fullscreen {
             ctx.send_viewport_cmd(ViewportCommand::Fullscreen(true));
         }
     }
@@ -159,9 +158,7 @@ impl PlayerScreen {
 
 /// Any key shows the controls, except Back, which may be hiding them.
 fn is_activity_key(event: &egui::Event) -> bool {
-    let egui::Event::Key { key, .. } = event else {
-        return false;
-    };
+    let egui::Event::Key { key, .. } = event else { return false };
 
     *key != Key::Escape
 }
@@ -192,14 +189,14 @@ mod tests {
     #[test]
     fn escape_closes_popup_before_leaving_fullscreen() {
         let ctx = egui::Context::default();
-        let mut screen = PlayerScreen { fullscreen: true, popup: Popup::Playlist, ..PlayerScreen::default() };
+        let mut screen = PlayerScreen { is_fullscreen: true, popup: Popup::Playlist, ..PlayerScreen::default() };
 
         assert!(screen.consume_escape(&ctx));
         assert!(screen.popup == Popup::None);
-        assert!(screen.fullscreen);
+        assert!(screen.is_fullscreen);
 
         assert!(screen.consume_escape(&ctx));
-        assert!(!screen.fullscreen);
+        assert!(!screen.is_fullscreen);
 
         assert!(!screen.consume_escape(&ctx));
     }

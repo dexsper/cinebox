@@ -17,6 +17,10 @@ const SWING_SECS: f64 = 3.5;
 const SPAN_SECS: f64 = 1.6;
 const SETTLE_FRAC: f64 = 0.003;
 const NEEDLE_RIM: f64 = 0.82;
+const GAUGE_TICKS: u8 = 24;
+/// Line segments per full arc; shorter arcs get fewer, but never below [`MIN_ARC_SEGMENTS`].
+const ARC_SEGMENTS: f32 = 48.0;
+const MIN_ARC_SEGMENTS: f32 = 8.0;
 
 #[derive(Clone)]
 pub(super) struct SpeedMeter {
@@ -69,9 +73,10 @@ impl SpeedMeter {
 
         let span = live.span.max(MIN_SCALE);
         let needed = needed_span(&live);
-        let catching_up = (live.shown - live.target).abs() > settle_eps(span);
-        let scaling = needed > span + settle_eps(needed);
-        catching_up || scaling
+        let is_catching_up = (live.shown - live.target).abs() > settle_eps(span);
+        let is_scaling = needed > span + settle_eps(needed);
+
+        is_catching_up || is_scaling
     }
 
     pub(super) fn begin(&self) {
@@ -165,21 +170,20 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let center = pos2(rect.center().x, rect.top() + center_y);
     let painter = ui.painter_at(rect);
     let span = live.span.max(MIN_SCALE);
-    let t = theme::fraction(live.shown / span);
+    let filled = theme::fraction(live.shown / span);
 
-    stroke_arc(&painter, center, radius, 0.0, 1.0, Stroke::new(10.0, theme.gauge_track()));
+    stroke_arc(&painter, center, radius, 1.0, Stroke::new(10.0, theme.gauge_track()));
 
-    let tick_n = 24;
-    for i in 0..=tick_n {
-        let tick_t = i as f32 / tick_n as f32;
-        let inner = gauge_pos(center, radius - 7.0, tick_t);
-        let outer = gauge_pos(center, radius + 1.0, tick_t);
+    for i in 0..=GAUGE_TICKS {
+        let tick = f32::from(i) / f32::from(GAUGE_TICKS);
+        let inner = gauge_pos(center, radius - 7.0, tick);
+        let outer = gauge_pos(center, radius + 1.0, tick);
         painter.line_segment([inner, outer], Stroke::new(1.0, theme.gauge_track()));
     }
 
-    let has_fill = t > 0.004;
+    let has_fill = filled > 0.004;
     if has_fill {
-        stroke_arc(&painter, center, radius, 0.0, t, Stroke::new(12.0, theme.gauge_hot(t)));
+        stroke_arc(&painter, center, radius, filled, Stroke::new(12.0, theme.gauge_hot(filled)));
     }
 
     let label_font = theme.ui_font(theme.text_micro);
@@ -222,25 +226,36 @@ fn status_line(live: &Live, theme: &Theme) -> (std::borrow::Cow<'static, str>, e
     }
 }
 
-fn stroke_arc(painter: &egui::Painter, center: Pos2, radius: f32, t0: f32, t1: f32, stroke: Stroke) {
-    if (t1 - t0).abs() < 0.001 {
+/// The arc from the left end of the dial to `end`, a share of the dial from 0 to 1.
+fn stroke_arc(painter: &egui::Painter, center: Pos2, radius: f32, end: f32, stroke: Stroke) {
+    if end.abs() < 0.001 {
         return;
     }
 
-    let span = (t1 - t0).abs();
-    let n = (span * 48.0).ceil().max(8.0) as i32;
-    let mut points = Vec::with_capacity((n + 1) as usize);
-    for i in 0..=n {
-        let t = t0 + (t1 - t0) * (i as f32 / n as f32);
-        points.push(gauge_pos(center, radius, t));
+    let segments = arc_segments(end.abs());
+    let mut points = Vec::with_capacity(usize::from(segments) + 1);
+
+    for i in 0..=segments {
+        let share = end * (f32::from(i) / f32::from(segments));
+        points.push(gauge_pos(center, radius, share));
     }
 
     painter.add(Shape::line(points, stroke));
 }
 
-fn gauge_pos(center: Pos2, radius: f32, t: f32) -> Pos2 {
-    let t = t.clamp(0.0, 1.0);
-    let angle = std::f32::consts::PI * (1.0 - t);
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "`span` is a share of the dial, so the count stays between the minimum and `ARC_SEGMENTS`"
+)]
+fn arc_segments(span: f32) -> u8 {
+    (span * ARC_SEGMENTS).ceil().max(MIN_ARC_SEGMENTS) as u8
+}
+
+fn gauge_pos(center: Pos2, radius: f32, share: f32) -> Pos2 {
+    let share = share.clamp(0.0, 1.0);
+    let angle = std::f32::consts::PI * (1.0 - share);
+
     pos2(center.x + radius * angle.cos(), center.y - radius * angle.sin())
 }
 
@@ -268,8 +283,8 @@ fn ease_shown(live: &mut Live, dt: f64) {
 
 fn hold_off_rim(live: &mut Live) {
     let want = needed_span(live);
-    let expanding = want > live.span + settle_eps(want);
-    if !expanding {
+    let is_expanding = want > live.span + settle_eps(want);
+    if !is_expanding {
         return;
     }
 
@@ -320,14 +335,14 @@ fn scale_max(speed: f64) -> f64 {
     nice_ceil(need)
 }
 
-fn nice_ceil(x: f64) -> f64 {
-    if !x.is_finite() || x <= 0.0 {
+fn nice_ceil(value: f64) -> f64 {
+    if !value.is_finite() || value <= 0.0 {
         return MIN_SCALE;
     }
 
-    let exp = x.log10().floor();
+    let exp = value.log10().floor();
     let base = 10.0_f64.powf(exp);
-    let mantissa = x / base;
+    let mantissa = value / base;
 
     if mantissa <= 1.0 {
         return base;
@@ -355,17 +370,17 @@ fn nice_ceil(x: f64) -> f64 {
 fn scale_marks(max: f64) -> Vec<f64> {
     let step = nice_ceil(max / 5.0);
     let mut marks = vec![0.0];
-    let mut v = step;
+    let mut mark = step;
 
     loop {
-        let at_end = v >= max - step * 0.05;
-        if at_end {
+        let is_at_end = mark >= max - step * 0.05;
+        if is_at_end {
             marks.push(max);
             return marks;
         }
 
-        marks.push(v);
-        v += step;
+        marks.push(mark);
+        mark += step;
 
         if marks.len() < 8 {
             continue;
@@ -376,43 +391,45 @@ fn scale_marks(max: f64) -> Vec<f64> {
     }
 }
 
-fn format_mbps(v: f64) -> String {
-    if !v.is_finite() || v <= 0.0 {
+fn format_mbps(mbps: f64) -> String {
+    if !mbps.is_finite() || mbps <= 0.0 {
         return "0.000".to_owned();
     }
 
-    if v < 1.0 {
-        return format!("{v:.3}");
+    if mbps < 1.0 {
+        return format!("{mbps:.3}");
     }
 
-    if v < 10.0 {
-        return format!("{v:.2}");
+    if mbps < 10.0 {
+        return format!("{mbps:.2}");
     }
 
-    if v < 100.0 {
-        return format!("{v:.1}");
+    if mbps < 100.0 {
+        return format!("{mbps:.1}");
     }
 
-    format!("{}", v.round() as i64)
+    // Rounded first: `{:.0}` alone rounds halves to even, and the dial rounds them up.
+    format!("{:.0}", mbps.round())
 }
 
-fn format_mark(v: f64) -> String {
-    if v >= 1_000_000.0 {
-        let m = v / 1_000_000.0;
-        return format!("{m:.0}M");
+fn format_mark(mark: f64) -> String {
+    if mark >= 1_000_000.0 {
+        let millions = mark / 1_000_000.0;
+        return format!("{millions:.0}M");
     }
 
-    if v >= 1000.0 {
-        let k = v / 1000.0;
-        let whole = (k - k.round()).abs() < 0.05;
-        if whole {
-            return format!("{}k", k.round() as i64);
+    if mark >= 1000.0 {
+        let thousands = mark / 1000.0;
+        let is_whole = (thousands - thousands.round()).abs() < 0.05;
+
+        if is_whole {
+            return format!("{:.0}k", thousands.round());
         }
 
-        return format!("{k:.1}k");
+        return format!("{thousands:.1}k");
     }
 
-    format!("{v:.0}")
+    format!("{mark:.0}")
 }
 
 #[cfg(test)]

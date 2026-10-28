@@ -74,7 +74,7 @@ fn with_alpha(color: Color32, alpha: u8) -> Color32 {
 }
 
 /// `colors` go clockwise from the top-left corner.
-fn paint_gradient(ui: &Ui, rect: Rect, colors: [Color32; 4]) {
+pub(crate) fn paint_gradient(ui: &Ui, rect: Rect, colors: [Color32; 4]) {
     let corners = [rect.left_top(), rect.right_top(), rect.right_bottom(), rect.left_bottom()];
     let mut mesh = Mesh::default();
 

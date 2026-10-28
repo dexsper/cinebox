@@ -29,7 +29,7 @@ impl MediaSession {
             subtitle,
             duration: state.duration,
             artwork,
-            playing: !state.paused,
+            playing: !state.is_paused,
             position: state.time,
             can_next: state.has_next(),
             can_previous: state.file_index() > 0,

@@ -17,11 +17,14 @@ use std::time::{Duration, Instant};
 
 use cinebox_core::{MediaKind, TmdbId, TorrentPlaybackPrefs, VideoScale};
 use cinebox_player::{Area, ClickZone, Failure, Media, Player, SEEK_SECS, Track, VideoOutput, click_zone, fit_video};
+use cinebox_skip::SegmentType;
 use egui::{Align, Align2, Color32, CursorIcon, Rect, RichText, Sense, Ui, pos2};
 use egui_async::Bind;
 use rust_i18n::t;
-use tracing::{info, warn};
+use tracing::{info, trace, warn};
 
+use self::buffering::{Buffering, PreloadMeter};
+use self::overlay::{Activity, FooterOut, FooterView};
 use crate::app::nav::NavAction;
 use crate::i18n::errors::UserError;
 use crate::platform::MediaCommand;
@@ -32,19 +35,20 @@ use crate::services::{Services, db_block_on};
 use crate::theme::{self, Theme};
 use crate::widgets::flyout;
 
-use buffering::{Buffering, PreloadMeter};
-use overlay::{Activity, FooterView};
-
+#[expect(
+    clippy::struct_excessive_bools,
+    reason = "the player's own flags, mirrored each frame, beside the tail tracking"
+)]
 struct PlayerState {
     card: WatchCard,
     title: String,
     source: PlaySource,
     backdrop_path: Option<String>,
-    paused: bool,
+    is_paused: bool,
     time: f64,
     duration: f64,
     error: Option<String>,
-    muted: bool,
+    is_muted: bool,
     volume: f64,
     video_size: Option<[u32; 2]>,
     /// Drawn by the app when the player leaves subtitles to it.
@@ -52,10 +56,10 @@ struct PlayerState {
     loaded_at: Instant,
     decoder: Option<cinebox_player::VideoDecoder>,
     /// The start point was compared with the duration (see [`Self::track_tail`]).
-    start_checked: bool,
+    is_start_checked: bool,
     /// Playback was seen before the file's tail since it loaded; only then
     /// does its end move on to the next file.
-    played_before_tail: bool,
+    has_played_before_tail: bool,
 }
 
 impl PlayerState {
@@ -65,18 +69,18 @@ impl PlayerState {
             title: spec.title.clone(),
             source: spec.source.clone(),
             backdrop_path: spec.backdrop_path.clone(),
-            paused: false,
+            is_paused: false,
             time: spec.source.start_seconds(),
             duration: 0.0,
             error: None,
-            muted: false,
+            is_muted: false,
             volume: 100.0,
             video_size: None,
             subtitle: None,
             loaded_at: Instant::now(),
             decoder: None,
-            start_checked: false,
-            played_before_tail: false,
+            is_start_checked: false,
+            has_played_before_tail: false,
         }
     }
 
@@ -86,14 +90,14 @@ impl PlayerState {
     fn track_tail(&mut self, time: f64, duration: f64) -> bool {
         let tail = duration - FINISHED_TAIL_SECS.min(duration / 10.0);
         if time < tail {
-            self.played_before_tail = true;
+            self.has_played_before_tail = true;
         }
 
-        if self.start_checked {
+        if self.is_start_checked {
             return false;
         }
 
-        self.start_checked = true;
+        self.is_start_checked = true;
         self.source.start_seconds() >= tail
     }
 
@@ -172,22 +176,27 @@ struct VideoCallback {
     callback: Arc<egui_glow::CallbackFn>,
 }
 
+#[expect(clippy::struct_excessive_bools, reason = "independent screen flags, each set and cleared on its own")]
 pub(crate) struct PlayerScreen {
     phase: Option<PlayerPhase>,
-    fullscreen: bool,
+    is_fullscreen: bool,
+    /// The window was maximized before fullscreen and is maximized again after it.
     was_maximized: bool,
     activity: Activity,
     /// TV: the D-pad was on the transport controls, so Back hides them first.
-    controls_focused: bool,
-    focus_play: bool,
+    has_controls_focus: bool,
+    /// Play/pause takes the focus once the footer is drawn.
+    is_play_focus_pending: bool,
     popup: Popup,
     /// See [`settings_popup::View::left`].
     settings_left: Option<settings_popup::Page>,
-    playlist_scroll: bool,
+    /// The playlist scrolls to the current file once it opens.
+    is_playlist_scroll_pending: bool,
     prefs: TorrentPlaybackPrefs,
     sub_scale: f64,
     sub_delay: f64,
-    volume_dirty: bool,
+    /// The volume changed since the settings were last saved.
+    is_volume_dirty: bool,
     progress_saved_at: Option<Instant>,
     viewed_job: Bind<(), JobError>,
     skip_state: skip::SkipState,
@@ -200,18 +209,18 @@ impl Default for PlayerScreen {
     fn default() -> Self {
         Self {
             phase: None,
-            fullscreen: false,
+            is_fullscreen: false,
             was_maximized: false,
             activity: Activity::new(),
-            controls_focused: false,
-            focus_play: false,
+            has_controls_focus: false,
+            is_play_focus_pending: false,
             popup: Popup::None,
             settings_left: None,
-            playlist_scroll: false,
+            is_playlist_scroll_pending: false,
             prefs: TorrentPlaybackPrefs::default(),
             sub_scale: 1.0,
             sub_delay: 0.0,
-            volume_dirty: false,
+            is_volume_dirty: false,
             progress_saved_at: None,
             viewed_job: Bind::new(true),
             skip_state: skip::SkipState::default(),
@@ -224,7 +233,7 @@ impl Default for PlayerScreen {
 
 impl PlayerScreen {
     pub(crate) fn start(&mut self, req: PlayRequest, svc: &mut Services, ctx: &egui::Context) {
-        self.prefs = Default::default();
+        self.prefs = TorrentPlaybackPrefs::default();
 
         if let Some(hash) = req.source.torrent_hash() {
             self.prefs = svc
@@ -257,9 +266,9 @@ impl PlayerScreen {
         let played = self.phase.take().map(|phase| Played { source: phase.into_source(), saved });
         self.popup = Popup::None;
 
-        if self.volume_dirty {
+        if self.is_volume_dirty {
             svc.persist();
-            self.volume_dirty = false;
+            self.is_volume_dirty = false;
         }
 
         self.set_fullscreen(ctx, false);
@@ -271,15 +280,15 @@ impl PlayerScreen {
 
     /// Pause without toggling (the app went to the background).
     pub(crate) fn pause(&mut self, svc: &Services) {
-        let playing = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if !state.paused);
-        if playing {
+        let is_playing = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if !state.is_paused);
+        if is_playing {
             self.toggle(svc);
         }
     }
 
     fn resume(&mut self, svc: &Services) {
-        let paused = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if state.paused);
-        if paused {
+        let is_paused = matches!(&self.phase, Some(PlayerPhase::Playing(state)) if state.is_paused);
+        if is_paused {
             self.toggle(svc);
         }
     }
@@ -291,7 +300,7 @@ impl PlayerScreen {
             MediaCommand::Pause | MediaCommand::Stop => self.pause(svc),
             MediaCommand::PlayPause => self.toggle(svc),
             MediaCommand::SeekTo(secs) => self.seek_abs(svc, secs),
-            MediaCommand::SeekBy(secs) => self.seek(svc, secs),
+            MediaCommand::SeekBy(secs) => seek_by(svc, secs),
             MediaCommand::Next => self.next_file(svc, ctx),
             MediaCommand::Previous => self.prev_file(svc, ctx),
         }
@@ -305,7 +314,7 @@ impl PlayerScreen {
 
     fn focus_play_from_remote(&mut self, ctx: &egui::Context) {
         if crate::platform::profile(ctx).is_directional() {
-            self.focus_play = true;
+            self.is_play_focus_pending = true;
         }
     }
 
@@ -317,84 +326,77 @@ impl PlayerScreen {
             return true;
         }
 
-        self.fullscreen
+        self.is_fullscreen
     }
 
     pub(crate) fn tick(&mut self, svc: &mut Services, ctx: &egui::Context) {
         self.sync_fullscreen(ctx);
         self.poll_buffering(svc);
 
-        let (go_next, stall, restart) = {
-            let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
-                return;
-            };
+        let Some(PlayerPhase::Playing(state)) = &mut self.phase else { return };
 
-            let Some(player) = &svc.player else {
-                return;
-            };
+        let Some(player) = &svc.player else { return };
 
-            let snap = player.snapshot();
-            // Logged on every change: the player may fall back to software mid-stream.
-            let decoder = player.video_decoder();
-            if decoder.is_some() && decoder != state.decoder {
-                if let Some(d) = &decoder {
-                    info!(hwdec = %d.hwdec, codec = %d.codec, pixel_format = %d.pixel_format, "video decoder");
-                }
-                state.decoder = decoder;
+        let snapshot = player.snapshot();
+        // Logged on every change: the player may fall back to software mid-stream.
+        let decoder = player.video_decoder();
+        if decoder.is_some() && decoder != state.decoder {
+            if let Some(cinebox_player::VideoDecoder { hwdec, codec, pixel_format }) = &decoder {
+                info!(%hwdec, %codec, %pixel_format, "video decoder");
             }
 
-            state.paused = snap.paused;
-            state.time = snap.time;
-            state.duration = snap.duration;
-            state.muted = snap.muted;
-            state.volume = snap.volume;
-            state.video_size = snap.video_size;
-            state.subtitle = snap.subtitle;
+            state.decoder = decoder;
+        }
 
-            if let Some(failure) = &snap.failure {
-                if state.error.is_none() {
-                    warn!(?failure, "playback failed");
-                    state.error = Some(failure_message(failure));
-                }
-            }
+        state.is_paused = snapshot.paused;
+        state.time = snapshot.time;
+        state.duration = snapshot.duration;
+        state.is_muted = snapshot.muted;
+        state.volume = snapshot.volume;
+        state.video_size = snapshot.video_size;
+        state.subtitle = snapshot.subtitle;
 
-            let started = http_stream_started(snap.time, snap.duration);
-            let waiting = state.is_youtube() && state.error.is_none() && !started;
-            let stall = waiting && state.loaded_at.elapsed() > STREAM_STALL;
+        if let Some(failure) = &snapshot.failure
+            && state.error.is_none()
+        {
+            warn!(?failure, "playback failed");
+            state.error = Some(failure_message(failure));
+        }
 
-            if stall {
-                warn!("http stream did not start");
-                state.error = Some(t!("player.stream_stalled").into_owned());
-            }
+        let has_started = http_stream_started(snapshot.time, snapshot.duration);
+        let is_waiting = state.is_youtube() && state.error.is_none() && !has_started;
+        let is_stalled = is_waiting && state.loaded_at.elapsed() > STREAM_STALL;
 
-            let mut restart = false;
-            if snap.duration > 1.0 {
-                restart = state.track_tail(snap.time, snap.duration);
-            }
+        if is_stalled {
+            warn!("http stream did not start");
+            state.error = Some(t!("player.stream_stalled").into_owned());
+        }
 
-            let finished = snap.eof && state.played_before_tail;
-            let go_next = finished && svc.settings.player.auto_next && state.has_next();
+        let is_restart_due = snapshot.duration > 1.0 && state.track_tail(snapshot.time, snapshot.duration);
+        let is_finished = snapshot.eof && state.has_played_before_tail;
+        let is_next_due = is_finished && svc.settings.player.auto_next && state.has_next();
 
-            (go_next, stall, restart)
-        };
-
-        if stall {
+        if is_stalled {
             stop_player(svc);
         }
 
-        if restart {
+        if is_restart_due {
             self.seek_abs(svc, 0.0);
         }
 
-        let _ = self.viewed_job.read();
+        if let Some(Err(error)) = self.viewed_job.take() {
+            warn!(%error, "failed to mark the file viewed in TorrServer");
+        }
+
         self.save_progress(svc, false);
 
-        if go_next {
+        if is_next_due {
             self.next_file(svc, ctx);
         }
 
-        if let Some(PlayerPhase::Playing(state)) = &self.phase {
-            self.session.publish(svc, state, ctx);
+        // Read again: a jump to the next file above replaced the state.
+        if let Some(PlayerPhase::Playing(playing)) = &self.phase {
+            self.session.publish(svc, playing, ctx);
         }
     }
 
@@ -416,20 +418,21 @@ impl PlayerScreen {
                 None
             }
             Some(PlayerPhase::Playing(_)) => {
-                self.playing_ui(ui, svc, theme, video, now);
+                self.playing_ui(ui, svc, theme, video);
                 None
             }
         }
     }
 }
 
+/// What one frame of playback draws, copied out of [`PlayerState`].
 struct PlayingView {
     title: String,
     error: Option<String>,
     time: f64,
     duration: f64,
-    paused: bool,
-    muted: bool,
+    is_paused: bool,
+    is_muted: bool,
     volume: f64,
     video_size: Option<[u32; 2]>,
     subtitle: Option<String>,
@@ -440,6 +443,48 @@ struct PlayingView {
     tmdb_id: TmdbId,
     season: Option<u32>,
     episode: Option<u32>,
+}
+
+impl From<&PlayerState> for PlayingView {
+    fn from(state: &PlayerState) -> Self {
+        let current = state.files().get(state.file_index());
+
+        Self {
+            title: state.title.clone(),
+            error: state.error.clone(),
+            time: state.time,
+            duration: state.duration,
+            is_paused: state.is_paused,
+            is_muted: state.is_muted,
+            volume: state.volume,
+            video_size: state.video_size,
+            subtitle: state.subtitle.clone(),
+            file_count: state.files().len(),
+            file_index: state.file_index(),
+            has_next: state.has_next(),
+            kind: state.card.kind,
+            tmdb_id: state.card.id,
+            season: current.and_then(|file| file.season),
+            episode: current.and_then(|file| file.episode),
+        }
+    }
+}
+
+impl PlayingView {
+    fn skip_target(&self) -> skip::SkipTarget {
+        skip::SkipTarget { kind: self.kind, tmdb_id: self.tmdb_id, season: self.season, episode: self.episode }
+    }
+
+    fn playhead(&self) -> skip::Playhead {
+        skip::Playhead { time_secs: self.time, duration_secs: self.duration, is_paused: self.is_paused }
+    }
+}
+
+/// What a click on the video asks for.
+#[derive(Debug, Default)]
+struct VideoClick {
+    seek_by: Option<f64>,
+    is_pause_toggled: bool,
 }
 
 impl PlayerScreen {
@@ -453,44 +498,18 @@ impl PlayerScreen {
         overlay::header(ui.ctx(), theme, rect, &state.title, 1.0);
     }
 
-    fn playing_ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, video: Rect, now: f64) {
+    fn playing_ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, video: Rect) {
+        let Some(PlayerPhase::Playing(state)) = &self.phase else { return };
+
+        let view = PlayingView::from(state);
+        let now = ui.input(|i| i.time);
         let ctx = ui.ctx().clone();
-        let popup_was_open = self.popup != Popup::None;
-
-        let view = {
-            let Some(PlayerPhase::Playing(state)) = &self.phase else {
-                return;
-            };
-
-            let cur_file = state.files().get(state.file_index());
-            let season = cur_file.and_then(|f| f.season);
-            let episode = cur_file.and_then(|f| f.episode);
-
-            PlayingView {
-                title: state.title.clone(),
-                error: state.error.clone(),
-                time: state.time,
-                duration: state.duration,
-                paused: state.paused,
-                muted: state.muted,
-                volume: state.volume,
-                video_size: state.video_size,
-                subtitle: state.subtitle.clone(),
-                file_count: state.files().len(),
-                file_index: state.file_index(),
-                has_next: state.has_next(),
-                kind: state.card.kind,
-                tmdb_id: state.card.id,
-                season,
-                episode,
-            }
-        };
+        let was_popup_open = self.popup != Popup::None;
 
         let (rect, _) = ui.allocate_exact_size(video.size(), Sense::hover());
         let response = ui.interact(rect, input::video_id(), Sense::click());
-        let show_controls = self.dpad_video_focus(ui, &response, popup_was_open, now);
-        if show_controls {
-            self.focus_play = true;
+        if self.dpad_video_focus(ui, &response, was_popup_open, now) {
+            self.is_play_focus_pending = true;
         }
 
         if let Some(error) = view.error.as_deref() {
@@ -502,143 +521,160 @@ impl PlayerScreen {
                 size: view.video_size,
                 subtitle: view.subtitle.as_deref(),
                 subtitle_scale: self.sub_scale,
+                background: theme.video_bg,
             };
-            paint_video(ui, rect, svc.player.clone(), theme, &mut self.video_cb, &frame);
+            paint_video(ui, rect, svc.player.clone(), &mut self.video_cb, &frame);
         }
 
-        let mut seek_rel = None;
-        let mut toggle = false;
-        let video_clicked = view.error.is_none() && !popup_was_open && response.clicked();
+        let is_video_clicked = view.error.is_none() && !was_popup_open && response.clicked();
+        let click = if is_video_clicked { self.video_click(&ctx, &response, rect) } else { VideoClick::default() };
 
-        if video_clicked && let Some(pos) = response.interact_pointer_pos() {
-            let x_ratio = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
-            match click_zone(x_ratio) {
-                ClickZone::SeekBack => seek_rel = Some(-SEEK_SECS),
-                ClickZone::Pause => toggle = true,
-                ClickZone::SeekFwd => seek_rel = Some(SEEK_SECS),
-            }
-        } else if video_clicked {
-            // OK on the remote: no pointer, so no click zone.
-            toggle = true;
-            self.focus_play_from_remote(&ctx);
-        }
-
-        if popup_was_open {
+        if was_popup_open {
             self.activity.poke(now);
         }
 
         let alpha = self.activity.visual_t(now);
         overlay::header(&ctx, theme, rect, &view.title, alpha);
 
-        let profile = crate::platform::profile(&ctx);
-        let footer_view = FooterView {
-            time: view.time,
-            duration: view.duration,
-            paused: view.paused,
-            muted: view.muted,
-            volume: view.volume,
-            volume_control: svc.player_features().volume,
-            file_count: view.file_count,
-            file_index: view.file_index,
-            has_next: view.has_next,
-            fullscreen: self.fullscreen,
-            can_fullscreen: profile.is_desktop_window(),
-            directional: profile.is_directional(),
-        };
+        let footer_view = self.footer_view(&view, svc, &ctx);
         let footer = overlay::footer(&ctx, theme, rect, &footer_view, alpha);
-        if std::mem::take(&mut self.focus_play) {
+        if std::mem::take(&mut self.is_play_focus_pending) {
             ctx.memory_mut(|mem| mem.request_focus(footer.play_id));
         }
 
         let focused = ctx.memory(egui::Memory::focused);
-        self.controls_focused = focused.is_some_and(|id| id != input::video_id());
+        self.has_controls_focus = focused.is_some_and(|id| id != input::video_id());
 
         self.popups(&ctx, svc, theme, &footer);
+        self.tick_skip(svc, &ctx, &view, now);
 
-        // Skip-segment overlay — tick state machine, then render banner.
-        let _ = self.skip_save_job.read();
+        let banner = skip_overlay::show(&self.skip_state, &ctx, theme, rect, footer.seek_rect);
+        self.answer_skip_banner(svc, &ctx, &view, &banner);
+        self.apply_footer(svc, &ctx, &footer, &click);
 
-        let skip_seek = self.skip_state.tick(
-            now,
-            view.time,
-            view.duration,
-            view.paused,
-            skip::SkipTarget { kind: view.kind, tmdb_id: view.tmdb_id, season: view.season, episode: view.episode },
-            svc,
-        );
+        // Last, so that it wins over the pointing hand of the clickable video.
+        hide_resting_cursor(&ctx, rect, alpha);
+        repaint_chrome(&ctx, alpha);
+    }
 
-        if let Some(target) = skip_seek {
-            self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
-        }
+    /// What a click on the video asks for, by where it landed.
+    fn video_click(&mut self, ctx: &egui::Context, response: &egui::Response, rect: Rect) -> VideoClick {
+        let Some(pos) = response.interact_pointer_pos() else {
+            // OK on the remote: no pointer, so no click zone.
+            self.focus_play_from_remote(ctx);
+            return VideoClick { is_pause_toggled: true, ..VideoClick::default() };
+        };
 
-        let banner = skip_overlay::show(&self.skip_state, &ctx, theme, rect, footer.seek_rect, now);
+        let x_ratio = ((pos.x - rect.left()) / rect.width()).clamp(0.0, 1.0);
 
-        if banner.skip_clicked {
-            if let Some((target, ty)) = self.skip_state.on_skip(view.duration) {
-                self.skip_or_next(svc, &ctx, target, view.duration, view.has_next);
-
-                if let Some(db) = svc.db.clone() {
-                    let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, true);
-                    self.skip_save_job.request(job);
-                }
-            }
-        }
-
-        if banner.cancel_clicked {
-            let disarmed_ty = self.skip_state.on_cancel();
-
-            if let (Some(ty), Some(db)) = (disarmed_ty, svc.db.clone()) {
-                let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, false);
-                self.skip_save_job.request(job);
-            }
-        }
-
-        if let Some(to) = footer.seek_to {
-            self.seek_abs(svc, to);
-        }
-        if let Some(delta) = footer.seek_rel.or(seek_rel) {
-            self.seek(svc, delta);
-        }
-        if footer.toggle_pause || toggle {
-            self.toggle(svc);
-        }
-        if footer.prev {
-            self.prev_file(svc, &ctx);
-        }
-        if footer.next {
-            self.next_file(svc, &ctx);
-        }
-        if footer.playlist_clicked {
-            self.toggle_popup(Popup::Playlist);
-        }
-        if footer.settings_clicked {
-            self.toggle_popup(Popup::Settings(settings_popup::Page::Root));
-        }
-        if footer.volume_clicked {
-            self.toggle_mute(svc);
-        }
-        if footer.fullscreen_clicked {
-            let next = !self.fullscreen;
-            self.set_fullscreen(&ctx, next);
-        }
-        if footer.volume_hovered && self.popup == Popup::None {
-            self.popup = Popup::Volume;
-        }
-
-        // Set last so it wins over the pointing hand of the clickable video.
-        let rests_on_video = ctx.pointer_hover_pos().is_some_and(|pos| rect.contains(pos));
-        if alpha <= 0.0 && rests_on_video && profile.is_desktop_window() {
-            ctx.set_cursor_icon(CursorIcon::None);
-        }
-
-        if alpha > 0.0 && alpha < 1.0 {
-            ctx.request_repaint();
-        } else if alpha > 0.0 {
-            ctx.request_repaint_after(Duration::from_millis(120));
+        match click_zone(x_ratio) {
+            ClickZone::SeekBack => VideoClick { seek_by: Some(-SEEK_SECS), ..VideoClick::default() },
+            ClickZone::Pause => VideoClick { is_pause_toggled: true, ..VideoClick::default() },
+            ClickZone::SeekFwd => VideoClick { seek_by: Some(SEEK_SECS), ..VideoClick::default() },
         }
     }
 
-    fn popups(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, footer: &overlay::FooterOut) {
+    fn footer_view(&self, view: &PlayingView, svc: &Services, ctx: &egui::Context) -> FooterView {
+        let profile = crate::platform::profile(ctx);
+
+        FooterView {
+            time: view.time,
+            duration: view.duration,
+            is_paused: view.is_paused,
+            is_muted: view.is_muted,
+            volume: view.volume,
+            has_volume_control: svc.player_features().volume,
+            file_count: view.file_count,
+            file_index: view.file_index,
+            has_next: view.has_next,
+            is_fullscreen: self.is_fullscreen,
+            can_fullscreen: profile.is_desktop_window(),
+            is_directional: profile.is_directional(),
+        }
+    }
+
+    fn tick_skip(&mut self, svc: &mut Services, ctx: &egui::Context, view: &PlayingView, now: f64) {
+        if let Some(Err(error)) = self.skip_save_job.take() {
+            warn!(%error, "failed to save the skip choice");
+        }
+
+        if let Some(target) = self.skip_state.tick(now, view.playhead(), view.skip_target(), svc) {
+            self.skip_or_next(svc, ctx, target, view);
+        }
+    }
+
+    fn answer_skip_banner(
+        &mut self,
+        svc: &mut Services,
+        ctx: &egui::Context,
+        view: &PlayingView,
+        banner: &skip_overlay::SkipBannerOut,
+    ) {
+        if banner.is_skip_clicked
+            && let Some((target, ty)) = self.skip_state.on_skip(view.duration)
+        {
+            self.skip_or_next(svc, ctx, target, view);
+            self.save_skip_choice(svc, view, ty, true);
+        }
+
+        if banner.is_cancel_clicked
+            && let Some(ty) = self.skip_state.on_cancel()
+        {
+            self.save_skip_choice(svc, view, ty, false);
+        }
+    }
+
+    fn save_skip_choice(&mut self, svc: &Services, view: &PlayingView, ty: SegmentType, is_armed: bool) {
+        let Some(db) = svc.db.clone() else { return };
+
+        let job = jobs::save_skip_choice(db, view.kind, view.tmdb_id, ty, is_armed);
+        self.skip_save_job.request(job);
+    }
+
+    fn apply_footer(&mut self, svc: &mut Services, ctx: &egui::Context, footer: &FooterOut, click: &VideoClick) {
+        if let Some(to) = footer.seek_to {
+            self.seek_abs(svc, to);
+        }
+
+        if let Some(delta) = footer.seek_rel.or(click.seek_by) {
+            seek_by(svc, delta);
+        }
+
+        if footer.is_pause_toggled || click.is_pause_toggled {
+            self.toggle(svc);
+        }
+
+        if footer.is_prev_clicked {
+            self.prev_file(svc, ctx);
+        }
+
+        if footer.is_next_clicked {
+            self.next_file(svc, ctx);
+        }
+
+        if footer.is_playlist_clicked {
+            self.toggle_popup(Popup::Playlist);
+        }
+
+        if footer.is_settings_clicked {
+            self.toggle_popup(Popup::Settings(settings_popup::Page::Root));
+        }
+
+        if footer.is_volume_clicked {
+            self.toggle_mute(svc);
+        }
+
+        if footer.is_fullscreen_clicked {
+            let next = !self.is_fullscreen;
+            self.set_fullscreen(ctx, next);
+        }
+
+        if footer.is_volume_hovered && self.popup == Popup::None {
+            self.popup = Popup::Volume;
+        }
+    }
+
+    fn popups(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, footer: &FooterOut) {
         match self.popup {
             Popup::None => {}
             Popup::Settings(_) => self.settings_popup(ctx, svc, theme, footer.settings_rect),
@@ -673,14 +709,14 @@ impl PlayerScreen {
             self.turn_settings_page(page, next);
         }
 
-        let mut dirty = false;
+        let mut is_dirty = false;
 
         if let Some(scale) = out.scale {
             self.prefs.scale = scale;
             with_player(svc, |player| {
                 log_player("set_scale", player.set_scale(scale));
             });
-            dirty = true;
+            is_dirty = true;
         }
 
         if let Some(speed) = out.speed {
@@ -688,7 +724,7 @@ impl PlayerScreen {
             with_player(svc, |player| {
                 log_player("set_speed", player.set_speed(speed));
             });
-            dirty = true;
+            is_dirty = true;
         }
 
         if let Some(id) = out.audio {
@@ -696,15 +732,16 @@ impl PlayerScreen {
             with_player(svc, |player| {
                 log_player("select_audio", player.select_audio(id));
             });
-            dirty = true;
+            is_dirty = true;
         }
 
-        if let Some(sub) = out.sub {
-            self.prefs.sid = sub.unwrap_or(0);
+        if let Some(pick) = out.sub {
+            let track = pick.track_id();
+            self.prefs.sid = track.unwrap_or(0);
             with_player(svc, |player| {
-                log_player("select_subtitle", player.select_subtitle(sub));
+                log_player("select_subtitle", player.select_subtitle(track));
             });
-            dirty = true;
+            is_dirty = true;
         }
 
         if let Some(scale) = out.sub_scale {
@@ -721,7 +758,7 @@ impl PlayerScreen {
             });
         }
 
-        if dirty {
+        if is_dirty {
             self.save_prefs(svc);
         }
 
@@ -732,7 +769,7 @@ impl PlayerScreen {
 
     fn playlist_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
         let mut jump = None;
-        let mut scroll_to_current = self.playlist_scroll;
+        let mut scroll_to_current = self.is_playlist_scroll_pending;
 
         let dismissed = {
             let Some(PlayerPhase::Playing(state)) = &self.phase else {
@@ -748,7 +785,7 @@ impl PlayerScreen {
             fly.dismissed
         };
 
-        self.playlist_scroll = scroll_to_current;
+        self.is_playlist_scroll_pending = scroll_to_current;
 
         if let Some(index) = jump {
             self.popup = Popup::None;
@@ -763,46 +800,46 @@ impl PlayerScreen {
 
     fn volume_popup(&mut self, ctx: &egui::Context, svc: &mut Services, theme: &Theme, anchor: Rect) {
         let mut level = svc.settings.player.volume;
-        let mut changed = false;
+        let mut has_changed = false;
 
         let placement = flyout::Placement { id: "player-volume-flyout", anchor, width: volume::WIDTH };
         let fly = flyout::show(ctx, theme, placement, |ui, theme| {
-            changed = volume::slider(ui, theme, &mut level);
+            has_changed = volume::slider(ui, theme, &mut level);
         });
 
-        if changed {
+        if has_changed {
             let level = level.clamp(0.0, 100.0);
             svc.settings.player.volume = level;
             with_player(svc, |player| {
                 log_player("set_volume", player.set_volume(level));
             });
-            self.volume_dirty = true;
+            self.is_volume_dirty = true;
         }
 
         let pointer = ctx.pointer_latest_pos();
-        let over = pointer.is_some_and(|pos| fly.rect.expand(8.0).contains(pos) || anchor.expand(8.0).contains(pos));
+        let is_over = pointer.is_some_and(|pos| fly.rect.expand(8.0).contains(pos) || anchor.expand(8.0).contains(pos));
 
-        if over {
+        if is_over {
             return;
         }
 
         self.popup = Popup::None;
 
-        if self.volume_dirty {
+        if self.is_volume_dirty {
             svc.persist();
-            self.volume_dirty = false;
+            self.is_volume_dirty = false;
         }
     }
 
     fn toggle_popup(&mut self, popup: Popup) {
-        let same = std::mem::discriminant(&self.popup) == std::mem::discriminant(&popup);
-        if same {
+        let is_same = std::mem::discriminant(&self.popup) == std::mem::discriminant(&popup);
+        if is_same {
             self.popup = Popup::None;
             return;
         }
 
         if matches!(popup, Popup::Playlist) {
-            self.playlist_scroll = true;
+            self.is_playlist_scroll_pending = true;
         }
 
         self.settings_left = None;
@@ -822,6 +859,8 @@ const FINISHED_TAIL_SECS: f64 = 30.0;
 /// usually reaches the seek target, and a dedicated mid-file wait isn't worth it.
 const RESUME_PRELOAD_MIN_SECS: f64 = 60.0;
 const STREAM_STALL: Duration = Duration::from_secs(20);
+/// How often the shown chrome repaints to keep its clock moving.
+const CHROME_TICK: Duration = Duration::from_millis(120);
 
 /// The player can report `duration == 0` while the clock already advances.
 fn http_stream_started(time: f64, duration: f64) -> bool {
@@ -847,9 +886,19 @@ fn resume_bytes_for_file(file: &TorrentFileRow, resume_at: f64) -> Option<u64> {
 
     let mins = file.runtime_minutes.filter(|mins| *mins > 0)?;
     let duration = f64::from(mins) * 60.0;
-    let frac = (resume_at / duration).clamp(0.0, 0.99);
+    let share = (resume_at / duration).clamp(0.0, 0.99);
 
-    Some((frac * file.length as f64) as u64)
+    Some(share_of_length(file.length, share))
+}
+
+#[expect(
+    clippy::cast_precision_loss,
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "an estimate: `share` is below 1, so the offset stays inside the file, which `f64` measures closely enough"
+)]
+fn share_of_length(length: u64, share: f64) -> u64 {
+    (share * length as f64) as u64
 }
 
 struct LoadMedia {
@@ -922,9 +971,9 @@ impl PlayerScreen {
         self.abort_buffering();
         self.skip_state.reset();
 
-        let skip_preload = spec.source.is_youtube() || !svc.settings.torrserver.wait_preload;
+        let can_skip_preload = spec.source.is_youtube() || !svc.settings.torrserver.wait_preload;
 
-        if skip_preload {
+        if can_skip_preload {
             self.phase = Some(PlayerPhase::Playing(PlayerState::from_spec(&spec)));
             self.load_current(svc);
             return;
@@ -1015,10 +1064,10 @@ impl PlayerScreen {
             state.error = Some(error);
         }
 
-        let failed = state.error.is_some();
+        let has_failed = state.error.is_some();
         self.phase = Some(PlayerPhase::Playing(state));
 
-        if !failed {
+        if !has_failed {
             self.load_current(svc);
         }
     }
@@ -1171,10 +1220,11 @@ impl PlayerScreen {
         self.begin_load(svc, ctx, spec);
     }
 
-    fn skip_or_next(&mut self, svc: &mut Services, ctx: &egui::Context, target: f64, duration: f64, has_next: bool) {
-        let at_end = duration > 1.0 && target >= duration - 1.0;
+    /// Seeks to `target`, or moves on to the next file when that is the end of this one.
+    fn skip_or_next(&mut self, svc: &mut Services, ctx: &egui::Context, target: f64, view: &PlayingView) {
+        let is_at_end = view.duration > 1.0 && target >= view.duration - 1.0;
 
-        if at_end && has_next && svc.settings.player.auto_next {
+        if is_at_end && view.has_next && svc.settings.player.auto_next {
             self.next_file(svc, ctx);
             return;
         }
@@ -1183,49 +1233,37 @@ impl PlayerScreen {
     }
 
     fn toggle(&mut self, svc: &Services) {
-        let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
-            return;
-        };
+        let Some(PlayerPhase::Playing(state)) = &mut self.phase else { return };
 
-        let next = !state.paused;
-        let ok = with_player(svc, |player| match player.set_paused(next) {
+        let next = !state.is_paused;
+        let is_applied = with_player(svc, |player| match player.set_paused(next) {
             Ok(()) => true,
             Err(error) => {
                 warn!(%error, "pause failed");
                 false
             }
-        })
-        .unwrap_or(false);
+        });
 
-        if ok {
-            state.paused = next;
+        if is_applied == Some(true) {
+            state.is_paused = next;
         }
     }
 
     fn toggle_mute(&mut self, svc: &Services) {
-        let Some(PlayerPhase::Playing(state)) = &mut self.phase else {
-            return;
-        };
+        let Some(PlayerPhase::Playing(state)) = &mut self.phase else { return };
 
-        let next = !state.muted;
-        let ok = with_player(svc, |player| match player.set_muted(next) {
+        let next = !state.is_muted;
+        let is_applied = with_player(svc, |player| match player.set_muted(next) {
             Ok(()) => true,
             Err(error) => {
                 warn!(%error, "mute failed");
                 false
             }
-        })
-        .unwrap_or(false);
-
-        if ok {
-            state.muted = next;
-        }
-    }
-
-    fn seek(&self, svc: &Services, delta: f64) {
-        with_player(svc, |player| {
-            log_player("seek_by", player.seek_by(delta));
         });
+
+        if is_applied == Some(true) {
+            state.is_muted = next;
+        }
     }
 
     fn seek_abs(&mut self, svc: &Services, to: f64) {
@@ -1253,14 +1291,42 @@ fn log_player(op: &'static str, result: Result<(), cinebox_player::Error>) {
     }
 }
 
-fn with_player<R>(svc: &Services, f: impl FnOnce(&dyn Player) -> R) -> Option<R> {
+fn with_player<R>(svc: &Services, control: impl FnOnce(&dyn Player) -> R) -> Option<R> {
     let player = svc.player.as_deref()?;
 
-    Some(f(player))
+    Some(control(player))
 }
 
 fn stop_player(svc: &Services) {
     with_player(svc, |player| player.stop());
+}
+
+fn seek_by(svc: &Services, delta: f64) {
+    with_player(svc, |player| {
+        log_player("seek_by", player.seek_by(delta));
+    });
+}
+
+fn hide_resting_cursor(ctx: &egui::Context, video: Rect, alpha: f32) {
+    let rests_on_video = ctx.pointer_hover_pos().is_some_and(|pos| video.contains(pos));
+
+    if alpha <= 0.0 && rests_on_video && crate::platform::profile(ctx).is_desktop_window() {
+        ctx.set_cursor_icon(CursorIcon::None);
+    }
+}
+
+/// Every frame while the chrome fades, then often enough for its clock while it shows.
+fn repaint_chrome(ctx: &egui::Context, alpha: f32) {
+    if alpha <= 0.0 {
+        return;
+    }
+
+    if alpha < 1.0 {
+        ctx.request_repaint();
+        return;
+    }
+
+    ctx.request_repaint_after(CHROME_TICK);
 }
 
 fn player_tracks(svc: &Services) -> Vec<Track> {
@@ -1282,25 +1348,31 @@ struct VideoFrame<'a> {
     size: Option<[u32; 2]>,
     subtitle: Option<&'a str>,
     subtitle_scale: f64,
+    /// Fills the rect wherever the picture does not.
+    background: Color32,
 }
 
 /// Returns the cached render callback, rebuilding it only when the player
 /// changes; allocating a new `Arc<CallbackFn>` per frame is waste.
 fn video_callback(cache: &mut Option<VideoCallback>, player: Arc<dyn Player>) -> Arc<egui_glow::CallbackFn> {
-    let cached = cache.as_ref().filter(|cb| Arc::ptr_eq(&cb.player, &player));
+    let cached = cache.as_ref().filter(|cached| Arc::ptr_eq(&cached.player, &player));
 
-    if let Some(cb) = cached {
-        return cb.callback.clone();
+    if let Some(cached) = cached {
+        return Arc::clone(&cached.callback);
     }
 
-    let render_player = player.clone();
+    let render_player = Arc::clone(&player);
     let callback = Arc::new(egui_glow::CallbackFn::new(move |info, painter| {
-        let vp = info.viewport_in_pixels();
-        let fbo = painter.intermediate_fbo().map_or(0, |fb| fb.0.get());
-        let _ = render_player.render(fbo, vp.width_px, vp.height_px);
+        let viewport = info.viewport_in_pixels();
+        let fbo = painter.intermediate_fbo().map_or(0, |framebuffer| framebuffer.0.get());
+
+        // Trace only: a failing frame fails again on every repaint, and the next one retries anyway.
+        if let Err(error) = render_player.render(fbo, viewport.width_px, viewport.height_px) {
+            trace!(%error, "video frame failed to render");
+        }
     }));
 
-    *cache = Some(VideoCallback { player, callback: callback.clone() });
+    *cache = Some(VideoCallback { player, callback: Arc::clone(&callback) });
 
     callback
 }
@@ -1309,23 +1381,22 @@ fn paint_video(
     ui: &Ui,
     rect: Rect,
     player: Option<Arc<dyn Player>>,
-    theme: &Theme,
     cache: &mut Option<VideoCallback>,
     frame: &VideoFrame<'_>,
 ) {
     let Some(player) = player else {
-        ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+        ui.painter().rect_filled(rect, 0.0, frame.background);
         return;
     };
 
     let draws_subtitles = player.features().draws_subtitles;
     match player.output() {
         VideoOutput::Rendered => {
-            ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+            ui.painter().rect_filled(rect, 0.0, frame.background);
             let callback = video_callback(cache, player);
             ui.painter().add(egui::PaintCallback { rect, callback });
         }
-        VideoOutput::Underlay => paint_underlay(ui, rect, player.as_ref(), theme, frame),
+        VideoOutput::Underlay => paint_underlay(ui, rect, player.as_ref(), frame),
     }
 
     if draws_subtitles {
@@ -1339,19 +1410,19 @@ fn paint_video(
 
 /// The picture shows through the window where nothing is painted, so only the
 /// bars around it are filled. Until its size is known the whole rect stays dark.
-fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, theme: &Theme, frame: &VideoFrame<'_>) {
+fn paint_underlay(ui: &Ui, rect: Rect, player: &dyn Player, frame: &VideoFrame<'_>) {
     let pixels_per_point = ui.ctx().pixels_per_point();
     let area = to_area(rect);
 
     let Some(size) = frame.size else {
-        ui.painter().rect_filled(rect, 0.0, theme.video_bg);
+        ui.painter().rect_filled(rect, 0.0, frame.background);
         player.place_video(area.to_pixels(pixels_per_point));
         return;
     };
 
     let picture = fit_video(area, size, frame.scale);
     for bar in bars_around(rect, to_rect(picture)) {
-        ui.painter().rect_filled(bar, 0.0, theme.video_bg);
+        ui.painter().rect_filled(bar, 0.0, frame.background);
     }
 
     player.place_video(picture.to_pixels(pixels_per_point));
@@ -1474,14 +1545,16 @@ mod tests {
     }
 
     fn file(id: i32) -> TorrentFileRow {
+        let number = u32::try_from(id).unwrap();
+
         TorrentFileRow {
             id,
             path: format!("Season 1/E{id:02}.mkv"),
             length: 1000,
             timecode: 0.0,
-            number: id as u32,
+            number,
             season: Some(1),
-            episode: Some(id as u32),
+            episode: Some(number),
             title: format!("Episode {id}"),
             still_url: None,
             runtime_minutes: Some(40),
@@ -1574,11 +1647,11 @@ mod tests {
         let mut state = state_starting_at(2690.0);
 
         assert!(state.track_tail(2690.0, 2700.0));
-        assert!(!state.played_before_tail, "its end must not hand over to the next file");
+        assert!(!state.has_played_before_tail, "its end must not hand over to the next file");
 
         assert!(!state.track_tail(2700.0, 2700.0));
         assert!(!state.track_tail(0.0, 2700.0));
-        assert!(state.played_before_tail);
+        assert!(state.has_played_before_tail);
     }
 
     #[test]
@@ -1586,7 +1659,7 @@ mod tests {
         let mut state = state_starting_at(1200.0);
 
         assert!(!state.track_tail(1200.0, 2700.0));
-        assert!(state.played_before_tail);
+        assert!(state.has_played_before_tail);
     }
 
     #[test]
@@ -1594,7 +1667,7 @@ mod tests {
         let mut state = state_starting_at(0.0);
 
         assert!(!state.track_tail(0.0, 20.0));
-        assert!(state.played_before_tail);
+        assert!(state.has_played_before_tail);
     }
 
     #[test]
