@@ -15,6 +15,11 @@ impl State {
         candidate.map_or(&[], |candidate| &candidate.areas)
     }
 
+    fn group_mates(&self, id: Id) -> &[Id] {
+        let group = self.groups.iter().find(|group| group.members.contains(&id));
+        group.map_or(&[], |group| &group.members)
+    }
+
     /// While a page glides to its top, what is on it counts where it will be:
     /// the focused widget can still be up under the bar it is moving away from.
     fn settled_candidates(&self, ctx: &Context) -> Vec<Candidate> {
@@ -92,8 +97,9 @@ pub(super) fn step(ctx: &Context, state: &State) {
     let direction = press.direction;
     let reachable = settled.into_iter().filter(|target| !turns_into_another_row(target, from, areas, direction));
     let candidates = &reachable.collect::<Vec<_>>();
-    let in_cone = nearest_staying_in(ctx, from, press.direction, candidates, areas);
-    let found = in_cone.or_else(|| nearest_past(ctx, from, press.direction, candidates));
+    let in_group = nearest_in_group(ctx, from, direction, candidates, state.group_mates(focused));
+    let in_cone = in_group.or_else(|| nearest_staying_in(ctx, from, direction, candidates, areas));
+    let found = in_cone.or_else(|| nearest_past(ctx, from, direction, candidates));
     let Some(nearest) = found else {
         return;
     };
@@ -147,6 +153,25 @@ fn turns_into_another_row(candidate: &Candidate, from: Rect, areas: &[Id], direc
     }
 
     span_offset(candidate.rect.y_range(), from.y_range()) != 0.0
+}
+
+/// Sideways along a group, like the header, the D-pad goes on to the next
+/// member: a widget below the bar can be nearer on screen, like the Filters
+/// button under settings on the torrents page.
+fn nearest_in_group(
+    ctx: &Context,
+    from: Rect,
+    direction: Direction,
+    candidates: &[Candidate],
+    mates: &[Id],
+) -> Option<Id> {
+    if matches!(direction, Direction::Up | Direction::Down) {
+        return None;
+    }
+
+    let along = candidates.iter().filter(|candidate| mates.contains(&candidate.id));
+
+    nearest(ctx, from, toward(direction), along)
 }
 
 /// A held arrow scrolls: it stops at the edge of the lists the focus is in

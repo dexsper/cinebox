@@ -4,25 +4,26 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use cinebox_core::UiLanguage;
+use cinebox_core::{MediaDetails, MediaKind, TmdbId, UiLanguage};
 use egui::accesskit::Role;
 use egui::{Area, Id, Key, Order, Rect, pos2, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::app::nav::{NavAction, RailEntry, Screen};
+use crate::app::nav::{MediaRef, NavAction, RailEntry, Screen};
 use crate::platform::{
     self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest, TextAction,
     TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 use crate::screens::OnboardingScreen;
+use crate::screens::torrents::TorrentsScreen;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::lazy_rows::LazyRows;
 use crate::widgets::search::{self, SearchBar};
-use crate::widgets::{field, focus, rail, scroll};
+use crate::widgets::{chrome, field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
 #[derive(Default)]
@@ -1341,4 +1342,111 @@ fn wizard_fits_the_screen_with_left_and_right() {
     press(&mut harness, Key::ArrowLeft);
     press(&mut harness, Key::ArrowLeft);
     assert_eq!(harness.state().svc.settings.general.overscan.permille(), 15);
+}
+
+struct TorrentsTv {
+    torrents: TorrentsScreen,
+    svc: Services,
+    search: SearchBar,
+    theme: Theme,
+    fonts: bool,
+    device: Arc<TvDevice>,
+}
+
+impl OnTv for TorrentsTv {
+    fn device(&self) -> Arc<TvDevice> {
+        Arc::clone(&self.device)
+    }
+}
+
+const DUNE: MediaRef = MediaRef { kind: MediaKind::Movie, id: TmdbId::new(1) };
+
+fn torrents_harness() -> Harness<'static, TorrentsTv> {
+    let Ok(store) = db_block_on(cinebox_core::Store::memory()) else {
+        panic!("in-memory store");
+    };
+
+    let svc = Services::test_with_db(Arc::new(store));
+    let mut torrents = TorrentsScreen::default();
+    torrents.ensure_open(&dune(), &[]);
+    let device = Arc::new(TvDevice::with_speech());
+    let state = TorrentsTv { torrents, svc, search: SearchBar::default(), theme: Theme::dark(), fonts: false, device };
+
+    let mut harness = Harness::builder().with_size(vec2(1280.0, 720.0)).build_ui_state(draw_torrents, state);
+    // Past the page intro, so the toolbar over the list is built.
+    for _ in 0..60 {
+        frame(&mut harness);
+    }
+
+    harness
+}
+
+/// The app's header over the torrents of a title, as the shell lays them out.
+fn draw_torrents(ui: &mut egui::Ui, state: &mut TorrentsTv) {
+    install(ui, state.device());
+    if !state.fonts {
+        crate::theme::fonts::install(ui.ctx());
+        state.theme.apply(ui.ctx());
+        state.fonts = true;
+        return;
+    }
+
+    let screen = Screen::Torrents { kind: DUNE.kind, id: DUNE.id };
+    let bar = chrome::Header { screen, is_settings_open: false, back_x: None };
+    drop(chrome::header(ui, &state.theme, bar, &mut state.search));
+
+    let margin = egui::Margin::same(24);
+    let content = egui::Frame::new().inner_margin(margin).show(ui, |ui| {
+        drop(state.torrents.ui(ui, &mut state.svc, &state.theme, DUNE));
+    });
+    focus::set_content(ui.ctx(), content.response.rect - margin);
+    end_frame(ui, &state.theme);
+}
+
+fn dune() -> MediaDetails {
+    MediaDetails {
+        id: DUNE.id,
+        kind: DUNE.kind,
+        title: String::from("Dune"),
+        original_title: None,
+        original_language: None,
+        tagline: None,
+        overview: None,
+        year: Some(2021),
+        released: None,
+        status: None,
+        runtime_minutes: Some(155),
+        number_of_seasons: None,
+        number_of_episodes: None,
+        certification: None,
+        vote: None,
+        budget: None,
+        genre_ids: Vec::new(),
+        genres: Vec::new(),
+        countries: Vec::new(),
+        poster_path: None,
+        backdrop_path: None,
+        directors: Vec::new(),
+        cast: Vec::new(),
+        collection: Vec::new(),
+        recommendations: Vec::new(),
+        similar: Vec::new(),
+        trailers: Vec::new(),
+    }
+}
+
+#[test]
+fn right_along_the_header_over_torrents_reaches_settings() {
+    let mut harness = torrents_harness();
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowUp);
+    assert!(search_focused(&harness), "Up from the page enters the header at the search field");
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, t!("search.voice").as_ref()), "the microphone is next to the field");
+
+    press(&mut harness, Key::ArrowRight);
+    let settings = t!("nav.settings");
+    assert!(focused(&harness, settings.as_ref()), "the header goes on to settings, not down into the toolbar");
 }
