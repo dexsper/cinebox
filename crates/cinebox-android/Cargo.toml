@@ -21,8 +21,9 @@ cinebox-player.workspace = true
 eframe.workspace = true
 jni = { version = "0.22", default-features = false }
 paranoid-android = "0.2"
-# Same version reqwest pulls in, so this initializes its verifier.
-rustls-platform-verifier = "0.7"
+# Same version reqwest pulls in, so this initializes its verifier. Held at 0.7.0: from
+# 0.7.1 the Kotlin half no longer ships inside the crate, which android/settings.gradle.kts reads.
+rustls-platform-verifier = "=0.7.0"
 tracing.workspace = true
 tracing-subscriber.workspace = true
 # eframe does not re-export winit; this must stay the version eframe runs on
