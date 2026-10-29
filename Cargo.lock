@@ -700,6 +700,7 @@ dependencies = [
  "egui_kittest",
  "egui_material_icons",
  "futures-util",
+ "httpmock",
  "ico",
  "image",
  "raw-window-handle",

@@ -66,6 +66,8 @@ pub(super) enum Field {
         hint: Option<&'static str>,
         get: fn(&Settings) -> bool,
         set: fn(&mut Settings, bool),
+        /// While this returns `true` the toggle shows on and takes no clicks; the stored value is kept.
+        forced: Option<fn(&Settings) -> bool>,
     },
     Text {
         label: &'static str,
@@ -182,12 +184,14 @@ const GENERAL: &[Field] = &[
         hint: Some("settings.use_system_proxy_hint"),
         get: |s| s.general.use_system_proxy,
         set: |s, v| s.general.use_system_proxy = v,
+        forced: None,
     },
     Field::Toggle {
         label: "settings.dns_bypass",
         hint: Some("settings.dns_bypass_hint"),
         get: |s| s.general.dns_bypass,
         set: |s, v| s.general.dns_bypass = v,
+        forced: None,
     },
     Field::Text {
         label: "settings.custom_doh_url",
@@ -208,6 +212,7 @@ const PLAYER: &[Field] = &[
             hint: Some("settings.hardware_decoding_hint"),
             get: |s| s.player.hardware_decoding,
             set: |s, v| s.player.hardware_decoding = v,
+            forced: None,
         },
     },
     Field::PlayerOnly {
@@ -217,6 +222,7 @@ const PLAYER: &[Field] = &[
             hint: Some("settings.loudnorm_hint"),
             get: |s| s.player.loudnorm,
             set: |s, v| s.player.loudnorm = v,
+            forced: None,
         },
     },
     Field::Toggle {
@@ -224,30 +230,35 @@ const PLAYER: &[Field] = &[
         hint: None,
         get: |s| s.player.auto_next,
         set: |s, v| s.player.auto_next = v,
+        forced: None,
     },
     Field::Toggle {
         label: "settings.skip_intro",
         hint: None,
         get: |s| s.player.skip_segments.intro,
         set: |s, v| s.player.skip_segments.intro = v,
+        forced: None,
     },
     Field::Toggle {
         label: "settings.skip_recap",
         hint: None,
         get: |s| s.player.skip_segments.recap,
         set: |s, v| s.player.skip_segments.recap = v,
+        forced: None,
     },
     Field::Toggle {
         label: "settings.skip_credits",
         hint: None,
         get: |s| s.player.skip_segments.credits,
         set: |s, v| s.player.skip_segments.credits = v,
+        forced: None,
     },
     Field::Toggle {
         label: "settings.skip_preview",
         hint: None,
         get: |s| s.player.skip_segments.preview,
         set: |s, v| s.player.skip_segments.preview = v,
+        forced: None,
     },
 ];
 
@@ -289,24 +300,6 @@ const TORRSERVER: &[Field] = &[
         get: |s| s.torrserver.url.clone(),
         set: |s, v| s.torrserver.url = v,
     },
-    Field::Toggle {
-        label: "settings.save_torrents",
-        hint: None,
-        get: |s| s.torrserver.save_to_db,
-        set: |s, v| s.torrserver.save_to_db = v,
-    },
-    Field::Toggle {
-        label: "settings.wait_preload",
-        hint: None,
-        get: |s| s.torrserver.wait_preload,
-        set: |s, v| s.torrserver.wait_preload = v,
-    },
-    Field::Toggle {
-        label: "settings.track_timecode",
-        hint: None,
-        get: |s| s.torrserver.track_timecode,
-        set: |s, v| s.torrserver.track_timecode = v,
-    },
     Field::Text {
         label: "settings.username",
         hint: None,
@@ -323,6 +316,35 @@ const TORRSERVER: &[Field] = &[
         check: None,
         get: |s| s.torrserver.password.clone(),
         set: |s, v| s.torrserver.password = v,
+    },
+    Field::Toggle {
+        label: "settings.save_torrents",
+        hint: Some("settings.save_torrents_hint"),
+        get: |s| s.torrserver.save_to_db,
+        set: |s, v| s.torrserver.save_to_db = v,
+        forced: None,
+    },
+    Field::Toggle {
+        label: "settings.wait_preload",
+        hint: Some("settings.wait_preload_hint"),
+        get: |s| s.torrserver.wait_preload,
+        set: |s, v| s.torrserver.wait_preload = v,
+        forced: None,
+    },
+    Field::Toggle {
+        label: "settings.save_position",
+        hint: Some("settings.save_position_hint"),
+        get: |s| s.torrserver.track_timecode,
+        set: |s, v| s.torrserver.track_timecode = v,
+        // Continuing elsewhere reads and writes positions on the server either way.
+        forced: Some(|s| s.torrserver.sync_history),
+    },
+    Field::Toggle {
+        label: "settings.continue_elsewhere",
+        hint: Some("settings.continue_elsewhere_hint"),
+        get: |s| s.torrserver.sync_history,
+        set: |s, v| s.torrserver.sync_history = v,
+        forced: None,
     },
     Field::ProbeTorr,
     Field::SpeedTest,

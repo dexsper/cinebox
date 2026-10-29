@@ -180,16 +180,7 @@ impl SettingsScreen {
 
     fn paint_field(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, field: &Field) -> bool {
         match field {
-            Field::Toggle { label, hint, get, set } => {
-                let mut value = get(&svc.settings);
-                let label_text = crate::i18n::tr(label);
-                let hint_text = hint.map(|key| crate::i18n::tr(key));
-                if !toggle_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &mut value) {
-                    return false;
-                }
-                set(&mut svc.settings, value);
-                true
-            }
+            Field::Toggle { .. } => paint_toggle(ui, svc, theme, field),
             Field::Text { label, hint, placeholder, kind, check, get, set } => {
                 let value = get(&svc.settings);
                 let label_text = crate::i18n::tr(label);
@@ -278,6 +269,29 @@ impl SettingsScreen {
             }
         }
     }
+}
+
+/// A `Field::Toggle`; `true` when it changed the settings. A forced toggle shows on and takes no clicks.
+fn paint_toggle(ui: &mut Ui, svc: &mut Services, theme: &Theme, field: &Field) -> bool {
+    let Field::Toggle { label, hint, get, set, forced } = field else { return false };
+
+    let label_text = crate::i18n::tr(label);
+    let hint_text = hint.map(|key| crate::i18n::tr(key));
+    let is_forced = forced.is_some_and(|forced| forced(&svc.settings));
+
+    if is_forced {
+        let mut shown = true;
+        ui.add_enabled_ui(false, |ui| toggle_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &mut shown));
+        return false;
+    }
+
+    let mut value = get(&svc.settings);
+    if !toggle_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &mut value) {
+        return false;
+    }
+
+    set(&mut svc.settings, value);
+    true
 }
 
 fn show_check(ui: &mut Ui, theme: &Theme, check: Option<Check>, value: &str) {

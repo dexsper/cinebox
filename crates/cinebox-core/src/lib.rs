@@ -20,9 +20,9 @@ pub use catalog::{
 pub use cinebox_typograf::{decode_entities, typograph};
 pub use db::{
     CONFIG_TTL, CacheHit, CacheKey, DETAILS_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA, KIND_PERSON,
-    KIND_SEASON, KIND_SKIP, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT, SEASON_TTL, SKIP_SEGMENTS_TTL, Store, StoreError,
-    TorrentPlaybackPrefs, WatchHistoryEntry, WatchKey, allowed_image_sizes, home_ttl, image_size_key, language_key,
-    media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id, season_cache_id,
+    KIND_SEASON, KIND_SKIP, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT, SEASON_TTL, SKIP_SEGMENTS_TTL, ServerMatch, Store,
+    StoreError, TorrentPlaybackPrefs, WatchHistoryEntry, WatchKey, allowed_image_sizes, home_ttl, image_size_key,
+    language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id, season_cache_id,
 };
 pub use http::{BaseUrlError, join_url, normalize_base_url};
 pub use ids::{MediaKind, TmdbId};

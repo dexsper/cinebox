@@ -1,6 +1,6 @@
 //! HTTP-level tests against a mock TorrServer (httpmock) instead of a live one.
 
-use cinebox_torrserver::{AddSpec, Error, Server, add, echo, get, list, viewed_list};
+use cinebox_torrserver::{AddSpec, Error, MetaSpec, Server, add, echo, get, list, set_meta, viewed_all, viewed_list};
 use httpmock::prelude::*;
 
 /// The mock as a TorrServer without auth.
@@ -98,6 +98,7 @@ async fn add_sends_basic_auth_and_parses_status() -> Result<(), Error> {
         title: String::from("T"),
         poster: String::new(),
         category: String::new(),
+        data: String::new(),
         save_to_db: false,
     };
 
@@ -123,4 +124,42 @@ async fn viewed_list_maps_bad_json_to_error() {
 
     let result = viewed_list(&torr(&server), "abc").await;
     assert!(matches!(result, Err(Error::BadJson(_))), "{result:?}");
+}
+
+#[tokio::test]
+async fn viewed_all_asks_without_a_hash_and_reads_null_as_empty() -> Result<(), Error> {
+    let server = MockServer::start_async().await;
+    let mock = server
+        .mock_async(|when, then| {
+            when.method(POST).path("/viewed").json_body_includes(r#"{ "action": "list", "hash": "" }"#);
+            then.status(200).body("null");
+        })
+        .await;
+
+    let rows = viewed_all(&torr(&server)).await?;
+
+    mock.assert_async().await;
+    assert_eq!(rows, Vec::new());
+
+    Ok(())
+}
+
+#[tokio::test]
+async fn set_meta_sends_every_field_it_replaces() -> Result<(), Error> {
+    let server = MockServer::start_async().await;
+    let mock = server
+        .mock_async(|when, then| {
+            when.method(POST).path("/torrents").json_body_includes(
+                r#"{ "action": "set", "hash": "aa", "title": "T", "poster": "P", "category": "tv", "data": "D" }"#,
+            );
+            then.status(200);
+        })
+        .await;
+
+    let meta = MetaSpec { hash: "aa", title: "T", poster: "P", category: "tv", data: "D" };
+    set_meta(&torr(&server), meta).await?;
+
+    mock.assert_async().await;
+
+    Ok(())
 }

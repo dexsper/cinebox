@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT url FROM torrserver_origin WHERE id = 1",
+  "describe": {
+    "columns": [
+      {
+        "name": "url",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "torrserver_origin",
+            "name": "url"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "3ea4ee65b84826e61f65442d2e5ea7c7085b1809197d3a5ad08dd39ca0c27da3"
+}

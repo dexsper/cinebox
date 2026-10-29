@@ -45,6 +45,8 @@ pub const RECENT_ROW_LIMIT: usize = 20;
 pub const RECENT_RELEASE_LIMIT: usize = 3;
 /// Last catalog searches kept in the header history.
 pub const SEARCH_HISTORY_LIMIT: usize = 10;
+/// A TorrServer torrent TMDB had no title for is looked up again after this.
+pub(crate) const MATCH_RETRY: Duration = Duration::from_hours(24);
 
 /// Per-torrent playback preferences, stored as one JSON payload by hash.
 ///
@@ -100,6 +102,16 @@ impl WatchHistoryEntry {
             poster_path: self.poster_path.clone(),
         }
     }
+}
+
+/// What this device knows about the TMDB title of a TorrServer torrent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerMatch {
+    /// Never looked up, or the last miss is older than [`MATCH_RETRY`].
+    Unknown,
+    /// Looked up within [`MATCH_RETRY`] and not found.
+    NotFound,
+    Found(MediaKind, TmdbId),
 }
 
 /// Identity of one `tmdb_cache` row. `language` is empty for language-neutral rows.

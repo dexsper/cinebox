@@ -15,6 +15,7 @@ use cinebox_core::{
     LibraryMark, ListStatus, MediaKind, Settings, SettingsStore, Store, StoreError, TmdbId, allowed_image_sizes,
 };
 use cinebox_player::{Features, Player};
+use egui_async::Bind;
 use rust_i18n::t;
 use tracing::{error, info, warn};
 
@@ -36,6 +37,8 @@ pub(crate) struct Services {
     pub library: Library,
     watched: HashSet<(MediaKind, TmdbId)>,
     home_needs_refresh: bool,
+    torr_sync: Bind<jobs::SyncOutcome, jobs::JobError>,
+    torr_sync_at: Option<f64>,
 }
 
 impl Services {
@@ -65,6 +68,8 @@ impl Services {
             library,
             watched,
             home_needs_refresh: false,
+            torr_sync: Bind::new(true),
+            torr_sync_at: None,
         };
 
         if upgraded {
@@ -88,6 +93,8 @@ impl Services {
             library: Library::default(),
             watched: HashSet::new(),
             home_needs_refresh: false,
+            torr_sync: Bind::new(true),
+            torr_sync_at: None,
         }
     }
 
@@ -187,6 +194,47 @@ impl Services {
     pub(crate) fn take_home_refresh(&mut self) -> bool {
         std::mem::take(&mut self.home_needs_refresh)
     }
+
+    /// Starts a sync with TorrServer when `sync_history` is on and none ran in the last `SYNC_INTERVAL`.
+    /// `now` is the egui time.
+    pub(crate) fn start_torrserver_sync(&mut self, now: f64) {
+        if !self.settings.torrserver.sync_history {
+            return;
+        }
+
+        let is_recent = self.torr_sync_at.is_some_and(|at| now - at < jobs::SYNC_INTERVAL.as_secs_f64());
+        if is_recent || self.torr_sync.is_pending() {
+            return;
+        }
+
+        self.torr_sync_at = Some(now);
+        let torr = jobs::TorrCtx::from(&self.settings);
+        let tmdb = jobs::TmdbCtx::from(&self.settings);
+        self.torr_sync.request(jobs::sync_from_server(torr, tmdb, self.db.clone()));
+    }
+
+    /// Takes in a finished sync: badges and list marks for titles started elsewhere, and a home refresh
+    /// when the history changed. A failure is only logged.
+    pub(crate) fn poll_torrserver_sync(&mut self) {
+        let Some(result) = self.torr_sync.take() else {
+            return;
+        };
+
+        let outcome = match result {
+            Ok(outcome) => outcome,
+            Err(error) => {
+                warn!(%error, "torrserver sync failed");
+                return;
+            }
+        };
+
+        for card in &outcome.started {
+            self.watched.insert((card.kind, card.id));
+            self.mark_watching_if_unset(card);
+        }
+
+        self.home_needs_refresh |= outcome.changed;
+    }
 }
 
 /// Users who set up Cinebox before the first-run wizard existed skip it.
@@ -267,6 +315,20 @@ mod tests {
 
         assert!(mark_existing_setup_onboarded(&mut settings));
         assert!(settings.general.onboarded);
+    }
+
+    #[test]
+    fn a_disabled_sync_never_starts() -> Result<(), StoreError> {
+        let db = Arc::new(db_block_on(Store::memory())?);
+        let mut svc = Services::test_with_db(db);
+        svc.settings.torrserver.track_timecode = true;
+
+        svc.start_torrserver_sync(0.0);
+
+        assert!(svc.torr_sync.is_idle());
+        assert_eq!(svc.torr_sync_at, None);
+
+        Ok(())
     }
 
     #[test]

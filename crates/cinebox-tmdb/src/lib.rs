@@ -23,7 +23,7 @@ use serde::de::DeserializeOwned;
 pub use discover::{Date, DiscoverQuery, DiscoverSort};
 pub use genres::{classify, company, genre, genres_for, keyword};
 pub use home::{CatalogPage, MAX_ROW_ITEMS};
-pub use search::{SearchKind, SearchQuery};
+pub use search::{SearchKind, SearchQuery, TitleMatch};
 pub use shelves::{SectionRow, ShelfId, ShelfRow, ShelfSource, section_rows};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -204,6 +204,21 @@ pub async fn fetch_search_page(
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
     search::fetch_search_page(api_key, search, language, net).await
+}
+
+/// First-page results of a movie or show name search, with their original titles, for telling which
+/// title a release name means. A person search and an empty query find nothing without calling TMDB.
+///
+/// # Errors
+///
+/// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
+pub async fn fetch_title_matches(
+    api_key: &str,
+    search: SearchQuery<'_>,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<Vec<TitleMatch>, Error> {
+    search::fetch_title_matches(api_key, search, language, net).await
 }
 
 /// Movie/TV card: details, credits, videos, recs, similar, collection.

@@ -45,6 +45,41 @@ impl Store {
         Ok(())
     }
 
+    /// Record a position another client left on the server. Unlike [`Self::upsert_watch_timeline`], the
+    /// duration this device knows is kept, since the server has none.
+    ///
+    /// # Errors
+    ///
+    /// Sqlite failures.
+    pub async fn import_watch_timeline(&self, key: WatchKey, time: f64) -> Result<(), StoreError> {
+        let WatchKey { kind, id, season, episode } = key;
+        let kind = media_kind_key(kind);
+        let id = i64::from(id.get());
+        let season = episode_key(season);
+        let episode = episode_key(episode);
+        let now = unix_now();
+
+        sqlx::query!(
+            r#"
+            INSERT INTO watch_timeline (kind, id, season, episode, time, duration, updated_at)
+            VALUES (?, ?, ?, ?, ?, 0, ?)
+            ON CONFLICT (kind, id, season, episode) DO UPDATE SET
+                time = excluded.time,
+                updated_at = excluded.updated_at
+            "#,
+            kind,
+            id,
+            season,
+            episode,
+            time,
+            now
+        )
+        .execute(&self.pool)
+        .await?;
+
+        Ok(())
+    }
+
     /// Saved `(time, duration)` for one episode (or a movie), if any.
     ///
     /// # Errors
@@ -126,6 +161,83 @@ impl Store {
         Ok(())
     }
 
+    /// Record a title another client played or added on the server, as of `updated_at` (unix seconds).
+    ///
+    /// Written only when newer than the local row, so local playback since then is never overwritten. An
+    /// entry with `time == 0` (added, not started) moves the title up but keeps the local episode and
+    /// position, and a zero duration keeps the local one. `hash` joins the title's recent releases.
+    /// `true` when the row was written.
+    ///
+    /// # Errors
+    ///
+    /// Sqlite failures.
+    pub async fn import_watch_history(
+        &self,
+        entry: &WatchHistoryEntry,
+        hash: &str,
+        updated_at: i64,
+    ) -> Result<bool, StoreError> {
+        let kind = media_kind_key(entry.kind);
+        let id = i64::from(entry.id.get());
+        let year = entry.year.map(i64::from);
+        let vote = entry.vote.map(f64::from);
+        let season = entry.season.map(i64::from);
+        let episode = entry.episode.map(i64::from);
+        let poster_path = entry.poster_path.as_deref();
+        let episode_title = entry.episode_title.as_deref();
+        let section = entry.section.as_key();
+
+        let mut tx = self.pool.begin().await?;
+
+        let inserted = sqlx::query!(
+            r#"
+            INSERT INTO watch_history
+                (kind, id, title, poster_path, year, vote, season, episode,
+                 episode_title, time, duration, updated_at, section)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ON CONFLICT (kind, id) DO UPDATE SET
+                title = excluded.title,
+                poster_path = excluded.poster_path,
+                year = excluded.year,
+                vote = excluded.vote,
+                section = excluded.section,
+                season = CASE WHEN excluded.time > 0 THEN excluded.season ELSE watch_history.season END,
+                episode = CASE WHEN excluded.time > 0 THEN excluded.episode ELSE watch_history.episode END,
+                episode_title =
+                    CASE WHEN excluded.time > 0 THEN excluded.episode_title ELSE watch_history.episode_title END,
+                time = CASE WHEN excluded.time > 0 THEN excluded.time ELSE watch_history.time END,
+                duration = CASE WHEN excluded.duration > 0 THEN excluded.duration ELSE watch_history.duration END,
+                updated_at = excluded.updated_at
+            WHERE excluded.updated_at > watch_history.updated_at
+            "#,
+            kind,
+            id,
+            entry.title,
+            poster_path,
+            year,
+            vote,
+            season,
+            episode,
+            episode_title,
+            entry.time,
+            entry.duration,
+            updated_at,
+            section
+        )
+        .execute(&mut *tx)
+        .await?;
+
+        let written = inserted.rows_affected() > 0;
+
+        if written {
+            touch_watch_release(&mut tx, entry.kind, entry.id, Some(hash)).await?;
+        }
+
+        tx.commit().await?;
+
+        Ok(written)
+    }
+
     /// Home-shelf tiles, most recently watched first, optionally limited to one section.
     ///
     /// Rows saved before sections existed are placed by media kind.
@@ -181,13 +293,14 @@ impl Store {
         Ok(items)
     }
 
-    /// Every media the user ever started playing, for the poster badge set.
+    /// Every media the user ever started playing, here or on another device, for the poster badge set.
     ///
     /// # Errors
     ///
     /// Sqlite failures.
     pub async fn watched_keys(&self) -> Result<Vec<(MediaKind, TmdbId)>, StoreError> {
-        let rows = sqlx::query!("SELECT kind, id FROM watch_history").fetch_all(&self.pool).await?;
+        // A title imported from the server but never started has no position and no badge.
+        let rows = sqlx::query!("SELECT kind, id FROM watch_history WHERE time > 0").fetch_all(&self.pool).await?;
 
         let mut keys = Vec::new();
         for row in rows {

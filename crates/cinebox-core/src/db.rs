@@ -1,10 +1,11 @@
-//! Local SQLite via SQLx: TMDB cache, playback prefs, and watch history.
+//! Local SQLite via SQLx: TMDB cache, playback prefs, watch history, and TorrServer sync state.
 
 mod cache;
 mod library;
 mod prefs;
 mod search;
 mod skip;
+mod torrserver;
 mod types;
 mod watch;
 
@@ -21,9 +22,9 @@ use crate::paths;
 pub use types::{
     CONFIG_TTL, CacheHit, CacheKey, DETAILS_TTL, HOME_FAST_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA,
     KIND_PERSON, KIND_SEASON, KIND_SKIP, MAX_AGE, RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT,
-    SEASON_TTL, SKIP_SEGMENTS_TTL, TorrentPlaybackPrefs, WatchHistoryEntry, WatchKey, allowed_image_sizes, home_ttl,
-    image_size_key, language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id,
-    season_cache_id,
+    SEASON_TTL, SKIP_SEGMENTS_TTL, ServerMatch, TorrentPlaybackPrefs, WatchHistoryEntry, WatchKey, allowed_image_sizes,
+    home_ttl, image_size_key, language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl,
+    person_cache_id, season_cache_id,
 };
 
 /// Failures opening or talking to the local database.
@@ -484,6 +485,68 @@ mod tests {
 
         let recent = store.recently_watched(20, Some(Section::Tv)).await?;
         assert_eq!(recent.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_import_never_overwrites_newer_local_history() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Local"), Some("local")).await?;
+
+        let server = WatchHistoryEntry { time: 30.0, ..history_entry(1, "Server") };
+        let written = store.import_watch_history(&server, "server", 1).await?;
+
+        assert!(!written);
+        assert_eq!(store.recently_watched(10, None).await?[0].title, "Local");
+        assert_eq!(store.watch_release_hashes(MediaKind::Movie, TmdbId::new(1)).await?, vec![String::from("local")]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_newer_import_moves_the_title_up() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Watched here"), None).await?;
+        store.upsert_watch_history(&history_entry(2, "Older"), None).await?;
+
+        let server = WatchHistoryEntry { time: 30.0, ..history_entry(1, "Watched there") };
+        let written = store.import_watch_history(&server, "aa", unix_now() + 60).await?;
+
+        let recent = store.recently_watched(10, None).await?;
+        assert!(written);
+        assert_eq!(recent[0].title, "Watched there");
+        assert_eq!(store.watch_release_hashes(MediaKind::Movie, TmdbId::new(1)).await?, vec![String::from("aa")]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_unstarted_import_keeps_the_local_position_and_badge() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Started"), None).await?;
+
+        let added = WatchHistoryEntry { time: 0.0, duration: 0.0, ..history_entry(1, "Added elsewhere") };
+        store.import_watch_history(&added, "aa", unix_now() + 60).await?;
+        let never_started = WatchHistoryEntry { time: 0.0, ..history_entry(2, "Never started") };
+        store.import_watch_history(&never_started, "bb", 1).await?;
+
+        let keys = store.watched_keys().await?;
+        assert_eq!(store.recently_watched(10, None).await?.len(), 2);
+        assert_eq!(keys, vec![(MediaKind::Movie, TmdbId::new(1))]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_imported_position_keeps_the_known_duration() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        let movie = WatchKey { kind: MediaKind::Movie, id: TmdbId::new(7), season: None, episode: None };
+        store.upsert_watch_timeline(movie, 90.0, 7200.0).await?;
+
+        store.import_watch_timeline(movie, 1800.0).await?;
+
+        assert_eq!(store.get_watch_timeline(movie).await?, Some((1800.0, 7200.0)));
 
         Ok(())
     }

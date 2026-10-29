@@ -45,6 +45,8 @@ pub(crate) struct App {
     foreground: bool,
     /// Taken from the device before the frame, acted on in `logic`.
     device_events: Vec<DeviceEvent>,
+    /// Home was on screen last frame: a TorrServer sync starts on entering it.
+    was_home: bool,
 }
 
 impl App {
@@ -103,6 +105,21 @@ impl App {
             player: PlayerScreen::default(),
             foreground: true,
             device_events: Vec::new(),
+            was_home: false,
+        }
+    }
+
+    /// A sync with TorrServer starts on every entry to home, the first frame included, and its result is
+    /// taken in on whatever screen it finishes.
+    fn sync_torrserver(&mut self, ctx: &egui::Context) {
+        self.services.poll_torrserver_sync();
+
+        let is_home = matches!(self.nav.current(), Screen::Home);
+        let is_entering = is_home && !self.was_home;
+        self.was_home = is_home;
+
+        if is_entering {
+            self.services.start_torrserver_sync(ctx.input(|i| i.time));
         }
     }
 }
@@ -132,6 +149,8 @@ impl eframe::App for App {
         self.services.images.poll(ctx, &net);
 
         self.sync_tmdb();
+        self.sync_torrserver(ctx);
+
         if self.services.take_home_refresh() {
             self.home.refresh();
         }

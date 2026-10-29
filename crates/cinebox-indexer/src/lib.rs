@@ -23,7 +23,7 @@ pub use filter::{
     season_options, sort_hits, voice_filter_options, year_options,
 };
 pub use map::Hit;
-pub use name::release_name;
+pub use name::{name_candidates, release_name};
 pub use query::SearchQuery;
 pub use search::search;
 pub use title::{

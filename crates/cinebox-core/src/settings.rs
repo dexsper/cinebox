@@ -378,12 +378,22 @@ pub struct ParserSettings {
 /// External TorrServer category.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent user toggles, stored as JSON booleans")]
 pub struct TorrServerSettings {
     pub url: String,
+
     pub save_to_db: bool,
+
     pub wait_preload: bool,
+
+    /// Playback positions go to the server's `/viewed`. See [`Self::is_tracking_position`].
     pub track_timecode: bool,
+
+    /// Torrents, cards and positions other clients leave on the server show up here. For a personal server.
+    pub sync_history: bool,
+
     pub username: String,
+
     pub password: SecretString,
 }
 
@@ -394,9 +404,18 @@ impl Default for TorrServerSettings {
             save_to_db: false,
             wait_preload: false,
             track_timecode: false,
+            sync_history: false,
             username: String::new(),
             password: SecretString::default(),
         }
+    }
+}
+
+impl TorrServerSettings {
+    /// Positions are read from and written to the server: asked for, or needed by `sync_history`.
+    #[must_use]
+    pub fn is_tracking_position(&self) -> bool {
+        self.track_timecode || self.sync_history
     }
 }
 
@@ -490,6 +509,17 @@ mod tests {
         let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
 
         std::env::temp_dir().join(format!("cinebox-settings-{nanos}.json"))
+    }
+
+    #[test]
+    fn continuing_elsewhere_tracks_the_position_too() {
+        let cases = [(false, false, false), (true, false, true), (false, true, true), (true, true, true)];
+
+        for (track_timecode, sync_history, expected) in cases {
+            let torrserver = TorrServerSettings { track_timecode, sync_history, ..TorrServerSettings::default() };
+
+            assert_eq!(torrserver.is_tracking_position(), expected, "{track_timecode} {sync_history}");
+        }
     }
 
     #[test]

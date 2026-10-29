@@ -92,7 +92,7 @@ impl PlayerScreen {
         };
 
         let key = WatchKey { kind: card.kind, id: card.id, season: entry.season, episode: entry.episode };
-        let track = svc.settings.torrserver.track_timecode;
+        let track = svc.settings.torrserver.is_tracking_position();
 
         let db_job = svc.db.clone().map(|db| {
             let history_hash = hash.clone();
@@ -106,6 +106,15 @@ impl PlayerScreen {
 
                 if let Err(error) = db.upsert_watch_history(&entry, Some(&history_hash)).await {
                     warn!(%error, "failed to save watch history");
+                }
+
+                // What goes to `/viewed` below is this device's own, so the sync must not take it back in.
+                if !track {
+                    return;
+                }
+
+                if let Err(error) = db.put_viewed_seen(&history_hash, file_id, time).await {
+                    warn!(%error, "failed to record the sent server position");
                 }
             })
         });
@@ -166,6 +175,32 @@ mod tests {
         assert_eq!(recent[0].id, id);
         assert_eq!(recent[0].title, "Show");
         assert!(svc.is_watched(kind, id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_progress_marks_the_sent_position_seen() -> Result<(), cinebox_core::StoreError> {
+        let db = std::sync::Arc::new(db_block_on(cinebox_core::Store::memory())?);
+        let mut svc = Services::test_with_db(db.clone());
+        svc.settings.torrserver.url = String::new();
+        svc.settings.torrserver.sync_history = true;
+        let mut screen = PlayerScreen {
+            phase: Some(PlayerPhase::Playing(PlayerState::from_spec(&spec(1, 3)))),
+            ..PlayerScreen::default()
+        };
+
+        if let Some(PlayerPhase::Playing(state)) = &mut screen.phase {
+            state.time = 42.0;
+        }
+
+        if let Some(job) = screen.save_progress(&mut svc, true) {
+            assert!(db_block_on(job).is_ok());
+        }
+
+        let seen = db_block_on(db.viewed_seen("deadbeef"))?;
+        assert_eq!(seen.len(), 1);
+        assert!((seen[0].1 - 42.0).abs() < f64::EPSILON);
 
         Ok(())
     }

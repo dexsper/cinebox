@@ -32,7 +32,10 @@ thiserror.workspace = true
 anyhow.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
-image = { version = "0.25", default-features = false, features = ["png", "jpeg"] }
+image = { version = "0.25", default-features = false, features = [
+    "png",
+    "jpeg",
+] }
 sys-locale = "0.3.2"
 
 [target.'cfg(target_os = "linux")'.dependencies]
@@ -50,6 +53,7 @@ winresource = "0.1"
 
 [dev-dependencies]
 egui_kittest.workspace = true
+httpmock.workspace = true
 
 [lints]
 workspace = true
@@ -65,10 +69,34 @@ extended-description = """\
 Movie and series catalog from TMDB, torrent search through Jackett or \
 Prowlarr, and playback through TorrServer and mpv in one native window."""
 assets = [
-    ["target/release/cinebox", "usr/bin/", "755"],
-    ["../packaging/linux/io.github.dexsper.cinebox.desktop", "usr/share/applications/", "644"],
-    ["../packaging/linux/io.github.dexsper.cinebox.metainfo.xml", "usr/share/metainfo/", "644"],
-    ["assets/icon.svg", "usr/share/icons/hicolor/scalable/apps/io.github.dexsper.cinebox.svg", "644"],
-    ["../README.md", "usr/share/doc/cinebox/", "644"],
-    ["../THIRD_PARTY_NOTICES", "usr/share/doc/cinebox/", "644"],
+    [
+        "target/release/cinebox",
+        "usr/bin/",
+        "755",
+    ],
+    [
+        "../packaging/linux/io.github.dexsper.cinebox.desktop",
+        "usr/share/applications/",
+        "644",
+    ],
+    [
+        "../packaging/linux/io.github.dexsper.cinebox.metainfo.xml",
+        "usr/share/metainfo/",
+        "644",
+    ],
+    [
+        "assets/icon.svg",
+        "usr/share/icons/hicolor/scalable/apps/io.github.dexsper.cinebox.svg",
+        "644",
+    ],
+    [
+        "../README.md",
+        "usr/share/doc/cinebox/",
+        "644",
+    ],
+    [
+        "../THIRD_PARTY_NOTICES",
+        "usr/share/doc/cinebox/",
+        "644",
+    ],
 ]

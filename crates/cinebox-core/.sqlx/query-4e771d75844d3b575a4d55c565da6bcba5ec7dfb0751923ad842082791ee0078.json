@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "INSERT OR REPLACE INTO torrserver_origin (id, url) VALUES (1, ?)",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": []
+  },
+  "hash": "4e771d75844d3b575a4d55c565da6bcba5ec7dfb0751923ad842082791ee0078"
+}

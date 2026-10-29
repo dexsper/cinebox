@@ -4,6 +4,7 @@ mod catalog;
 mod health;
 mod skip;
 mod torrents;
+mod torrserver_sync;
 mod youtube;
 
 pub(crate) use catalog::{
@@ -13,6 +14,7 @@ pub(crate) use catalog::{
 pub(crate) use health::{ping_parser, ping_tmdb, ping_torrserver, speed_test};
 pub(crate) use skip::{fetch_skip_choices, fetch_skip_segments, save_skip_choice, skip_cache_id};
 pub(crate) use torrents::{OpenMagnet, StreamFile, load_torrents, open_magnet, wait_stream};
+pub(crate) use torrserver_sync::{SYNC_INTERVAL, SyncOutcome, sync_from_server};
 pub(crate) use youtube::resolve_youtube;
 
 use cinebox_core::{MediaKind, ParserKind, Settings, TmdbId};
@@ -98,7 +100,12 @@ impl From<&Settings> for ParserCtx {
 #[derive(Clone)]
 pub(crate) struct TorrCtx {
     pub server: Server,
+
+    /// Positions are read from `/viewed` (see `TorrServerSettings::is_tracking_position`).
     pub track_timecode: bool,
+
+    /// Torrents and positions other clients left on the server are taken in.
+    pub sync_history: bool,
 }
 
 impl From<&Settings> for TorrCtx {
@@ -110,7 +117,7 @@ impl From<&Settings> for TorrCtx {
             password: torrserver.password.expose().to_owned(),
         };
 
-        Self { server, track_timecode: torrserver.track_timecode }
+        Self { server, track_timecode: torrserver.is_tracking_position(), sync_history: torrserver.sync_history }
     }
 }
 

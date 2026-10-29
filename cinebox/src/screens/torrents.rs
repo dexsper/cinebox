@@ -9,7 +9,7 @@ pub(crate) use state::{
 };
 
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, Store, StoreError, TmdbId, tmdb_image_url};
-use cinebox_torrserver::AddSpec;
+use cinebox_torrserver::{AddSpec, TorrCard, encode_data};
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 use futures_util::future::OptionFuture;
@@ -416,11 +416,13 @@ impl TorrentsScreen {
         };
         let poster = tmdb_image_url(state.movie.poster_path.as_deref(), svc.settings.tmdb.poster_size.tmdb_path())
             .unwrap_or_default();
+        let card = self.details.as_ref().map(|details| TorrCard::from_details(details, &poster));
         let spec = AddSpec {
             link: hit.magnet.clone(),
             title: state.movie.title.clone(),
             poster,
             category: category.to_owned(),
+            data: card.as_ref().map(encode_data).unwrap_or_default(),
             save_to_db: svc.settings.torrserver.save_to_db,
         };
         self.request_open(svc, spec);

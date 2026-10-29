@@ -1,0 +1,26 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT hash FROM torrserver_match WHERE kind = ? AND id = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "hash",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "torrserver_match",
+            "name": "hash"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 2
+    },
+    "nullable": [
+      false
+    ]
+  },
+  "hash": "9f94dd48490cdf6bbeba2bede5d733324057d5ac664b4d3cf2da816f499d3a97"
+}

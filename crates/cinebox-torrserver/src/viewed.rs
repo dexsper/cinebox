@@ -8,6 +8,9 @@ use super::client::{http_client, send_json};
 use super::error::Error;
 use super::server::Server;
 
+/// How far a server position may drift from the one this device saw and still count as its own.
+const SEEN_TOLERANCE_SECS: f64 = 1.0;
+
 /// One row from `POST /viewed` action `list`. File index is 1-based.
 #[derive(Debug, Clone, PartialEq, serde::Deserialize)]
 pub struct Viewed {
@@ -29,6 +32,19 @@ pub async fn viewed_list(server: &Server, hash: &str) -> Result<Vec<Viewed>, Err
         return Err(Error::EmptyHash);
     }
 
+    list_request(server, hash).await
+}
+
+/// `POST /viewed` with `action: list` and no hash: every row of every torrent in one request.
+///
+/// # Errors
+///
+/// Empty URL or HTTP/JSON failures.
+pub async fn viewed_all(server: &Server) -> Result<Vec<Viewed>, Error> {
+    list_request(server, "").await
+}
+
+async fn list_request(server: &Server, hash: &str) -> Result<Vec<Viewed>, Error> {
     let base = server.base()?;
     let url = join_url(&base, "viewed");
     let client = http_client()?;
@@ -39,7 +55,33 @@ pub async fn viewed_list(server: &Server, hash: &str) -> Result<Vec<Viewed>, Err
         "hash": hash,
     }));
 
-    send_json(request).await
+    // The server answers `null` instead of `[]` when it has no rows at all.
+    let rows: Option<Vec<Viewed>> = send_json(request).await?;
+
+    Ok(rows.unwrap_or_default())
+}
+
+/// `true` when another client wrote `server` after this device last saw or sent `seen` for the file.
+///
+/// A zero is never foreign: a server with `TrackTimecode` off stores zero for every `set`, our own included.
+#[must_use]
+pub fn is_foreign_timecode(server: f64, seen: Option<f64>) -> bool {
+    if server <= 0.0 {
+        return false;
+    }
+
+    seen.is_none_or(|seen| (server - seen).abs() > SEEN_TOLERANCE_SECS)
+}
+
+/// The position to resume a file at, seconds: the server's when another client moved it since this device
+/// last saw it, else the local one, else the server's.
+#[must_use]
+pub fn merge_timecode(local: Option<f64>, server: f64, seen: Option<f64>) -> f64 {
+    if is_foreign_timecode(server, seen) {
+        return server;
+    }
+
+    local.unwrap_or(server)
 }
 
 /// `POST /viewed` with `action: set`. Server stores `timecode` only when `TrackTimecode` is on.
@@ -86,5 +128,31 @@ mod tests {
         assert_eq!(rows[0].file_index, 1);
         assert!((rows[0].timecode - 512.25).abs() < f64::EPSILON);
         assert!((rows[1].timecode - 0.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_position_another_client_moved_wins_over_the_local_one() {
+        let merged = merge_timecode(Some(600.0), 1200.0, Some(300.0));
+
+        assert!((merged - 1200.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn the_local_position_wins_while_the_server_holds_what_this_device_sent() {
+        let merged = merge_timecode(Some(900.0), 300.4, Some(300.0));
+
+        assert!((merged - 900.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_position_never_seen_here_is_foreign() {
+        assert!(is_foreign_timecode(42.0, None));
+        assert!((merge_timecode(Some(10.0), 42.0, None) - 42.0).abs() < f64::EPSILON);
+    }
+
+    #[test]
+    fn a_zero_from_the_server_is_never_foreign() {
+        assert!(!is_foreign_timecode(0.0, Some(300.0)));
+        assert!((merge_timecode(Some(300.0), 0.0, Some(300.0)) - 300.0).abs() < f64::EPSILON);
     }
 }

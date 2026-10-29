@@ -53,6 +53,32 @@ pub fn release_name(title: &str) -> String {
     names.join(" / ")
 }
 
+/// Names to look a release up by in a catalog: each name of [`release_name`], then the same name without
+/// a year at its end, since scene titles run the year into the name (`Dune Part Two 2024`). A title with
+/// dots or underscores for spaces (`Show.S02E05.1080p`) is read as spaced.
+#[must_use]
+pub fn name_candidates(title: &str) -> Vec<String> {
+    let is_scene = !title.contains(char::is_whitespace) && title.contains(['.', '_']);
+    let spaced = if is_scene { title.replace(['.', '_'], " ") } else { title.to_owned() };
+
+    let mut candidates: Vec<String> = Vec::new();
+    let names = release_name(&spaced);
+
+    for name in SEPARATOR.split(&names) {
+        let without_year = name.rsplit_once(' ').filter(|(_, last)| YEAR_SEGMENT.is_match(last));
+        let shorter = without_year.map(|(head, _)| head.trim_matches(TRIM));
+
+        for candidate in [Some(name.trim()), shorter].into_iter().flatten() {
+            let is_new = !candidates.iter().any(|known| known.eq_ignore_ascii_case(candidate));
+            if is_new && !candidate.is_empty() {
+                candidates.push(candidate.to_owned());
+            }
+        }
+    }
+
+    candidates
+}
+
 const TRIM: &[char] = &[' ', ',', ':', ';', '-', '–', '.', '+'];
 
 /// ` / ` between names; `AC/DC` stays whole.
@@ -350,6 +376,22 @@ mod tests {
         for (title, name) in cases {
             assert_eq!(release_name(title), name, "{title}");
         }
+    }
+
+    #[test]
+    fn candidates_are_each_name_of_a_tracker_title() {
+        let title = "Дюна / Dune: Part One (Дени Вильнев) [2021, США, BDRip 1080p] Dub + Original";
+
+        assert_eq!(name_candidates(title), vec![String::from("Дюна"), String::from("Dune: Part One")]);
+        assert_eq!(name_candidates("Рус / Orig (2020)"), vec![String::from("Рус"), String::from("Orig")]);
+    }
+
+    #[test]
+    fn candidates_of_a_scene_title_drop_the_episode_and_the_year() {
+        assert_eq!(name_candidates("Show.S02E05.1080p.WEB-DL.mkv"), vec![String::from("Show")]);
+
+        let movie = name_candidates("Dune.Part.Two.2024.2160p.WEB-DL");
+        assert_eq!(movie, vec![String::from("Dune Part Two 2024"), String::from("Dune Part Two")]);
     }
 
     #[test]
