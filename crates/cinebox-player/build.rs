@@ -13,9 +13,9 @@ use std::time::Duration;
 
 use sha2::{Digest, Sha256};
 
-const RELEASE: &str = "20260829";
-const GIT: &str = "e8673660ab";
-const ARCHIVE_SHA256: &str = "e99b8c85e184463571088c79732f7e1e09ed4524c2945cdca177a4df70ba6f2e";
+const RELEASE: &str = "20261021";
+const GIT: &str = "e471496c56";
+const ARCHIVE_SHA256: &str = "efc719eff3dc5954b4a5efc800632808bcec01cc9034940dd14e5eb7fe9ea633";
 
 fn main() {
     println!("cargo:rerun-if-changed=build.rs");
