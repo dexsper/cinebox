@@ -28,7 +28,7 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - Title pages with cast, collections, recommendations, and similar titles
 - Actor and director pages
 - Resume from the last position per movie or episode
-- Optional timecode sync with TorrServer
+- Continue on another device through your TorrServer, LAMPA included
 
 **Playback**
 
@@ -39,9 +39,9 @@ TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (
 - Streaming through TorrServer with preload and auto-play of the next file
 - Audio and subtitle tracks, subtitle delay, speed, scale, loudness normalization
 - Track, speed, and scale choices remembered per torrent
-- Fullscreen with auto-hiding controls and 10-second seek
+- Fullscreen with auto-hiding controls and cursor, 10-second seek
 - YouTube trailers in the same player
-- Skip intro, recap, credits, and preview, with optional auto-skip
+- Skip intro, recap, credits, and preview from TheIntroDB or the file's chapters, with optional auto-skip
 
 **App**
 
@@ -73,7 +73,7 @@ flowchart LR
 1. **Catalog.** Cinebox calls TMDB with your key: home, sections, discover, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
 2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
 3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the stream opens in the player. No browser in this path.
-4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. If "Track timecode on server" is on, the same time is sent to TorrServer. On open, local position is preferred; otherwise the server's timecode is used.
+4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. With "Remember position on the server" on, the same time goes to TorrServer, and on open the local position wins. With "Continue on other devices" on, torrents on the server join Recently watched, matched to TMDB by the card in the torrent or by name, and a position another device moved wins. Cards are written in the format LAMPA reads, so each app sees the other's torrents.
 5. **Player settings.** Open the same torrent again and the last audio track, subtitles, speed, and video scale come back. Subtitle size and delay last for the current playback only. Volume is app-wide.
 6. **Trailers.** TMDB gives a video id. Cinebox talks to YouTube InnerTube, deciphers the player JS signature, and feeds the media URLs into the same player.
 7. **Network.** TMDB and the parser can use the system proxy. If that path fails and DNS bypass is on, the host is resolved over DoH and the request goes out direct. TorrServer is never proxied.
