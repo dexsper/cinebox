@@ -1,8 +1,8 @@
 //! The wizard's centered card over a dimmed window, and its selectable rows.
 
 use egui::{
-    Align2, Area, Context, FontId, Frame, Id, Margin, Order, Rect, Sense, Stroke, Ui,
-    UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
+    Align2, Area, Context, FontId, Frame, Id, Margin, Order, Rect, Sense, Stroke, Ui, UiBuilder, WidgetInfo,
+    WidgetType, pos2, vec2,
 };
 
 use crate::platform;
@@ -18,17 +18,15 @@ const CHOICE_PAD_X: f32 = 14.0;
 
 /// Paint `add` in a card centered below the title bar, dimming and blocking
 /// everything else. `t` (0..=1) drives the fade and slide-in.
-pub fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
+pub(super) fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
     let body = body_rect(ctx, theme);
     let height_id = Id::new("cinebox-onboarding-card-h");
     let remembered = ctx.data(|d| d.get_temp::<f32>(height_id));
     let last_h = remembered.unwrap_or(body.height());
 
-    Area::new(Id::new("cinebox-onboarding"))
-        .order(Order::Foreground)
-        .fixed_pos(body.min)
-        .constrain(false)
-        .show(ctx, |ui| {
+    Area::new(Id::new("cinebox-onboarding")).order(Order::Foreground).fixed_pos(body.min).constrain(false).show(
+        ctx,
+        |ui| {
             ui.set_min_size(body.size());
             ui.set_clip_rect(body);
             ui.painter().rect_filled(body, 0.0, theme.overlay_at(t));
@@ -41,12 +39,13 @@ pub fn show(ctx: &Context, theme: &Theme, t: f32, add: impl FnOnce(&mut Ui)) {
 
             let measured = scope.response.rect.height();
             ctx.data_mut(|d| d.insert_temp(height_id, measured));
-        });
+        },
+    );
 }
 
 /// Height the card body may scroll within, leaving room for header and footer.
 #[must_use]
-pub fn max_body_height(ctx: &Context, theme: &Theme, chrome_h: f32) -> f32 {
+pub(super) fn max_body_height(ctx: &Context, theme: &Theme, chrome_h: f32) -> f32 {
     let body = body_rect(ctx, theme);
     (body.height() - WINDOW_GAP * 2.0 - chrome_h).max(160.0)
 }
@@ -89,7 +88,7 @@ fn card_frame(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {
 }
 
 /// A full-width selectable row: a title and an optional muted note under it.
-pub fn choice(ui: &mut Ui, theme: &Theme, title: &str, note: Option<&str>, selected: bool) -> bool {
+pub(super) fn choice(ui: &mut Ui, theme: &Theme, title: &str, note: Option<&str>, selected: bool) -> bool {
     let size = vec2(ui.available_width(), choice_height(note));
     let (rect, response) = ui.allocate_exact_size(size, Sense::click());
     let response = button::pointing(response);

@@ -1,5 +1,7 @@
 //! What the app asks of a video player, whichever one the platform has.
 
+use std::fmt;
+
 use cinebox_core::VideoScale;
 
 use crate::error::Error;
@@ -19,6 +21,24 @@ pub struct Media<'a> {
     pub hardware_decoding: bool,
 }
 
+impl fmt::Debug for Media<'_> {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        // A proxy URL may carry a password just like the headers.
+        let proxy = self.http_proxy.map(|_| "redacted");
+
+        formatter
+            .debug_struct("Media")
+            .field("url", &self.url)
+            .field("headers", &format_args!("[{} redacted]", self.headers.len()))
+            .field("audio_url", &self.audio_url)
+            .field("http_proxy", &proxy)
+            .field("start_seconds", &self.start_seconds)
+            .field("loudnorm", &self.loudnorm)
+            .field("hardware_decoding", &self.hardware_decoding)
+            .finish()
+    }
+}
+
 /// How the picture reaches the screen.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum VideoOutput {
@@ -32,6 +52,7 @@ pub enum VideoOutput {
 
 /// What the player lets the user change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[expect(clippy::struct_excessive_bools, reason = "independent capabilities, each read on its own")]
 pub struct Features {
     /// Volume and mute inside the app. Without it the OS or the receiver sets the level.
     pub volume: bool,
@@ -115,10 +136,18 @@ pub struct Track {
     pub selected: bool,
 }
 
+/// One chapter mark of the loaded file.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Chapter {
+    /// Seconds from the start of the file.
+    pub start: f64,
+    pub title: Option<String>,
+}
+
 /// Which decoder plays the video, for logs.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct VideoDecoder {
-    /// `no` for software, otherwise e.g. `vaapi`, `d3d11va-copy`, or a MediaCodec name.
+    /// `no` for software, otherwise e.g. `vaapi`, `d3d11va-copy`, or a `MediaCodec` name.
     pub hwdec: String,
     /// e.g. `hevc`.
     pub codec: String,
@@ -173,6 +202,12 @@ pub trait Player: Send + Sync {
     fn set_subtitle_delay(&self, seconds: f64) -> Result<(), Error>;
 
     fn tracks(&self) -> Vec<Track>;
+
+    /// In time order. Empty until the file is loaded, and on players that
+    /// cannot read chapters.
+    fn chapters(&self) -> Vec<Chapter> {
+        Vec::new()
+    }
 
     fn snapshot(&self) -> Snapshot;
 

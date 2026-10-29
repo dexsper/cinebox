@@ -27,7 +27,7 @@ static JS: LazyLock<Regex> = LazyLock::new(|| re::compile_i("\\\\u[\\da-f]{4};")
 static DEC: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&#(\\d{1,6});"));
 static HEX: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&#x([\\da-f]{1,6});"));
 
-pub fn to_utf(text: &str) -> Cow<'_, str> {
+pub(crate) fn to_utf(text: &str) -> Cow<'_, str> {
     if !text.contains('&') && !text.contains("\\u") {
         return Cow::Borrowed(text);
     }
@@ -66,15 +66,13 @@ pub fn to_utf(text: &str) -> Cow<'_, str> {
 
 fn from_char_code(digits: &str, radix: u32) -> String {
     let Ok(n) = u32::from_str_radix(digits, radix) else {
-        return format!("&#{};", digits);
+        return format!("&#{digits};");
     };
 
-    // String.fromCharCode uses 16-bit units.
+    #[expect(clippy::cast_possible_truncation, reason = "`String.fromCharCode` keeps only the low 16 bits")]
     let unit = n as u16;
 
-    char::decode_utf16(std::iter::once(unit))
-        .map(|r| r.unwrap_or('\u{FFFD}'))
-        .collect()
+    char::decode_utf16(std::iter::once(unit)).map(|r| r.unwrap_or('\u{FFFD}')).collect()
 }
 
 const ENTITIES: &[(&str, u32)] = &[

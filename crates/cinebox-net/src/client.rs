@@ -42,13 +42,8 @@ fn store_client(key: ClientKey, client: reqwest::Client) -> reqwest::Client {
     clients.entry(key).or_insert(client).clone()
 }
 
-fn base_builder(
-    connect_timeout: Duration,
-    user_agent: Option<&'static str>,
-) -> reqwest::ClientBuilder {
-    reqwest::Client::builder()
-        .connect_timeout(connect_timeout)
-        .user_agent(user_agent.unwrap_or(crate::USER_AGENT))
+fn base_builder(connect_timeout: Duration, user_agent: Option<&'static str>) -> reqwest::ClientBuilder {
+    reqwest::Client::builder().connect_timeout(connect_timeout).user_agent(user_agent.unwrap_or(crate::USER_AGENT))
 }
 
 /// Long-lived client without DoH: system proxy per `net.use_system_proxy`.
@@ -62,23 +57,14 @@ pub fn plain_client(
     connect_timeout: Duration,
     user_agent: Option<&'static str>,
 ) -> Result<reqwest::Client, reqwest::Error> {
-    let key = ClientKey {
-        net: net.clone(),
-        connect_timeout,
-        user_agent,
-        doh: false,
-    };
+    let key = ClientKey { net: net.clone(), connect_timeout, user_agent, doh: false };
 
     if let Some(client) = cached_client(&key) {
         return Ok(client);
     }
 
     let mut builder = base_builder(connect_timeout, user_agent);
-    builder = if net.use_system_proxy {
-        crate::proxy::with_system_proxy(builder)
-    } else {
-        builder.no_proxy()
-    };
+    builder = if net.use_system_proxy { crate::proxy::with_system_proxy(builder) } else { builder.no_proxy() };
 
     let client = builder.build()?;
     Ok(store_client(key, client))
@@ -90,12 +76,7 @@ async fn doh_client(
     connect_timeout: Duration,
     user_agent: Option<&'static str>,
 ) -> Result<reqwest::Client, reqwest::Error> {
-    let key = ClientKey {
-        net: net.clone(),
-        connect_timeout,
-        user_agent,
-        doh: true,
-    };
+    let key = ClientKey { net: net.clone(), connect_timeout, user_agent, doh: true };
 
     if let Some(client) = cached_client(&key) {
         return Ok(client);
@@ -162,17 +143,17 @@ async fn send_primary_then_doh<F>(
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    let error = match build(primary).send().await {
+    let primary_error = match build(primary).send().await {
         Ok(response) => return Ok(response),
         Err(error) => error,
     };
 
-    if !net.dns_bypass || !is_transport_error(&error) {
-        return Err(error);
+    if !net.dns_bypass || !is_transport_error(&primary_error) {
+        return Err(primary_error);
     }
 
-    let error = error.without_url();
-    warn!(error = %Causes(&error), "proxy request failed; retrying directly via DoH");
+    let primary_error = primary_error.without_url();
+    warn!(error = %Causes(&primary_error), "proxy request failed; retrying directly via DoH");
     let fallback = doh_client(net, connect_timeout, user_agent).await?;
 
     build(&fallback).send().await.map_err(|error| {
@@ -187,11 +168,11 @@ where
 struct Causes<'a>(&'a dyn Error);
 
 impl fmt::Display for Causes<'_> {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.0)?;
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(formatter, "{}", self.0)?;
         let mut source = self.0.source();
         while let Some(cause) = source {
-            write!(f, ": {cause}")?;
+            write!(formatter, ": {cause}")?;
             source = cause.source();
         }
 
@@ -210,18 +191,11 @@ mod tests {
     fn dead_proxy_client() -> Result<reqwest::Client, reqwest::Error> {
         let proxy = reqwest::Proxy::all("http://127.0.0.1:1")?;
 
-        reqwest::Client::builder()
-            .proxy(proxy)
-            .connect_timeout(TIMEOUT)
-            .build()
+        reqwest::Client::builder().proxy(proxy).connect_timeout(TIMEOUT).build()
     }
 
     fn proxy_net(dns_bypass: bool) -> NetConfig {
-        NetConfig {
-            use_system_proxy: true,
-            dns_bypass,
-            custom_doh_url: String::new(),
-        }
+        NetConfig { use_system_proxy: true, dns_bypass, custom_doh_url: String::new() }
     }
 
     #[tokio::test]
@@ -237,11 +211,7 @@ mod tests {
         .await;
 
         assert!(result.is_err(), "dead proxy and fallback must both fail");
-        assert_eq!(
-            calls.load(Ordering::SeqCst),
-            2,
-            "expected a second attempt through the direct DoH client"
-        );
+        assert_eq!(calls.load(Ordering::SeqCst), 2, "expected a second attempt through the direct DoH client");
         Ok(())
     }
 

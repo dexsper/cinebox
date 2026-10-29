@@ -1,21 +1,19 @@
 //! Name-search results: tabbed poster grid with TMDB page loads on scroll.
 
-use cinebox_core::{CatalogItem, UiLanguage};
-use cinebox_tmdb::{CatalogPage, SearchKind};
-use egui::{RichText, Sense, Ui, vec2};
-use egui_async::Bind;
+use cinebox_core::UiLanguage;
+use cinebox_tmdb::SearchKind;
+use egui::Ui;
 use rust_i18n::t;
 
 use super::gate;
+use super::paged::{self, PagedGrid};
 use crate::app::nav::NavAction;
 use crate::i18n::errors::UserError;
-use crate::screens::paged::apply_page;
-use crate::services::Services;
-use crate::services::jobs::{self, JobError};
+use crate::services::{Services, jobs};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::page_state::{ErrorChoice, error_page};
-use crate::widgets::{self, poster, scroll};
+use crate::widgets::{self, scroll};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum SearchTab {
@@ -48,38 +46,12 @@ impl SearchTab {
     }
 }
 
-struct TabState {
-    items: Vec<CatalogItem>,
-    next_page: u32,
-    has_more: bool,
-    loading: bool,
-    page: Bind<CatalogPage, JobError>,
-}
-
-impl Default for TabState {
-    fn default() -> Self {
-        Self {
-            items: Vec::new(),
-            next_page: 1,
-            has_more: true,
-            loading: false,
-            page: Bind::new(true),
-        }
-    }
-}
-
-impl TabState {
-    fn reset(&mut self) {
-        *self = Self::default();
-    }
-}
-
-pub struct SearchScreen {
+pub(crate) struct SearchScreen {
     query: String,
     tab: SearchTab,
-    tabs: [TabState; 3],
+    tabs: [PagedGrid; 3],
     lang: Option<UiLanguage>,
-    reset_scroll: bool,
+    is_scroll_reset: bool,
 }
 
 impl Default for SearchScreen {
@@ -87,31 +59,27 @@ impl Default for SearchScreen {
         Self {
             query: String::new(),
             tab: SearchTab::Movies,
-            tabs: std::array::from_fn(|_| TabState::default()),
+            tabs: std::array::from_fn(|_| PagedGrid::default()),
             lang: None,
-            reset_scroll: false,
+            is_scroll_reset: false,
         }
     }
 }
 
 impl SearchScreen {
-    pub fn seed(&mut self, query: String) {
-        let query = query.trim().to_owned();
+    pub(crate) fn seed(&mut self, query: &str) {
+        let query = query.trim();
         if self.query == query {
             return;
         }
 
-        self.query = query;
+        query.clone_into(&mut self.query);
         self.tab = SearchTab::Movies;
-
-        for tab in &mut self.tabs {
-            tab.reset();
-        }
-
-        self.reset_scroll = true;
+        self.reset_tabs();
+        self.is_scroll_reset = true;
     }
 
-    pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
             return gate::tmdb_key(ui, theme, problem);
         }
@@ -121,199 +89,134 @@ impl SearchScreen {
             return None;
         }
 
-        let lang = svc.settings.general.language;
-        if self.lang != Some(lang) {
-            let switched = self.lang.is_some();
-            self.lang = Some(lang);
-            if switched {
-                for tab in &mut self.tabs {
-                    tab.reset();
-                }
-                self.reset_scroll = true;
-            }
-        }
+        self.follow_language(svc.settings.general.language);
 
-        self.take_page();
-        let failed = matches!(self.current_mut().page.read(), Some(Err(_)));
-        let should_load = {
-            let tab = self.current();
-            tab.items.is_empty() && tab.has_more && !tab.loading && !failed
-        };
+        let grid = self.current_mut();
+        grid.take_page();
 
-        if should_load {
+        if grid.items.is_empty() && grid.error().is_none() {
             self.start_load(svc);
         }
 
         self.paint_tabs(ui, theme);
-        let tab = self.current();
 
-        if tab.items.is_empty() {
-            return self.empty_view(ui, theme, failed);
+        if self.current().items.is_empty() {
+            return self.empty_view(ui, theme);
         }
 
-        self.grid(ui, svc, theme, failed)
+        self.grid(ui, svc, theme)
+    }
+
+    /// The first language seen is only recorded; a later switch reloads every tab.
+    fn follow_language(&mut self, lang: UiLanguage) {
+        let previous = self.lang.replace(lang);
+        if previous.is_none() || previous == Some(lang) {
+            return;
+        }
+
+        self.reset_tabs();
+        self.is_scroll_reset = true;
     }
 
     fn paint_tabs(&mut self, ui: &mut Ui, theme: &Theme) {
         ui.add_space(8.0);
         ui.horizontal_wrapped(|ui| {
             ui.spacing_mut().item_spacing.x = 6.0;
+
             for tab in SearchTab::ALL {
-                let active = self.tab == tab;
-                if !button::label(ui, theme, tab.label().as_ref(), Opts::chip(active)) {
-                    continue;
+                if button::label(ui, theme, tab.label().as_ref(), Opts::chip(self.tab == tab)) {
+                    self.tab = tab;
                 }
-
-                if active {
-                    continue;
-                }
-
-                self.tab = tab;
             }
         });
         ui.add_space(8.0);
     }
 
-    fn grid(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        failed: bool,
-    ) -> Option<NavAction> {
-        let to_top = self.reset_scroll;
-        self.reset_scroll = false;
-
-        let mut near_end = false;
-        let mut action = None;
+    fn grid(&mut self, ui: &mut Ui, svc: &Services, theme: &Theme) -> Option<NavAction> {
         let tab = self.tab;
-        let loading = self.current().loading;
+        let is_scroll_reset = std::mem::take(&mut self.is_scroll_reset);
+        let grid = self.current_mut();
 
-        let scale = poster::card_scale(ui.available_width());
-        scroll_page(ui, tab, to_top, |ui| {
-            ui.horizontal_wrapped(|ui| {
-                ui.spacing_mut().item_spacing = vec2(12.0, 12.0);
-                for item in &self.current().items {
-                    let opened = poster::catalog_tile(
-                        ui,
-                        item,
-                        &svc.images,
-                        svc.settings.tmdb.poster_size,
-                        theme,
-                        svc.tile_marks(item.kind, item.id),
-                        scale,
-                    );
-                    if action.is_none() {
-                        action = opened;
-                    }
-                }
-            });
+        let is_loading = grid.is_loading();
+        let error = grid.error().map(|error| UserError::from(error).summary());
 
-            let sentinel_size = vec2(ui.available_width(), 1.0);
-            let (sentinel, _) = ui.allocate_exact_size(sentinel_size, Sense::hover());
-            near_end = poster::in_load_window(ui, sentinel);
+        let mut is_near_end = false;
+        let mut is_retry_clicked = false;
+        let mut action = None;
 
-            if loading {
-                ui.add_space(16.0);
-                ui.vertical_centered(|ui| {
-                    ui.add(egui::Spinner::new().size(28.0).color(theme.muted));
-                });
+        scroll::page(ui, ("search-page", tab as u8), is_scroll_reset, |ui| {
+            action = paged::tile_grid(ui, svc, theme, &grid.items);
+            is_near_end = paged::is_end_in_view(ui);
+
+            if is_loading {
+                paged::loading_row(ui, theme);
             }
 
-            if failed {
-                ui.add_space(12.0);
-                let error = UserError::from_read(self.current_mut().page.read());
-                let text = RichText::new(error.summary()).size(theme.text_small);
-                ui.label(text.color(theme.err));
-                ui.add_space(8.0);
-
-                if widgets::button::label(
-                    ui,
-                    theme,
-                    t!("common.retry").as_ref(),
-                    widgets::button::Opts::secondary(vec2(128.0, crate::widgets::combo::HEIGHT)),
-                ) {
-                    self.current_mut().page.clear();
-                    self.current_mut().loading = false;
-                }
+            if let Some(error) = &error {
+                is_retry_clicked = paged::retry_row(ui, theme, error);
             }
         });
 
-        let tab = self.current();
-        let load_more = near_end && tab.has_more && !tab.loading && !failed;
-        if load_more {
+        if is_retry_clicked {
+            grid.retry();
+        }
+
+        if is_near_end && error.is_none() {
             self.start_load(svc);
         }
 
-        if self.current().loading {
+        if self.current().is_loading() {
             ui.ctx().request_repaint();
         }
 
         action
     }
 
-    fn empty_view(&mut self, ui: &mut Ui, theme: &Theme, failed: bool) -> Option<NavAction> {
-        if failed {
-            let error = UserError::from_read(self.current_mut().page.read());
+    fn empty_view(&mut self, ui: &mut Ui, theme: &Theme) -> Option<NavAction> {
+        let grid = self.current_mut();
+
+        if let Some(error) = grid.error().map(UserError::from) {
             let choice = error_page(ui, theme, &error);
             if choice == Some(ErrorChoice::Retry) {
-                self.current_mut().page.clear();
-                self.current_mut().loading = false;
+                grid.retry();
             }
+
             return choice.and_then(ErrorChoice::nav);
         }
 
-        let waiting = self.current().loading || self.current().has_more;
-        if waiting {
-            if self.current().loading {
-                ui.ctx().request_repaint();
-            }
+        if grid.is_loading() {
+            ui.ctx().request_repaint();
+        }
+
+        if grid.is_loading() || grid.has_more() {
             widgets::page_spinner(ui, theme);
             return None;
         }
 
         widgets::page_message(ui, theme, t!("catalog.empty").as_ref(), theme.muted);
+
         None
     }
 
-    fn take_page(&mut self) {
-        let tab = self.current_mut();
-        let page = match tab.page.read() {
-            Some(Ok(page)) => page.clone(),
-            Some(Err(_)) => {
-                tab.loading = false;
-                return;
-            }
-            None => return,
-        };
-
-        tab.page.clear();
-        tab.loading = false;
-        apply_page(&mut tab.items, &mut tab.next_page, &mut tab.has_more, page);
-    }
-
     fn start_load(&mut self, svc: &Services) {
-        if self.current().loading {
-            return;
-        }
-
         let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let query = self.query.clone();
         let kind = self.tab.kind();
-        let page = self.current().next_page;
-        let tab = self.current_mut();
-        tab.loading = true;
 
-        let _ = tab
-            .page
-            .read_or_request(move || jobs::load_search_page(tmdb, query, kind, page));
+        self.current_mut().request(move |page| jobs::load_search_page(tmdb, query, kind, page));
     }
 
-    fn current(&self) -> &TabState {
+    fn reset_tabs(&mut self) {
+        for tab in &mut self.tabs {
+            tab.reset();
+        }
+    }
+
+    fn current(&self) -> &PagedGrid {
         &self.tabs[self.tab.index()]
     }
 
-    fn current_mut(&mut self) -> &mut TabState {
+    fn current_mut(&mut self) -> &mut PagedGrid {
         &mut self.tabs[self.tab.index()]
     }
 }
@@ -321,27 +224,14 @@ impl SearchScreen {
 impl super::LiveTmdb for SearchScreen {
     fn forget_live(&mut self) {
         self.lang = None;
-
-        for tab in &mut self.tabs {
-            tab.reset();
-        }
+        self.reset_tabs();
     }
-}
-
-fn scroll_page(ui: &mut Ui, tab: SearchTab, to_top: bool, add: impl FnOnce(&mut Ui)) {
-    let salt = ("search-page", tab as u8);
-    if to_top {
-        scroll::vertical_to_top(ui, salt, add);
-        return;
-    }
-
-    scroll::vertical(ui, salt, add);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use cinebox_core::{MediaKind, TmdbId};
+    use cinebox_core::{CatalogItem, MediaKind, TmdbId};
 
     fn movie(id: u32, title: &str) -> CatalogItem {
         CatalogItem {
@@ -357,25 +247,25 @@ mod tests {
     #[test]
     fn seed_resets_tabs_and_new_query() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("  dune  "));
+        screen.seed("  dune  ");
         screen.tabs[0].items.push(movie(1, "A"));
         screen.tab = SearchTab::Tv;
 
-        screen.seed(String::from("alien"));
+        screen.seed("alien");
 
         assert_eq!(screen.query, "alien");
         assert_eq!(screen.tab, SearchTab::Movies);
-        assert!(screen.tabs[0].items.is_empty());
-        assert!(screen.reset_scroll);
+        assert_eq!(screen.tabs[0].items, [] as [CatalogItem; 0]);
+        assert!(screen.is_scroll_reset);
     }
 
     #[test]
     fn same_query_does_not_reset() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("dune"));
+        screen.seed("dune");
         screen.tabs[0].items.push(movie(1, "A"));
 
-        screen.seed(String::from("dune"));
+        screen.seed("dune");
 
         assert_eq!(screen.tabs[0].items.len(), 1);
     }
@@ -383,10 +273,8 @@ mod tests {
     #[test]
     fn tabs_keep_separate_items() {
         let mut screen = SearchScreen::default();
-        screen.seed(String::from("dune"));
-        screen.tabs[SearchTab::Movies.index()]
-            .items
-            .push(movie(1, "A"));
+        screen.seed("dune");
+        screen.tabs[SearchTab::Movies.index()].items.push(movie(1, "A"));
 
         screen.tabs[SearchTab::Tv.index()].items.push(movie(2, "B"));
         assert_eq!(screen.current().items[0].title, "A");
@@ -396,5 +284,20 @@ mod tests {
 
         screen.tab = SearchTab::Movies;
         assert_eq!(screen.current().items[0].title, "A");
+    }
+
+    #[test]
+    fn language_switch_resets_tabs() {
+        let mut screen = SearchScreen::default();
+        screen.follow_language(UiLanguage::English);
+        screen.tabs[0].items.push(movie(1, "A"));
+
+        screen.follow_language(UiLanguage::English);
+        assert_eq!(screen.tabs[0].items.len(), 1);
+        assert!(!screen.is_scroll_reset);
+
+        screen.follow_language(UiLanguage::Russian);
+        assert_eq!(screen.tabs[0].items, [] as [CatalogItem; 0]);
+        assert!(screen.is_scroll_reset);
     }
 }

@@ -45,9 +45,7 @@ fn english_text_gets_smart_apostrophe_and_quotes() {
 fn nested_quotes_and_year_range_dash() {
     let input = r#"Сериал "Тьма" (нем. "Dark") выходил в 2017-2020 гг. на Netflix."#;
 
-    let expected = format!(
-        "Сериал «Тьма» (нем. «Dark») выходил в{NBSP}2017–2020{NBSP}гг. на{NBSP}Netflix."
-    );
+    let expected = format!("Сериал «Тьма» (нем. «Dark») выходил в{NBSP}2017–2020{NBSP}гг. на{NBSP}Netflix.");
 
     assert_eq!(typograph(input), expected);
 }

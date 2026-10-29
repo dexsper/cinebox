@@ -53,13 +53,38 @@ pub fn release_name(title: &str) -> String {
     names.join(" / ")
 }
 
+/// Names to look a release up by in a catalog: each name of [`release_name`], then the same name without
+/// a year at its end, since scene titles run the year into the name (`Dune Part Two 2024`). A title with
+/// dots or underscores for spaces (`Show.S02E05.1080p`) is read as spaced.
+#[must_use]
+pub fn name_candidates(title: &str) -> Vec<String> {
+    let is_scene = !title.contains(char::is_whitespace) && title.contains(['.', '_']);
+    let spaced = if is_scene { title.replace(['.', '_'], " ") } else { title.to_owned() };
+
+    let mut candidates: Vec<String> = Vec::new();
+    let names = release_name(&spaced);
+
+    for name in SEPARATOR.split(&names) {
+        let without_year = name.rsplit_once(' ').filter(|(_, last)| YEAR_SEGMENT.is_match(last));
+        let shorter = without_year.map(|(head, _)| head.trim_matches(TRIM));
+
+        for candidate in [Some(name.trim()), shorter].into_iter().flatten() {
+            let is_new = !candidates.iter().any(|known| known.eq_ignore_ascii_case(candidate));
+            if is_new && !candidate.is_empty() {
+                candidates.push(candidate.to_owned());
+            }
+        }
+    }
+
+    candidates
+}
+
 const TRIM: &[char] = &[' ', ',', ':', ';', '-', '–', '.', '+'];
 
 /// ` / ` between names; `AC/DC` stays whole.
 static SEPARATOR: LazyLock<Regex> = LazyLock::new(|| re(r"\s+/\s*|\s*/\s+"));
 
-static YEAR_SEGMENT: LazyLock<Regex> =
-    LazyLock::new(|| re(r"^(?:19|20)\d{2}(?:\s*[-–]\s*(?:19|20)?\d{2})?$"));
+static YEAR_SEGMENT: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:19|20)\d{2}(?:\s*[-–]\s*(?:19|20)?\d{2})?$"));
 
 static TAG: LazyLock<Regex> = LazyLock::new(|| {
     re(r"(?ix)^(?:
@@ -84,7 +109,8 @@ static RIP: LazyLock<Regex> = LazyLock::new(|| re(r"^(?:\w+-)*(\w+?)[Rr]ip(?:\d{
 const SOFT_TAGS: &[&str] = &["hybrid", "bd", "dvb", "dsr"];
 
 static SEASON: LazyLock<Regex> = LazyLock::new(|| {
-    re(r"(?ix)^(?:сезон\w*|серии|серия|season|s\d{1,2}(?:e\d+(?:-\d+)?)?|тв-\d+|tv)$")
+    let pattern = r"(?ix)^(?:сезон\w*|серии|серия|season|s\d{1,2}(?:e\d+(?:-\d+)?)?|тв-\d+|tv)$";
+    re(pattern)
 });
 
 /// `/ Issues 1-45 /` as a segment of its own; inside a name the word belongs to it.
@@ -142,10 +168,8 @@ fn is_rip(word: &str) -> bool {
 }
 
 /// Sources a capital or two cannot tell from a word (`CamRip`, `dvdrip`).
-const KNOWN_RIPS: &[&str] = &[
-    "dvd", "bd", "web", "webdl", "dl", "hdtv", "hd", "sat", "tv", "cam", "dcp", "vhs", "hybrid",
-    "theater",
-];
+const KNOWN_RIPS: &[&str] =
+    &["dvd", "bd", "web", "webdl", "dl", "hdtv", "hd", "sat", "tv", "cam", "dcp", "vhs", "hybrid", "theater"];
 
 fn is_season(word: &str) -> bool {
     SEASON.is_match(word.trim_matches(&[',', ';', ':'][..]))
@@ -282,7 +306,10 @@ mod tests {
             ("Оппенгеймер / Oppenheimer (2023) CamRip [H.264/1080p]", "Оппенгеймер / Oppenheimer"),
             ("Матрица / The Matrix (1999) HybridRip-AVC | D, P", "Матрица / The Matrix"),
             ("Шерлок / Sherlock [S03] (2014) WED-DLRip от Scarabey", "Шерлок / Sherlock"),
-            ("Побег из Шоушенка / The Shawshank Redemption (1994) BDRip720p от FreeHD", "Побег из Шоушенка / The Shawshank Redemption"),
+            (
+                "Побег из Шоушенка / The Shawshank Redemption (1994) BDRip720p от FreeHD",
+                "Побег из Шоушенка / The Shawshank Redemption",
+            ),
         ];
 
         for (title, name) in cases {
@@ -336,13 +363,35 @@ mod tests {
         let cases = [
             ("Road Trip (2000) BDRip 1080p", "Road Trip"),
             ("Linkin Park - Hybrid Theory (2000) DVD9", "Linkin Park - Hybrid Theory"),
-            ("Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики / Сезон: 1", "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики"),
-            ("Офис / The Office (UK) / Рождественские выпуски / Christmas Specials / 2003 / ПМ", "Офис / The Office / Рождественские выпуски / Christmas Specials"),
+            (
+                "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики / Сезон: 1",
+                "Смешарики. Пин-код. Выпуск 5. Второе солнце / Смешарики",
+            ),
+            (
+                "Офис / The Office (UK) / Рождественские выпуски / Christmas Specials / 2003 / ПМ",
+                "Офис / The Office / Рождественские выпуски / Christmas Specials",
+            ),
         ];
 
         for (title, name) in cases {
             assert_eq!(release_name(title), name, "{title}");
         }
+    }
+
+    #[test]
+    fn candidates_are_each_name_of_a_tracker_title() {
+        let title = "Дюна / Dune: Part One (Дени Вильнев) [2021, США, BDRip 1080p] Dub + Original";
+
+        assert_eq!(name_candidates(title), vec![String::from("Дюна"), String::from("Dune: Part One")]);
+        assert_eq!(name_candidates("Рус / Orig (2020)"), vec![String::from("Рус"), String::from("Orig")]);
+    }
+
+    #[test]
+    fn candidates_of_a_scene_title_drop_the_episode_and_the_year() {
+        assert_eq!(name_candidates("Show.S02E05.1080p.WEB-DL.mkv"), vec![String::from("Show")]);
+
+        let movie = name_candidates("Dune.Part.Two.2024.2160p.WEB-DL");
+        assert_eq!(movie, vec![String::from("Dune Part Two 2024"), String::from("Dune Part Two")]);
     }
 
     #[test]

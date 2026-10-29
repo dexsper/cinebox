@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-10-29
+
+### Added
+
+- Continue on other devices (TorrServer settings): torrents on your server, added from a phone, another Cinebox or LAMPA, show up in Recently watched, and playback resumes where another device stopped. Off by default; meant for a personal server.
+- Torrents Cinebox adds carry the title card, so LAMPA shows their poster and title page.
+- Skip buttons also come from the file's own chapters (Opening, Credits, Preview) where TheIntroDB has no segments.
+
+### Changed
+
+- With Continue on other devices on, a release of the title already on the server is listed even when the parser does not find it.
+- "Track timecode on server" is now "Remember position on the server"; TorrServer settings have short hints.
+- The mouse cursor hides over the video together with the player controls.
+
+### Fixed
+
+- Skip segments from TheIntroDB load again.
+- Episodes of releases numbered by streaming parts (such as Lupin S04, TMDB season 3) show their names and stills.
+- With a remote, Right from the microphone on the torrents screen goes to Settings instead of Filters.
+
 ## [0.7.2] - 2026-10-10
 
 ### Fixed
@@ -159,7 +179,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.7.2...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.8.0...HEAD
+[0.8.0]: https://github.com/dexsper/cinebox/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/dexsper/cinebox/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/dexsper/cinebox/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/dexsper/cinebox/compare/v0.6.0...v0.7.0

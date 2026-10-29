@@ -48,6 +48,7 @@ pub trait Device: Send + Sync {
     }
 }
 
+#[derive(Debug)]
 pub struct NoDevice;
 
 impl Device for NoDevice {}
@@ -63,7 +64,10 @@ pub enum Direction {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UiSound {
     /// Focus moved; `repeat` while the key is held.
-    Navigate { direction: Direction, repeat: bool },
+    Navigate {
+        direction: Direction,
+        repeat: bool,
+    },
     Activate,
 }
 

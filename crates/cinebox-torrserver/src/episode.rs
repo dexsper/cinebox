@@ -20,10 +20,7 @@ pub fn file_display_name(path: &str) -> String {
         _ => base,
     };
 
-    stem.replace(['_', '.'], " ")
-        .split_whitespace()
-        .collect::<Vec<_>>()
-        .join(" ")
+    stem.replace(['_', '.'], " ").split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
 /// Parse `S01E02`, `1x02`, `сезон 1 серия 2`, folder `Season 2`, etc.
@@ -33,11 +30,7 @@ pub fn parse_file_episode(path: &str, serial: bool) -> FileEpisode {
     let parts: Vec<&str> = normalized.split('/').collect();
     let fname = parts.last().copied().unwrap_or(path).replace('_', " ");
 
-    let folder = if parts.len() >= 2 {
-        parts[parts.len() - 2].replace('_', " ")
-    } else {
-        String::new()
-    };
+    let folder = if parts.len() >= 2 { parts[parts.len() - 2].replace('_', " ") } else { String::new() };
 
     let mut season = capture_first(&fname, &SEASON_EPISODE.0);
     let mut episode = capture_first(&fname, &SEASON_EPISODE.1);
@@ -57,10 +50,7 @@ pub fn parse_file_episode(path: &str, serial: bool) -> FileEpisode {
 }
 
 fn basename(path: &str) -> &str {
-    path.rsplit(['/', '\\'])
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(path)
+    path.rsplit(['/', '\\']).next().filter(|name| !name.is_empty()).unwrap_or(path)
 }
 
 fn leading_number(name: &str) -> Option<u32> {
@@ -161,9 +151,6 @@ mod tests {
 
     #[test]
     fn display_name_strips_ext_and_dots() {
-        assert_eq!(
-            file_display_name(r"Folder\S01E01.Pilot.Name.mkv"),
-            "S01E01 Pilot Name"
-        );
+        assert_eq!(file_display_name(r"Folder\S01E01.Pilot.Name.mkv"), "S01E01 Pilot Name");
     }
 }

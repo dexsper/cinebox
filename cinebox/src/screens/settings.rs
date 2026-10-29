@@ -15,18 +15,18 @@ use crate::services::Services;
 use crate::services::jobs::{self, JobError};
 use crate::services::settings_input::changed_value;
 use crate::theme::Theme;
+use crate::widgets::combo::Choices;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::{focus, scroll};
-
 use catalog::{CategoryId, Check, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
-    Labeled, category_row, clear_cache_row, drawer_title, error_line, field_warning,
-    multiselect_chip_row, nav_header, probe_row, secret_row, select_row, select_row_with,
-    speed_test_row, text_row, toggle_row, visibility_chip_row, wizard_row,
+    Action, Labeled, TextRow, category_row, clear_cache_row, drawer_title, error_line, field_warning,
+    multiselect_chip_row, nav_header, probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row,
+    toggle_row, visibility_chip_row, wizard_row,
 };
 use speed::SpeedMeter;
 
-pub struct SettingsScreen {
+pub(crate) struct SettingsScreen {
     overlay: Overlay,
     category: Option<CategoryId>,
     /// The category just left for the list, whose row takes the D-pad back.
@@ -56,22 +56,22 @@ impl Default for SettingsScreen {
 }
 
 impl SettingsScreen {
-    pub fn is_open(&self) -> bool {
+    pub(crate) fn is_open(&self) -> bool {
         self.overlay.is_open()
     }
 
-    pub fn toggle(&mut self, now: f64) {
+    pub(crate) fn toggle(&mut self, now: f64) {
         self.overlay.toggle(now);
     }
 
-    pub fn close(&mut self, now: f64) {
+    pub(crate) fn close(&mut self, now: f64) {
         if self.overlay.is_open() {
             self.overlay.begin_close(now);
         }
     }
 
     /// Open the drawer (if closed) straight on `page`.
-    pub fn open_at(&mut self, page: SettingsPage, now: f64) {
+    pub(crate) fn open_at(&mut self, page: SettingsPage, now: f64) {
         if !self.overlay.is_open() {
             self.overlay.begin_open(now);
         }
@@ -80,7 +80,7 @@ impl SettingsScreen {
     }
 
     /// Consume Escape / chrome Back. `true` if the drawer handled it.
-    pub fn on_back(&mut self, now: f64) -> bool {
+    pub(crate) fn on_back(&mut self, now: f64) -> bool {
         if !self.overlay.is_blocking(now) {
             return false;
         }
@@ -99,7 +99,7 @@ impl SettingsScreen {
     }
 
     /// Returns navigation the drawer asks for (the setup wizard).
-    pub fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
         let now = ui.input(|i| i.time);
         if !self.overlay.is_blocking(now) {
             self.category = None;
@@ -154,13 +154,7 @@ impl SettingsScreen {
         });
     }
 
-    fn paint_category(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        id: CategoryId,
-    ) {
+    fn paint_category(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, id: CategoryId) {
         let cat = category(id);
         if nav_header(ui, theme, crate::i18n::tr(cat.title).as_ref()) {
             self.leave_category();
@@ -184,56 +178,20 @@ impl SettingsScreen {
         }
     }
 
-    fn paint_field(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        field: &Field,
-    ) -> bool {
+    fn paint_field(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, field: &Field) -> bool {
         match field {
-            Field::Toggle {
-                label,
-                hint,
-                get,
-                set,
-            } => {
-                let mut value = get(&svc.settings);
-                let label_text = crate::i18n::tr(label);
-                let hint_text = hint.map(|key| crate::i18n::tr(key));
-                if !toggle_row(
-                    ui,
-                    theme,
-                    label_text.as_ref(),
-                    hint_text.as_deref(),
-                    &mut value,
-                ) {
-                    return false;
-                }
-                set(&mut svc.settings, value);
-                true
-            }
-            Field::Text {
-                label,
-                hint,
-                placeholder,
-                kind,
-                check,
-                get,
-                set,
-            } => {
+            Field::Toggle { .. } => paint_toggle(ui, svc, theme, field),
+            Field::Text { label, hint, placeholder, kind, check, get, set } => {
                 let value = get(&svc.settings);
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                let draft = text_row(
-                    ui,
-                    theme,
-                    label_text.as_ref(),
-                    hint_text.as_deref(),
+                let row = TextRow {
+                    label: label_text.as_ref(),
+                    hint: hint_text.as_deref(),
                     placeholder,
-                    &value,
-                    kind.text_purpose(),
-                );
+                    purpose: kind.text_purpose(),
+                };
+                let draft = text_row(ui, theme, row, &value);
                 show_check(ui, theme, *check, &value);
 
                 let Some(next) = changed_value(draft, *kind, &value) else {
@@ -242,24 +200,11 @@ impl SettingsScreen {
                 set(&mut svc.settings, next);
                 true
             }
-            Field::Secret {
-                label,
-                hint,
-                kind,
-                check,
-                get,
-                set,
-            } => {
+            Field::Secret { label, hint, kind, check, get, set } => {
                 let value = get(&svc.settings);
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                let draft = secret_row(
-                    ui,
-                    theme,
-                    label_text.as_ref(),
-                    hint_text.as_deref(),
-                    &value,
-                );
+                let draft = secret_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &value);
                 show_check(ui, theme, *check, value.expose());
 
                 let Some(next) = changed_value(draft, *kind, value.expose()) else {
@@ -268,41 +213,17 @@ impl SettingsScreen {
                 set(&mut svc.settings, SecretString::from(next));
                 true
             }
-            Field::Select {
-                id,
-                label,
-                hint,
-                which,
-            } => {
+            Field::Select { id, label, hint, which } => {
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                paint_select(
-                    ui,
-                    svc,
-                    theme,
-                    id,
-                    label_text.as_ref(),
-                    hint_text.as_deref(),
-                    which,
-                )
+                let labeled = Labeled { id, label: label_text.as_ref(), hint: hint_text.as_deref() };
+                paint_select(ui, svc, theme, labeled, which)
             }
-            Field::MultiSelect {
-                id,
-                label,
-                hint,
-                which,
-            } => {
+            Field::MultiSelect { id, label, hint, which } => {
                 let label_text = crate::i18n::tr(label);
                 let hint_text = hint.map(|key| crate::i18n::tr(key));
-                paint_multiselect(
-                    ui,
-                    svc,
-                    theme,
-                    id,
-                    label_text.as_ref(),
-                    hint_text.as_deref(),
-                    which,
-                )
+                let labeled = Labeled { id, label: label_text.as_ref(), hint: hint_text.as_deref() };
+                paint_multiselect(ui, svc, theme, labeled, which)
             }
             Field::PlayerOnly { needs, field } => {
                 if !needs(&svc.player_features()) {
@@ -314,35 +235,30 @@ impl SettingsScreen {
             Field::ProbeParser => {
                 let parser = jobs::ParserCtx::from(&svc.settings);
                 let label = t!("settings.test_parser");
-                probe_row(ui, theme, ICON_SEARCH, label.as_ref(), &mut self.parser, || {
-                    jobs::ping_parser(parser)
-                });
+                let action = Action { icon: ICON_SEARCH, label: label.as_ref() };
+                probe_row(ui, theme, action, &mut self.parser, || jobs::ping_parser(parser));
                 false
             }
             Field::ProbeTorr => {
                 let torr = jobs::TorrCtx::from(&svc.settings);
                 let label = t!("settings.ping");
-                probe_row(ui, theme, ICON_NETWORK_PING, label.as_ref(), &mut self.torr, || {
-                    jobs::ping_torrserver(torr)
-                });
+                let action = Action { icon: ICON_NETWORK_PING, label: label.as_ref() };
+                probe_row(ui, theme, action, &mut self.torr, || jobs::ping_torrserver(torr));
                 false
             }
             Field::ProbeTmdb => {
                 let tmdb = jobs::TmdbCtx::from(&svc.settings);
                 let db = svc.db.clone();
                 let label = t!("settings.check_api_key");
-                probe_row(ui, theme, ICON_KEY, label.as_ref(), &mut self.tmdb, || {
-                    jobs::ping_tmdb(tmdb, db)
-                });
+                let action = Action { icon: ICON_KEY, label: label.as_ref() };
+                probe_row(ui, theme, action, &mut self.tmdb, || jobs::ping_tmdb(tmdb, db));
                 false
             }
             Field::SpeedTest => {
                 let torr = jobs::TorrCtx::from(&svc.settings);
                 let meter = self.speed_meter.clone();
                 let ctx = ui.ctx().clone();
-                speed_test_row(ui, theme, &self.speed_meter, &mut self.speed, move || {
-                    speed::run(torr, meter, ctx)
-                });
+                speed_test_row(ui, theme, &self.speed_meter, &mut self.speed, move || speed::run(torr, meter, ctx));
                 false
             }
             Field::ClearCache => {
@@ -355,6 +271,29 @@ impl SettingsScreen {
     }
 }
 
+/// A `Field::Toggle`; `true` when it changed the settings. A forced toggle shows on and takes no clicks.
+fn paint_toggle(ui: &mut Ui, svc: &mut Services, theme: &Theme, field: &Field) -> bool {
+    let Field::Toggle { label, hint, get, set, forced } = field else { return false };
+
+    let label_text = crate::i18n::tr(label);
+    let hint_text = hint.map(|key| crate::i18n::tr(key));
+    let is_forced = forced.is_some_and(|forced| forced(&svc.settings));
+
+    if is_forced {
+        let mut shown = true;
+        ui.add_enabled_ui(false, |ui| toggle_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &mut shown));
+        return false;
+    }
+
+    let mut value = get(&svc.settings);
+    if !toggle_row(ui, theme, label_text.as_ref(), hint_text.as_deref(), &mut value) {
+        return false;
+    }
+
+    set(&mut svc.settings, value);
+    true
+}
+
 fn show_check(ui: &mut Ui, theme: &Theme, check: Option<Check>, value: &str) {
     let Some(key) = check.and_then(|check| check(value)) else {
         return;
@@ -363,42 +302,14 @@ fn show_check(ui: &mut Ui, theme: &Theme, check: Option<Check>, value: &str) {
     field_warning(ui, theme, crate::i18n::tr(key).as_ref());
 }
 
-fn paint_select(
-    ui: &mut Ui,
-    svc: &mut Services,
-    theme: &Theme,
-    id: &str,
-    label: &str,
-    hint: Option<&str>,
-    which: &SelectId,
-) -> bool {
+fn paint_select(ui: &mut Ui, svc: &mut Services, theme: &Theme, field: Labeled<'_>, which: &SelectId) -> bool {
     match which {
-        SelectId::Language => select_row_with(
-            ui,
-            theme,
-            Labeled { id, label, hint },
-            &mut svc.settings.general.language,
-            UiLanguage::ALL,
-            |lang| ui_lang_label(lang).into_owned(),
-        ),
-        SelectId::ParserKind => select_row(
-            ui,
-            theme,
-            id,
-            label,
-            hint,
-            &mut svc.settings.parser.kind,
-            ParserKind::ALL,
-        ),
-        SelectId::PosterSize => select_row(
-            ui,
-            theme,
-            id,
-            label,
-            hint,
-            &mut svc.settings.tmdb.poster_size,
-            PosterSize::ALL,
-        ),
+        SelectId::Language => {
+            let choices = Choices { options: UiLanguage::ALL, label: |lang| ui_lang_label(lang).into_owned() };
+            select_row_with(ui, theme, field, &mut svc.settings.general.language, choices)
+        }
+        SelectId::ParserKind => select_row(ui, theme, field, &mut svc.settings.parser.kind, ParserKind::ALL),
+        SelectId::PosterSize => select_row(ui, theme, field, &mut svc.settings.tmdb.poster_size, PosterSize::ALL),
     }
 }
 
@@ -406,28 +317,19 @@ fn paint_multiselect(
     ui: &mut Ui,
     svc: &mut Services,
     theme: &Theme,
-    id: &str,
-    label: &str,
-    hint: Option<&str>,
+    field: Labeled<'_>,
     which: &MultiSelectId,
 ) -> bool {
     match which {
-        MultiSelectId::Quality => multiselect_chip_row(
-            ui,
-            theme,
-            Labeled { id, label, hint },
-            &mut svc.settings.parser.default_quality,
-            QualityBand::ALL,
-            |band| band.label().to_owned(),
-        ),
-        MultiSelectId::HomeRows => visibility_chip_row(
-            ui,
-            theme,
-            Labeled { id, label, hint },
-            &mut svc.settings.general.hidden_home_rows,
-            &HomeRowId::ALL,
-            |row| crate::i18n::home_row_title(row).into_owned(),
-        ),
+        MultiSelectId::Quality => {
+            let choices = Choices { options: QualityBand::ALL, label: |band: QualityBand| band.label().to_owned() };
+            multiselect_chip_row(ui, theme, field, &mut svc.settings.parser.default_quality, choices)
+        }
+        MultiSelectId::HomeRows => {
+            let label = |row| crate::i18n::home_row_title(row).into_owned();
+            let choices = Choices { options: &HomeRowId::ALL, label };
+            visibility_chip_row(ui, theme, field, &mut svc.settings.general.hidden_home_rows, choices)
+        }
     }
 }
 

@@ -23,7 +23,14 @@ impl EnvSlot {
     pub(super) fn from_value(val: JsValue) -> Self {
         match val {
             JsValue::Function(func) => Self::WeakFn(func.downgrade()),
-            other => Self::Value(other),
+            other @ (JsValue::Undefined
+            | JsValue::Null
+            | JsValue::Bool(_)
+            | JsValue::Number(_)
+            | JsValue::String(_)
+            | JsValue::Array(_)
+            | JsValue::Object(_)
+            | JsValue::Regex(_)) => Self::Value(other),
         }
     }
 
@@ -78,14 +85,10 @@ impl JsRegex {
 
         let compiled = match builder.build() {
             Ok(re) => re,
-            Err(err) => return Err(JsError::msg(err.to_string())),
+            Err(error) => return Err(JsError::msg(error.to_string())),
         };
 
-        Ok(Self {
-            source,
-            flags,
-            compiled,
-        })
+        Ok(Self { source, flags, compiled })
     }
 
     #[must_use]
@@ -134,27 +137,28 @@ pub struct JsFunction {
     inner: Rc<JsFunctionInner>,
 }
 
+/// What a function runs: its parameters, its body and the script it came from.
+pub(super) struct FunctionCode {
+    pub argnames: Vec<String>,
+    pub body: String,
+    pub source: Rc<str>,
+}
+
 impl fmt::Debug for JsFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.inner.repr)
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.inner.repr)
     }
 }
 
 impl fmt::Display for JsFunction {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(&self.inner.repr)
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.inner.repr)
     }
 }
 
 impl JsFunction {
-    pub(super) fn new(
-        name: &str,
-        argnames: Vec<String>,
-        body: String,
-        source: Rc<str>,
-        closure: Vec<EnvRc>,
-        nested: HashMap<String, JsFunction>,
-    ) -> Self {
+    pub(super) fn new(name: &str, code: FunctionCode, closure: Vec<EnvRc>, nested: HashMap<String, Self>) -> Self {
+        let FunctionCode { argnames, body, source } = code;
         let mut repr = String::with_capacity(3 + name.len());
         repr.push_str("F<");
         repr.push_str(name);
@@ -193,7 +197,7 @@ impl JsFunction {
     }
 
     #[must_use]
-    pub(super) fn nested(&self) -> &HashMap<String, JsFunction> {
+    pub(super) fn nested(&self) -> &HashMap<String, Self> {
         &self.inner.nested
     }
 
@@ -216,7 +220,7 @@ impl JsFunction {
     ///
     /// Interpreter failures.
     pub fn call(&self, args: &[JsValue]) -> Result<JsValue, JsError> {
-        crate::jsinterp::JSInterpreter::call_extracted(self, args, None, 100)
+        crate::jsinterp::JsInterpreter::call_extracted(self, args, None, 100)
     }
 }
 
@@ -228,13 +232,13 @@ pub enum JsValue {
     Bool(bool),
     Number(f64),
     String(Rc<str>),
-    Array(Rc<RefCell<Vec<JsValue>>>),
+    Array(Rc<RefCell<Vec<Self>>>),
     Object(Rc<RefCell<ObjMap>>),
     Function(JsFunction),
     Regex(Rc<JsRegex>),
 }
 
-const _: () = assert!(std::mem::size_of::<JsValue>() <= 24);
+const _: () = assert!(size_of::<JsValue>() <= 24);
 
 impl JsValue {
     #[must_use]
@@ -253,7 +257,7 @@ impl JsValue {
     }
 
     #[must_use]
-    pub fn array(items: Vec<JsValue>) -> Self {
+    pub fn array(items: Vec<Self>) -> Self {
         Self::Array(Rc::new(RefCell::new(items)))
     }
 
@@ -315,12 +319,11 @@ impl JsValue {
     #[must_use]
     pub fn to_number(&self) -> f64 {
         match self {
-            Self::Undefined => f64::NAN,
             Self::Null | Self::Bool(false) => 0.0,
             Self::Bool(true) => 1.0,
             Self::Number(n) => *n,
             Self::String(s) => parse_js_number(s),
-            Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Regex(_) => f64::NAN,
+            Self::Undefined | Self::Array(_) | Self::Object(_) | Self::Function(_) | Self::Regex(_) => f64::NAN,
         }
     }
 
@@ -328,12 +331,11 @@ impl JsValue {
     pub fn typeof_js(&self) -> &'static str {
         match self {
             Self::Undefined => "undefined",
-            Self::Null => "object",
             Self::Bool(_) => "boolean",
             Self::Number(_) => "number",
             Self::String(_) => "string",
             Self::Function(_) => "function",
-            Self::Array(_) | Self::Object(_) | Self::Regex(_) => "object",
+            Self::Null | Self::Array(_) | Self::Object(_) | Self::Regex(_) => "object",
         }
     }
 }
@@ -400,7 +402,7 @@ impl PartialEq for JsValue {
 
 /// youtube-dl `_js_eq`.
 #[must_use]
-pub fn js_eq(a: &JsValue, b: &JsValue) -> bool {
+pub(super) fn js_eq(a: &JsValue, b: &JsValue) -> bool {
     if a.is_nan() || b.is_nan() {
         return false;
     }
@@ -442,6 +444,7 @@ pub fn js_eq(a: &JsValue, b: &JsValue) -> bool {
     }
 }
 
+#[expect(clippy::float_cmp, reason = "JS compares numbers by exact IEEE equality")]
 fn js_same_primitive(a: &JsValue, b: &JsValue) -> bool {
     match (a, b) {
         (JsValue::Undefined, JsValue::Undefined) | (JsValue::Null, JsValue::Null) => true,
@@ -456,13 +459,19 @@ fn js_primitive(v: &JsValue) -> JsValue {
     match v {
         JsValue::Array(_) => JsValue::string(v.to_js_string()),
         JsValue::Object(_) => JsValue::string("[object Object]"),
-        other => other.clone(),
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(_)
+        | JsValue::Number(_)
+        | JsValue::String(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => v.clone(),
     }
 }
 
 /// youtube-dl `_js_id_op` for `===`.
 #[must_use]
-pub fn js_strict_eq(a: &JsValue, b: &JsValue) -> bool {
+pub(super) fn js_strict_eq(a: &JsValue, b: &JsValue) -> bool {
     if a.is_nan() || b.is_nan() {
         return false;
     }
@@ -491,7 +500,7 @@ pub fn js_strict_eq(a: &JsValue, b: &JsValue) -> bool {
 
 /// youtube-dl `_js_comp_op`. Undefined always false.
 #[must_use]
-pub fn js_cmp(a: &JsValue, b: &JsValue, op: CmpOp) -> bool {
+pub(super) fn js_cmp(a: &JsValue, b: &JsValue, op: CmpOp) -> bool {
     if matches!(a, JsValue::Undefined) || matches!(b, JsValue::Undefined) {
         return false;
     }
@@ -530,16 +539,21 @@ pub fn js_cmp(a: &JsValue, b: &JsValue, op: CmpOp) -> bool {
 
 fn cmp_num(v: &JsValue) -> f64 {
     match v {
-        JsValue::Null | JsValue::Bool(false) => 0.0,
         JsValue::Bool(true) => 1.0,
         JsValue::Number(n) => *n,
         JsValue::String(s) => s.parse().unwrap_or(0.0),
-        _ => 0.0,
+        JsValue::Undefined
+        | JsValue::Null
+        | JsValue::Bool(false)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => 0.0,
     }
 }
 
 #[derive(Clone, Copy)]
-pub enum CmpOp {
+pub(super) enum CmpOp {
     Lt,
     Le,
     Gt,
@@ -548,13 +562,14 @@ pub enum CmpOp {
 
 /// youtube-dl `_js_bit_op` / `zeroise`.
 #[must_use]
-pub fn js_to_int32(v: &JsValue) -> i32 {
+#[expect(clippy::cast_possible_truncation, reason = "ToInt32 keeps the low 32 bits of the truncated value")]
+pub(super) fn js_to_int32(v: &JsValue) -> i32 {
     let n = match v {
         JsValue::Number(n) => *n,
         JsValue::Bool(true) => 1.0,
         JsValue::Bool(false) | JsValue::Null | JsValue::Undefined => 0.0,
         JsValue::String(s) => s.trim().parse::<f64>().unwrap_or(f64::NAN),
-        _ => f64::NAN,
+        JsValue::Array(_) | JsValue::Object(_) | JsValue::Function(_) | JsValue::Regex(_) => f64::NAN,
     };
 
     if !n.is_finite() {
@@ -562,17 +577,45 @@ pub fn js_to_int32(v: &JsValue) -> i32 {
     }
 
     let wrapped = n % 4_294_967_296.0;
-    wrapped as i32
+
+    // Through `i64` so that values past `i32::MAX` wrap as JS's ToInt32 does; `f64 as i32` would saturate.
+    wrapped as i64 as i32
 }
 
 #[must_use]
-pub fn js_shift_count(v: &JsValue) -> u32 {
-    (js_to_int32(v) as u32) & 31
+pub(super) fn js_shift_count(v: &JsValue) -> u32 {
+    js_to_int32(v).cast_unsigned() & 31
+}
+
+/// A length or an index as a JS number.
+#[must_use]
+#[expect(clippy::cast_precision_loss, reason = "lengths stay far below 2^53, where `f64` is exact")]
+pub(super) fn js_count(count: usize) -> JsValue {
+    JsValue::Number(count as f64)
+}
+
+/// JS `ToIntegerOrInfinity` saturated to `i64`.
+#[must_use]
+#[expect(clippy::cast_possible_truncation, reason = "`as` truncates toward zero and maps NaN to 0, as JS does")]
+pub(super) fn js_integer(n: f64) -> i64 {
+    n as i64
+}
+
+/// An index into a sequence; a negative one is 0.
+#[must_use]
+pub(super) fn js_index(n: i64) -> usize {
+    usize::try_from(n.max(0)).unwrap_or(usize::MAX)
+}
+
+/// A sequence length for signed index arithmetic.
+#[must_use]
+pub(super) fn js_signed_len(len: usize) -> i64 {
+    i64::try_from(len).unwrap_or(i64::MAX)
 }
 
 /// youtube-dl `_js_arith_op` (undefined → NaN; null/"" → 0).
 #[must_use]
-pub fn js_arith(a: &JsValue, b: &JsValue) -> (f64, f64) {
+pub(super) fn js_arith(a: &JsValue, b: &JsValue) -> (f64, f64) {
     if matches!(a, JsValue::Undefined) || matches!(b, JsValue::Undefined) {
         return (f64::NAN, f64::NAN);
     }
@@ -586,11 +629,13 @@ fn arith_one(v: &JsValue) -> f64 {
         JsValue::Bool(true) => 1.0,
         JsValue::Number(n) => *n,
         JsValue::String(s) => parse_js_number(s),
-        _ => f64::NAN,
+        JsValue::Undefined | JsValue::Array(_) | JsValue::Object(_) | JsValue::Function(_) | JsValue::Regex(_) => {
+            f64::NAN
+        }
     }
 }
 
-pub fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
     if matches!(a, JsValue::String(_)) || matches!(b, JsValue::String(_)) {
         let mut out = a.to_js_string();
         out.push_str(&b.to_js_string());
@@ -601,17 +646,17 @@ pub fn js_add(a: &JsValue, b: &JsValue) -> JsValue {
     JsValue::Number(x + y)
 }
 
-pub fn js_sub(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_sub(a: &JsValue, b: &JsValue) -> JsValue {
     let (x, y) = js_arith(a, b);
     JsValue::Number(x - y)
 }
 
-pub fn js_mul(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_mul(a: &JsValue, b: &JsValue) -> JsValue {
     let (x, y) = js_arith(a, b);
     JsValue::Number(x * y)
 }
 
-pub fn js_div(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_div(a: &JsValue, b: &JsValue) -> JsValue {
     if matches!(a, JsValue::Undefined) || matches!(b, JsValue::Undefined) {
         return JsValue::nan();
     }
@@ -633,7 +678,7 @@ pub fn js_div(a: &JsValue, b: &JsValue) -> JsValue {
     JsValue::Number(x / y)
 }
 
-pub fn js_mod(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_mod(a: &JsValue, b: &JsValue) -> JsValue {
     let (x, y) = js_arith(a, b);
 
     if y == 0.0 || x.is_nan() || y.is_nan() {
@@ -643,7 +688,7 @@ pub fn js_mod(a: &JsValue, b: &JsValue) -> JsValue {
     JsValue::Number(x % y)
 }
 
-pub fn js_exp(a: &JsValue, b: &JsValue) -> JsValue {
+pub(super) fn js_exp(a: &JsValue, b: &JsValue) -> JsValue {
     if py_falsy(b) {
         return JsValue::Number(1.0);
     }
@@ -657,6 +702,13 @@ fn py_falsy(v: &JsValue) -> bool {
         JsValue::Null | JsValue::Bool(false) => true,
         JsValue::Number(n) if *n == 0.0 => true,
         JsValue::String(s) if s.is_empty() => true,
-        _ => false,
+        JsValue::Undefined
+        | JsValue::Bool(true)
+        | JsValue::Number(_)
+        | JsValue::String(_)
+        | JsValue::Array(_)
+        | JsValue::Object(_)
+        | JsValue::Function(_)
+        | JsValue::Regex(_) => false,
     }
 }

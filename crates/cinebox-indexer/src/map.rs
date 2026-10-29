@@ -15,15 +15,24 @@ pub struct Hit {
     pub published: String,
 }
 
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "a float-to-int `as` saturates and maps NaN to 0, the clamp a byte count wants"
+)]
+fn saturating_bytes(value: f64) -> u64 {
+    value as u64
+}
+
 fn json_u64(value: &Value) -> u64 {
     match value {
         Value::Number(n) => n
             .as_u64()
             .or_else(|| n.as_i64().and_then(|v| u64::try_from(v).ok()))
-            .or_else(|| n.as_f64().map(|v| v.max(0.0) as u64))
+            .or_else(|| n.as_f64().map(saturating_bytes))
             .unwrap_or(0),
         Value::String(s) => parse_size_text(s),
-        _ => 0,
+        Value::Null | Value::Bool(_) | Value::Array(_) | Value::Object(_) => 0,
     }
 }
 
@@ -37,10 +46,7 @@ fn parse_size_text(raw: &str) -> u64 {
         return n;
     }
 
-    let compact: String = trimmed
-        .chars()
-        .filter(|ch| *ch != ',' && *ch != ' ' && *ch != '\u{00a0}')
-        .collect();
+    let compact: String = trimmed.chars().filter(|ch| *ch != ',' && *ch != ' ' && *ch != '\u{00a0}').collect();
 
     if let Ok(n) = compact.parse::<u64>() {
         return n;
@@ -50,16 +56,14 @@ fn parse_size_text(raw: &str) -> u64 {
         && n.is_finite()
         && n >= 0.0
     {
-        return n as u64;
+        return saturating_bytes(n);
     }
     parse_size_label(trimmed).unwrap_or(0)
 }
 
 fn parse_size_label(raw: &str) -> Option<u64> {
     let lower = raw.trim().to_lowercase().replace(',', ".");
-    let split = lower
-        .char_indices()
-        .find(|(_, ch)| ch.is_alphabetic() || *ch == 'б' || *ch == 'Б');
+    let split = lower.char_indices().find(|(_, ch)| ch.is_alphabetic() || *ch == 'б' || *ch == 'Б');
     let (num_part, unit_part) = match split {
         Some((index, _)) => lower.split_at(index),
         None => return None,
@@ -80,7 +84,7 @@ fn parse_size_label(raw: &str) -> Option<u64> {
     } else {
         return None;
     };
-    Some((num * mul).round() as u64)
+    Some(saturating_bytes((num * mul).round()))
 }
 
 fn row_size_bytes(raw: &Value) -> u64 {
@@ -104,19 +108,12 @@ fn publish_date(raw: &str) -> String {
         return String::new();
     };
 
-    let Some(month) = raw
-        .get(5..7)
-        .and_then(|part| part.parse::<u8>().ok())
-        .filter(|month| (1..=12).contains(month))
+    let Some(month) = raw.get(5..7).and_then(|part| part.parse::<u8>().ok()).filter(|month| (1..=12).contains(month))
     else {
         return String::new();
     };
 
-    let Some(day) = raw
-        .get(8..10)
-        .and_then(|part| part.parse::<u8>().ok())
-        .filter(|day| (1..=31).contains(day))
-    else {
+    let Some(day) = raw.get(8..10).and_then(|part| part.parse::<u8>().ok()).filter(|day| (1..=31).contains(day)) else {
         return String::new();
     };
 
@@ -146,22 +143,12 @@ pub(crate) fn hit_from_jackett(raw: &Value) -> Option<Hit> {
         title,
         tracker: text_field(raw, &["Tracker", "tracker", "TrackerId"]),
         size_bytes: row_size_bytes(raw),
-        seeders: json_u32(
-            raw.get("Seeders")
-                .or_else(|| raw.get("seeders"))
-                .unwrap_or(&Value::Null),
-        ),
+        seeders: json_u32(raw.get("Seeders").or_else(|| raw.get("seeders")).unwrap_or(&Value::Null)),
         peers: json_u32(
-            raw.get("Peers")
-                .or_else(|| raw.get("peers"))
-                .or_else(|| raw.get("Leechers"))
-                .unwrap_or(&Value::Null),
+            raw.get("Peers").or_else(|| raw.get("peers")).or_else(|| raw.get("Leechers")).unwrap_or(&Value::Null),
         ),
         magnet,
-        published: publish_date(&text_field(
-            raw,
-            &["PublishDate", "publishDate", "Published"],
-        )),
+        published: publish_date(&text_field(raw, &["PublishDate", "publishDate", "Published"])),
     })
 }
 
@@ -176,30 +163,16 @@ pub(crate) fn hit_from_prowlarr(raw: &Value) -> Option<Hit> {
         return None;
     }
 
-    let magnet = text_field(
-        raw,
-        &["magnetUrl", "MagnetUri", "downloadUrl", "guid", "Link"],
-    );
+    let magnet = text_field(raw, &["magnetUrl", "MagnetUri", "downloadUrl", "guid", "Link"]);
 
     Some(Hit {
         title,
         tracker: text_field(raw, &["indexer", "Tracker"]),
         size_bytes: row_size_bytes(raw),
-        seeders: json_u32(
-            raw.get("seeders")
-                .or_else(|| raw.get("Seeders"))
-                .unwrap_or(&Value::Null),
-        ),
-        peers: json_u32(
-            raw.get("leechers")
-                .or_else(|| raw.get("Peers"))
-                .unwrap_or(&Value::Null),
-        ),
+        seeders: json_u32(raw.get("seeders").or_else(|| raw.get("Seeders")).unwrap_or(&Value::Null)),
+        peers: json_u32(raw.get("leechers").or_else(|| raw.get("Peers")).unwrap_or(&Value::Null)),
         magnet,
-        published: publish_date(&text_field(
-            raw,
-            &["publishDate", "PublishDate", "published"],
-        )),
+        published: publish_date(&text_field(raw, &["publishDate", "PublishDate", "published"])),
     })
 }
 
@@ -218,10 +191,8 @@ mod tests {
             "Link": "magnet:?xt=urn:btih:ab",
             "PublishDate": "2021-10-22T12:00:00Z"
         });
-        let hit = match hit_from_jackett(&raw) {
-            Some(hit) => hit,
-            None => panic!("hit"),
-        };
+        let Some(hit) = hit_from_jackett(&raw) else { panic!("hit") };
+
         assert_eq!(hit.title, "Dune 2021");
         assert_eq!(hit.size_bytes, 1234);
         assert_eq!(hit.peers, 3);
@@ -241,10 +212,8 @@ mod tests {
     #[test]
     fn prowlarr_keeps_missing_protocol() {
         let raw = serde_json::json!({ "title": "Film", "indexer": "rutor" });
-        let hit = match hit_from_prowlarr(&raw) {
-            Some(hit) => hit,
-            None => panic!("hit"),
-        };
+        let Some(hit) = hit_from_prowlarr(&raw) else { panic!("hit") };
+
         assert_eq!(hit.title, "Film");
         assert_eq!(hit.tracker, "rutor");
     }
@@ -255,20 +224,16 @@ mod tests {
             "Title": "A",
             "Size": "1.5 GB"
         });
-        let hit = match hit_from_jackett(&labeled) {
-            Some(hit) => hit,
-            None => panic!("hit"),
-        };
-        assert_eq!(hit.size_bytes, 1_610_612_736);
+        let Some(labeled_hit) = hit_from_jackett(&labeled) else { panic!("hit") };
+
+        assert_eq!(labeled_hit.size_bytes, 1_610_612_736);
 
         let dotted = serde_json::json!({
             "Title": "B",
             "Size": "1572864000.0"
         });
-        let hit = match hit_from_jackett(&dotted) {
-            Some(hit) => hit,
-            None => panic!("hit"),
-        };
-        assert_eq!(hit.size_bytes, 1_572_864_000);
+        let Some(dotted_hit) = hit_from_jackett(&dotted) else { panic!("hit") };
+
+        assert_eq!(dotted_hit.size_bytes, 1_572_864_000);
     }
 }

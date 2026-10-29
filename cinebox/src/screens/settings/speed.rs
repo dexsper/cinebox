@@ -8,7 +8,7 @@ use rust_i18n::t;
 
 use crate::i18n::errors::UserError;
 use crate::services::jobs::{self, JobError, TorrCtx};
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 
 const MIN_SCALE: f64 = 20.0;
 const HEADROOM: f64 = 1.25;
@@ -17,9 +17,13 @@ const SWING_SECS: f64 = 3.5;
 const SPAN_SECS: f64 = 1.6;
 const SETTLE_FRAC: f64 = 0.003;
 const NEEDLE_RIM: f64 = 0.82;
+const GAUGE_TICKS: u8 = 24;
+/// Line segments per full arc; shorter arcs get fewer, but never below [`MIN_ARC_SEGMENTS`].
+const ARC_SEGMENTS: f32 = 48.0;
+const MIN_ARC_SEGMENTS: f32 = 8.0;
 
 #[derive(Clone)]
-pub struct SpeedMeter {
+pub(super) struct SpeedMeter {
     inner: Arc<Mutex<Live>>,
 }
 
@@ -44,33 +48,24 @@ enum Phase {
 
 impl Default for Live {
     fn default() -> Self {
-        Self {
-            phase: Phase::Idle,
-            target: 0.0,
-            shown: 0.0,
-            span: MIN_SCALE,
-            last_t: None,
-            error: None,
-        }
+        Self { phase: Phase::Idle, target: 0.0, shown: 0.0, span: MIN_SCALE, last_t: None, error: None }
     }
 }
 
 impl SpeedMeter {
-    pub fn new() -> Self {
-        Self {
-            inner: Arc::new(Mutex::new(Live::default())),
-        }
+    pub(super) fn new() -> Self {
+        Self { inner: Arc::new(Mutex::new(Live::default())) }
     }
 
     fn lock(&self) -> MutexGuard<'_, Live> {
-        self.inner.lock().unwrap_or_else(|poison| poison.into_inner())
+        self.inner.lock().unwrap_or_else(std::sync::PoisonError::into_inner)
     }
 
-    pub fn is_busy(&self) -> bool {
+    pub(super) fn is_busy(&self) -> bool {
         matches!(self.lock().phase, Phase::Connecting | Phase::Testing)
     }
 
-    pub fn needs_repaint(&self) -> bool {
+    pub(super) fn needs_repaint(&self) -> bool {
         let live = self.lock();
         if matches!(live.phase, Phase::Connecting | Phase::Testing) {
             return true;
@@ -78,12 +73,13 @@ impl SpeedMeter {
 
         let span = live.span.max(MIN_SCALE);
         let needed = needed_span(&live);
-        let catching_up = (live.shown - live.target).abs() > settle_eps(span);
-        let scaling = needed > span + settle_eps(needed);
-        catching_up || scaling
+        let is_catching_up = (live.shown - live.target).abs() > settle_eps(span);
+        let is_scaling = needed > span + settle_eps(needed);
+
+        is_catching_up || is_scaling
     }
 
-    pub fn begin(&self) {
+    pub(super) fn begin(&self) {
         let mut live = self.lock();
         live.phase = Phase::Connecting;
         live.target = 0.0;
@@ -93,7 +89,7 @@ impl SpeedMeter {
         live.error = None;
     }
 
-    pub fn on_event(&self, event: SpeedEvent) {
+    pub(super) fn on_event(&self, event: SpeedEvent) {
         let mut live = self.lock();
         match event {
             SpeedEvent::Testing => {
@@ -106,14 +102,14 @@ impl SpeedMeter {
         }
     }
 
-    pub fn finish_ok(&self, mbps: f64) {
+    pub(super) fn finish_ok(&self, mbps: f64) {
         let mut live = self.lock();
         live.target = mbps;
         live.phase = Phase::Ready;
         live.error = None;
     }
 
-    pub fn finish_err(&self, msg: String) {
+    pub(super) fn finish_err(&self, msg: String) {
         let mut live = self.lock();
         live.phase = Phase::Failed;
         live.error = Some(msg);
@@ -132,7 +128,7 @@ impl SpeedMeter {
     }
 }
 
-pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result<(), JobError> {
+pub(super) async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result<(), JobError> {
     let live = meter.clone();
     let live_ctx = ctx.clone();
     let result = jobs::speed_test(torr, move |event| {
@@ -150,7 +146,7 @@ pub async fn run(torr: TorrCtx, meter: SpeedMeter, ctx: egui::Context) -> Result
     result.map(|_| ())
 }
 
-pub fn paint(ui: &mut Ui, theme: &Theme, meter: &SpeedMeter) {
+pub(super) fn paint(ui: &mut Ui, theme: &Theme, meter: &SpeedMeter) {
     let now = ui.input(|i| i.time);
     meter.tick(now);
     let live = meter.lock().clone();
@@ -174,49 +170,28 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let center = pos2(rect.center().x, rect.top() + center_y);
     let painter = ui.painter_at(rect);
     let span = live.span.max(MIN_SCALE);
-    let t = (live.shown / span).clamp(0.0, 1.0) as f32;
+    let filled = theme::fraction(live.shown / span);
 
-    stroke_arc(
-        &painter,
-        center,
-        radius,
-        0.0,
-        1.0,
-        Stroke::new(10.0, theme.gauge_track()),
-    );
+    stroke_arc(&painter, center, radius, 1.0, Stroke::new(10.0, theme.gauge_track()));
 
-    let tick_n = 24;
-    for i in 0..=tick_n {
-        let tick_t = i as f32 / tick_n as f32;
-        let inner = gauge_pos(center, radius - 7.0, tick_t);
-        let outer = gauge_pos(center, radius + 1.0, tick_t);
+    for i in 0..=GAUGE_TICKS {
+        let tick = f32::from(i) / f32::from(GAUGE_TICKS);
+        let inner = gauge_pos(center, radius - 7.0, tick);
+        let outer = gauge_pos(center, radius + 1.0, tick);
         painter.line_segment([inner, outer], Stroke::new(1.0, theme.gauge_track()));
     }
 
-    let has_fill = t > 0.004;
+    let has_fill = filled > 0.004;
     if has_fill {
-        stroke_arc(
-            &painter,
-            center,
-            radius,
-            0.0,
-            t,
-            Stroke::new(12.0, theme.gauge_hot(t)),
-        );
+        stroke_arc(&painter, center, radius, filled, Stroke::new(12.0, theme.gauge_hot(filled)));
     }
 
     let label_font = theme.ui_font(theme.text_micro);
     let marks = scale_marks(span);
     for mark in marks {
-        let mark_t = (mark / span).clamp(0.0, 1.0) as f32;
+        let mark_t = theme::fraction(mark / span);
         let pos = gauge_pos(center, radius + 16.0, mark_t);
-        painter.text(
-            pos,
-            Align2::CENTER_CENTER,
-            format_mark(mark),
-            label_font.clone(),
-            theme.muted,
-        );
+        painter.text(pos, Align2::CENTER_CENTER, format_mark(mark), label_font.clone(), theme.muted);
     }
 
     let num_pos = pos2(center.x, center.y - radius * 0.38);
@@ -224,13 +199,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
     let status_pos = pos2(center.x, center.y + 6.0);
     let num_size = (radius * 0.42).clamp(theme.text_gauge_min, theme.text_gauge_max);
 
-    painter.text(
-        num_pos,
-        Align2::CENTER_CENTER,
-        format_mbps(live.shown),
-        theme.ui_font(num_size),
-        theme.title,
-    );
+    painter.text(num_pos, Align2::CENTER_CENTER, format_mbps(live.shown), theme.ui_font(num_size), theme.title);
     painter.text(
         unit_pos,
         Align2::CENTER_CENTER,
@@ -244,13 +213,7 @@ fn paint_gauge(ui: &mut Ui, theme: &Theme, live: &Live) {
         return;
     }
 
-    painter.text(
-        status_pos,
-        Align2::CENTER_CENTER,
-        status,
-        theme.ui_font(theme.text_small),
-        status_color,
-    );
+    painter.text(status_pos, Align2::CENTER_CENTER, status, theme.ui_font(theme.text_small), status_color);
 }
 
 fn status_line(live: &Live, theme: &Theme) -> (std::borrow::Cow<'static, str>, egui::Color32) {
@@ -263,29 +226,37 @@ fn status_line(live: &Live, theme: &Theme) -> (std::borrow::Cow<'static, str>, e
     }
 }
 
-fn stroke_arc(painter: &egui::Painter, center: Pos2, radius: f32, t0: f32, t1: f32, stroke: Stroke) {
-    if (t1 - t0).abs() < 0.001 {
+/// The arc from the left end of the dial to `end`, a share of the dial from 0 to 1.
+fn stroke_arc(painter: &egui::Painter, center: Pos2, radius: f32, end: f32, stroke: Stroke) {
+    if end.abs() < 0.001 {
         return;
     }
 
-    let span = (t1 - t0).abs();
-    let n = (span * 48.0).ceil().max(8.0) as i32;
-    let mut points = Vec::with_capacity((n + 1) as usize);
-    for i in 0..=n {
-        let t = t0 + (t1 - t0) * (i as f32 / n as f32);
-        points.push(gauge_pos(center, radius, t));
+    let segments = arc_segments(end.abs());
+    let mut points = Vec::with_capacity(usize::from(segments) + 1);
+
+    for i in 0..=segments {
+        let share = end * (f32::from(i) / f32::from(segments));
+        points.push(gauge_pos(center, radius, share));
     }
 
     painter.add(Shape::line(points, stroke));
 }
 
-fn gauge_pos(center: Pos2, radius: f32, t: f32) -> Pos2 {
-    let t = t.clamp(0.0, 1.0);
-    let angle = std::f32::consts::PI * (1.0 - t);
-    pos2(
-        center.x + radius * angle.cos(),
-        center.y - radius * angle.sin(),
-    )
+#[expect(
+    clippy::cast_possible_truncation,
+    clippy::cast_sign_loss,
+    reason = "`span` is a share of the dial, so the count stays between the minimum and `ARC_SEGMENTS`"
+)]
+fn arc_segments(span: f32) -> u8 {
+    (span * ARC_SEGMENTS).ceil().max(MIN_ARC_SEGMENTS) as u8
+}
+
+fn gauge_pos(center: Pos2, radius: f32, share: f32) -> Pos2 {
+    let share = share.clamp(0.0, 1.0);
+    let angle = std::f32::consts::PI * (1.0 - share);
+
+    pos2(center.x + radius * angle.cos(), center.y - radius * angle.sin())
 }
 
 fn grow_span(live: &mut Live, dt: f64) {
@@ -312,8 +283,8 @@ fn ease_shown(live: &mut Live, dt: f64) {
 
 fn hold_off_rim(live: &mut Live) {
     let want = needed_span(live);
-    let expanding = want > live.span + settle_eps(want);
-    if !expanding {
+    let is_expanding = want > live.span + settle_eps(want);
+    if !is_expanding {
         return;
     }
 
@@ -364,14 +335,14 @@ fn scale_max(speed: f64) -> f64 {
     nice_ceil(need)
 }
 
-fn nice_ceil(x: f64) -> f64 {
-    if !x.is_finite() || x <= 0.0 {
+fn nice_ceil(value: f64) -> f64 {
+    if !value.is_finite() || value <= 0.0 {
         return MIN_SCALE;
     }
 
-    let exp = x.log10().floor();
+    let exp = value.log10().floor();
     let base = 10.0_f64.powf(exp);
-    let mantissa = x / base;
+    let mantissa = value / base;
 
     if mantissa <= 1.0 {
         return base;
@@ -399,17 +370,17 @@ fn nice_ceil(x: f64) -> f64 {
 fn scale_marks(max: f64) -> Vec<f64> {
     let step = nice_ceil(max / 5.0);
     let mut marks = vec![0.0];
-    let mut v = step;
+    let mut mark = step;
 
     loop {
-        let at_end = v >= max - step * 0.05;
-        if at_end {
+        let is_at_end = mark >= max - step * 0.05;
+        if is_at_end {
             marks.push(max);
             return marks;
         }
 
-        marks.push(v);
-        v += step;
+        marks.push(mark);
+        mark += step;
 
         if marks.len() < 8 {
             continue;
@@ -420,43 +391,45 @@ fn scale_marks(max: f64) -> Vec<f64> {
     }
 }
 
-fn format_mbps(v: f64) -> String {
-    if !v.is_finite() || v <= 0.0 {
+fn format_mbps(mbps: f64) -> String {
+    if !mbps.is_finite() || mbps <= 0.0 {
         return "0.000".to_owned();
     }
 
-    if v < 1.0 {
-        return format!("{v:.3}");
+    if mbps < 1.0 {
+        return format!("{mbps:.3}");
     }
 
-    if v < 10.0 {
-        return format!("{v:.2}");
+    if mbps < 10.0 {
+        return format!("{mbps:.2}");
     }
 
-    if v < 100.0 {
-        return format!("{v:.1}");
+    if mbps < 100.0 {
+        return format!("{mbps:.1}");
     }
 
-    format!("{}", v.round() as i64)
+    // Rounded first: `{:.0}` alone rounds halves to even, and the dial rounds them up.
+    format!("{:.0}", mbps.round())
 }
 
-fn format_mark(v: f64) -> String {
-    if v >= 1_000_000.0 {
-        let m = v / 1_000_000.0;
-        return format!("{m:.0}M");
+fn format_mark(mark: f64) -> String {
+    if mark >= 1_000_000.0 {
+        let millions = mark / 1_000_000.0;
+        return format!("{millions:.0}M");
     }
 
-    if v >= 1000.0 {
-        let k = v / 1000.0;
-        let whole = (k - k.round()).abs() < 0.05;
-        if whole {
-            return format!("{}k", k.round() as i64);
+    if mark >= 1000.0 {
+        let thousands = mark / 1000.0;
+        let is_whole = (thousands - thousands.round()).abs() < 0.05;
+
+        if is_whole {
+            return format!("{:.0}k", thousands.round());
         }
 
-        return format!("{k:.1}k");
+        return format!("{thousands:.1}k");
     }
 
-    format!("{v:.0}")
+    format!("{mark:.0}")
 }
 
 #[cfg(test)]
@@ -476,10 +449,7 @@ mod tests {
     #[test]
     fn marks_fit_the_dial() {
         assert_eq!(scale_marks(20.0), vec![0.0, 5.0, 10.0, 15.0, 20.0]);
-        assert_eq!(
-            scale_marks(20_000.0),
-            vec![0.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]
-        );
+        assert_eq!(scale_marks(20_000.0), vec![0.0, 5_000.0, 10_000.0, 15_000.0, 20_000.0]);
     }
 
     #[test]
@@ -520,11 +490,7 @@ mod tests {
     fn scale_jump_does_not_yank_needle_to_zero() {
         let meter = SpeedMeter::new();
         meter.begin();
-        meter.on_event(SpeedEvent::Sample {
-            mbps: 16.0,
-            elapsed: Duration::from_millis(300),
-            bytes: 1,
-        });
+        meter.on_event(SpeedEvent::Sample { mbps: 16.0, elapsed: Duration::from_millis(300), bytes: 1 });
 
         let mut now = 1.0;
         for _ in 0..40 {
@@ -538,11 +504,7 @@ mod tests {
         };
         assert!(before > 0.4, "{before}");
 
-        meter.on_event(SpeedEvent::Sample {
-            mbps: 2_400.0,
-            elapsed: Duration::from_secs(1),
-            bytes: 1,
-        });
+        meter.on_event(SpeedEvent::Sample { mbps: 2_400.0, elapsed: Duration::from_secs(1), bytes: 1 });
         meter.tick(now);
 
         let after = {

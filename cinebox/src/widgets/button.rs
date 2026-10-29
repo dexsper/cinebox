@@ -3,29 +3,29 @@
 //! Never call [`egui::Button::fill`]: it freezes the background and kills hover.
 
 use egui::{
-    Atom, Color32, CursorIcon, FontId, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2,
-    WidgetInfo, WidgetType, vec2,
+    Atom, Color32, CursorIcon, FontId, Id, IntoAtoms, Response, RichText, Sense, Stroke, Ui, Vec2, WidgetInfo,
+    WidgetType, vec2,
 };
 use egui_material_icons::MaterialIcon;
 
 use crate::theme::Theme;
 use crate::widgets::focus;
 
-pub const PAD_X: f32 = 14.0;
-pub const PAD_Y: f32 = 8.0;
-pub const CHIP_MIN_W: f32 = 88.0;
+pub(crate) const PAD_X: f32 = 14.0;
+pub(crate) const PAD_Y: f32 = 8.0;
+pub(crate) const CHIP_MIN_W: f32 = 88.0;
 
-pub const CONTROL_H: f32 = 32.0;
-pub const CHIP_H: f32 = CONTROL_H;
+pub(crate) const CONTROL_H: f32 = 32.0;
+pub(crate) const CHIP_H: f32 = CONTROL_H;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Tone {
+pub(crate) enum Tone {
     Primary,
     Secondary,
 }
 
 #[derive(Clone, Copy, Debug)]
-pub struct Opts {
+pub(crate) struct Opts {
     pub tone: Tone,
     pub min_size: Vec2,
     pub selected: bool,
@@ -33,44 +33,41 @@ pub struct Opts {
     pub pad_y: f32,
 }
 
+/// Fills of a button in each interaction state, and its outline.
+#[derive(Clone, Copy)]
+struct Palette {
+    idle: Color32,
+    hover: Color32,
+    active: Color32,
+    stroke: Stroke,
+}
+
 impl Opts {
     #[must_use]
-    pub fn primary(min_size: Vec2) -> Self {
-        Self {
-            tone: Tone::Primary,
-            min_size,
-            selected: false,
-            gap: 8.0,
-            pad_y: PAD_Y,
-        }
+    pub(crate) fn primary(min_size: Vec2) -> Self {
+        Self { tone: Tone::Primary, min_size, selected: false, gap: 8.0, pad_y: PAD_Y }
     }
 
     #[must_use]
-    pub fn secondary(min_size: Vec2) -> Self {
-        Self {
-            tone: Tone::Secondary,
-            min_size,
-            selected: false,
-            gap: 6.0,
-            pad_y: PAD_Y,
-        }
+    pub(crate) fn secondary(min_size: Vec2) -> Self {
+        Self { tone: Tone::Secondary, min_size, selected: false, gap: 6.0, pad_y: PAD_Y }
     }
 
     #[must_use]
-    pub fn selected(mut self, selected: bool) -> Self {
+    pub(crate) fn selected(mut self, selected: bool) -> Self {
         self.selected = selected;
         self
     }
 
     /// Cap vertical padding so tall glyphs (material icons) cannot outgrow `min_size.y`.
     #[must_use]
-    pub fn pad_y(mut self, pad_y: f32) -> Self {
+    pub(crate) fn pad_y(mut self, pad_y: f32) -> Self {
         self.pad_y = pad_y;
         self
     }
 
     #[must_use]
-    pub fn chip(active: bool) -> Self {
+    pub(crate) fn chip(active: bool) -> Self {
         if active {
             return Self::primary(vec2(CHIP_MIN_W, CHIP_H));
         }
@@ -80,8 +77,8 @@ impl Opts {
 }
 
 /// Every clickable passes through here, so it also joins D-pad focus handling.
-pub fn pointing(response: Response) -> Response {
-    crate::widgets::focus::track(&response);
+pub(crate) fn pointing(response: Response) -> Response {
+    focus::track(&response);
     response.on_hover_cursor(CursorIcon::PointingHand)
 }
 
@@ -90,7 +87,7 @@ pub fn pointing(response: Response) -> Response {
 /// Font row heights exceed their point size (material icons especially), so
 /// the default `PAD_Y` lets a control outgrow its intended height.
 #[must_use]
-pub fn fit_pad_y(ui: &Ui, target_h: f32, fonts: &[FontId]) -> f32 {
+pub(crate) fn fit_pad_y(ui: &Ui, target_h: f32, fonts: &[FontId]) -> f32 {
     let content_h = ui.ctx().fonts_mut(|f| {
         let mut tallest = 0.0_f32;
         for font in fonts {
@@ -104,7 +101,7 @@ pub fn fit_pad_y(ui: &Ui, target_h: f32, fonts: &[FontId]) -> f32 {
 
 /// [`fit_pad_y`] for an [`icon_label`] button: icon at `text_icon`, label at `text_body`.
 #[must_use]
-pub fn icon_label_pad_y(ui: &Ui, theme: &Theme, icon: MaterialIcon, target_h: f32) -> f32 {
+pub(crate) fn icon_label_pad_y(ui: &Ui, theme: &Theme, icon: MaterialIcon, target_h: f32) -> f32 {
     let icon_font = FontId::new(theme.text_icon, icon.font_family());
     let label_font = theme.ui_font(theme.text_body);
 
@@ -113,11 +110,9 @@ pub fn icon_label_pad_y(ui: &Ui, theme: &Theme, icon: MaterialIcon, target_h: f3
 
 /// Idle vs hover fill for clickable cards (previous frame’s hover).
 #[must_use]
-pub fn fill_for_hover(ui: &Ui, id: Id, idle: Color32, hover: Color32) -> Color32 {
-    let hovered = ui
-        .ctx()
-        .read_response(id)
-        .is_some_and(|response| focus::lit(&response) || response.contains_pointer());
+pub(crate) fn fill_for_hover(ui: &Ui, id: Id, idle: Color32, hover: Color32) -> Color32 {
+    let last_frame = ui.ctx().read_response(id);
+    let hovered = last_frame.is_some_and(|response| focus::lit(&response) || response.contains_pointer());
 
     if hovered {
         return hover;
@@ -126,31 +121,31 @@ pub fn fill_for_hover(ui: &Ui, id: Id, idle: Color32, hover: Color32) -> Color32
     idle
 }
 
-pub fn click_rect(ui: &mut Ui, id: Id, rect: egui::Rect) -> Response {
+pub(crate) fn click_rect(ui: &mut Ui, id: Id, rect: egui::Rect) -> Response {
     pointing(ui.interact(rect, id, Sense::click()))
 }
 
-pub fn add<'a>(ui: &mut Ui, theme: &Theme, atoms: impl IntoAtoms<'a>, opts: Opts) -> Response {
+pub(crate) fn add<'a>(ui: &mut Ui, theme: &Theme, atoms: impl IntoAtoms<'a>, opts: Opts) -> Response {
     add_named(ui, theme, atoms, opts, None)
 }
 
-pub fn add_named<'a>(
+pub(crate) fn add_named<'a>(
     ui: &mut Ui,
     theme: &Theme,
     atoms: impl IntoAtoms<'a>,
     opts: Opts,
     name: Option<&str>,
 ) -> Response {
-    let (idle, hover, active, stroke) = palette(theme, &opts);
+    let palette = palette(theme, &opts);
 
     // Styled in place rather than in `ui.scope`: a child Ui cannot move to the parent's
     // next row, so chips in `horizontal_wrapped` would overflow instead of wrapping.
     let style = ui.style().clone();
-    paint_visuals(ui, theme, idle, hover, active, stroke, &opts);
+    paint_visuals(ui, theme, palette, &opts);
     let response = pointing(
         ui.add(
             egui::Button::new(atoms)
-                .stroke(stroke)
+                .stroke(palette.stroke)
                 .gap(opts.gap)
                 .corner_radius(theme.rounding(theme.radius_card))
                 .min_size(opts.min_size)
@@ -172,17 +167,11 @@ fn announce(response: Response, label: &str) -> Response {
     response
 }
 
-pub fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> bool {
+pub(crate) fn icon_label(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> bool {
     icon_label_response(ui, theme, icon, label, opts).clicked()
 }
 
-pub fn icon_label_response(
-    ui: &mut Ui,
-    theme: &Theme,
-    icon: MaterialIcon,
-    label: &str,
-    opts: Opts,
-) -> Response {
+pub(crate) fn icon_label_response(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, opts: Opts) -> Response {
     let fg = foreground(theme, opts.tone);
     let atoms = (
         Atom::grow(),
@@ -198,7 +187,7 @@ pub fn icon_label_response(
 const EXPAND_SECS: f32 = 0.15;
 
 /// A square icon button that widens to reveal its label while hovered.
-pub struct ExpandingIcon<'a> {
+pub(crate) struct ExpandingIcon<'a> {
     /// Keeps the animation stable when `label` changes (e.g. a list status).
     pub id_salt: &'a str,
     pub icon: MaterialIcon,
@@ -208,30 +197,17 @@ pub struct ExpandingIcon<'a> {
     pub selected: bool,
 }
 
-pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> Response {
-    let ExpandingIcon {
-        id_salt,
-        icon,
-        label,
-        height,
-        tint,
-        selected,
-    } = button;
+pub(crate) fn expanding_icon(ui: &mut Ui, theme: &Theme, button: &ExpandingIcon<'_>) -> Response {
+    let &ExpandingIcon { id_salt, icon, label, height, tint, selected } = button;
 
     let id = ui.id().with(("expanding-icon", id_salt));
-    let hovered = ui
-        .ctx()
-        .read_response(id)
-        .is_some_and(|response| response.contains_pointer() || focus::lit(&response));
+    let last_frame = ui.ctx().read_response(id);
+    let hovered = last_frame.is_some_and(|response| response.contains_pointer() || focus::lit(&response));
 
-    let t = ui
-        .ctx()
-        .animate_bool_with_time(id.with("expand"), hovered, EXPAND_SECS);
+    let t = ui.ctx().animate_bool_with_time(id.with("expand"), hovered, EXPAND_SECS);
 
     let label_font = theme.emphasis_font(theme.text_subtitle);
-    let galley = ui
-        .painter()
-        .layout_no_wrap(label.to_owned(), label_font, theme.title);
+    let galley = ui.painter().layout_no_wrap(label.to_owned(), label_font, theme.title);
 
     let expanded_w = height + galley.size().x + PAD_X;
     let width = egui::lerp(height..=expanded_w, t);
@@ -242,18 +218,18 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
     response.widget_info(|| WidgetInfo::labeled(WidgetType::Button, enabled, label));
 
     let opts = Opts::secondary(Vec2::ZERO).selected(selected);
-    let (idle, hover, active, stroke) = palette(theme, &opts);
+    let palette = palette(theme, &opts);
     let fill = if response.is_pointer_button_down_on() {
-        active
+        palette.active
     } else if focus::lit(&response) {
-        hover
+        palette.hover
     } else {
-        idle
+        palette.idle
     };
 
     let radius = theme.rounding(theme.radius_card);
     let painter = ui.painter();
-    painter.rect(rect, radius, fill, stroke, egui::StrokeKind::Inside);
+    painter.rect(rect, radius, fill, palette.stroke, egui::StrokeKind::Inside);
     painter.text(
         egui::pos2(rect.left() + height * 0.5, rect.center().y),
         egui::Align2::CENTER_CENTER,
@@ -263,30 +239,16 @@ pub fn expanding_icon(ui: &mut Ui, theme: &Theme, button: ExpandingIcon<'_>) -> 
     );
 
     if t > 0.0 {
-        let text_pos = egui::pos2(
-            rect.left() + height - PAD_X * 0.25,
-            rect.center().y - galley.size().y * 0.5,
-        );
-        painter.with_clip_rect(rect.shrink(1.0)).galley(
-            text_pos,
-            galley,
-            theme.title.gamma_multiply(t),
-        );
+        let text_pos = egui::pos2(rect.left() + height - PAD_X * 0.25, rect.center().y - galley.size().y * 0.5);
+        painter.with_clip_rect(rect.shrink(1.0)).galley(text_pos, galley, theme.title.gamma_multiply(t));
     }
 
     response
 }
 
-pub fn label(ui: &mut Ui, theme: &Theme, text: &str, opts: Opts) -> bool {
+pub(crate) fn label(ui: &mut Ui, theme: &Theme, text: &str, opts: Opts) -> bool {
     let fg = foreground(theme, opts.tone);
-    add_named(
-        ui,
-        theme,
-        RichText::new(text).size(theme.text_body).color(fg),
-        opts,
-        Some(text),
-    )
-    .clicked()
+    add_named(ui, theme, RichText::new(text).size(theme.text_body).color(fg), opts, Some(text)).clicked()
 }
 
 fn foreground(theme: &Theme, tone: Tone) -> Color32 {
@@ -296,59 +258,31 @@ fn foreground(theme: &Theme, tone: Tone) -> Color32 {
     }
 }
 
-fn palette(theme: &Theme, opts: &Opts) -> (Color32, Color32, Color32, Stroke) {
+fn palette(theme: &Theme, opts: &Opts) -> Palette {
     match opts.tone {
         Tone::Primary => primary_palette(theme, opts.selected),
         Tone::Secondary => secondary_palette(theme, opts.selected),
     }
 }
 
-fn primary_palette(theme: &Theme, selected: bool) -> (Color32, Color32, Color32, Stroke) {
-    if selected {
-        return (
-            theme.btn_primary_hover,
-            theme.btn_primary_hover,
-            theme.btn_primary_hover,
-            Stroke::NONE,
-        );
-    }
+fn primary_palette(theme: &Theme, selected: bool) -> Palette {
+    let idle = if selected { theme.btn_primary_hover } else { theme.btn_primary_bg };
 
-    (
-        theme.btn_primary_bg,
-        theme.btn_primary_hover,
-        theme.btn_primary_hover,
-        Stroke::NONE,
-    )
+    Palette { idle, hover: theme.btn_primary_hover, active: theme.btn_primary_hover, stroke: Stroke::NONE }
 }
 
-fn secondary_palette(theme: &Theme, selected: bool) -> (Color32, Color32, Color32, Stroke) {
+fn secondary_palette(theme: &Theme, selected: bool) -> Palette {
     let stroke = Stroke::new(1.0, theme.window_edge);
     if selected {
-        return (
-            theme.widget_hover,
-            theme.widget_active,
-            theme.widget_active,
-            stroke,
-        );
+        return Palette { idle: theme.widget_hover, hover: theme.widget_active, active: theme.widget_active, stroke };
     }
 
-    (
-        theme.input_bg,
-        theme.widget_hover,
-        theme.widget_active,
-        stroke,
-    )
+    Palette { idle: theme.input_bg, hover: theme.widget_hover, active: theme.widget_active, stroke }
 }
 
-fn paint_visuals(
-    ui: &mut Ui,
-    theme: &Theme,
-    idle: Color32,
-    hover: Color32,
-    active: Color32,
-    stroke: Stroke,
-    opts: &Opts,
-) {
+fn paint_visuals(ui: &mut Ui, theme: &Theme, palette: Palette, opts: &Opts) {
+    let Palette { idle, hover, active, stroke } = palette;
+
     ui.spacing_mut().button_padding = vec2(PAD_X, opts.pad_y);
     if opts.min_size.y > 0.0 {
         ui.spacing_mut().interact_size.y = opts.min_size.y;

@@ -2,10 +2,11 @@ use std::borrow::Cow;
 use std::collections::HashSet;
 use std::sync::LazyLock;
 
+use crate::PRIVATE;
 use crate::engine::{Context, Typograf};
 use crate::re;
-use crate::PRIVATE;
 
+#[expect(clippy::unreadable_literal, reason = "dialing codes are digit strings, not quantities to group in thousands")]
 static EXCEPTIONS: LazyLock<HashSet<u32>> = LazyLock::new(|| {
     let mut set = HashSet::new();
     let items: &[Exception] = &[
@@ -147,13 +148,11 @@ enum Exception {
     R(u32, u32),
 }
 
-pub fn phone_number<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn phone_number<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile_m(&format!(
-            "(^|,| |{PRIVATE})(\\+7[\\d\\(\\) \u{00A0}-]{{10,18}})(?=,|;|{PRIVATE}|$)"
-        ))
+        re::compile_m(&format!("(^|,| |{PRIVATE})(\\+7[\\d\\(\\) \u{00A0}-]{{10,18}})(?=,|;|{PRIVATE}|$)"))
     });
-    
+
     static LABELED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
         re::compile_i(
             "(^|[^а-яё])([☎☏✆📠📞📱]|т\\.|тел\\.|ф\\.|моб\\.|факс|сотовый|мобильный|телефон)(:?\\s*?)([+\\d(][\\d \u{00A0}\\-()]{3,}\\d)",
@@ -163,11 +162,7 @@ pub fn phone_number<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Co
     let step = re::replace_all_fn(&RE, text, |caps| {
         let buf = clear_phone(&caps[2]);
 
-        if buf.chars().count() == 12 {
-            format!("{}{}", &caps[1], phone(&buf))
-        } else {
-            caps[0].to_string()
-        }
+        if buf.chars().count() == 12 { format!("{}{}", &caps[1], phone(&buf)) } else { caps[0].to_string() }
     });
 
     re::chain_fn(&LABELED, step, |caps| {
@@ -267,11 +262,7 @@ fn prepare_code(code: &str) -> String {
     let without_brackets = (num_code > 900 && num_code <= 999) || num_code == 495 || num_code == 499 || num_code == 800;
     let joined = parts.join("-");
 
-    if without_brackets {
-        joined
-    } else {
-        format!("({joined})")
-    }
+    if without_brackets { joined } else { format!("({joined})") }
 }
 
 fn phone_blocks(num: &str) -> String {

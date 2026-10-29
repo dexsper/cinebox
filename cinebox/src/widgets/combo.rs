@@ -1,4 +1,4 @@
-//! ComboBox chrome shared by settings and torrent filters.
+//! `ComboBox` chrome shared by settings and torrent filters.
 
 use egui::style::StyleModifier;
 use egui::{Color32, ComboBox, CursorIcon, Margin, RichText, Stroke, TextStyle, Ui, vec2};
@@ -8,9 +8,15 @@ use super::button::{self, PAD_X, PAD_Y};
 use crate::theme::Theme;
 use crate::widgets::focus;
 
-pub const HEIGHT: f32 = super::button::CONTROL_H;
+pub(crate) const HEIGHT: f32 = button::CONTROL_H;
 
-pub fn apply_visuals(ui: &mut Ui, theme: &Theme) {
+/// What a dropdown offers and how each option reads.
+pub(crate) struct Choices<'a, T, L> {
+    pub options: &'a [T],
+    pub label: L,
+}
+
+pub(crate) fn apply_visuals(ui: &mut Ui, theme: &Theme) {
     ui.spacing_mut().interact_size.y = HEIGHT;
     ui.spacing_mut().button_padding = vec2(PAD_X, pad_y(ui));
     ui.style_mut().interaction.selectable_labels = false;
@@ -48,7 +54,7 @@ fn pad_y(ui: &Ui) -> f32 {
     ((HEIGHT - content_h) / 2.0).clamp(0.0, PAD_Y)
 }
 
-pub fn popup_style(theme: &Theme) -> StyleModifier {
+pub(crate) fn popup_style(theme: &Theme) -> StyleModifier {
     let fill = theme.panel_elevated;
     let hover = theme.widget_hover;
 
@@ -69,24 +75,24 @@ pub fn popup_style(theme: &Theme) -> StyleModifier {
     })
 }
 
-pub fn show<T: Copy + PartialEq + std::fmt::Display>(
+pub(crate) fn show<T: Copy + PartialEq + std::fmt::Display>(
     ui: &mut Ui,
     theme: &Theme,
     id: &str,
     value: &mut T,
     options: &[T],
 ) -> bool {
-    show_with(ui, theme, id, value, options, |opt| opt.to_string())
+    show_with(ui, theme, id, value, Choices { options, label: |opt: T| opt.to_string() })
 }
 
-pub fn show_with<T: Copy + PartialEq>(
+pub(crate) fn show_with<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     id: &str,
     value: &mut T,
-    options: &[T],
-    label: impl Fn(T) -> String,
+    choices: Choices<'_, T, impl Fn(T) -> String>,
 ) -> bool {
+    let Choices { options, label } = choices;
     let mut changed = false;
     let width = ui.available_width();
     let selected = RichText::new(label(*value)).color(theme.label);

@@ -5,14 +5,14 @@ use crate::engine::{Context, Typograf};
 use crate::quote;
 use crate::re;
 
-pub fn apostrophe<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn apostrophe<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     let char = ctx.chars();
     let re = re::cached_i(&format!("([{char}])'([{char}])"));
 
     re::replace_all(&re, text, "$1’$2")
 }
 
-pub fn del_double<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn del_double<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static COMMA: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^,]),,(?!,)"));
     static COLON: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^:]):{2}(?!:)"));
     static DOT: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^!?.])\\.\\.(?!\\.)"));
@@ -27,18 +27,18 @@ pub fn del_double<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<
     re::chain(&Q, out, "$1?")
 }
 
-pub fn hellip<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
-    if ctx.primary_locale() == "ru" {
-        static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^.])\\.{3,4}(?=[^.]|$)"));
+pub(super) fn hellip<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+    static RU: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^.])\\.{3,4}(?=[^.]|$)"));
+    static OTHER: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^.])\\.{3}(\\.?)(?=[^.]|$)"));
 
-        return re::replace_all(&RE, text, "$1…");
+    if ctx.primary_locale() == "ru" {
+        return re::replace_all(&RU, text, "$1…");
     }
 
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(^|[^.])\\.{3}(\\.?)(?=[^.]|$)"));
-    re::replace_all(&RE, text, "$1…$2")
+    re::replace_all(&OTHER, text, "$1…$2")
 }
 
-pub fn quote_rule<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn quote_rule<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     let Some(settings) = ctx.quote() else {
         return Cow::Borrowed(text);
     };
@@ -46,7 +46,7 @@ pub fn quote_rule<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'
     quote::process(text, settings, ctx)
 }
 
-pub fn quote_link<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn quote_link<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     let Some(quotes) = ctx.quote() else {
         return Cow::Borrowed(text);
     };

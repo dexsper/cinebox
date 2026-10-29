@@ -11,21 +11,21 @@ use crate::section::Section;
 use crate::settings::{PosterSize, VideoScale};
 
 /// TMDB content older than this must be dropped (API ToS).
-pub const MAX_AGE: Duration = Duration::from_secs(183 * 24 * 3600);
+pub const MAX_AGE: Duration = Duration::from_hours(4392);
 /// Home `now_playing` / `trending/day`.
-pub const HOME_FAST_TTL: Duration = Duration::from_secs(3 * 3600);
+pub const HOME_FAST_TTL: Duration = Duration::from_hours(3);
 /// Home popular / top rated / trending week.
-pub const HOME_SLOW_TTL: Duration = Duration::from_secs(18 * 3600);
+pub const HOME_SLOW_TTL: Duration = Duration::from_hours(18);
 /// Media / person / in-progress TV seasons.
-pub const DETAILS_TTL: Duration = Duration::from_secs(24 * 3600);
+pub const DETAILS_TTL: Duration = Duration::from_hours(24);
 /// Released movie details.
-pub const DETAILS_STABLE_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
+pub(super) const DETAILS_STABLE_TTL: Duration = Duration::from_hours(168);
 /// Season episode lists.
-pub const SEASON_TTL: Duration = Duration::from_secs(24 * 3600);
+pub const SEASON_TTL: Duration = Duration::from_hours(24);
 /// `/configuration` API-key probe.
-pub const CONFIG_TTL: Duration = Duration::from_secs(7 * 24 * 3600);
+pub const CONFIG_TTL: Duration = Duration::from_hours(168);
 
-pub(crate) const IMAGE_GC_GRACE: Duration = Duration::from_secs(5 * 60);
+pub(crate) const IMAGE_GC_GRACE: Duration = Duration::from_mins(5);
 pub(crate) const IMAGE_BUDGET_BYTES: i64 = 512 * 1024 * 1024;
 
 pub const KIND_HOME: &str = "home";
@@ -37,7 +37,7 @@ pub const KIND_CONFIG: &str = "config";
 /// Cache kind for skip-segment API responses.
 pub const KIND_SKIP: &str = "skip";
 /// TTL for cached skip-segment responses (~30 days).
-pub const SKIP_SEGMENTS_TTL: Duration = Duration::from_secs(30 * 24 * 3600);
+pub const SKIP_SEGMENTS_TTL: Duration = Duration::from_hours(720);
 
 /// Home shelf and query cap for local watch history.
 pub const RECENT_ROW_LIMIT: usize = 20;
@@ -45,6 +45,8 @@ pub const RECENT_ROW_LIMIT: usize = 20;
 pub const RECENT_RELEASE_LIMIT: usize = 3;
 /// Last catalog searches kept in the header history.
 pub const SEARCH_HISTORY_LIMIT: usize = 10;
+/// A TorrServer torrent TMDB had no title for is looked up again after this.
+pub(crate) const MATCH_RETRY: Duration = Duration::from_hours(24);
 
 /// Per-torrent playback preferences, stored as one JSON payload by hash.
 ///
@@ -61,12 +63,7 @@ pub struct TorrentPlaybackPrefs {
 
 impl Default for TorrentPlaybackPrefs {
     fn default() -> Self {
-        Self {
-            scale: VideoScale::default(),
-            speed: 1.0,
-            aid: -1,
-            sid: -1,
-        }
+        Self { scale: VideoScale::default(), speed: 1.0, aid: -1, sid: -1 }
     }
 }
 
@@ -107,6 +104,33 @@ impl WatchHistoryEntry {
     }
 }
 
+/// What this device knows about the TMDB title of a TorrServer torrent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ServerMatch {
+    /// Never looked up, or the last miss is older than [`MATCH_RETRY`].
+    Unknown,
+    /// Looked up within [`MATCH_RETRY`] and not found.
+    NotFound,
+    Found(MediaKind, TmdbId),
+}
+
+/// Identity of one `tmdb_cache` row. `language` is empty for language-neutral rows.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct CacheKey<'a> {
+    pub language: &'a str,
+    pub kind: &'a str,
+    pub id: &'a str,
+}
+
+/// Identity of one watch-timeline row. `season` and `episode` are `None` for a movie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WatchKey {
+    pub kind: MediaKind,
+    pub id: TmdbId,
+    pub season: Option<u32>,
+    pub episode: Option<u32>,
+}
+
 /// Cached JSON plus when it was fetched (unix seconds).
 #[derive(Debug, Clone)]
 pub struct CacheHit<T> {
@@ -127,13 +151,12 @@ pub(crate) fn episode_key(value: Option<u32>) -> i64 {
 }
 
 pub(crate) fn unix_now() -> i64 {
-    i64::try_from(
-        SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_secs())
-            .unwrap_or(0),
-    )
-    .unwrap_or(0)
+    i64::try_from(SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs())).unwrap_or(0)
+}
+
+#[expect(clippy::cast_possible_truncation, reason = "a vote average of 0 to 10 fits `f32`")]
+pub(crate) fn vote_from_real(vote: f64) -> f32 {
+    vote as f32
 }
 
 pub(crate) fn age_secs(fetched_at: i64) -> i64 {
@@ -145,7 +168,14 @@ pub(crate) fn age_secs(fetched_at: i64) -> i64 {
 pub const fn home_ttl(id: HomeRowId) -> Duration {
     match id {
         HomeRowId::NowPlaying | HomeRowId::TrendingDay => HOME_FAST_TTL,
-        _ => HOME_SLOW_TTL,
+        HomeRowId::RecentlyWatched
+        | HomeRowId::Watching
+        | HomeRowId::Planned
+        | HomeRowId::TrendingWeek
+        | HomeRowId::PopularMovies
+        | HomeRowId::PopularTv
+        | HomeRowId::TopRatedMovies
+        | HomeRowId::TopRatedTv => HOME_SLOW_TTL,
     }
 }
 
@@ -274,10 +304,7 @@ mod tests {
     fn unreleased_movie_and_tv_get_short_ttl() {
         assert_eq!(media_ttl(&details(MediaKind::Movie, None)), DETAILS_TTL);
         assert_eq!(media_ttl(&details(MediaKind::Movie, Some(""))), DETAILS_TTL);
-        assert_eq!(
-            media_ttl(&details(MediaKind::Tv, Some("2024-01-01"))),
-            DETAILS_TTL
-        );
+        assert_eq!(media_ttl(&details(MediaKind::Tv, Some("2024-01-01"))), DETAILS_TTL);
     }
 
     #[test]
@@ -291,16 +318,10 @@ mod tests {
     #[test]
     fn cache_hit_freshness_uses_ttl() {
         let now = unix_now();
-        let fresh = CacheHit {
-            value: (),
-            fetched_at: now,
-        };
+        let fresh = CacheHit { value: (), fetched_at: now };
 
         assert!(fresh.is_fresh(Duration::from_secs(60)));
-        let stale = CacheHit {
-            value: (),
-            fetched_at: now - 120,
-        };
+        let stale = CacheHit { value: (), fetched_at: now - 120 };
 
         assert!(!stale.is_fresh(Duration::from_secs(60)));
     }

@@ -6,33 +6,29 @@ use egui::{RichText, Ui};
 
 use super::gate;
 use crate::app::nav::NavAction;
-use crate::screens::paged::PagedGrid;
+use crate::screens::paged::{GridView, PagedGrid, Source};
 use crate::services::Services;
 use crate::services::jobs;
 use crate::theme::Theme;
 
 #[derive(Default)]
-pub struct CategoryScreen {
+pub(crate) struct CategoryScreen {
     id: Option<ShelfId>,
     grid: PagedGrid,
     lang: Option<UiLanguage>,
-    reset_scroll: bool,
+    is_scroll_reset: bool,
 }
 
 impl CategoryScreen {
-    pub fn seed(&mut self, id: ShelfId, items: Vec<CatalogItem>) {
+    pub(crate) fn seed(&mut self, id: ShelfId, items: Vec<CatalogItem>) {
+        let source = if id.is_remote() { Source::Remote } else { Source::Local };
+
         self.id = Some(id);
-        self.grid = PagedGrid::seeded(items, id.is_remote());
-        self.reset_scroll = true;
+        self.grid = PagedGrid::seeded(items, source);
+        self.is_scroll_reset = true;
     }
 
-    pub fn ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        id: ShelfId,
-    ) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, id: ShelfId) -> Option<NavAction> {
         if id.is_remote() {
             if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
                 return gate::tmdb_key(ui, theme, problem);
@@ -49,21 +45,23 @@ impl CategoryScreen {
         }
         self.lang = Some(lang);
 
-        let to_top = std::mem::take(&mut self.reset_scroll);
-        let out = self.grid.ui(ui, svc, theme, ("category-page", id.as_key()), to_top, |ui| {
-            ui.add_space(8.0);
-            ui.label(
+        let header = |header_ui: &mut Ui| {
+            header_ui.add_space(8.0);
+            header_ui.label(
                 RichText::new(crate::i18n::shelf_title(id).as_ref())
                     .font(theme.title_font(theme.text_heading))
                     .color(theme.title),
             );
-            ui.add_space(12.0);
-        });
+            header_ui.add_space(12.0);
+        };
 
-        if out.wants_page {
+        let is_scroll_reset = std::mem::take(&mut self.is_scroll_reset);
+        let view = GridView { scroll_salt: ("category-page", id.as_key()), is_scroll_reset, header };
+        let out = self.grid.ui(ui, svc, theme, view);
+
+        if out.is_page_wanted {
             let tmdb = jobs::TmdbCtx::from(&svc.settings);
-            self.grid
-                .request(move |page| jobs::load_catalog_page(tmdb, id, page));
+            self.grid.request(move |page| jobs::load_catalog_page(tmdb, id, page));
         }
 
         out.action

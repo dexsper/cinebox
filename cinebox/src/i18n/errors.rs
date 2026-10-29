@@ -6,7 +6,7 @@ use crate::app::nav::SettingsPage;
 use crate::services::jobs::JobError;
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct UserError {
+pub(crate) struct UserError {
     pub title: String,
     pub hint: Option<String>,
     /// Settings page that can fix the problem.
@@ -16,38 +16,32 @@ pub struct UserError {
 }
 
 impl UserError {
-    pub fn new(title: impl Into<String>) -> Self {
-        Self {
-            title: title.into(),
-            hint: None,
-            fix: None,
-            detail: None,
-        }
+    pub(crate) fn new(title: impl Into<String>) -> Self {
+        Self { title: title.into(), hint: None, fix: None, detail: None }
     }
 
     #[must_use]
-    pub fn hint(mut self, hint: impl Into<String>) -> Self {
+    pub(crate) fn hint(mut self, hint: impl Into<String>) -> Self {
         self.hint = Some(hint.into());
         self
     }
 
     #[must_use]
-    pub fn fix(mut self, page: SettingsPage) -> Self {
+    pub(crate) fn fix(mut self, page: SettingsPage) -> Self {
         self.fix = Some(page);
         self
     }
 
     /// The failure a job binding settled with; a generic one if it did not fail.
-    pub fn from_read<T>(read: &Option<Result<T, JobError>>) -> Self {
-        match read {
-            Some(Err(error)) => Self::from(error),
-            _ => Self::new(t!("common.failed")),
-        }
+    pub(crate) fn from_read<T>(read: Option<&Result<T, JobError>>) -> Self {
+        let Some(Err(error)) = read else { return Self::new(t!("common.failed")) };
+
+        Self::from(error)
     }
 
     /// Title and hint on one line, for toasts and probe results.
     #[must_use]
-    pub fn summary(&self) -> String {
+    pub(crate) fn summary(&self) -> String {
         match &self.hint {
             Some(hint) => format!("{}. {hint}", self.title),
             None => self.title.clone(),
@@ -62,8 +56,8 @@ impl From<&JobError> for UserError {
             JobError::Indexer(error) => indexer(error),
             JobError::TorrServer(error) => torrserver(error),
             JobError::Youtube(error) => youtube(error),
-            JobError::Skip(_) => UserError::new(t!("error.skip")),
-            JobError::Store(_) => UserError::new(t!("error.store")),
+            JobError::Skip(_) => Self::new(t!("error.skip")),
+            JobError::Store(_) => Self::new(t!("error.store")),
         };
 
         user.detail = Some(error_chain(error));
@@ -80,8 +74,7 @@ fn tmdb(error: &cinebox_tmdb::Error) -> UserError {
         Error::Unauthorized => advised("tmdb_rejected").fix(SettingsPage::Tmdb),
         Error::Request(_) => advised("tmdb_offline").fix(SettingsPage::General),
         Error::Http(code) => http_status("TMDB", *code),
-        Error::UnsupportedKind | Error::IncompletePayload => unexpected("TMDB"),
-        Error::Json(_) => unexpected("TMDB"),
+        Error::UnsupportedKind | Error::IncompletePayload | Error::Json(_) => unexpected("TMDB"),
     }
 }
 
@@ -125,7 +118,13 @@ fn youtube(error: &cinebox_youtube::Error) -> UserError {
     match error {
         Error::Request(_) | Error::Http(_) => brief("youtube_offline"),
         Error::Unplayable | Error::NoFormats => brief("youtube_unplayable"),
-        _ => brief("youtube_failed"),
+        Error::InvalidUrl
+        | Error::Json(_)
+        | Error::BadCipher
+        | Error::NoPlayer
+        | Error::BadSig
+        | Error::BadNsig
+        | Error::Js(_) => brief("youtube_failed"),
     }
 }
 
@@ -163,13 +162,13 @@ fn error_chain(error: &dyn std::error::Error) -> String {
     let mut out = error.to_string();
     let mut cause = error.source();
 
-    while let Some(error) = cause {
-        let text = error.to_string();
+    while let Some(source) = cause {
+        let text = source.to_string();
         if !out.contains(&text) {
             out.push_str(": ");
             out.push_str(&text);
         }
-        cause = error.source();
+        cause = source.source();
     }
 
     out

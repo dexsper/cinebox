@@ -12,18 +12,18 @@ use crate::theme::Theme;
 use crate::widgets::button::Tone;
 use crate::widgets::page_state::{PageAction, PageState, page_state};
 
-pub const TMDB_KEY_URL: &str = "https://www.themoviedb.org/settings/api";
+pub(crate) const TMDB_KEY_URL: &str = "https://www.themoviedb.org/settings/api";
 
 /// Why the catalog cannot load with the current TMDB key.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum TmdbKeyProblem {
+pub(crate) enum TmdbKeyProblem {
     Missing,
     AccessToken,
     BadFormat,
 }
 
 #[must_use]
-pub fn tmdb_key_problem(settings: &Settings) -> Option<TmdbKeyProblem> {
+pub(crate) fn tmdb_key_problem(settings: &Settings) -> Option<TmdbKeyProblem> {
     let key = settings.tmdb.api_key.expose();
     if key.is_empty() {
         return Some(TmdbKeyProblem::Missing);
@@ -42,7 +42,7 @@ enum TmdbChoice {
 }
 
 /// Explains what is wrong with the key and links to the fix.
-pub fn tmdb_key(ui: &mut Ui, theme: &Theme, problem: TmdbKeyProblem) -> Option<NavAction> {
+pub(crate) fn tmdb_key(ui: &mut Ui, theme: &Theme, problem: TmdbKeyProblem) -> Option<NavAction> {
     let (title, body) = match problem {
         TmdbKeyProblem::Missing => ("gate.tmdb_title", "gate.tmdb_body"),
         TmdbKeyProblem::AccessToken => ("error.tmdb_access_token", "settings.tmdb_key_token"),

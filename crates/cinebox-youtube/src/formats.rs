@@ -93,7 +93,7 @@ impl PlayerResponse {
     pub(crate) fn meta(&self) -> PlayerMeta {
         let details = self.video_details.as_ref();
         let title = details.and_then(|d| d.title.clone());
-        let duration = details.and_then(|d| json_f64(&d.length_seconds));
+        let duration = details.and_then(|d| json_f64(d.length_seconds.as_ref()));
 
         PlayerMeta { title, duration }
     }
@@ -130,18 +130,10 @@ impl RawFormat {
 
     pub(crate) fn cipher_or_url(&self) -> Result<CipherParts, Error> {
         if let Some(url) = self.url.clone() {
-            return Ok(CipherParts {
-                url,
-                sig: None,
-                sp: None,
-            });
+            return Ok(CipherParts { url, sig: None, sp: None });
         }
 
-        let raw = self
-            .signature_cipher
-            .as_deref()
-            .or(self.cipher.as_deref())
-            .ok_or(Error::BadCipher)?;
+        let raw = self.signature_cipher.as_deref().or(self.cipher.as_deref()).ok_or(Error::BadCipher)?;
 
         parse_cipher(raw)
     }
@@ -149,9 +141,7 @@ impl RawFormat {
     pub(crate) fn to_stream(&self, url: String) -> Option<Stream> {
         let mime = self.mime_type.as_deref().unwrap_or("");
         let has_video = mime.starts_with("video/");
-        let has_audio = mime.starts_with("audio/")
-            || self.audio_quality.is_some()
-            || codecs_have_audio(mime);
+        let has_audio = mime.starts_with("audio/") || self.audio_quality.is_some() || codecs_have_audio(mime);
 
         if !has_video && !has_audio {
             return None;
@@ -160,17 +150,11 @@ impl RawFormat {
         let bitrate = self.average_bitrate.or(self.bitrate).unwrap_or(0);
         let height = self.height.unwrap_or(0);
 
-        Some(Stream {
-            url,
-            height,
-            bitrate,
-            has_video,
-            has_audio,
-        })
+        Some(Stream { url, height, bitrate, has_video, has_audio })
     }
 
     pub(crate) fn duration_secs(&self) -> Option<f64> {
-        json_f64(&self.approx_duration_ms).map(|ms| ms / 1000.0)
+        json_f64(self.approx_duration_ms.as_ref()).map(|ms| ms / 1000.0)
     }
 }
 
@@ -327,8 +311,8 @@ fn percent_decode(s: &str) -> String {
     }
 
     match String::from_utf8(out) {
-        Ok(s) => s,
-        Err(err) => String::from_utf8_lossy(err.as_bytes()).into_owned(),
+        Ok(text) => text,
+        Err(error) => String::from_utf8_lossy(error.as_bytes()).into_owned(),
     }
 }
 
@@ -341,14 +325,13 @@ fn hex_nibble(b: u8) -> Option<u8> {
     }
 }
 
-fn json_f64(v: &Option<serde_json::Value>) -> Option<f64> {
-    let Some(v) = v else {
-        return None;
-    };
-
-    match v {
+fn json_f64(v: Option<&serde_json::Value>) -> Option<f64> {
+    match v? {
         serde_json::Value::Number(n) => n.as_f64(),
         serde_json::Value::String(s) => s.parse().ok(),
-        _ => None,
+        serde_json::Value::Null
+        | serde_json::Value::Bool(_)
+        | serde_json::Value::Array(_)
+        | serde_json::Value::Object(_) => None,
     }
 }

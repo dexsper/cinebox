@@ -20,12 +20,46 @@ pub(super) static OP_CHARS: LazyLock<HashSet<char>> = LazyLock::new(|| {
 });
 
 pub(super) const ALL_OPS: &[&str] = &[
-    "?", "??", "||", "&&", "|", "^", "&", "===", "!==", "==", "!=", "<=", ">=", "<", ">",
-    ">>", "<<", "+", "-", "*", "%", "/", "**", "void", "typeof", "!",
+    "?", "??", "||", "&&", "|", "^", "&", "===", "!==", "==", "!=", "<=", ">=", "<", ">", ">>", "<<", "+", "-", "*",
+    "%", "/", "**", "void", "typeof", "!",
 ];
 
 const MATCHING: [(u8, u8); 3] = [(b'(', b')'), (b'{', b'}'), (b'[', b']')];
 const QUOTES: &[u8] = b"'\"/";
+
+/// Where a scan stands inside a string or regex literal.
+#[derive(Default)]
+struct QuoteState {
+    /// The quote byte of the literal the scan is in.
+    open: Option<u8>,
+
+    in_regex_char_group: bool,
+}
+
+impl QuoteState {
+    /// Follows one unescaped byte; `after_op` tells a regex `/` from a division.
+    fn track(&mut self, byte: u8, after_op: bool) {
+        let is_quote_char = QUOTES.contains(&byte);
+        let quote_match = self.open.is_none_or(|q| q == byte);
+
+        if is_quote_char && quote_match {
+            let open_or_close = self.open.is_some() || after_op || byte != b'/';
+
+            if open_or_close {
+                let closing_quote = self.open.is_some() && !self.in_regex_char_group;
+                self.open = if closing_quote { None } else { Some(byte) };
+            }
+        }
+
+        let handle_quote = is_quote_char && quote_match;
+        let in_regex = self.open == Some(b'/');
+        let regex_class = byte == b'[' || byte == b']';
+
+        if !handle_quote && in_regex && regex_class {
+            self.in_regex_char_group = byte == b'[';
+        }
+    }
+}
 
 pub(super) fn matching_close(open: char) -> Option<char> {
     match open {
@@ -36,12 +70,7 @@ pub(super) fn matching_close(open: char) -> Option<char> {
     }
 }
 
-pub(super) fn separate(
-    expr: &str,
-    delim: &str,
-    max_split: Option<usize>,
-    skip_delims: &[&str],
-) -> Vec<String> {
+pub(super) fn separate(expr: &str, delim: &str, max_split: Option<usize>, skip_delims: &[&str]) -> Vec<String> {
     if expr.is_empty() {
         return Vec::new();
     }
@@ -54,11 +83,10 @@ pub(super) fn separate(
     let mut start = 0usize;
     let mut splits = 0usize;
     let mut pos = 0usize;
-    let mut in_quote: Option<u8> = None;
+    let mut quote = QuoteState::default();
     let mut escaping = false;
     let mut after_op = true;
-    let mut in_regex_char_group = false;
-    let mut skipping = 0i32;
+    let mut skipping = 0usize;
     let mut skip_txt: Option<(usize, usize)> = None;
     let mut out = Vec::new();
 
@@ -69,7 +97,7 @@ pub(super) fn separate(
 
         let mut paren_delta = 0i32;
 
-        if in_quote.is_none() {
+        if quote.open.is_none() {
             let next_star = bytes.get(idx + 1).is_some_and(|&next| next == b'*');
             let is_block_comment = byte == b'/' && next_star;
 
@@ -92,37 +120,15 @@ pub(super) fn separate(
         }
 
         if !escaping {
-            let is_quote = QUOTES.contains(&byte);
-            let quote_match = in_quote.is_none_or(|q| q == byte);
-
-            if is_quote && quote_match {
-                let open_or_close = in_quote.is_some() || after_op || byte != b'/';
-
-                if open_or_close {
-                    let closing_quote = in_quote.is_some() && !in_regex_char_group;
-                    in_quote = Some(byte);
-
-                    if closing_quote {
-                        in_quote = None;
-                    }
-                }
-            }
-
-            let handle_quote = is_quote && quote_match;
-            let in_regex = in_quote == Some(b'/');
-            let regex_class = byte == b'[' || byte == b']';
-
-            if !handle_quote && in_regex && regex_class {
-                in_regex_char_group = byte == b'[';
-            }
+            quote.track(byte, after_op);
         }
 
-        escaping = !escaping && in_quote.is_some() && byte == b'\\';
+        escaping = !escaping && quote.open.is_some() && byte == b'\\';
         let after_ws = after_op && byte.is_ascii_whitespace();
-        after_op = in_quote.is_none() && (is_op_byte(byte) || paren_delta > 0 || after_ws);
+        after_op = quote.open.is_none() && (is_op_byte(byte) || paren_delta > 0 || after_ws);
 
         let delim_hit = pos < delim_bytes.len() && byte == delim_bytes[pos];
-        let blocked = !delim_hit || counters.iter().any(|c| *c != 0) || in_quote.is_some();
+        let blocked = !delim_hit || counters.iter().any(|c| *c != 0) || quote.open.is_some();
 
         if blocked {
             pos = 0;
@@ -136,19 +142,7 @@ pub(super) fn separate(
         }
 
         if pos == 0 && !skip_delims.is_empty() {
-            let rest = &bytes[idx..];
-            let mut skip_now = 0i32;
-
-            for skip in skip_delims {
-                if skip.is_empty() {
-                    continue;
-                }
-
-                if rest.starts_with(skip.as_bytes()) {
-                    skip_now = skip.len() as i32 - 1;
-                    break;
-                }
-            }
+            let skip_now = skip_length(&bytes[idx..], skip_delims);
 
             if skip_now > 0 {
                 skipping = skip_now;
@@ -184,16 +178,18 @@ pub(super) fn separate(
     out
 }
 
+/// How many more bytes to step over when a `skip_delims` entry starts `rest`.
+fn skip_length(rest: &[u8], skip_delims: &[&str]) -> usize {
+    let skip = skip_delims.iter().find(|skip| !skip.is_empty() && rest.starts_with(skip.as_bytes()));
+
+    skip.map_or(0, |skip| skip.len() - 1)
+}
+
 fn is_op_byte(byte: u8) -> bool {
     byte.is_ascii() && OP_CHARS.contains(&(byte as char))
 }
 
-fn slice_skip_comment(
-    bytes: &[u8],
-    start: usize,
-    end: usize,
-    skip_txt: Option<(usize, usize)>,
-) -> String {
+fn slice_skip_comment(bytes: &[u8], start: usize, end: usize, skip_txt: Option<(usize, usize)>) -> String {
     let Some((s, e)) = skip_txt else {
         return utf8(&bytes[start..end]);
     };
@@ -242,10 +238,7 @@ fn close_slot(byte: u8) -> Option<usize> {
     MATCHING.iter().position(|(_, close)| *close == byte)
 }
 
-pub(super) fn separate_at_paren(
-    expr: &str,
-    delim: Option<char>,
-) -> Result<(String, String), JsError> {
+pub(super) fn separate_at_paren(expr: &str, delim: Option<char>) -> Result<(String, String), JsError> {
     let close = match delim {
         Some(c) => c,
         None => first_matching_close(expr)?,

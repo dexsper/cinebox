@@ -3,13 +3,14 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use cinebox_core::{KIND_SKIP, MediaKind, SKIP_SEGMENTS_TTL, Store, TmdbId};
+use cinebox_core::{CacheKey, KIND_SKIP, MediaKind, SKIP_SEGMENTS_TTL, Store, TmdbId};
 use cinebox_net::NetConfig;
 use cinebox_skip::SegmentType;
+use tracing::warn;
 
 use super::JobError;
 
-pub fn skip_cache_id(
+pub(crate) fn skip_cache_id(
     tmdb_id: TmdbId,
     kind: MediaKind,
     season: Option<u32>,
@@ -17,35 +18,24 @@ pub fn skip_cache_id(
     duration_ms: u64,
 ) -> String {
     let kind_str = cinebox_core::media_kind_key(kind);
+    let tmdb_id = tmdb_id.get();
+
     match (season, episode) {
-        (Some(s), Some(e)) => format!(
-            "{kind_str}:{tmdb_id}:{s}:{e}:{duration_ms}",
-            tmdb_id = tmdb_id.get()
-        ),
-        _ => format!(
-            "{kind_str}:{tmdb_id}:{duration_ms}",
-            tmdb_id = tmdb_id.get()
-        ),
+        (Some(season), Some(episode)) => format!("{kind_str}:{tmdb_id}:{season}:{episode}:{duration_ms}"),
+        _ => format!("{kind_str}:{tmdb_id}:{duration_ms}"),
     }
 }
 
-pub async fn fetch_skip_segments(
+pub(crate) async fn fetch_skip_segments(
     net: NetConfig,
     db: Option<Arc<Store>>,
     query: cinebox_skip::SegmentQuery,
+    cache_id: String,
 ) -> Result<Option<cinebox_skip::MediaSegments>, JobError> {
-    let cache_id = skip_cache_id(
-        TmdbId::new(query.tmdb_id as u32),
-        query.kind,
-        query.season,
-        query.episode,
-        query.duration_ms,
-    );
+    let key = CacheKey { language: "", kind: KIND_SKIP, id: &cache_id };
 
     if let Some(ref db) = db {
-        let cached = db
-            .get_json::<cinebox_skip::MediaSegments>("", KIND_SKIP, &cache_id)
-            .await;
+        let cached = db.get_json::<cinebox_skip::MediaSegments>(key).await;
 
         if let Ok(Some(hit)) = cached {
             if hit.is_fresh(SKIP_SEGMENTS_TTL) {
@@ -54,19 +44,21 @@ pub async fn fetch_skip_segments(
         }
     }
 
-    let provider = cinebox_skip::providers::introdb::IntroDbProvider;
+    let provider = cinebox_skip::providers::introdb::IntroDbProvider::default();
     let result = cinebox_skip::SegmentProvider::fetch(&provider, &query, &net).await?;
 
     if let Some(ref db) = db {
         if let Some(ref segments) = result {
-            let _ = db.put_json("", KIND_SKIP, &cache_id, segments, &[]).await;
+            if let Err(error) = db.put_json(key, segments, &[]).await {
+                warn!(%error, "failed to cache skip segments");
+            }
         }
     }
 
     Ok(result)
 }
 
-pub async fn save_skip_choice(
+pub(crate) async fn save_skip_choice(
     db: Arc<Store>,
     kind: MediaKind,
     tmdb_id: TmdbId,
@@ -76,13 +68,12 @@ pub async fn save_skip_choice(
     let kind_str = cinebox_core::media_kind_key(kind);
     let id = i64::from(tmdb_id.get());
 
-    db.set_skip_armed(kind_str, id, segment_type.as_str(), armed)
-        .await?;
+    db.set_skip_armed(kind_str, id, segment_type.as_str(), armed).await?;
 
     Ok(())
 }
 
-pub async fn fetch_skip_choices(
+pub(crate) async fn fetch_skip_choices(
     db: Arc<Store>,
     kind: MediaKind,
     tmdb_id: TmdbId,

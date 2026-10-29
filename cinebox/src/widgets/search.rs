@@ -3,19 +3,19 @@
 use cinebox_core::SEARCH_HISTORY_LIMIT;
 use egui::emath::GuiRounding;
 use egui::{
-    Align, Align2, Area, Color32, FontId, Frame, Id, Key, LayerId, Layout, Margin, Order, Rect,
-    Sense, Stroke, StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
+    Align, Align2, Area, Color32, FontId, Frame, Id, Key, LayerId, Layout, Margin, Order, Rect, Sense, Stroke,
+    StrokeKind, TextEdit, Ui, UiBuilder, WidgetInfo, WidgetType, pos2, vec2,
 };
 use egui_material_icons::icons::{ICON_MIC, ICON_SCHEDULE, ICON_SEARCH};
 use rust_i18n::t;
 
 use crate::app::nav::NavAction;
 use crate::platform::{self, SpeechEvent, SpeechRequest, TextAction, TextInputSpec, TextPurpose};
-use crate::theme::Theme;
+use crate::theme::{self, Theme};
 use crate::widgets::button::{self, pointing};
 use crate::widgets::{flyout, focus};
 
-pub const SEARCH_W: f32 = 380.0;
+pub(crate) const SEARCH_W: f32 = 380.0;
 const MIN_SHOW: f32 = 8.0;
 const HISTORY_PAD: f32 = 4.0;
 const HISTORY_PAD_BOTTOM: f32 = 8.0;
@@ -30,7 +30,7 @@ const MIC_ID: &str = "cinebox-search-voice";
 const FIELD_LAYER_ID: &str = "cinebox-header-search-layer";
 
 #[derive(Default)]
-pub struct SearchBar {
+pub(crate) struct SearchBar {
     pub query: String,
     history: Vec<String>,
     history_open: bool,
@@ -39,32 +39,26 @@ pub struct SearchBar {
 
 impl SearchBar {
     #[must_use]
-    pub fn with_history(history: Vec<String>) -> Self {
-        Self {
-            query: String::new(),
-            history,
-            history_open: false,
-            listening: false,
-        }
+    pub(crate) fn with_history(history: Vec<String>) -> Self {
+        Self { query: String::new(), history, history_open: false, listening: false }
     }
 
-    pub fn remember(&mut self, query: &str) {
+    pub(crate) fn remember(&mut self, query: &str) {
         let query = query.trim();
         if query.is_empty() {
             return;
         }
 
         let query_lower = query.to_lowercase();
-        self.history
-            .retain(|item| item.to_lowercase() != query_lower);
+        self.history.retain(|item| item.to_lowercase() != query_lower);
         self.history.insert(0, query.to_owned());
         self.history.truncate(SEARCH_HISTORY_LIMIT);
-        self.query = query.to_owned();
+        query.clone_into(&mut self.query);
         self.history_open = false;
     }
 
     /// The remote's search key: listen when the device can, otherwise start typing.
-    pub fn start_search(&mut self, ctx: &egui::Context) {
+    pub(crate) fn start_search(&mut self, ctx: &egui::Context) {
         if platform::device(ctx).speech_input_available() {
             self.start_voice(ctx);
             return;
@@ -76,7 +70,7 @@ impl SearchBar {
 
     /// Speech input as it goes: what is heard fills the field, and the final
     /// result is searched for right away.
-    pub fn on_speech(&mut self, event: SpeechEvent) -> Option<NavAction> {
+    pub(crate) fn on_speech(&mut self, event: SpeechEvent) -> Option<NavAction> {
         match event {
             SpeechEvent::Listening => self.listening = true,
             SpeechEvent::Partial(text) => self.query = text,
@@ -91,15 +85,13 @@ impl SearchBar {
         self.listening = false;
         self.history_open = false;
         let action = submit(text)?;
-        self.query = text.trim().to_owned();
+        text.trim().clone_into(&mut self.query);
 
         Some(action)
     }
 
     fn start_voice(&mut self, ctx: &egui::Context) {
-        let request = SpeechRequest {
-            language: rust_i18n::locale().to_string(),
-        };
+        let request = SpeechRequest { language: rust_i18n::locale().to_string() };
 
         self.listening = true;
         self.history_open = false;
@@ -122,7 +114,7 @@ impl SearchBar {
 
     /// Stop listening, or close the history panel and surrender focus. `true`
     /// when Escape was used.
-    pub fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
+    pub(crate) fn consume_escape(&mut self, ctx: &egui::Context) -> bool {
         if self.listening {
             self.stop_voice(ctx);
             return true;
@@ -139,7 +131,7 @@ impl SearchBar {
         true
     }
 
-    pub fn show(&mut self, ui: &mut Ui, theme: &Theme, rect: Rect) -> Option<NavAction> {
+    pub(crate) fn show(&mut self, ui: &mut Ui, theme: &Theme, rect: Rect) -> Option<NavAction> {
         if rect.width() < MIN_SHOW || rect.height() < MIN_SHOW {
             return None;
         }
@@ -160,14 +152,14 @@ impl SearchBar {
             .order(Order::Foreground)
             .constrain(false)
             .fixed_pos(rect.min)
-            .show(&ctx, |ui| {
+            .show(&ctx, |area_ui| {
                 if attached {
-                    return self.paint_open(ui, theme, rect, &mut picked);
+                    return self.paint_open(area_ui, theme, rect, &mut picked);
                 }
 
-                let (local, _) = ui.allocate_exact_size(rect.size(), Sense::hover());
+                let (local, _) = area_ui.allocate_exact_size(rect.size(), Sense::hover());
 
-                self.paint_closed(ui, theme, local)
+                self.paint_closed(area_ui, theme, local)
             });
 
         if attached && flyout::pressed_outside(&ctx, layer.response.rect, rect) {
@@ -180,7 +172,7 @@ impl SearchBar {
         }
 
         if let Some(query) = picked {
-            self.query = query.clone();
+            self.query.clone_from(&query);
             self.history_open = false;
             return Some(NavAction::OpenSearch { query });
         }
@@ -216,37 +208,25 @@ impl SearchBar {
         let panel = Rect::from_min_max(pos2(combined.left(), field_rect.bottom()), combined.max);
         let rows = Rect::from_min_max(
             pos2(panel.left() + HISTORY_PAD, panel.top() + HISTORY_PAD),
-            pos2(
-                panel.right() - HISTORY_PAD,
-                panel.bottom() - HISTORY_PAD_BOTTOM,
-            ),
+            pos2(panel.right() - HISTORY_PAD, panel.bottom() - HISTORY_PAD_BOTTOM),
         );
 
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(rows)
-                .layout(Layout::top_down(Align::Min)),
-            |ui| {
-                ui.set_width(rows.width());
-                ui.spacing_mut().item_spacing.y = HISTORY_GAP;
-                for query in &history {
-                    if history_row(ui, theme, query) {
-                        *picked = Some(query.clone());
-                    }
+        ui.scope_builder(UiBuilder::new().max_rect(rows).layout(Layout::top_down(Align::Min)), |ui| {
+            ui.set_width(rows.width());
+            ui.spacing_mut().item_spacing.y = HISTORY_GAP;
+            for query in &history {
+                if history_row(ui, theme, query) {
+                    *picked = Some(query.clone());
                 }
-            },
-        );
+            }
+        });
 
         submitted
     }
 
     fn paint_closed(&mut self, ui: &mut Ui, theme: &Theme, rect: Rect) -> Option<NavAction> {
         let focused = ui.ctx().memory(|mem| mem.has_focus(Id::new(EDIT_ID)));
-        let edge = if focused || self.history_open {
-            theme.selection
-        } else {
-            theme.window_edge
-        };
+        let edge = if focused || self.history_open { theme.selection } else { theme.window_edge };
 
         ui.painter().rect(
             rect,
@@ -270,8 +250,7 @@ impl SearchBar {
             }
 
             self.history_open = true;
-            ui.ctx()
-                .memory_mut(|mem| mem.request_focus(Id::new(EDIT_ID)));
+            ui.ctx().memory_mut(|mem| mem.request_focus(Id::new(EDIT_ID)));
         }
 
         let edit_rect = Rect::from_min_max(pos2(rect.left() + icon_w, rect.top()), rect.max);
@@ -285,49 +264,37 @@ impl SearchBar {
         }
 
         let mut submitted = None;
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(edit_rect)
-                .layout(Layout::left_to_right(Align::Center)),
-            |ui| {
-                ui.spacing_mut().interact_size.y = rect.height();
-                let hint = if self.listening {
-                    t!("search.listening")
-                } else {
-                    t!("search.placeholder")
-                };
-                let mut edit = ui.add(
-                    TextEdit::singleline(&mut self.query)
-                        .id(Id::new(EDIT_ID))
-                        .font(theme.ui_font(theme.text_search))
-                        .interactive(gate.interactive)
-                        .desired_width(f32::INFINITY)
-                        .vertical_align(Align::Center)
-                        .margin(Margin::ZERO)
-                        .hint_text(hint.as_ref())
-                        .frame(Frame::NONE)
-                        .text_color(theme.title),
-                );
+        ui.scope_builder(UiBuilder::new().max_rect(edit_rect).layout(Layout::left_to_right(Align::Center)), |ui| {
+            ui.spacing_mut().interact_size.y = rect.height();
+            let hint = if self.listening { t!("search.listening") } else { t!("search.placeholder") };
+            let mut edit = ui.add(
+                TextEdit::singleline(&mut self.query)
+                    .id(Id::new(EDIT_ID))
+                    .font(theme.ui_font(theme.text_search))
+                    .interactive(gate.interactive)
+                    .desired_width(f32::INFINITY)
+                    .vertical_align(Align::Center)
+                    .margin(Margin::ZERO)
+                    .hint_text(hint.as_ref())
+                    .frame(Frame::NONE)
+                    .text_color(theme.title),
+            );
 
-                let spec = TextInputSpec {
-                    purpose: TextPurpose::Text,
-                    action: TextAction::Search,
-                };
-                platform::text_input::field(&mut edit, spec, &mut self.query);
-                edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint.as_ref()));
-                focus::edit_done(ui, &edit);
-                if edit.gained_focus() || edit.clicked() {
-                    self.history_open = true;
-                }
+            let spec = TextInputSpec { purpose: TextPurpose::Text, action: TextAction::Search };
+            platform::text_input::field(&mut edit, spec, &mut self.query);
+            edit.widget_info(|| WidgetInfo::labeled(WidgetType::TextEdit, true, hint.as_ref()));
+            focus::edit_done(ui, &edit);
+            if edit.gained_focus() || edit.clicked() {
+                self.history_open = true;
+            }
 
-                let enter = ui.input(|i| i.key_pressed(Key::Enter));
-                let should_submit = enter && (edit.has_focus() || edit.lost_focus());
+            let enter = ui.input(|i| i.key_pressed(Key::Enter));
+            let should_submit = enter && (edit.has_focus() || edit.lost_focus());
 
-                if should_submit {
-                    submitted = submit(&self.query);
-                }
-            },
-        );
+            if should_submit {
+                submitted = submit(&self.query);
+            }
+        });
 
         submitted
     }
@@ -364,11 +331,10 @@ fn submit(query: &str) -> Option<NavAction> {
         return None;
     }
 
-    Some(NavAction::OpenSearch {
-        query: query.to_owned(),
-    })
+    Some(NavAction::OpenSearch { query: query.to_owned() })
 }
 
+#[expect(clippy::cast_precision_loss, reason = "the history holds at most `SEARCH_HISTORY_LIMIT` rows")]
 fn history_body_h(count: usize, row_h: f32) -> f32 {
     if count == 0 {
         return 0.0;
@@ -393,13 +359,9 @@ fn search_icon(ui: &mut Ui, theme: &Theme, rect: Rect, directional: bool) -> boo
 
 fn paint_search_icon(ui: &Ui, theme: &Theme, rect: Rect) {
     let font = FontId::new(theme.text_icon, ICON_SEARCH.font_family());
-    let galley = ui
-        .painter()
-        .layout_no_wrap(ICON_SEARCH.codepoint.to_owned(), font, theme.muted);
+    let galley = ui.painter().layout_no_wrap(ICON_SEARCH.codepoint.to_owned(), font, theme.muted);
 
-    let pos = Align2::CENTER_CENTER
-        .anchor_size(rect.center(), galley.size())
-        .min;
+    let pos = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size()).min;
 
     ui.painter().galley(pos, galley, theme.muted);
 }
@@ -421,7 +383,7 @@ fn split_off_mic(ctx: &egui::Context, rect: Rect) -> (Rect, Option<Rect>) {
 
 /// The D-pad stops [`SearchBar::show`] adds: the field, then the microphone beside it.
 #[must_use]
-pub fn stop_ids() -> [Id; 2] {
+pub(crate) fn stop_ids() -> [Id; 2] {
     [focus::field_stop(Id::new(EDIT_ID)), Id::new(MIC_ID)]
 }
 
@@ -435,33 +397,21 @@ fn mic_button(ui: &mut Ui, theme: &Theme, rect: Rect, listening: bool) -> bool {
 
     let radius = theme.rounding(theme.radius_card);
     let edge = Stroke::new(1.0, theme.window_edge);
-    ui.painter()
-        .rect(rect, radius, fill, edge, StrokeKind::Inside);
+    ui.painter().rect(rect, radius, fill, edge, StrokeKind::Inside);
 
     let font = FontId::new(theme.text_icon, ICON_MIC.font_family());
     let glyph = ICON_MIC.codepoint;
-    ui.painter().text(
-        rect.center(),
-        Align2::CENTER_CENTER,
-        glyph,
-        font,
-        icon_color,
-    );
+    ui.painter().text(rect.center(), Align2::CENTER_CENTER, glyph, font, icon_color);
 
     response.on_hover_text(hint.as_ref()).clicked()
 }
 
 /// While listening the button glows in the accent color, breathing so it
 /// reads as live.
-fn mic_colors(
-    ui: &Ui,
-    theme: &Theme,
-    response: &egui::Response,
-    listening: bool,
-) -> (Color32, Color32) {
+fn mic_colors(ui: &Ui, theme: &Theme, response: &egui::Response, listening: bool) -> (Color32, Color32) {
     if listening {
         let phase = ui.input(|i| i.time) * std::f64::consts::TAU / LISTEN_PULSE_SECS;
-        let breath = 0.75 + 0.25 * phase.cos() as f32;
+        let breath = 0.75 + 0.25 * theme::narrow(phase.cos());
         ui.ctx().request_repaint();
         return (theme.btn_primary_bg.gamma_multiply(breath), theme.btn_primary_fg);
     }
@@ -479,28 +429,15 @@ fn history_row(ui: &mut Ui, theme: &Theme, query: &str) -> bool {
     let id = ui.id().with(query);
     let response = pointing(ui.interact(rect, id, Sense::click()));
     let fill = button::fill_for_hover(ui, id, Color32::TRANSPARENT, theme.widget_hover);
-    ui.painter()
-        .rect_filled(rect, theme.rounding(theme.radius_card), fill);
+    ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), fill);
 
     let icon_font = FontId::new(theme.text_icon, ICON_SCHEDULE.font_family());
-    let icon =
-        ui.painter()
-            .layout_no_wrap(ICON_SCHEDULE.codepoint.to_owned(), icon_font, theme.muted);
-    let text = ui.painter().layout_no_wrap(
-        query.to_owned(),
-        theme.ui_font(theme.text_body),
-        theme.title,
-    );
+    let icon = ui.painter().layout_no_wrap(ICON_SCHEDULE.codepoint.to_owned(), icon_font, theme.muted);
+    let text = ui.painter().layout_no_wrap(query.to_owned(), theme.ui_font(theme.text_body), theme.title);
 
     let center_y = rect.center().y;
-    let icon_pos = pos2(
-        rect.left() + ROW_PAD_X,
-        center_y - icon.mesh_bounds.center().y,
-    );
-    let text_pos = pos2(
-        icon_pos.x + icon.size().x + ROW_ICON_GAP,
-        center_y - text.mesh_bounds.center().y,
-    );
+    let icon_pos = pos2(rect.left() + ROW_PAD_X, center_y - icon.mesh_bounds.center().y);
+    let text_pos = pos2(icon_pos.x + icon.size().x + ROW_ICON_GAP, center_y - text.mesh_bounds.center().y);
 
     ui.painter().galley(icon_pos, icon, theme.muted);
     ui.painter().galley(text_pos, text, theme.title);
@@ -518,12 +455,7 @@ mod tests {
     #[test]
     fn submit_trims_and_rejects_blank() {
         assert!(submit("   ").is_none());
-        assert_eq!(
-            submit("  dune  "),
-            Some(NavAction::OpenSearch {
-                query: String::from("dune"),
-            })
-        );
+        assert_eq!(submit("  dune  "), Some(NavAction::OpenSearch { query: String::from("dune") }));
     }
 
     #[test]

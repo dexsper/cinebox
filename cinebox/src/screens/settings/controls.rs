@@ -1,10 +1,7 @@
 //! Shared styled controls for the settings drawer.
 
 use cinebox_core::SecretString;
-use egui::{
-    Align, Atom, CornerRadius, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2,
-    pos2, vec2,
-};
+use egui::{Align, Atom, Layout, Rect, RichText, Sense, Ui, UiBuilder, Vec2, pos2, vec2};
 use egui_async::Bind;
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{
@@ -18,6 +15,7 @@ use crate::i18n::errors::UserError;
 use crate::platform::TextPurpose;
 use crate::services::jobs::JobError;
 use crate::theme::Theme;
+use crate::widgets::combo::Choices;
 use crate::widgets::field;
 
 const CATEGORY_H: f32 = 72.0;
@@ -29,142 +27,128 @@ const HINT_GAP: f32 = 3.0;
 const ROW_PAD_Y: f32 = 4.0;
 const ACTION_H: f32 = 36.0;
 
-pub fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> egui::Response {
+/// A field's caption and hint, and the id its control keys its state with.
+#[derive(Clone, Copy)]
+pub(super) struct Labeled<'a> {
+    pub id: &'a str,
+    pub label: &'a str,
+    pub hint: Option<&'a str>,
+}
+
+/// A labeled text field; its label also keys the field's state.
+#[derive(Clone, Copy)]
+pub(super) struct TextRow<'a> {
+    pub label: &'a str,
+    pub hint: Option<&'a str>,
+    pub placeholder: &'a str,
+    pub purpose: TextPurpose,
+}
+
+/// A button that starts a check, and its caption.
+#[derive(Clone, Copy)]
+pub(super) struct Action<'a> {
+    pub icon: MaterialIcon,
+    pub label: &'a str,
+}
+
+/// A row that opens a page of the drawer.
+struct NavRow<'a> {
+    icon: MaterialIcon,
+    title: &'a str,
+    subtitle: &'a str,
+    id: &'a str,
+}
+
+pub(super) fn category_row(ui: &mut Ui, theme: &Theme, cat: &Category) -> egui::Response {
     let title = crate::i18n::tr(cat.title);
     let subtitle = crate::i18n::tr(cat.subtitle);
 
-    nav_row(ui, theme, cat.icon, &title, &subtitle, cat.id.as_key())
+    let row = NavRow { icon: cat.icon, title: &title, subtitle: &subtitle, id: cat.id.as_key() };
+
+    nav_row(ui, theme, &row)
 }
 
-pub fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
+pub(super) fn wizard_row(ui: &mut Ui, theme: &Theme) -> bool {
     let title = t!("settings.run_wizard");
     let subtitle = t!("settings.run_wizard_hint");
+    let row = NavRow { icon: ICON_AUTO_FIX_HIGH, title: &title, subtitle: &subtitle, id: "run-wizard" };
 
-    nav_row(ui, theme, ICON_AUTO_FIX_HIGH, &title, &subtitle, "run-wizard").clicked()
+    nav_row(ui, theme, &row).clicked()
 }
 
-fn nav_row(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, title: &str, subtitle: &str, id: &str) -> egui::Response {
+fn nav_row(ui: &mut Ui, theme: &Theme, nav: &NavRow<'_>) -> egui::Response {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), CATEGORY_H), Sense::hover());
     if ui.rect_contains_pointer(rect) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(12.0, 10.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
     row.style_mut().interaction.selectable_labels = false;
-    icon_well(&mut row, theme, icon);
+    icon_well(&mut row, theme, nav.icon);
 
     row.add_space(12.0);
-    row.vertical(|ui| {
-        ui.label(
-            RichText::new(title)
-                .font(theme.title_font(theme.text_section))
-                .color(theme.title),
-        );
-        ui.label(
-            RichText::new(subtitle)
-                .size(theme.text_small)
-                .color(theme.muted),
-        );
+    row.vertical(|text| {
+        text.label(RichText::new(nav.title).font(theme.title_font(theme.text_section)).color(theme.title));
+        text.label(RichText::new(nav.subtitle).size(theme.text_small).color(theme.muted));
     });
 
-    row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.label(
-            ICON_CHEVRON_RIGHT
-                .rich_text()
-                .size(theme.text_icon_lg)
-                .color(theme.muted),
-        );
+    row.with_layout(Layout::right_to_left(Align::Center), |trailing| {
+        trailing.label(ICON_CHEVRON_RIGHT.rich_text().size(theme.text_icon_lg).color(theme.muted));
     });
 
     // Last so it sits above labels and eats the click instead of text selection.
-    hit_on_top(ui, rect, id)
+    hit_on_top(ui, rect, nav.id)
 }
 
 fn icon_well(ui: &mut Ui, theme: &Theme, icon: MaterialIcon) {
     let (rect, _) = ui.allocate_exact_size(Vec2::splat(ICON_WELL), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
+    ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.input_bg);
 
-    ui.new_child(UiBuilder::new().max_rect(rect))
-        .centered_and_justified(|ui| {
-            ui.label(
-                icon
-                    .rich_text()
-                    .size(theme.text_icon_lg)
-                    .color(theme.title),
-            );
-        });
+    ui.new_child(UiBuilder::new().max_rect(rect)).centered_and_justified(|ui| {
+        ui.label(icon.rich_text().size(theme.text_icon_lg).color(theme.title));
+    });
 }
 
-pub fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
+pub(super) fn nav_header(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 36.0), Sense::hover());
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(rect)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(rect).layout(Layout::left_to_right(Align::Center)));
 
     let back = crate::widgets::button::add(
         &mut row,
         theme,
-        ICON_ARROW_BACK
-            .rich_text()
-            .size(theme.text_icon_md)
-            .color(theme.title),
+        ICON_ARROW_BACK.rich_text().size(theme.text_icon_md).color(theme.title),
         crate::widgets::button::Opts::secondary(vec2(32.0, 32.0)),
     )
     .on_hover_text(t!("nav.back").as_ref())
     .clicked();
 
     row.add_space(8.0);
-    row.label(
-        RichText::new(title)
-            .font(theme.title_font(theme.text_heading))
-            .color(theme.title),
-    );
+    row.label(RichText::new(title).font(theme.title_font(theme.text_heading)).color(theme.title));
 
     back
 }
 
-pub fn drawer_title(ui: &mut Ui, theme: &Theme, title: &str) {
-    ui.label(
-        RichText::new(title)
-            .font(theme.title_font(theme.text_display))
-            .color(theme.title),
-    );
+pub(super) fn drawer_title(ui: &mut Ui, theme: &Theme, title: &str) {
+    ui.label(RichText::new(title).font(theme.title_font(theme.text_display)).color(theme.title));
 }
 
-pub fn error_line(ui: &mut Ui, theme: &Theme, text: &str) {
+pub(super) fn error_line(ui: &mut Ui, theme: &Theme, text: &str) {
     ui.label(RichText::new(text).size(theme.text_small).color(theme.err));
 }
 
-pub fn toggle_row(
-    ui: &mut Ui,
-    theme: &Theme,
-    label: &str,
-    hint: Option<&str>,
-    value: &mut bool,
-) -> bool {
+pub(super) fn toggle_row(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>, value: &mut bool) -> bool {
     let row_w = ui.available_width();
     let text_w = (row_w - TOGGLE_W - TOGGLE_GAP).max(1.0);
 
     let label_font = theme.ui_font(theme.text_label);
-    let label_galley = ui
-        .painter()
-        .layout(label.to_owned(), label_font, theme.label, text_w);
+    let label_galley = ui.painter().layout(label.to_owned(), label_font, theme.label, text_w);
 
     let label_h = label_galley.size().y;
     let hint_galley = hint.map(|hint| {
         let font = theme.ui_font(theme.text_caption);
-        ui.painter()
-            .layout(hint.to_owned(), font, theme.muted, text_w)
+        ui.painter().layout(hint.to_owned(), font, theme.muted, text_w)
     });
 
     let hint_h = hint_galley.as_ref().map(|galley| galley.size().y);
@@ -174,20 +158,15 @@ pub fn toggle_row(
     let (rect, _) = ui.allocate_exact_size(vec2(row_w, height), Sense::hover());
     let text_top = rect.top() + ROW_PAD_Y + (inner_h - text_h) * 0.5;
 
-    ui.painter()
-        .galley(pos2(rect.left(), text_top), label_galley, theme.label);
+    ui.painter().galley(pos2(rect.left(), text_top), label_galley, theme.label);
 
     if let Some(hint_galley) = hint_galley {
         let hint_y = text_top + label_h + HINT_GAP;
-        ui.painter()
-            .galley(pos2(rect.left(), hint_y), hint_galley, theme.muted);
+        ui.painter().galley(pos2(rect.left(), hint_y), hint_galley, theme.muted);
     }
 
     let toggle_top = rect.top() + ROW_PAD_Y + (inner_h - TOGGLE_H) * 0.5;
-    let toggle_rect = Rect::from_min_size(
-        pos2(rect.right() - TOGGLE_W, toggle_top),
-        vec2(TOGGLE_W, TOGGLE_H),
-    );
+    let toggle_rect = Rect::from_min_size(pos2(rect.right() - TOGGLE_W, toggle_top), vec2(TOGGLE_W, TOGGLE_H));
 
     let mut knob = ui.new_child(UiBuilder::new().max_rect(toggle_rect));
     paint_switch(&mut knob, theme, *value);
@@ -218,51 +197,33 @@ fn toggle_row_height(text_h: f32) -> f32 {
 
 fn paint_switch(ui: &mut Ui, theme: &Theme, on: bool) {
     let (rect, _) = ui.allocate_exact_size(vec2(TOGGLE_W, TOGGLE_H), Sense::hover());
-    let radius = CornerRadius::same((TOGGLE_H / 2.0).round() as u8);
+    let radius = theme.rounding(TOGGLE_H / 2.0);
 
-    let fill = if on {
-        theme.btn_primary_bg
-    } else {
-        theme.toggle_off
-    };
+    let fill = if on { theme.btn_primary_bg } else { theme.toggle_off };
 
     ui.painter().rect_filled(rect, radius, fill);
 
     let pad = 3.0;
     let knob_r = (TOGGLE_H - pad * 2.0) / 2.0;
-    let knob_x = if on {
-        rect.right() - pad - knob_r
-    } else {
-        rect.left() + pad + knob_r
-    };
+    let knob_x = if on { rect.right() - pad - knob_r } else { rect.left() + pad + knob_r };
 
-    let knob = if on {
-        theme.btn_primary_fg
-    } else {
-        theme.title
-    };
+    let knob = if on { theme.btn_primary_fg } else { theme.title };
 
     let knob_pos = pos2(knob_x, rect.center().y);
     ui.painter().circle_filled(knob_pos, knob_r, knob);
 }
 
 /// Returns the raw draft once it commits (see [`field::committed_edit`]).
-pub fn text_row(
-    ui: &mut Ui,
-    theme: &Theme,
-    label: &str,
-    hint: Option<&str>,
-    placeholder: &str,
-    value: &str,
-    purpose: TextPurpose,
-) -> Option<String> {
-    field_label(ui, theme, label, hint);
-    let id = ui.make_persistent_id(("settings-text", label));
-    field::committed_edit(ui, theme, id, value, placeholder, purpose)
+pub(super) fn text_row(ui: &mut Ui, theme: &Theme, row: TextRow<'_>, value: &str) -> Option<String> {
+    field_label(ui, theme, row.label, row.hint);
+    let id = ui.make_persistent_id(("settings-text", row.label));
+    let prompt = field::Prompt { placeholder: row.placeholder, purpose: row.purpose };
+
+    field::committed_edit(ui, theme, id, value, prompt)
 }
 
 /// Returns the raw draft once it commits (see [`field::committed_edit`]).
-pub fn secret_row(
+pub(super) fn secret_row(
     ui: &mut Ui,
     theme: &Theme,
     label: &str,
@@ -271,67 +232,59 @@ pub fn secret_row(
 ) -> Option<String> {
     field_label(ui, theme, label, hint);
     let id = ui.make_persistent_id(("settings-secret", label));
-    field::committed_edit(ui, theme, id, secret.expose(), "", TextPurpose::Secret)
+    let prompt = field::Prompt { placeholder: "", purpose: TextPurpose::Secret };
+
+    field::committed_edit(ui, theme, id, secret.expose(), prompt)
 }
 
 /// Inline validation message under a field.
-pub fn field_warning(ui: &mut Ui, theme: &Theme, text: &str) {
+pub(super) fn field_warning(ui: &mut Ui, theme: &Theme, text: &str) {
     ui.add_space(-6.0);
     ui.label(RichText::new(text).size(theme.text_caption).color(theme.err));
 }
 
-pub fn select_row<T: Copy + PartialEq + std::fmt::Display>(
-    ui: &mut Ui,
-    theme: &Theme,
-    id: &str,
-    label: &str,
-    hint: Option<&str>,
-    value: &mut T,
-    options: &[T],
-) -> bool {
-    field_label(ui, theme, label, hint);
-    crate::widgets::combo::show(ui, theme, id, value, options)
-}
-
-pub struct Labeled<'a> {
-    pub id: &'a str,
-    pub label: &'a str,
-    pub hint: Option<&'a str>,
-}
-
-pub fn select_row_with<T: Copy + PartialEq>(
+pub(super) fn select_row<T: Copy + PartialEq + std::fmt::Display>(
     ui: &mut Ui,
     theme: &Theme,
     field: Labeled<'_>,
     value: &mut T,
     options: &[T],
-    option_label: impl Fn(T) -> String,
 ) -> bool {
     field_label(ui, theme, field.label, field.hint);
-    crate::widgets::combo::show_with(ui, theme, field.id, value, options, option_label)
+    crate::widgets::combo::show(ui, theme, field.id, value, options)
 }
 
-pub fn multiselect_chip_row<T: Copy + PartialEq>(
+pub(super) fn select_row_with<T: Copy + PartialEq>(
+    ui: &mut Ui,
+    theme: &Theme,
+    field: Labeled<'_>,
+    value: &mut T,
+    choices: Choices<'_, T, impl Fn(T) -> String>,
+) -> bool {
+    field_label(ui, theme, field.label, field.hint);
+    crate::widgets::combo::show_with(ui, theme, field.id, value, choices)
+}
+
+pub(super) fn multiselect_chip_row<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     field: Labeled<'_>,
     selected: &mut Vec<T>,
-    options: &[T],
-    option_label: impl Fn(T) -> String,
+    choices: Choices<'_, T, impl Fn(T) -> String>,
 ) -> bool {
     field_label(ui, theme, field.label, field.hint);
-    crate::widgets::chips::multi_row(ui, theme, selected, options, option_label)
+    crate::widgets::chips::multi_row(ui, theme, selected, choices.options, choices.label)
 }
 
 /// One chip per option, on while the option is not in `hidden`.
-pub fn visibility_chip_row<T: Copy + PartialEq>(
+pub(super) fn visibility_chip_row<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     field: Labeled<'_>,
     hidden: &mut Vec<T>,
-    options: &[T],
-    option_label: impl Fn(T) -> String,
+    choices: Choices<'_, T, impl Fn(T) -> String>,
 ) -> bool {
+    let Choices { options, label: option_label } = choices;
     field_label(ui, theme, field.label, field.hint);
     let mut changed = false;
 
@@ -350,19 +303,18 @@ pub fn visibility_chip_row<T: Copy + PartialEq>(
     changed
 }
 
-pub fn probe_row<F, Fut>(
+pub(super) fn probe_row<F, Fut>(
     ui: &mut Ui,
     theme: &Theme,
-    icon: MaterialIcon,
-    label: &str,
+    action: Action<'_>,
     bind: &mut Bind<String, JobError>,
     start: F,
 ) where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<String, JobError>> + Send + 'static,
+    Fut: Future<Output = Result<String, JobError>> + Send + 'static,
 {
     ui.add_space(4.0);
-    let clicked = action_button(ui, theme, icon, label, true);
+    let clicked = action_button(ui, theme, action.icon, action.label, true);
     let busy = bind.is_pending();
     if clicked && !busy {
         bind.clear();
@@ -372,7 +324,7 @@ pub fn probe_row<F, Fut>(
     show_probe(ui, bind, theme);
 }
 
-pub fn speed_test_row<F, Fut>(
+pub(super) fn speed_test_row<F, Fut>(
     ui: &mut Ui,
     theme: &Theme,
     meter: &SpeedMeter,
@@ -380,7 +332,7 @@ pub fn speed_test_row<F, Fut>(
     start: F,
 ) where
     F: FnOnce() -> Fut,
-    Fut: std::future::Future<Output = Result<(), JobError>> + Send + 'static,
+    Fut: Future<Output = Result<(), JobError>> + Send + 'static,
 {
     speed::paint(ui, theme, meter);
     ui.add_space(10.0);
@@ -398,7 +350,7 @@ pub fn speed_test_row<F, Fut>(
     }
 }
 
-pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
+pub(super) fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
     ui.add_space(4.0);
     action_button(ui, theme, ICON_DELETE_SWEEP, t!("settings.clear_cache").as_ref(), false)
 }
@@ -406,31 +358,17 @@ pub fn clear_cache_row(ui: &mut Ui, theme: &Theme) -> bool {
 fn field_label(ui: &mut Ui, theme: &Theme, label: &str, hint: Option<&str>) {
     ui.vertical(|ui| {
         ui.spacing_mut().item_spacing.y = HINT_GAP;
-        ui.label(
-            RichText::new(label)
-                .size(theme.text_small)
-                .color(theme.muted_bright),
-        );
+        ui.label(RichText::new(label).size(theme.text_small).color(theme.muted_bright));
 
         let Some(hint) = hint else {
             return;
         };
 
-        ui.label(
-            RichText::new(hint)
-                .size(theme.text_caption)
-                .color(theme.muted),
-        );
+        ui.label(RichText::new(hint).size(theme.text_caption).color(theme.muted));
     });
 }
 
-fn action_button(
-    ui: &mut Ui,
-    theme: &Theme,
-    icon: MaterialIcon,
-    label: &str,
-    primary: bool,
-) -> bool {
+fn action_button(ui: &mut Ui, theme: &Theme, icon: MaterialIcon, label: &str, primary: bool) -> bool {
     let width = ui.available_width();
     let size = vec2(width, ACTION_H);
     let opts = action_opts(primary, size);
@@ -467,7 +405,7 @@ fn action_fg(theme: &Theme, primary: bool) -> egui::Color32 {
     theme.title
 }
 
-fn hit_on_top(ui: &mut Ui, rect: egui::Rect, id: &str) -> egui::Response {
+fn hit_on_top(ui: &mut Ui, rect: Rect, id: &str) -> egui::Response {
     crate::widgets::button::pointing(ui.interact(rect, ui.id().with(id), Sense::click()))
 }
 

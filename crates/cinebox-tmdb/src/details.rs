@@ -10,7 +10,7 @@ use crate::{API_BASE, Error, prepare_api_key, send_json};
 
 const DETAILS_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(25);
 
-pub async fn fetch_media(
+pub(crate) async fn fetch_media(
     api_key: &str,
     kind: MediaKind,
     id: TmdbId,
@@ -28,10 +28,7 @@ pub async fn fetch_media(
     let body: MediaBody = send_json(net, |client| {
         let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[
             ("api_key", api_key),
-            (
-                "append_to_response",
-                "credits,videos,recommendations,similar,release_dates,content_ratings",
-            ),
+            ("append_to_response", "credits,videos,recommendations,similar,release_dates,content_ratings"),
         ]);
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
@@ -55,7 +52,7 @@ pub async fn fetch_media(
     Ok(details)
 }
 
-pub async fn fetch_person(
+pub(crate) async fn fetch_person(
     api_key: &str,
     id: TmdbId,
     language: Option<&str>,
@@ -65,10 +62,10 @@ pub async fn fetch_person(
 
     let url = format!("{API_BASE}/person/{}", id.get());
     let body: PersonBody = send_json(net, |client| {
-        let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[
-            ("api_key", api_key),
-            ("append_to_response", "combined_credits"),
-        ]);
+        let mut request = client
+            .get(&url)
+            .timeout(DETAILS_TIMEOUT)
+            .query(&[("api_key", api_key), ("append_to_response", "combined_credits")]);
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
             request = request.query(&[("language", language)]);
@@ -89,10 +86,7 @@ async fn fetch_collection(
 ) -> Result<Vec<CatalogItem>, Error> {
     let url = format!("{API_BASE}/collection/{id}");
     let body: CollectionBody = send_json(net, |client| {
-        let mut request = client
-            .get(&url)
-            .timeout(DETAILS_TIMEOUT)
-            .query(&[("api_key", api_key)]);
+        let mut request = client.get(&url).timeout(DETAILS_TIMEOUT).query(&[("api_key", api_key)]);
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
             request = request.query(&[("language", language)]);
@@ -102,9 +96,5 @@ async fn fetch_collection(
     })
     .await?;
 
-    Ok(catalog_items_from(
-        body.parts.unwrap_or_default(),
-        Some(MediaKind::Movie),
-        MAX_ROW,
-    ))
+    Ok(catalog_items_from(body.parts.unwrap_or_default(), Some(MediaKind::Movie), MAX_ROW))
 }

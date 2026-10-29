@@ -22,10 +22,7 @@ pub(crate) struct SystemProxy {
 impl SystemProxy {
     /// One URL for clients that take a single proxy (libmpv): HTTPS, then HTTP, then SOCKS.
     fn single_url(&self) -> Option<String> {
-        self.https
-            .clone()
-            .or_else(|| self.http.clone())
-            .or_else(|| self.socks.clone())
+        self.https.clone().or_else(|| self.http.clone()).or_else(|| self.socks.clone())
     }
 
     #[cfg(any(target_os = "windows", target_os = "linux"))]
@@ -37,16 +34,10 @@ impl SystemProxy {
     #[cfg(target_os = "linux")]
     fn apply(&self, builder: reqwest::ClientBuilder) -> reqwest::ClientBuilder {
         let bypass = reqwest::NoProxy::from_string(&self.bypass.join(","));
-        let builder = add_proxy(builder, self.http.as_deref(), &bypass, |url: &str| {
-            reqwest::Proxy::http(url)
-        });
-        let builder = add_proxy(builder, self.https.as_deref(), &bypass, |url: &str| {
-            reqwest::Proxy::https(url)
-        });
+        let builder = add_proxy(builder, self.http.as_deref(), &bypass, |url: &str| reqwest::Proxy::http(url));
+        let builder = add_proxy(builder, self.https.as_deref(), &bypass, |url: &str| reqwest::Proxy::https(url));
 
-        add_proxy(builder, self.socks.as_deref(), &bypass, |url: &str| {
-            reqwest::Proxy::all(url)
-        })
+        add_proxy(builder, self.socks.as_deref(), &bypass, |url: &str| reqwest::Proxy::all(url))
     }
 }
 
@@ -115,11 +106,7 @@ fn platform_proxy() -> Option<SystemProxy> {
 
 #[cfg(target_os = "linux")]
 fn platform_proxy() -> Option<SystemProxy> {
-    let proxy = if portal::in_flatpak() {
-        portal::system_proxy()
-    } else {
-        linux::desktop_proxy()
-    };
+    let proxy = if portal::in_flatpak() { portal::system_proxy() } else { linux::desktop_proxy() };
 
     proxy.filter(|proxy| !proxy.is_empty())
 }
@@ -130,14 +117,7 @@ fn platform_proxy() -> Option<SystemProxy> {
 }
 
 fn env_http_proxy() -> Option<String> {
-    const KEYS: [&str; 6] = [
-        "HTTPS_PROXY",
-        "https_proxy",
-        "HTTP_PROXY",
-        "http_proxy",
-        "ALL_PROXY",
-        "all_proxy",
-    ];
+    const KEYS: [&str; 6] = ["HTTPS_PROXY", "https_proxy", "HTTP_PROXY", "http_proxy", "ALL_PROXY", "all_proxy"];
 
     for key in KEYS {
         let Ok(value) = std::env::var(key) else {

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO torrserver_viewed_seen (hash, file_index, timecode)\n            VALUES (?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 3
+    },
+    "nullable": []
+  },
+  "hash": "e7cd4ebc8ab98fdb1f57f843c99b59ff75fd42417b8baebb5167fa519050c1b4"
+}

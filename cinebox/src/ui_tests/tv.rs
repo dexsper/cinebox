@@ -4,25 +4,26 @@
 use std::collections::VecDeque;
 use std::sync::{Arc, Mutex};
 
-use cinebox_core::UiLanguage;
+use cinebox_core::{MediaDetails, MediaKind, TmdbId, UiLanguage};
 use egui::accesskit::Role;
 use egui::{Area, Id, Key, Order, Rect, pos2, vec2};
 use egui_kittest::Harness;
 use egui_kittest::kittest::Queryable;
 use rust_i18n::t;
 
-use crate::app::nav::{NavAction, RailEntry, Screen};
+use crate::app::nav::{MediaRef, NavAction, RailEntry, Screen};
 use crate::platform::{
-    self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest,
-    TextAction, TextInputEvent, TextInputSpec, TextPurpose, UiSound,
+    self, Device, DeviceEvent, Direction, FieldText, Host, Profile, SpeechEvent, SpeechRequest, TextAction,
+    TextInputEvent, TextInputSpec, TextPurpose, UiSound,
 };
 use crate::screens::OnboardingScreen;
+use crate::screens::torrents::TorrentsScreen;
 use crate::services::{Services, db_block_on};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::lazy_rows::LazyRows;
 use crate::widgets::search::{self, SearchBar};
-use crate::widgets::{field, focus, rail, scroll};
+use crate::widgets::{chrome, field, focus, rail, scroll};
 
 /// Records what the app asks of the OS and replays queued OS events.
 #[derive(Default)]
@@ -86,10 +87,7 @@ impl Device for TvDevice {
 
 impl TvDevice {
     fn with_speech() -> Self {
-        Self {
-            speech: true,
-            ..Self::default()
-        }
+        Self { speech: true, ..Self::default() }
     }
 
     fn record(&self, f: impl FnOnce(&mut DeviceLog)) {
@@ -111,11 +109,11 @@ impl TvDevice {
     }
 
     fn speech_requests(&self) -> usize {
-        self.log.lock().map(|log| log.speech_requests).unwrap_or(0)
+        self.log.lock().map_or(0, |log| log.speech_requests)
     }
 
     fn speech_stops(&self) -> usize {
-        self.log.lock().map(|log| log.speech_stops).unwrap_or(0)
+        self.log.lock().map_or(0, |log| log.speech_stops)
     }
 
     fn type_on_keyboard(&self, event: TextInputEvent) {
@@ -130,11 +128,7 @@ trait OnTv {
 }
 
 fn install(ui: &egui::Ui, device: Arc<TvDevice>) {
-    let host = Host {
-        profile: Profile::tv(),
-        device,
-        player: None,
-    };
+    let host = Host { profile: Profile::tv(), device, player: None };
     platform::install(ui.ctx(), host);
 }
 
@@ -243,24 +237,22 @@ fn harness_on(device: TvDevice, add: fn(&mut egui::Ui, &mut TvState)) -> Harness
         built: 0,
     };
 
-    let mut harness = Harness::builder()
-        .with_size(vec2(640.0, 360.0))
-        .build_ui_state(
-            move |ui, state| {
-                install(ui, state.device());
-                let Some(theme) = state.theme.clone() else {
-                    crate::theme::fonts::install(ui.ctx());
-                    let theme = Theme::dark();
-                    theme.apply(ui.ctx());
-                    state.theme = Some(theme);
-                    return;
-                };
+    let mut harness = Harness::builder().with_size(vec2(640.0, 360.0)).build_ui_state(
+        move |ui, state| {
+            install(ui, state.device());
+            let Some(theme) = state.theme.clone() else {
+                crate::theme::fonts::install(ui.ctx());
+                let theme = Theme::dark();
+                theme.apply(ui.ctx());
+                state.theme = Some(theme);
+                return;
+            };
 
-                add(ui, state);
-                end_frame(ui, &theme);
-            },
-            state,
-        );
+            add(ui, state);
+            end_frame(ui, &theme);
+        },
+        state,
+    );
     harness.run();
     harness
 }
@@ -288,7 +280,7 @@ fn first_press_only_places_focus() {
 
     press(&mut harness, Key::ArrowRight);
     assert!(focused(&harness, "Two"));
-    assert!(harness.state().clicked.is_empty());
+    assert_eq!(harness.state().clicked, [] as [&str; 0]);
 }
 
 #[test]
@@ -312,10 +304,7 @@ fn moving_focus_sounds_and_the_edge_stays_quiet() {
     press(&mut harness, Key::ArrowRight);
     press(&mut harness, Key::ArrowRight);
 
-    let step = UiSound::Navigate {
-        direction: Direction::Right,
-        repeat: false,
-    };
+    let step = UiSound::Navigate { direction: Direction::Right, repeat: false };
     assert!(focused(&harness, "Three"));
     assert_eq!(harness.state().device.sounds(), vec![step, step]);
 }
@@ -347,8 +336,8 @@ fn field_ui(ui: &mut egui::Ui, state: &mut TvState) {
     };
 
     let id = Id::new("tv-field");
-    let purpose = TextPurpose::Url;
-    if let Some(text) = field::committed_edit(ui, &theme, id, &state.value, "", purpose) {
+    let prompt = field::Prompt { placeholder: "", purpose: TextPurpose::Url };
+    if let Some(text) = field::committed_edit(ui, &theme, id, &state.value, prompt) {
         state.value = text;
     }
     let _ = button::label(ui, &theme, "Below", Opts::secondary(vec2(80.0, 32.0)));
@@ -386,10 +375,7 @@ fn ok_on_a_field_opens_the_keyboard_and_its_confirm_commits() {
 
     press(&mut harness, Key::ArrowDown);
     press(&mut harness, Key::Enter);
-    let url = TextInputSpec {
-        purpose: TextPurpose::Url,
-        action: TextAction::Done,
-    };
+    let url = TextInputSpec { purpose: TextPurpose::Url, action: TextAction::Done };
     assert_eq!(device.keyboard(), vec![Some(url)]);
 
     device.type_on_keyboard(edited("при", 3));
@@ -442,10 +428,7 @@ fn the_keyboard_reads_the_field_and_may_replace_all_of_it() {
 }
 
 fn field_text(text: &str, cursor: usize) -> FieldText {
-    FieldText {
-        text: text.to_owned(),
-        selection: cursor..cursor,
-    }
+    FieldText { text: text.to_owned(), selection: cursor..cursor }
 }
 
 fn edited(text: &str, cursor: usize) -> TextInputEvent {
@@ -512,16 +495,13 @@ fn popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
         return;
     }
 
-    Area::new(Id::new("tv-popup"))
-        .order(Order::Foreground)
-        .fixed_pos(pos2(40.0, 120.0))
-        .show(ui.ctx(), |ui| {
-            focus::trap(ui);
-            ui.horizontal(|ui| {
-                let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
-                let _ = button::label(ui, &theme, "Also", Opts::secondary(vec2(80.0, 32.0)));
-            });
+    Area::new(Id::new("tv-popup")).order(Order::Foreground).fixed_pos(pos2(40.0, 120.0)).show(ui.ctx(), |ui| {
+        focus::trap(ui);
+        ui.horizontal(|ui| {
+            let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
+            let _ = button::label(ui, &theme, "Also", Opts::secondary(vec2(80.0, 32.0)));
         });
+    });
 
     if ui.input(|i| i.key_pressed(Key::Escape)) {
         state.popup = false;
@@ -560,7 +540,7 @@ fn video_and_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
     }
 
     let video = ui.add_sized(vec2(300.0, 120.0), egui::Button::new("Video"));
-    let empty = ui.memory(|mem| mem.focused()).is_none();
+    let empty = ui.memory(egui::Memory::focused).is_none();
     let returning = state.popup || focus::popup_was_open(ui.ctx());
     if empty && !returning {
         video.request_focus();
@@ -574,13 +554,10 @@ fn video_and_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
         return;
     }
 
-    Area::new(Id::new("tv-video-popup"))
-        .order(Order::Foreground)
-        .fixed_pos(pos2(120.0, 200.0))
-        .show(ui.ctx(), |ui| {
-            focus::trap(ui);
-            let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
-        });
+    Area::new(Id::new("tv-video-popup")).order(Order::Foreground).fixed_pos(pos2(120.0, 200.0)).show(ui.ctx(), |ui| {
+        focus::trap(ui);
+        let _ = button::label(ui, &theme, "Inside", Opts::secondary(vec2(80.0, 32.0)));
+    });
 }
 
 #[test]
@@ -619,29 +596,23 @@ fn dropdown_in_drawer_ui(ui: &mut egui::Ui, state: &mut TvState) {
         return;
     }
 
-    Area::new(Id::new("tv-drawer"))
-        .order(Order::Foreground)
-        .fixed_pos(pos2(300.0, 20.0))
-        .show(ui.ctx(), |ui| {
-            focus::trap(ui);
-            let _ = button::label(ui, &theme, "First", opts);
-            let _ = button::label(ui, &theme, "Middle", opts);
-            if button::label(ui, &theme, "Dropdown", opts) {
-                state.popup = true;
-            }
-        });
+    Area::new(Id::new("tv-drawer")).order(Order::Foreground).fixed_pos(pos2(300.0, 20.0)).show(ui.ctx(), |ui| {
+        focus::trap(ui);
+        let _ = button::label(ui, &theme, "First", opts);
+        let _ = button::label(ui, &theme, "Middle", opts);
+        if button::label(ui, &theme, "Dropdown", opts) {
+            state.popup = true;
+        }
+    });
 
     if !state.popup {
         return;
     }
 
-    Area::new(Id::new("tv-dropdown"))
-        .order(Order::Tooltip)
-        .fixed_pos(pos2(300.0, 160.0))
-        .show(ui.ctx(), |ui| {
-            focus::trap(ui);
-            let _ = button::label(ui, &theme, "Option", opts);
-        });
+    Area::new(Id::new("tv-dropdown")).order(Order::Tooltip).fixed_pos(pos2(300.0, 160.0)).show(ui.ctx(), |ui| {
+        focus::trap(ui);
+        let _ = button::label(ui, &theme, "Option", opts);
+    });
 }
 
 #[test]
@@ -682,35 +653,32 @@ fn menu_popup_ui(ui: &mut egui::Ui, state: &mut TvState) {
 
     let opts = Opts::secondary(vec2(80.0, 32.0));
     let page = state.value.clone();
-    Area::new(Id::new("tv-menu"))
-        .order(Order::Foreground)
-        .fixed_pos(pos2(120.0, 40.0))
-        .show(ui.ctx(), |ui| {
-            focus::trap(ui);
-            ui.push_id(page.as_str(), |ui| {
-                if page == "speed" {
-                    for (label, current) in [("Slow", false), ("Normal", true), ("Fast", false)] {
-                        let row = button::add_named(ui, &theme, label, opts, Some(label));
-                        if current {
-                            focus::prefer(&row);
-                        }
-                        if row.clicked() {
-                            state.value = String::from("left-speed");
-                        }
+    Area::new(Id::new("tv-menu")).order(Order::Foreground).fixed_pos(pos2(120.0, 40.0)).show(ui.ctx(), |ui| {
+        focus::trap(ui);
+        ui.push_id(page.as_str(), |ui| {
+            if page == "speed" {
+                for (label, current) in [("Slow", false), ("Normal", true), ("Fast", false)] {
+                    let row = button::add_named(ui, &theme, label, opts, Some(label));
+                    if current {
+                        focus::prefer(&row);
                     }
-                    return;
+                    if row.clicked() {
+                        state.value = String::from("left-speed");
+                    }
                 }
+                return;
+            }
 
-                let _ = button::label(ui, &theme, "Size", opts);
-                let speed = button::add_named(ui, &theme, "Speed", opts, Some("Speed"));
-                if page == "left-speed" {
-                    focus::prefer(&speed);
-                }
-                if speed.clicked() {
-                    state.value = String::from("speed");
-                }
-            });
+            let _ = button::label(ui, &theme, "Size", opts);
+            let speed = button::add_named(ui, &theme, "Speed", opts, Some("Speed"));
+            if page == "left-speed" {
+                focus::prefer(&speed);
+            }
+            if speed.clicked() {
+                state.value = String::from("speed");
+            }
         });
+    });
 }
 
 #[test]
@@ -771,10 +739,7 @@ fn keyboard_search_key_submits_the_query() {
 
     press(&mut harness, Key::ArrowRight);
     press(&mut harness, Key::Enter);
-    let search = TextInputSpec {
-        purpose: TextPurpose::Text,
-        action: TextAction::Search,
-    };
+    let search = TextInputSpec { purpose: TextPurpose::Text, action: TextAction::Search };
     assert_eq!(device.keyboard(), vec![Some(search)]);
 
     device.type_on_keyboard(edited("дюна", 4));
@@ -818,8 +783,8 @@ fn the_microphone_again_or_back_stops_listening() {
 }
 
 const ROWS: [&str; 16] = [
-    "Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7", "Row 8", "Row 9", "Row 10",
-    "Row 11", "Row 12", "Row 13", "Row 14", "Row 15", "Row 16",
+    "Row 1", "Row 2", "Row 3", "Row 4", "Row 5", "Row 6", "Row 7", "Row 8", "Row 9", "Row 10", "Row 11", "Row 12",
+    "Row 13", "Row 14", "Row 15", "Row 16",
 ];
 
 const SHELVES: [[&str; 8]; 4] = [
@@ -968,21 +933,18 @@ fn header_over_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     };
 
     let bar = Rect::from_min_size(pos2(170.0, 8.0), vec2(300.0, 28.0));
-    let _ = state.search.show(ui, &theme, bar);
+    state.search.show(ui, &theme, bar);
 
     let settings_rect = Rect::from_min_size(pos2(596.0, 6.0), vec2(32.0, 32.0));
-    let settings = ui.put(settings_rect, |ui: &mut egui::Ui| {
-        button::add(ui, &theme, "Settings", Opts::secondary(vec2(32.0, 32.0)))
-    });
+    let settings = ui
+        .put(settings_rect, |ui: &mut egui::Ui| button::add(ui, &theme, "Settings", Opts::secondary(vec2(32.0, 32.0))));
 
     let [field, mic] = search::stop_ids();
     focus::group(ui.ctx(), vec![field, mic, settings.id], field);
 
     for (label, x) in [("Left", 20.0), ("Middle", 260.0), ("Right", 500.0)] {
         let tile = Rect::from_min_size(pos2(x, 140.0), vec2(120.0, 80.0));
-        ui.put(tile, |ui: &mut egui::Ui| {
-            button::add(ui, &theme, label, Opts::secondary(vec2(120.0, 80.0)))
-        });
+        ui.put(tile, |ui: &mut egui::Ui| button::add(ui, &theme, label, Opts::secondary(vec2(120.0, 80.0))));
     }
 
     let page = Rect::from_min_max(pos2(0.0, 100.0), pos2(640.0, 360.0));
@@ -1167,9 +1129,7 @@ fn rail_and_page_ui(ui: &mut egui::Ui, state: &mut TvState) {
     let _ = rail::show(ui, body, &theme, Some(movies));
 
     let tile = Rect::from_min_size(pos2(260.0, 120.0), vec2(120.0, 80.0));
-    ui.put(tile, |ui: &mut egui::Ui| {
-        button::add(ui, &theme, "Tile", Opts::secondary(vec2(120.0, 80.0)))
-    });
+    ui.put(tile, |ui: &mut egui::Ui| button::add(ui, &theme, "Tile", Opts::secondary(vec2(120.0, 80.0))));
 
     let page = Rect::from_min_max(pos2(200.0, 40.0), pos2(640.0, 360.0));
     focus::set_content(ui.ctx(), page);
@@ -1184,9 +1144,7 @@ fn rail_page_with_back(ui: &mut egui::Ui, state: &mut TvState) {
         return;
     }
 
-    let movies = Screen::Section {
-        section: cinebox_core::Section::Movies,
-    };
+    let movies = Screen::Section { section: cinebox_core::Section::Movies };
     if !crate::app::routing::back_to_rail(ui.ctx(), movies) {
         state.clicked.push("left the page");
     }
@@ -1202,7 +1160,7 @@ fn back_from_a_menu_page_goes_to_the_menu_before_leaving() {
     press(&mut harness, Key::BrowserBack);
     let on_menu = rail::focused(&harness.ctx);
     assert!(on_menu, "the first Back puts the D-pad on the menu");
-    assert!(harness.state().clicked.is_empty());
+    assert_eq!(harness.state().clicked, [] as [&str; 0]);
 
     press(&mut harness, Key::BrowserBack);
     let clicked = harness.state().clicked.clone();
@@ -1310,17 +1268,9 @@ fn wizard_harness(language: UiLanguage) -> Harness<'static, WizardTv> {
     let mut svc = Services::test_with_db(Arc::new(store));
     svc.settings.general.language = language;
 
-    let state = WizardTv {
-        wizard,
-        svc,
-        theme: Theme::dark(),
-        fonts: false,
-        device: Arc::new(TvDevice::default()),
-    };
+    let state = WizardTv { wizard, svc, theme: Theme::dark(), fonts: false, device: Arc::new(TvDevice::default()) };
 
-    let mut harness = Harness::builder()
-        .with_size(vec2(1000.0, 800.0))
-        .build_ui_state(draw_wizard_over_screen, state);
+    let mut harness = Harness::builder().with_size(vec2(1000.0, 800.0)).build_ui_state(draw_wizard_over_screen, state);
     settle(&mut harness);
 
     harness
@@ -1376,7 +1326,7 @@ fn wizard_dpad_walks_the_card_not_the_screen_behind() {
 #[test]
 fn wizard_fits_the_screen_with_left_and_right() {
     let mut harness = wizard_harness(UiLanguage::English);
-    let inset = |harness: &Harness<'_, WizardTv>| platform::edge_inset(&harness.ctx);
+    let inset = |wizard: &Harness<'_, WizardTv>| platform::edge_inset(&wizard.ctx);
     let before = inset(&harness);
 
     for _ in 0..3 {
@@ -1392,4 +1342,111 @@ fn wizard_fits_the_screen_with_left_and_right() {
     press(&mut harness, Key::ArrowLeft);
     press(&mut harness, Key::ArrowLeft);
     assert_eq!(harness.state().svc.settings.general.overscan.permille(), 15);
+}
+
+struct TorrentsTv {
+    torrents: TorrentsScreen,
+    svc: Services,
+    search: SearchBar,
+    theme: Theme,
+    fonts: bool,
+    device: Arc<TvDevice>,
+}
+
+impl OnTv for TorrentsTv {
+    fn device(&self) -> Arc<TvDevice> {
+        Arc::clone(&self.device)
+    }
+}
+
+const DUNE: MediaRef = MediaRef { kind: MediaKind::Movie, id: TmdbId::new(1) };
+
+fn torrents_harness() -> Harness<'static, TorrentsTv> {
+    let Ok(store) = db_block_on(cinebox_core::Store::memory()) else {
+        panic!("in-memory store");
+    };
+
+    let svc = Services::test_with_db(Arc::new(store));
+    let mut torrents = TorrentsScreen::default();
+    torrents.ensure_open(&dune(), &[]);
+    let device = Arc::new(TvDevice::with_speech());
+    let state = TorrentsTv { torrents, svc, search: SearchBar::default(), theme: Theme::dark(), fonts: false, device };
+
+    let mut harness = Harness::builder().with_size(vec2(1280.0, 720.0)).build_ui_state(draw_torrents, state);
+    // Past the page intro, so the toolbar over the list is built.
+    for _ in 0..60 {
+        frame(&mut harness);
+    }
+
+    harness
+}
+
+/// The app's header over the torrents of a title, as the shell lays them out.
+fn draw_torrents(ui: &mut egui::Ui, state: &mut TorrentsTv) {
+    install(ui, state.device());
+    if !state.fonts {
+        crate::theme::fonts::install(ui.ctx());
+        state.theme.apply(ui.ctx());
+        state.fonts = true;
+        return;
+    }
+
+    let screen = Screen::Torrents { kind: DUNE.kind, id: DUNE.id };
+    let bar = chrome::Header { screen, is_settings_open: false, back_x: None };
+    drop(chrome::header(ui, &state.theme, bar, &mut state.search));
+
+    let margin = egui::Margin::same(24);
+    let content = egui::Frame::new().inner_margin(margin).show(ui, |ui| {
+        drop(state.torrents.ui(ui, &mut state.svc, &state.theme, DUNE));
+    });
+    focus::set_content(ui.ctx(), content.response.rect - margin);
+    end_frame(ui, &state.theme);
+}
+
+fn dune() -> MediaDetails {
+    MediaDetails {
+        id: DUNE.id,
+        kind: DUNE.kind,
+        title: String::from("Dune"),
+        original_title: None,
+        original_language: None,
+        tagline: None,
+        overview: None,
+        year: Some(2021),
+        released: None,
+        status: None,
+        runtime_minutes: Some(155),
+        number_of_seasons: None,
+        number_of_episodes: None,
+        certification: None,
+        vote: None,
+        budget: None,
+        genre_ids: Vec::new(),
+        genres: Vec::new(),
+        countries: Vec::new(),
+        poster_path: None,
+        backdrop_path: None,
+        directors: Vec::new(),
+        cast: Vec::new(),
+        collection: Vec::new(),
+        recommendations: Vec::new(),
+        similar: Vec::new(),
+        trailers: Vec::new(),
+    }
+}
+
+#[test]
+fn right_along_the_header_over_torrents_reaches_settings() {
+    let mut harness = torrents_harness();
+
+    press(&mut harness, Key::ArrowDown);
+    press(&mut harness, Key::ArrowUp);
+    assert!(search_focused(&harness), "Up from the page enters the header at the search field");
+
+    press(&mut harness, Key::ArrowRight);
+    assert!(focused(&harness, t!("search.voice").as_ref()), "the microphone is next to the field");
+
+    press(&mut harness, Key::ArrowRight);
+    let settings = t!("nav.settings");
+    assert!(focused(&harness, settings.as_ref()), "the header goes on to settings, not down into the toolbar");
 }

@@ -5,10 +5,10 @@ use cinebox_net::NetConfig;
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 
+use crate::Error;
 use crate::discover::{Date, DiscoverQuery, DiscoverSort};
 use crate::genres::{company, genre, keyword};
 use crate::home::{CatalogPage, ListRequest, fetch_list};
-use crate::Error;
 
 /// A themed shelf on a section hub.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -72,7 +72,20 @@ impl SectionRow {
         match self {
             Self::NowPlaying | Self::Upcoming | Self::Films | Self::Studio(_) => MediaKind::Movie,
             Self::ThisWeek | Self::Series | Self::Airing => MediaKind::Tv,
-            _ => section.primary_kind(),
+            Self::RecentlyWatched
+            | Self::Popular
+            | Self::Recommended
+            | Self::New
+            | Self::LastYear
+            | Self::WorthRewatch
+            | Self::HighRated
+            | Self::Family
+            | Self::Classics
+            | Self::Golden2000s
+            | Self::Comedy2000s
+            | Self::ModernComedy
+            | Self::Genre(_)
+            | Self::Keyword(_) => section.primary_kind(),
         }
     }
 }
@@ -198,10 +211,7 @@ impl ShelfId {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ShelfSource {
     Local,
-    List {
-        path: &'static str,
-        kind: Option<MediaKind>,
-    },
+    List { path: &'static str, kind: Option<MediaKind> },
     Discover(Box<DiscoverQuery>),
 }
 
@@ -224,10 +234,7 @@ fn home_source(id: HomeRowId) -> ShelfSource {
 
 fn section_source(section: Section, row: SectionRow, today: Date) -> ShelfSource {
     let kind = row.kind(section);
-    let list = |path| ShelfSource::List {
-        path,
-        kind: Some(kind),
-    };
+    let list = |path| ShelfSource::List { path, kind: Some(kind) };
 
     match (section, row) {
         (_, SectionRow::RecentlyWatched) => return ShelfSource::Local,
@@ -312,35 +319,30 @@ pub struct ShelfRow {
 impl ShelfRow {
     #[must_use]
     pub fn empty(id: ShelfId) -> Self {
-        Self {
-            id,
-            items: Vec::new(),
-            error: None,
-        }
+        Self { id, items: Vec::new(), error: None }
     }
+}
+
+/// `today` is the date `source` was built for, so that its discover dates agree with it.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct SourcePage<'a> {
+    pub(crate) source: &'a ShelfSource,
+    pub(crate) page: u32,
+    pub(crate) today: Date,
 }
 
 pub(crate) async fn fetch_source_page(
     net: &NetConfig,
     api_key: &str,
     language: Option<&str>,
-    source: &ShelfSource,
-    page: u32,
-    today: Date,
+    source_page: SourcePage<'_>,
 ) -> Result<CatalogPage, Error> {
+    let SourcePage { source, page, today } = source_page;
+
     match source {
-        ShelfSource::Local => Ok(CatalogPage {
-            items: Vec::new(),
-            page: page.max(1),
-            total_pages: 1,
-        }),
+        ShelfSource::Local => Ok(CatalogPage { items: Vec::new(), page: page.max(1), total_pages: 1 }),
         ShelfSource::List { path, kind } => {
-            let request = ListRequest {
-                path,
-                params: &[],
-                kind: *kind,
-                exclude_language: None,
-            };
+            let request = ListRequest { path, params: &[], kind: *kind, exclude_language: None };
             fetch_list(net, api_key, language, &request, page).await
         }
         ShelfSource::Discover(query) => {
@@ -366,17 +368,11 @@ pub(crate) async fn fetch_section(
     let futs = section_rows(section).iter().map(|row| async move {
         let id = ShelfId::Section(section, *row);
         let source = id.source(today);
-        match fetch_source_page(net, api_key, language, &source, 1, today).await {
-            Ok(page) => ShelfRow {
-                id,
-                items: page.items,
-                error: None,
-            },
-            Err(error) => ShelfRow {
-                id,
-                items: Vec::new(),
-                error: Some(error.to_string()),
-            },
+        let request = SourcePage { source: &source, page: 1, today };
+
+        match fetch_source_page(net, api_key, language, request).await {
+            Ok(page) => ShelfRow { id, items: page.items, error: None },
+            Err(error) => ShelfRow { id, items: Vec::new(), error: Some(error.to_string()) },
         }
     });
 
@@ -395,11 +391,9 @@ mod tests {
     fn every_shelf_key_is_unique() {
         let mut keys = HashSet::new();
         let home = HomeRowId::ALL.into_iter().map(ShelfId::Home);
-        let sections = Section::ALL.into_iter().flat_map(|section| {
-            section_rows(section)
-                .iter()
-                .map(move |row| ShelfId::Section(section, *row))
-        });
+        let sections = Section::ALL
+            .into_iter()
+            .flat_map(|section| section_rows(section).iter().map(move |row| ShelfId::Section(section, *row)));
 
         for id in home.chain(sections) {
             assert!(keys.insert(id.as_key()), "duplicate key {}", id.as_key());
@@ -425,10 +419,7 @@ mod tests {
             panic!("expected discover source");
         };
 
-        assert_eq!(
-            (query.released_from, query.released_to),
-            (Some(Date::jan1(2025)), Some(Date::dec31(2025)))
-        );
+        assert_eq!((query.released_from, query.released_to), (Some(Date::jan1(2025)), Some(Date::dec31(2025))));
     }
 
     #[test]

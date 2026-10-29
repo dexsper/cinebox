@@ -16,7 +16,7 @@ const ROW_GAP: f32 = 10.0;
 /// Draws the TMDB score pill, an optional release/air status pill (e.g.
 /// "Released", "Ongoing"), and an optional certification pill, in that order.
 /// Draws nothing if none of the three apply.
-pub fn row(ui: &mut Ui, theme: &Theme, vote: Option<f32>, status: Option<&str>, cert: Option<&str>) {
+pub(crate) fn row(ui: &mut Ui, theme: &Theme, vote: Option<f32>, status: Option<&str>, cert: Option<&str>) {
     let vote = vote.filter(|v| *v > 0.0);
     let status = status.filter(|s| !s.is_empty());
     let cert = cert.filter(|s| !s.is_empty());
@@ -51,15 +51,14 @@ pub fn row(ui: &mut Ui, theme: &Theme, vote: Option<f32>, status: Option<&str>, 
 /// Total pill-row height (frame plus margins), so callers can reserve space
 /// for it before drawing it, e.g. to center it inside a flexible gap.
 #[must_use]
-pub fn row_height(ui: &Ui, theme: &Theme) -> f32 {
+pub(crate) fn row_height(ui: &Ui, theme: &Theme) -> f32 {
     inner_h(ui, theme) + f32::from(PILL_MARGIN_Y) * 2.0
 }
 
 /// Pill content height, measured from the real `text_subtitle` metrics (the largest
 /// text drawn inside) instead of a hardcoded guess that can drift from the real font.
 fn inner_h(ui: &Ui, theme: &Theme) -> f32 {
-    ui.ctx()
-        .fonts_mut(|f| f.row_height(&theme.ui_font(theme.text_subtitle)))
+    ui.ctx().fonts_mut(|f| f.row_height(&theme.ui_font(theme.text_subtitle)))
 }
 
 fn pill(ui: &mut Ui, theme: &Theme, add: impl FnOnce(&mut Ui)) {

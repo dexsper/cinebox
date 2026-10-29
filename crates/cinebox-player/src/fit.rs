@@ -14,18 +14,17 @@ pub struct Area {
 impl Area {
     /// `self` is in points; window pixels are `pixels_per_point` times as many.
     #[must_use]
+    #[expect(
+        clippy::cast_possible_truncation,
+        reason = "window pixels sit far inside `i32`, and `as` saturates past it"
+    )]
     pub fn to_pixels(self, pixels_per_point: f32) -> PixelRect {
         let left = (self.x * pixels_per_point).round() as i32;
         let top = (self.y * pixels_per_point).round() as i32;
         let right = ((self.x + self.width) * pixels_per_point).round() as i32;
         let bottom = ((self.y + self.height) * pixels_per_point).round() as i32;
 
-        PixelRect {
-            x: left,
-            y: top,
-            width: right - left,
-            height: bottom - top,
-        }
+        PixelRect { x: left, y: top, width: right - left, height: bottom - top }
     }
 }
 
@@ -53,6 +52,7 @@ pub fn fit_video(area: Area, video: [u32; 2], scale: VideoScale) -> Area {
         return area;
     }
 
+    #[expect(clippy::cast_precision_loss, reason = "video sizes stay below the 2^24 that `f32` holds exactly")]
     let video_aspect = video_w as f32 / video_h as f32;
     let area_aspect = area.width / area.height;
 
@@ -60,22 +60,14 @@ pub fn fit_video(area: Area, video: [u32; 2], scale: VideoScale) -> Area {
     let wider = video_aspect > area_aspect;
     let spans_width = if scale == VideoScale::Expand { !wider } else { wider };
 
-    let (width, height) = if spans_width {
-        (area.width, area.width / video_aspect)
-    } else {
-        (area.height * video_aspect, area.height)
-    };
+    let width = if spans_width { area.width } else { area.height * video_aspect };
+    let height = if spans_width { area.width / video_aspect } else { area.height };
 
     let zoom = zoom_factor(scale);
     let width = width * zoom;
     let height = height * zoom;
 
-    Area {
-        x: area.x + (area.width - width) / 2.0,
-        y: area.y + (area.height - height) / 2.0,
-        width,
-        height,
-    }
+    Area { x: area.x + (area.width - width) / 2.0, y: area.y + (area.height - height) / 2.0, width, height }
 }
 
 fn zoom_factor(scale: VideoScale) -> f32 {
@@ -90,12 +82,7 @@ fn zoom_factor(scale: VideoScale) -> f32 {
 mod tests {
     use super::*;
 
-    const SCREEN: Area = Area {
-        x: 0.0,
-        y: 0.0,
-        width: 1920.0,
-        height: 1080.0,
-    };
+    const SCREEN: Area = Area { x: 0.0, y: 0.0, width: 1920.0, height: 1080.0 };
 
     fn close(a: f32, b: f32) -> bool {
         (a - b).abs() < 0.5
@@ -149,12 +136,7 @@ mod tests {
 
     #[test]
     fn pixels_round_the_edges_not_the_size() {
-        let area = Area {
-            x: 0.4,
-            y: 0.0,
-            width: 10.2,
-            height: 5.0,
-        };
+        let area = Area { x: 0.4, y: 0.0, width: 10.2, height: 5.0 };
 
         let pixels = area.to_pixels(2.0);
 

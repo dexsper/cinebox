@@ -1,6 +1,6 @@
 //! Files modal and per-file rows.
 
-use cinebox_core::{MediaKind, TmdbId};
+use cinebox_core::MediaKind;
 use egui::{Align, CornerRadius, Frame, Id, Layout, Modal, RichText, Sense, Ui, Vec2};
 use rust_i18n::t;
 
@@ -10,15 +10,21 @@ use crate::theme::Theme;
 use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, button, focus, poster, scroll};
 
+/// What the user did in the files modal this frame.
+#[derive(Debug, Default)]
+pub(super) struct FilesOutcome {
+    pub pick_file: Option<i32>,
+    pub error_choice: Option<ErrorChoice>,
+    pub is_closed: bool,
+}
+
 pub(super) fn files_modal(
     ctx: &egui::Context,
     state: &mut TorrentState,
     svc: &Services,
     theme: &Theme,
-    pick_file: &mut Option<i32>,
-    error_choice: &mut Option<ErrorChoice>,
-    close_files: &mut bool,
-) {
+) -> FilesOutcome {
+    let mut outcome = FilesOutcome::default();
     let screen = ctx.content_rect().size();
     let size = files_modal_size(screen);
     let modal = Modal::new(Id::new("torrent-files"))
@@ -43,54 +49,48 @@ pub(super) fn files_modal(
                     widgets::page_spinner(ui, theme);
                 }
                 FilesPane::Failed(error) => {
-                    *error_choice = error_page(ui, theme, error);
+                    outcome.error_choice = error_page(ui, theme, error);
                 }
                 FilesPane::Ready(files) => {
-                    let media = FileListMedia {
-                        kind: state.kind,
-                        id: state.id,
-                        poster_path: state.movie.poster_path.as_deref(),
-                    };
-                    file_list(ui, media, files, svc, theme, pick_file);
+                    let media = FileListMedia { kind: state.kind, poster_path: state.movie.poster_path.as_deref() };
+                    outcome.pick_file = file_list(ui, media, files, svc, theme);
                 }
             }
         });
+
     // Not `should_close`: Escape is the app's Back, which closes this itself.
-    if modal.backdrop_response.clicked() {
-        *close_files = true;
-    }
+    outcome.is_closed = modal.backdrop_response.clicked();
+
+    outcome
 }
 
 #[derive(Clone, Copy)]
 struct FileListMedia<'a> {
     kind: MediaKind,
-    id: TmdbId,
     poster_path: Option<&'a str>,
 }
 
+/// The id of the file picked this frame.
 fn file_list(
     ui: &mut Ui,
     media: FileListMedia<'_>,
     files: &mut ReadyFiles,
     svc: &Services,
     theme: &Theme,
-    pick_file: &mut Option<i32>,
-) {
+) -> Option<i32> {
     if files.files.is_empty() {
         ui.label(RichText::new(t!("torrents.no_playable").as_ref()).color(theme.muted));
-        return;
+        return None;
     }
 
     if files.resume_id.is_some() && files.selected_id == files.resume_id {
-        ui.label(
-            RichText::new(t!("torrents.started").as_ref())
-                .size(theme.text_caption)
-                .color(theme.ok),
-        );
+        ui.label(RichText::new(t!("torrents.started").as_ref()).size(theme.text_caption).color(theme.ok));
     }
 
     let serial = media.kind == MediaKind::Tv;
     let mut revealed = false;
+    let mut picked = None;
+
     scroll::vertical(ui, ("torrent-files", files.hash.as_str()), |ui| {
         ui.spacing_mut().item_spacing.y = 8.0;
         let mut last_season: Option<Option<u32>> = None;
@@ -98,93 +98,58 @@ fn file_list(
         for file in &files.files {
             if show_headers && last_season != Some(file.season) {
                 ui.label(
-                    RichText::new(format!(
-                        "{} {}",
-                        t!("media.season"),
-                        file.season.unwrap_or(1)
-                    ))
-                    .size(theme.text_small)
-                    .color(theme.muted),
+                    RichText::new(format!("{} {}", t!("media.season"), file.season.unwrap_or(1)))
+                        .size(theme.text_small)
+                        .color(theme.muted),
                 );
                 last_season = Some(file.season);
             }
 
             let selected = files.selected_id == Some(file.id);
             let row_id = ui.id().with(("torrent-file", file.id));
-            let idle = if selected {
-                theme.card_selected
-            } else {
-                theme.panel
-            };
+            let idle = if selected { theme.card_selected } else { theme.panel };
 
             let bg = button::fill_for_hover(ui, row_id, idle, theme.widget_hover);
 
-            let shown = Frame::new()
-                .fill(bg)
-                .corner_radius(6)
-                .inner_margin(12.0)
-                .show(ui, |ui| {
-                    ui.horizontal(|ui| {
-                        ui.spacing_mut().item_spacing.x = 12.0;
-                        poster::rounded_image(
-                            ui,
-                            Vec2::new(theme.still_w, theme.still_h),
-                            theme,
-                            || {
-                                svc.images.slot(file.still_url.as_deref()).or_else(|| {
-                                    svc.images.poster_key(
-                                        media.kind,
-                                        media.id,
-                                        media.poster_path,
-                                        svc.settings.tmdb.poster_size,
-                                    )
-                                })
-                            },
-                        );
+            let shown = Frame::new().fill(bg).corner_radius(6).inner_margin(12.0).show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.spacing_mut().item_spacing.x = 12.0;
+                    poster::rounded_image(ui, Vec2::new(theme.still_w, theme.still_h), theme, || {
+                        let poster = || svc.images.poster_path(media.poster_path, svc.settings.tmdb.poster_size);
 
-                        ui.vertical(|ui| {
-                            ui.set_min_width(ui.available_width());
-                            ui.horizontal(|ui| {
+                        svc.images.slot(file.still_url.as_deref()).or_else(poster)
+                    });
+
+                    ui.vertical(|ui| {
+                        ui.set_min_width(ui.available_width());
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new(&file.title).size(theme.text_section).color(theme.title));
+                            ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
                                 ui.label(
-                                    RichText::new(&file.title)
-                                        .size(theme.text_section)
-                                        .color(theme.title),
+                                    RichText::new(cinebox_indexer::format_bytes(file.length)).color(theme.muted_bright),
                                 );
-                                ui.with_layout(Layout::right_to_left(Align::Center), |ui| {
-                                    ui.label(
-                                        RichText::new(cinebox_indexer::format_bytes(file.length))
-                                            .color(theme.muted_bright),
-                                    );
-                                });
                             });
-
-                            if serial {
-                                let season = file.season.unwrap_or(1);
-                                let mut line = season_episode_line(season, file.episode);
-                                if file.episode.is_none() {
-                                    line = format!("{line}  ·  {}", file.number);
-                                }
-
-                                ui.label(
-                                    RichText::new(line)
-                                        .size(theme.text_small)
-                                        .color(theme.muted),
-                                );
-                            }
-
-                            if let Some(air) = file.air_date.as_deref() {
-                                ui.label(
-                                    RichText::new(air)
-                                        .size(theme.text_caption)
-                                        .color(theme.muted),
-                                );
-                            }
-
-                            ui.add_space(6.0);
-                            progress(ui, file.progress(), theme);
                         });
+
+                        if serial {
+                            let season = file.season.unwrap_or(1);
+                            let mut line = season_episode_line(season, file.episode);
+                            if file.episode.is_none() {
+                                line = format!("{line}  ·  {}", file.number);
+                            }
+
+                            ui.label(RichText::new(line).size(theme.text_small).color(theme.muted));
+                        }
+
+                        if let Some(air) = file.air_date.as_deref() {
+                            ui.label(RichText::new(air).size(theme.text_caption).color(theme.muted));
+                        }
+
+                        ui.add_space(6.0);
+                        progress(ui, file.progress(), theme);
                     });
                 });
+            });
 
             let response = button::click_rect(ui, row_id, shown.response.rect);
             let reveal = selected && files.reveal_selected;
@@ -195,7 +160,7 @@ fn file_list(
             }
 
             if response.clicked() {
-                *pick_file = Some(file.id);
+                picked = Some(file.id);
             }
         }
     });
@@ -203,18 +168,18 @@ fn file_list(
     if revealed {
         files.reveal_selected = false;
     }
+
+    picked
 }
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 3.0), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(3), theme.progress_track);
+    ui.painter().rect_filled(rect, CornerRadius::same(3), theme.progress_track);
 
     if value > 0.0 {
         let mut fill = rect;
         fill.max.x = rect.left() + rect.width() * value.clamp(0.0, 1.0);
-        ui.painter()
-            .rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
+        ui.painter().rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
     }
 }
 
@@ -252,10 +217,7 @@ mod tests {
 
     #[test]
     fn ready_files_scrolls_to_resume_once() {
-        let started = TorrentFileRow {
-            timecode: 60.0,
-            ..test_row(7)
-        };
+        let started = TorrentFileRow { timecode: 60.0, ..test_row(7) };
 
         let with_resume = ReadyFiles::from_rows(String::from("hash"), vec![started]);
         assert!(with_resume.reveal_selected);

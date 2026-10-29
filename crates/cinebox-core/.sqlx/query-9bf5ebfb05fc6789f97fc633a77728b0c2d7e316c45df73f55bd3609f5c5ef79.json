@@ -1,0 +1,50 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT kind, id, checked_at FROM torrserver_match WHERE hash = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "kind",
+        "ordinal": 0,
+        "type_info": "Text",
+        "origin": {
+          "Table": {
+            "table": "torrserver_match",
+            "name": "kind"
+          }
+        }
+      },
+      {
+        "name": "id",
+        "ordinal": 1,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "torrserver_match",
+            "name": "id"
+          }
+        }
+      },
+      {
+        "name": "checked_at",
+        "ordinal": 2,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "torrserver_match",
+            "name": "checked_at"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      true,
+      true,
+      false
+    ]
+  },
+  "hash": "9bf5ebfb05fc6789f97fc633a77728b0c2d7e316c45df73f55bd3609f5c5ef79"
+}

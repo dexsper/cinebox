@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT INTO watch_history\n                (kind, id, title, poster_path, year, vote, season, episode,\n                 episode_title, time, duration, updated_at, section)\n            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)\n            ON CONFLICT (kind, id) DO UPDATE SET\n                title = excluded.title,\n                poster_path = excluded.poster_path,\n                year = excluded.year,\n                vote = excluded.vote,\n                section = excluded.section,\n                season = CASE WHEN excluded.time > 0 THEN excluded.season ELSE watch_history.season END,\n                episode = CASE WHEN excluded.time > 0 THEN excluded.episode ELSE watch_history.episode END,\n                episode_title =\n                    CASE WHEN excluded.time > 0 THEN excluded.episode_title ELSE watch_history.episode_title END,\n                time = CASE WHEN excluded.time > 0 THEN excluded.time ELSE watch_history.time END,\n                duration = CASE WHEN excluded.duration > 0 THEN excluded.duration ELSE watch_history.duration END,\n                updated_at = excluded.updated_at\n            WHERE excluded.updated_at > watch_history.updated_at\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 13
+    },
+    "nullable": []
+  },
+  "hash": "cbd51bb8ad81105039918ecdf760dc13827fc8777dd8b74875421135acc46fd6"
+}

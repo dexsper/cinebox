@@ -2,7 +2,7 @@
 
 mod boot;
 mod device;
-pub mod nav;
+pub(crate) mod nav;
 pub(crate) mod routing;
 mod shell;
 mod tmdb;
@@ -11,8 +11,8 @@ use std::time::Duration;
 
 use crate::platform::{self, DeviceEvent, Host};
 use crate::screens::{
-    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, OnboardingScreen,
-    PersonScreen, PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
+    CategoryScreen, DiscoverScreen, HomeScreen, LibraryScreen, MediaScreen, OnboardingScreen, PersonScreen,
+    PlayerScreen, SearchScreen, SectionScreen, SettingsScreen, TorrentsScreen,
 };
 use crate::services::Services;
 use crate::services::jobs;
@@ -23,7 +23,7 @@ use crate::widgets::{chrome, focus};
 use nav::{Nav, Screen};
 use tmdb::TmdbView;
 
-pub struct App {
+pub(crate) struct App {
     nav: Nav,
     theme: Theme,
     services: Services,
@@ -45,10 +45,12 @@ pub struct App {
     foreground: bool,
     /// Taken from the device before the frame, acted on in `logic`.
     device_events: Vec<DeviceEvent>,
+    /// Home was on screen last frame: a TorrServer sync starts on entering it.
+    was_home: bool,
 }
 
 impl App {
-    pub fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
+    pub(crate) fn new(cc: &eframe::CreationContext<'_>, host: Host) -> Self {
         let theme = Theme::dark().for_profile(host.profile);
         let platform_player = host.player.clone();
 
@@ -57,8 +59,7 @@ impl App {
 
         crate::theme::fonts::install(&cc.egui_ctx);
 
-        cc.egui_ctx
-            .plugin_or_default::<egui_async::EguiAsyncPlugin>();
+        cc.egui_ctx.plugin_or_default::<egui_async::EguiAsyncPlugin>();
 
         let player = platform_player.or_else(|| boot::attach_mpv(cc));
         if let Some(player) = &player {
@@ -104,6 +105,21 @@ impl App {
             player: PlayerScreen::default(),
             foreground: true,
             device_events: Vec::new(),
+            was_home: false,
+        }
+    }
+
+    /// A sync with TorrServer starts on every entry to home, the first frame included, and its result is
+    /// taken in on whatever screen it finishes.
+    fn sync_torrserver(&mut self, ctx: &egui::Context) {
+        self.services.poll_torrserver_sync();
+
+        let is_home = matches!(self.nav.current(), Screen::Home);
+        let is_entering = is_home && !self.was_home;
+        self.was_home = is_home;
+
+        if is_entering {
+            self.services.start_torrserver_sync(ctx.input(|i| i.time));
         }
     }
 }
@@ -133,6 +149,8 @@ impl eframe::App for App {
         self.services.images.poll(ctx, &net);
 
         self.sync_tmdb();
+        self.sync_torrserver(ctx);
+
         if self.services.take_home_refresh() {
             self.home.refresh();
         }

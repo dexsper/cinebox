@@ -1,4 +1,4 @@
-//! SafeTags: hide HTML/URL/own fragments behind private labels.
+//! `SafeTags`: hide HTML/URL/own fragments behind private labels.
 
 use std::borrow::Cow;
 use std::collections::HashMap;
@@ -10,9 +10,9 @@ use crate::re;
 use crate::{PRIVATE, PRIVATE_SEPARATE};
 
 const INLINE: &[&str] = &[
-    "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em", "i",
-    "img", "input", "kbd", "label", "map", "object", "q", "samp", "script", "select", "small",
-    "span", "strong", "sub", "sup", "textarea", "time", "tt", "var",
+    "a", "abbr", "acronym", "b", "bdo", "big", "br", "button", "cite", "code", "dfn", "em", "i", "img", "input", "kbd",
+    "label", "map", "object", "q", "samp", "script", "select", "small", "span", "strong", "sub", "sup", "textarea",
+    "time", "tt", "var",
 ];
 
 static HTML_PAIRS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
@@ -32,32 +32,33 @@ static HTML_PAIRS: LazyLock<Vec<Regex>> = LazyLock::new(|| {
         ("<var(\\s[^>]*?)?>", "</var>"),
     ];
 
-    pairs
-        .iter()
-        .map(|(start, end)| re::compile_is(&format!("{start}.*?{end}")))
-        .collect()
+    pairs.iter().map(|(start, end)| re::compile_is(&format!("{start}.*?{end}"))).collect()
 });
 
-static URL: LazyLock<Regex> =
-    LazyLock::new(|| re::compile("(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)"));
+static URL: LazyLock<Regex> = LazyLock::new(|| {
+    let pattern = "(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)";
+    re::compile(pattern)
+});
 static TAG_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_is("</?[a-z].*?>"));
 static ESCAPED_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_is("&lt;/?[a-z].*?&gt;"));
 static LTGT_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("&[gl]t;"));
-static LABEL_RE: LazyLock<Regex> =
-    LazyLock::new(|| re::compile(&format!("{PRIVATE}tf\\d+{PRIVATE}")));
+static LABEL_RE: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("{PRIVATE}tf\\d+{PRIVATE}")));
 static SEARCH_RE: LazyLock<Regex> = LazyLock::new(|| re::compile(&format!("{PRIVATE}tf\\d")));
 static IS_HTML_RE: LazyLock<Regex> = LazyLock::new(|| re::compile_i("(</?[a-z]|<!|&[lg]t;)"));
 static REMOVE_CR_RE: LazyLock<Regex> = LazyLock::new(|| re::compile("\\r\\n?"));
-static SEPARATE_PARTS_RE: LazyLock<Regex> =
-    LazyLock::new(|| re::compile_is("<(title|p|h[1-6]|select|legend)(\\s[^>]*?)?>.*?</\\1>"));
+static SEPARATE_PARTS_RE: LazyLock<Regex> = LazyLock::new(|| {
+    let pattern = "<(title|p|h[1-6]|select|legend)(\\s[^>]*?)?>.*?</\\1>";
+    re::compile_is(pattern)
+});
 
+#[derive(Debug)]
 pub struct TagInfo {
     pub group: &'static str,
     pub is_inline: bool,
     pub is_closing: bool,
 }
 
-#[derive(Default)]
+#[derive(Debug, Default)]
 pub struct SafeTags {
     hidden: HashMap<&'static str, HashMap<String, String>>,
     counter: usize,
@@ -109,10 +110,7 @@ impl SafeTags {
 
         for _ in 0..rounds {
             let shown = re::replace_all_fn(&LABEL_RE, text, |caps| {
-                hidden
-                    .get(&caps[0])
-                    .cloned()
-                    .unwrap_or_else(|| caps[0].to_string())
+                hidden.get(&caps[0]).cloned().unwrap_or_else(|| caps[0].to_string())
             });
 
             if let Cow::Owned(shown) = shown {
@@ -130,12 +128,7 @@ impl SafeTags {
     ///
     /// Walks from two characters before `pos` so the closing private mark of a
     /// hide-label is not taken as the whole key.
-    pub fn get_prev_tag_info(
-        &self,
-        chars: &[(usize, char)],
-        text: &str,
-        pos: usize,
-    ) -> Option<TagInfo> {
+    pub fn get_prev_tag_info(&self, chars: &[(usize, char)], text: &str, pos: usize) -> Option<TagInfo> {
         let char_pos = chars.binary_search_by_key(&pos, |(b, _)| *b).ok()?;
 
         if char_pos == 0 {
@@ -169,12 +162,7 @@ impl SafeTags {
 
     /// Slice through the closing private char (inclusive), starting one
     /// character after `pos`.
-    pub fn get_next_tag_info(
-        &self,
-        chars: &[(usize, char)],
-        text: &str,
-        pos: usize,
-    ) -> Option<TagInfo> {
+    pub fn get_next_tag_info(&self, chars: &[(usize, char)], text: &str, pos: usize) -> Option<TagInfo> {
         let char_pos = chars.binary_search_by_key(&pos, |(b, _)| *b).ok()?;
         let position = char_pos + 1;
 
@@ -204,30 +192,18 @@ impl SafeTags {
             };
 
             if group == "url" {
-                return Some(TagInfo {
-                    group,
-                    is_inline: true,
-                    is_closing: false,
-                });
+                return Some(TagInfo { group, is_inline: true, is_closing: false });
             }
 
             if group == "own" {
-                return Some(TagInfo {
-                    group,
-                    is_inline: false,
-                    is_closing: false,
-                });
+                return Some(TagInfo { group, is_inline: false, is_closing: false });
             }
 
             let name = html_tag_name(value);
             let is_inline = INLINE.iter().any(|n| n.eq_ignore_ascii_case(&name));
             let is_closing = value.starts_with("</");
 
-            return Some(TagInfo {
-                group,
-                is_inline,
-                is_closing,
-            });
+            return Some(TagInfo { group, is_inline, is_closing });
         }
 
         None
@@ -254,31 +230,25 @@ impl SafeTags {
 }
 
 fn html_tag_name(tag: &str) -> String {
-    tag.split(|c: char| c == '<' || c.is_whitespace() || c == '>')
-        .nth(1)
-        .unwrap_or("")
-        .to_string()
+    tag.split(|c: char| c == '<' || c.is_whitespace() || c == '>').nth(1).unwrap_or("").to_string()
 }
 
 fn slice_chars(chars: &[(usize, char)], text: &str, start: usize, end_exclusive: usize) -> Option<String> {
     let start_byte = chars.get(start)?.0;
-    let end_byte = chars
-        .get(end_exclusive)
-        .map(|(b, _)| *b)
-        .unwrap_or(text.len());
+    let end_byte = chars.get(end_exclusive).map_or(text.len(), |(b, _)| *b);
 
     text.get(start_byte..end_byte).map(str::to_string)
 }
 
-pub fn is_html(text: &str) -> bool {
+pub(crate) fn is_html(text: &str) -> bool {
     re::is_match(&IS_HTML_RE, text)
 }
 
-pub fn remove_cr(text: &str) -> String {
+pub(crate) fn remove_cr(text: &str) -> String {
     re::replace_all(&REMOVE_CR_RE, text, "\n").into_owned()
 }
 
-pub fn strip_separate(text: &str) -> Cow<'_, str> {
+pub(crate) fn strip_separate(text: &str) -> Cow<'_, str> {
     if !text.contains(PRIVATE_SEPARATE) {
         return Cow::Borrowed(text);
     }
@@ -286,6 +256,6 @@ pub fn strip_separate(text: &str) -> Cow<'_, str> {
     Cow::Owned(text.replace(PRIVATE_SEPARATE, ""))
 }
 
-pub fn separate_parts_re() -> &'static Regex {
+pub(crate) fn separate_parts_re() -> &'static Regex {
     &SEPARATE_PARTS_RE
 }

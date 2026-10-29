@@ -1,32 +1,32 @@
 //! In-player Settings flyout: nested menu for video size, speed, subtitles, audio.
 
-use cinebox_core::TorrentPlaybackPrefs;
-use cinebox_core::VideoScale;
+use cinebox_core::{TorrentPlaybackPrefs, VideoScale};
 use cinebox_player::{Features, Track, TrackKind};
 use egui::{Align, FontId, Label, Layout, RichText, Sense, Ui, UiBuilder, pos2, vec2};
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_CHECK, ICON_CHEVRON_RIGHT};
 use rust_i18n::t;
 
 use crate::theme::Theme;
-use crate::widgets::{button, focus, poster};
+use crate::widgets::poster::{self, Wrap};
+use crate::widgets::{button, focus};
 
 const ROW_H: f32 = 36.0;
 const ROW_GAP: f32 = 8.0;
 const VALUE_MIN_W: f32 = 48.0;
 const STEPPER_BTN: f32 = 26.0;
 
-pub const SPEEDS: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
+pub(super) const SPEEDS: &[f64] = &[0.5, 0.75, 1.0, 1.25, 1.5, 1.75, 2.0];
 
-pub const SUB_SCALE_STEP: f64 = 0.1;
-pub const SUB_SCALE_MIN: f64 = 0.5;
-pub const SUB_SCALE_MAX: f64 = 2.0;
-pub const SUB_DELAY_STEP: f64 = 0.5;
-pub const SUB_DELAY_MIN: f64 = -10.0;
-pub const SUB_DELAY_MAX: f64 = 10.0;
+pub(super) const SUB_SCALE_STEP: f64 = 0.1;
+pub(super) const SUB_SCALE_MIN: f64 = 0.5;
+pub(super) const SUB_SCALE_MAX: f64 = 2.0;
+pub(super) const SUB_DELAY_STEP: f64 = 0.5;
+pub(super) const SUB_DELAY_MIN: f64 = -10.0;
+pub(super) const SUB_DELAY_MAX: f64 = 10.0;
 
 /// Which submenu the flyout is showing.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum Page {
+pub(super) enum Page {
     Root,
     VideoSize,
     Speed,
@@ -35,7 +35,7 @@ pub enum Page {
 }
 
 /// Read-only inputs for one popup frame.
-pub struct View<'a> {
+pub(super) struct View<'a> {
     pub page: Page,
     pub features: Features,
     pub tracks: &'a [Track],
@@ -46,115 +46,148 @@ pub struct View<'a> {
     pub left: Option<Page>,
 }
 
+/// A subtitle track to show, or none at all.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum SubtitlePick {
+    Off,
+    Track(i64),
+}
+
+impl SubtitlePick {
+    /// The id the player selects; `None` turns subtitles off.
+    #[must_use]
+    pub(super) fn track_id(self) -> Option<i64> {
+        match self {
+            Self::Off => None,
+            Self::Track(id) => Some(id),
+        }
+    }
+}
+
 /// Choices made this frame.
-#[derive(Default)]
-pub struct Out {
+#[derive(Debug, Default)]
+pub(super) struct Out {
     pub page: Option<Page>,
     pub scale: Option<VideoScale>,
     pub speed: Option<f64>,
     pub audio: Option<i64>,
-    /// `Some(None)` turns subtitles off.
-    pub sub: Option<Option<i64>>,
+    pub sub: Option<SubtitlePick>,
     pub sub_scale: Option<f64>,
     pub sub_delay: Option<f64>,
 }
 
-pub fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+/// A row on the root page that opens a submenu.
+struct Entry<'a> {
+    page: Page,
+    label: &'a str,
+    /// The current choice on that page, shown on the right.
+    value: &'a str,
+}
+
+pub(super) fn paint(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    match view.page {
+        Page::Root => Out { page: root_page(ui, theme, view), ..Out::default() },
+        Page::VideoSize => video_size_page(ui, theme, view),
+        Page::Speed => speed_page(ui, theme, view),
+        Page::Subtitles => subtitles_page(ui, theme, view),
+        Page::Audio => audio_page(ui, theme, view),
+    }
+}
+
+/// The submenu opened this frame.
+fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Option<Page> {
+    let video_size = t!("player.video_size");
+    let scale = scale_label(view.prefs.scale);
+    let mut opened = submenu(ui, theme, view, &Entry { page: Page::VideoSize, label: &video_size, value: &scale });
+
+    if view.features.speed {
+        let playback_speed = t!("player.playback_speed");
+        let speed = speed_label(view.prefs.speed);
+        let entry = Entry { page: Page::Speed, label: &playback_speed, value: &speed };
+        opened = submenu(ui, theme, view, &entry).or(opened);
+    }
+
+    let subtitle_track = t!("player.subtitle_track");
+    let sub = selected_sub_label(view.tracks);
+    opened = submenu(ui, theme, view, &Entry { page: Page::Subtitles, label: &subtitle_track, value: &sub }).or(opened);
+
+    let audio_count = count_tracks(view.tracks, TrackKind::Audio);
+    if audio_count <= 1 {
+        return opened;
+    }
+
+    let audio_track = t!("player.audio_track");
+    let audio = selected_audio_label(view.tracks);
+
+    submenu(ui, theme, view, &Entry { page: Page::Audio, label: &audio_track, value: &audio }).or(opened)
+}
+
+/// `entry.page` when its row was clicked.
+fn submenu(ui: &mut Ui, theme: &Theme, view: &View<'_>, entry: &Entry<'_>) -> Option<Page> {
+    let row = submenu_row(ui, theme, entry.label, entry.value);
+    if view.left == Some(entry.page) {
+        focus::prefer(&row);
+    }
+
+    row.clicked().then_some(entry.page)
+}
+
+fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
     let mut out = Out::default();
 
-    match view.page {
-        Page::Root => root_page(ui, theme, view, &mut out),
-        Page::VideoSize => video_size_page(ui, theme, view, &mut out),
-        Page::Speed => speed_page(ui, theme, view, &mut out),
-        Page::Subtitles => subtitles_page(ui, theme, view, &mut out),
-        Page::Audio => audio_page(ui, theme, view, &mut out),
+    if back_row(ui, theme, t!("player.video_size").as_ref()) {
+        out.page = Some(Page::Root);
+        return out;
+    }
+
+    for scale in VideoScale::ALL {
+        let is_selected = *scale == view.prefs.scale;
+        if radio_row(ui, theme, scale_label(*scale).as_ref(), is_selected) {
+            out.scale = Some(*scale);
+            out.page = Some(Page::Root);
+        }
     }
 
     out
 }
 
-fn root_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    let scale = scale_label(view.prefs.scale);
-    submenu(ui, theme, view, out, Page::VideoSize, t!("player.video_size").as_ref(), &scale);
+fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
 
-    if view.features.speed {
-        let speed = speed_label(view.prefs.speed);
-        submenu(ui, theme, view, out, Page::Speed, t!("player.playback_speed").as_ref(), &speed);
-    }
-
-    let sub = selected_sub_label(view.tracks);
-    submenu(ui, theme, view, out, Page::Subtitles, t!("player.subtitle_track").as_ref(), &sub);
-
-    let audio_count = count_tracks(view.tracks, TrackKind::Audio);
-    if audio_count <= 1 {
-        return;
-    }
-
-    let audio = selected_audio_label(view.tracks);
-    submenu(ui, theme, view, out, Page::Audio, t!("player.audio_track").as_ref(), &audio);
-}
-
-fn submenu(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out, page: Page, label: &str, value: &str) {
-    let row = submenu_row(ui, theme, label, value);
-    if view.left == Some(page) {
-        focus::prefer(&row);
-    }
-
-    if row.clicked() {
-        out.page = Some(page);
-    }
-}
-
-fn video_size_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
-    if back_row(ui, theme, t!("player.video_size").as_ref()) {
-        out.page = Some(Page::Root);
-        return;
-    }
-
-    for scale in VideoScale::ALL {
-        let selected = *scale == view.prefs.scale;
-        if radio_row(ui, theme, scale_label(*scale).as_ref(), selected) {
-            out.scale = Some(*scale);
-            out.page = Some(Page::Root);
-        }
-    }
-}
-
-fn speed_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     if back_row(ui, theme, t!("player.playback_speed").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
     for speed in SPEEDS {
-        let selected = (view.prefs.speed - speed).abs() < 0.01;
-        if radio_row(ui, theme, &speed_label(*speed), selected) {
+        let is_selected = (view.prefs.speed - speed).abs() < 0.01;
+        if radio_row(ui, theme, &speed_label(*speed), is_selected) {
             out.speed = Some(*speed);
             out.page = Some(Page::Root);
         }
     }
+
+    out
 }
 
-fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
+fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
+
     if back_row(ui, theme, t!("player.subtitle_track").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
-    let subs: Vec<&Track> = view
-        .tracks
-        .iter()
-        .filter(|track| track.kind == TrackKind::Subtitle)
-        .collect();
-    let none_selected = !subs.iter().any(|track| track.selected);
+    let subs: Vec<&Track> = view.tracks.iter().filter(|track| track.kind == TrackKind::Subtitle).collect();
+    let is_none_selected = !subs.iter().any(|track| track.selected);
 
-    if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), none_selected) {
-        out.sub = Some(None);
+    if radio_row(ui, theme, t!("player.subtitles_off").as_ref(), is_none_selected) {
+        out.sub = Some(SubtitlePick::Off);
     }
 
     for track in &subs {
         if radio_row(ui, theme, &track_label(track), track.selected) {
-            out.sub = Some(Some(track.id));
+            out.sub = Some(SubtitlePick::Track(track.id));
         }
     }
 
@@ -169,7 +202,7 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
     }
 
     if !view.features.subtitle_delay {
-        return;
+        return out;
     }
 
     let delay_text = format!("{:+.1}s", view.sub_delay);
@@ -178,18 +211,19 @@ fn subtitles_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
         let next = view.sub_delay + f64::from(delay_step) * SUB_DELAY_STEP;
         out.sub_delay = Some(next.clamp(SUB_DELAY_MIN, SUB_DELAY_MAX));
     }
+
+    out
 }
 
-fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
+fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>) -> Out {
+    let mut out = Out::default();
+
     if back_row(ui, theme, t!("player.audio_track").as_ref()) {
         out.page = Some(Page::Root);
-        return;
+        return out;
     }
 
-    let audio = view
-        .tracks
-        .iter()
-        .filter(|track| track.kind == TrackKind::Audio);
+    let audio = view.tracks.iter().filter(|track| track.kind == TrackKind::Audio);
 
     for track in audio {
         if radio_row(ui, theme, &track_label(track), track.selected) {
@@ -197,12 +231,14 @@ fn audio_page(ui: &mut Ui, theme: &Theme, view: &View<'_>, out: &mut Out) {
             out.page = Some(Page::Root);
         }
     }
+
+    out
 }
 
 /// Human label for one mpv track.
-pub fn track_label(track: &Track) -> String {
-    let title = track.title.as_deref().filter(|s| !s.is_empty());
-    let lang = track.lang.as_deref().filter(|s| !s.is_empty());
+pub(super) fn track_label(track: &Track) -> String {
+    let title = track.title.as_deref().filter(|title| !title.is_empty());
+    let lang = track.lang.as_deref().filter(|lang| !lang.is_empty());
 
     match (title, lang) {
         (Some(title), Some(lang)) => format!("{title} ({lang})"),
@@ -212,7 +248,7 @@ pub fn track_label(track: &Track) -> String {
     }
 }
 
-pub fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
+pub(super) fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
     match scale {
         VideoScale::Default => t!("player.scale.default"),
         VideoScale::Expand => t!("player.scale.expand"),
@@ -222,7 +258,7 @@ pub fn scale_label(scale: VideoScale) -> std::borrow::Cow<'static, str> {
     }
 }
 
-pub fn speed_label(speed: f64) -> String {
+pub(super) fn speed_label(speed: f64) -> String {
     if (speed - 1.0).abs() < 0.01 {
         return t!("player.speed_normal").into_owned();
     }
@@ -235,21 +271,15 @@ fn count_tracks(tracks: &[Track], kind: TrackKind) -> usize {
 }
 
 fn selected_audio_label(tracks: &[Track]) -> String {
-    let selected = tracks
-        .iter()
-        .find(|track| track.kind == TrackKind::Audio && track.selected);
+    let selected = tracks.iter().find(|track| track.kind == TrackKind::Audio && track.selected);
 
     selected.map(track_label).unwrap_or_default()
 }
 
 fn selected_sub_label(tracks: &[Track]) -> String {
-    let selected = tracks
-        .iter()
-        .find(|track| track.kind == TrackKind::Subtitle && track.selected);
+    let selected = tracks.iter().find(|track| track.kind == TrackKind::Subtitle && track.selected);
 
-    selected
-        .map(track_label)
-        .unwrap_or_else(|| t!("player.subtitles_off").into_owned())
+    selected.map_or_else(|| t!("player.subtitles_off").into_owned(), track_label)
 }
 
 fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
@@ -263,12 +293,7 @@ fn hover_row(ui: &mut Ui, id_salt: &str) -> (egui::Rect, egui::Response) {
 ///
 /// The value shrinks first; the label only yields once the value is down to
 /// [`VALUE_MIN_W`]. Trailing is the chevron/check width (gap added here).
-fn split_row_widths(
-    inner_w: f32,
-    label_desired: f32,
-    trailing_w: f32,
-    has_value: bool,
-) -> (f32, f32) {
+fn split_row_widths(inner_w: f32, label_desired: f32, trailing_w: f32, has_value: bool) -> (f32, f32) {
     let after_icon = (inner_w - trailing_w).max(0.0);
 
     if !has_value {
@@ -290,8 +315,7 @@ fn galley_y(rect: egui::Rect, height: f32) -> f32 {
 fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Response {
     let (rect, mut response) = hover_row(ui, label);
     if focus::lit(&response) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
@@ -311,15 +335,8 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
     let (label_budget, value_budget) = split_row_widths(inner_w, label_desired, icon_w, has_value);
 
     let label_width = label_budget.max(1.0);
-    let label_galley = poster::wrap_lines(
-        ui,
-        label,
-        theme.label,
-        theme.text_body,
-        label_width,
-        1,
-        theme,
-    );
+    let label_wrap = Wrap { color: theme.label, font_size: theme.text_body, width: label_width, max_rows: 1 };
+    let label_galley = poster::wrap_lines(ui, theme, label, label_wrap);
 
     let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
     ui.painter().galley(label_pos, label_galley, theme.label);
@@ -341,15 +358,8 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
     }
 
     let value_width = value_budget.max(1.0);
-    let value_galley = poster::wrap_lines(
-        ui,
-        value,
-        theme.muted,
-        theme.text_small,
-        value_width,
-        1,
-        theme,
-    );
+    let value_wrap = Wrap { color: theme.muted, font_size: theme.text_small, width: value_width, max_rows: 1 };
+    let value_galley = poster::wrap_lines(ui, theme, value, value_wrap);
 
     let value_x = icon_pos.x - ROW_GAP - value_galley.size().x;
     let value_pos = pos2(value_x, galley_y(inner, value_galley.size().y));
@@ -361,55 +371,31 @@ fn submenu_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> egui::Re
 fn back_row(ui: &mut Ui, theme: &Theme, title: &str) -> bool {
     let (rect, response) = hover_row(ui, "back");
     if focus::lit(&response) {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), theme.widget_hover);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
-    row.label(
-        ICON_ARROW_BACK
-            .rich_text()
-            .size(theme.text_icon)
-            .color(theme.title),
-    );
+    row.label(ICON_ARROW_BACK.rich_text().size(theme.text_icon).color(theme.title));
     row.add_space(8.0);
-    row.label(
-        RichText::new(title)
-            .size(theme.text_body)
-            .color(theme.title),
-    );
+    row.label(RichText::new(title).size(theme.text_body).color(theme.title));
 
     ui.add_space(4.0);
     response.clicked()
 }
 
-fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
+fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, is_selected: bool) -> bool {
     let (rect, mut response) = hover_row(ui, label);
-    if selected {
+    if is_selected {
         focus::prefer(&response);
     }
 
-    let idle = if selected {
-        theme.card_selected
-    } else {
-        egui::Color32::TRANSPARENT
-    };
-
-    let fill = if focus::lit(&response) {
-        theme.widget_hover
-    } else {
-        idle
-    };
+    let idle = if is_selected { theme.card_selected } else { egui::Color32::TRANSPARENT };
+    let fill = if focus::lit(&response) { theme.widget_hover } else { idle };
 
     if fill != egui::Color32::TRANSPARENT {
-        ui.painter()
-            .rect_filled(rect, theme.rounding(theme.radius_card), fill);
+        ui.painter().rect_filled(rect, theme.rounding(theme.radius_card), fill);
     }
 
     let inner = rect.shrink2(vec2(10.0, 4.0));
@@ -419,11 +405,7 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
     let check_text = check.codepoint.to_owned();
     let check_galley = ui.painter().layout_no_wrap(check_text, check_font, theme.title);
 
-    let trailing = if selected {
-        check_galley.size().x + ROW_GAP
-    } else {
-        0.0
-    };
+    let trailing = if is_selected { check_galley.size().x + ROW_GAP } else { 0.0 };
 
     let text_w = (inner.width() - trailing).max(1.0);
     let label_font = theme.ui_font(theme.text_body);
@@ -435,31 +417,21 @@ fn radio_row(ui: &mut Ui, theme: &Theme, label: &str, selected: bool) -> bool {
         response = response.on_hover_text(label);
     }
 
-    let label_galley = poster::wrap_lines(
-        ui,
-        label,
-        theme.label,
-        theme.text_body,
-        text_w,
-        1,
-        theme,
-    );
+    let label_wrap = Wrap { color: theme.label, font_size: theme.text_body, width: text_w, max_rows: 1 };
+    let label_galley = poster::wrap_lines(ui, theme, label, label_wrap);
 
     let label_pos = pos2(inner.left(), galley_y(inner, label_galley.size().y));
     ui.painter().galley(label_pos, label_galley, theme.label);
 
-    if selected {
-        let check_pos = pos2(
-            inner.right() - check_galley.size().x,
-            galley_y(inner, check_galley.size().y),
-        );
+    if is_selected {
+        let check_pos = pos2(inner.right() - check_galley.size().x, galley_y(inner, check_galley.size().y));
         ui.painter().galley(check_pos, check_galley, theme.title);
     }
 
     response.clicked()
 }
 
-/// Label + value with −/+ buttons. Returns -1.0, 0.0, or 1.0.
+/// Label and value with minus and plus buttons. -1.0, 0.0 or 1.0 for the button pressed.
 fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
     let mut step = 0.0;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), ROW_H), Sense::hover());
@@ -473,38 +445,24 @@ fn stepper_row(ui: &mut Ui, theme: &Theme, label: &str, value: &str) -> f32 {
     let cluster = STEPPER_BTN * 2.0 + 6.0 * 2.0 + value_w;
     let label_w = (inner.width() - cluster - ROW_GAP).max(1.0);
 
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
     row.add_sized(
         vec2(label_w, inner.height()),
-        Label::new(
-            RichText::new(label)
-                .size(theme.text_small)
-                .color(theme.label),
-        )
-        .truncate(),
+        Label::new(RichText::new(label).size(theme.text_small).color(theme.label)).truncate(),
     );
 
-    row.with_layout(Layout::right_to_left(Align::Center), |ui| {
-        ui.spacing_mut().item_spacing.x = 6.0;
-        let opts =
-            crate::widgets::button::Opts::secondary(vec2(STEPPER_BTN, STEPPER_BTN)).pad_y(0.0);
+    row.with_layout(Layout::right_to_left(Align::Center), |buttons| {
+        buttons.spacing_mut().item_spacing.x = 6.0;
+        let opts = button::Opts::secondary(vec2(STEPPER_BTN, STEPPER_BTN)).pad_y(0.0);
 
-        if crate::widgets::button::label(ui, theme, "+", opts) {
+        if button::label(buttons, theme, "+", opts) {
             step = 1.0;
         }
 
-        ui.label(
-            RichText::new(value)
-                .size(theme.text_small)
-                .color(theme.muted_bright),
-        );
+        buttons.label(RichText::new(value).size(theme.text_small).color(theme.muted_bright));
 
-        if crate::widgets::button::label(ui, theme, "−", opts) {
+        if button::label(buttons, theme, "−", opts) {
             step = -1.0;
         }
     });
@@ -517,13 +475,7 @@ mod tests {
     use super::*;
 
     fn track(id: i64, kind: TrackKind, title: Option<&str>, lang: Option<&str>) -> Track {
-        Track {
-            id,
-            kind,
-            lang: lang.map(str::to_owned),
-            title: title.map(str::to_owned),
-            selected: false,
-        }
+        Track { id, kind, lang: lang.map(str::to_owned), title: title.map(str::to_owned), selected: false }
     }
 
     #[test]

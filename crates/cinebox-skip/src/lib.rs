@@ -2,6 +2,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod chapters;
 mod error;
 pub mod providers;
 
@@ -24,12 +25,7 @@ pub enum SegmentType {
 }
 
 impl SegmentType {
-    pub const ALL: [SegmentType; 4] = [
-        SegmentType::Intro,
-        SegmentType::Recap,
-        SegmentType::Credits,
-        SegmentType::Preview,
-    ];
+    pub const ALL: [Self; 4] = [Self::Intro, Self::Recap, Self::Credits, Self::Preview];
 
     #[must_use]
     pub const fn as_str(self) -> &'static str {
@@ -73,7 +69,9 @@ impl TimeRange {
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct MediaSegments {
-    pub tmdb_id: u64,
+    // TheIntroDB v4 keys media by TVDB; cache entries from v3 carry `tmdb_id` instead.
+    #[serde(default)]
+    pub tvdb_id: Option<u64>,
     #[serde(rename = "type", default)]
     pub kind_str: String,
     #[serde(default)]
@@ -96,8 +94,34 @@ impl MediaSegments {
             SegmentType::Preview => &self.preview,
         }
     }
+
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        SegmentType::ALL.iter().all(|ty| self.segments_of(*ty).is_empty())
+    }
+
+    /// Takes `fallback`'s ranges for each kind that has none of its own.
+    pub fn fill_missing_from(&mut self, fallback: &Self) {
+        for ty in SegmentType::ALL {
+            let ranges = self.segments_of_mut(ty);
+
+            if ranges.is_empty() {
+                ranges.extend_from_slice(fallback.segments_of(ty));
+            }
+        }
+    }
+
+    pub(crate) fn segments_of_mut(&mut self, ty: SegmentType) -> &mut Vec<TimeRange> {
+        match ty {
+            SegmentType::Intro => &mut self.intro,
+            SegmentType::Recap => &mut self.recap,
+            SegmentType::Credits => &mut self.credits,
+            SegmentType::Preview => &mut self.preview,
+        }
+    }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct SegmentQuery {
     pub tmdb_id: u64,
     pub kind: MediaKind,
@@ -105,35 +129,27 @@ pub struct SegmentQuery {
     pub season: Option<u32>,
     /// `None` for movies.
     pub episode: Option<u32>,
-    /// Actual file duration from the media player. The server uses this to
-    /// reject mismatched encodes where the audio track has shifted.
+    /// Actual file duration from the media player. Providers use it to pick
+    /// timings made for this cut and to reject those made for another.
     pub duration_ms: u64,
 }
 
 /// A source of skip-segment data.
 ///
 /// `Ok(None)` means no data for this media (404 / duration mismatch).
-#[allow(async_fn_in_trait)]
+#[expect(async_fn_in_trait, reason = "providers are awaited in place, so callers need no `Send` bound")]
 pub trait SegmentProvider {
-    async fn fetch(
-        &self,
-        query: &SegmentQuery,
-        net: &cinebox_net::NetConfig,
-    ) -> Result<Option<MediaSegments>, Error>;
+    async fn fetch(&self, query: &SegmentQuery, net: &cinebox_net::NetConfig) -> Result<Option<MediaSegments>, Error>;
 }
 
-pub(crate) async fn send<F>(
-    net: &cinebox_net::NetConfig,
-    build: F,
-) -> Result<reqwest::Response, Error>
+pub(crate) async fn send<F>(net: &cinebox_net::NetConfig, build: F) -> Result<reqwest::Response, Error>
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
-        .await
-        .map_err(|e| Error::Request(e.without_url()))
-}
+    let sent = cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await;
 
+    sent.map_err(|error| Error::Request(error.without_url()))
+}
 
 #[cfg(test)]
 mod tests {
@@ -170,7 +186,7 @@ mod tests {
     #[test]
     fn media_segments_json_roundtrip() -> Result<(), serde_json::Error> {
         let json = r#"{
-            "tmdb_id": 12345,
+            "tvdb_id": 12345,
             "type": "movie",
             "intro": [{"start_ms": null, "end_ms": 23000}],
             "recap": [{"start_ms": 25000, "end_ms": 134000}],
@@ -182,13 +198,26 @@ mod tests {
         }"#;
 
         let s: MediaSegments = serde_json::from_str(json)?;
-        assert_eq!(s.tmdb_id, 12345);
+        assert_eq!(s.tvdb_id, Some(12345));
         assert_eq!(s.intro.len(), 1);
         assert_eq!(s.intro[0].start_ms, None);
         assert_eq!(s.intro[0].end_ms, Some(23_000));
         assert_eq!(s.credits.len(), 2);
         assert_eq!(s.credits[1].start_ms, Some(6_408_000));
         assert_eq!(s.credits[1].end_ms, None);
+
+        Ok(())
+    }
+
+    #[test]
+    fn reads_cache_entries_written_before_v4() -> Result<(), serde_json::Error> {
+        let json = r#"{"tmdb_id":12345,"type":"movie","intro":[{"start_ms":null,"end_ms":23000}],"recap":[],"credits":[],"preview":[]}"#;
+
+        let s: MediaSegments = serde_json::from_str(json)?;
+
+        assert_eq!(s.tvdb_id, None);
+        assert_eq!(s.intro.len(), 1);
+        assert!(!s.is_empty());
 
         Ok(())
     }

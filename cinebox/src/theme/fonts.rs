@@ -41,13 +41,7 @@ macro_rules! script {
     ($script:literal, $weight:literal, $baseline:literal) => {
         Script {
             name: concat!("ibm_plex_", $script, "_", $weight),
-            data: include_bytes!(concat!(
-                "../../assets/fonts/IBMPlexSans",
-                $script,
-                "-",
-                $weight,
-                ".otf"
-            )),
+            data: include_bytes!(concat!("../../assets/fonts/IBMPlexSans", $script, "-", $weight, ".otf")),
             baseline: $baseline,
         }
     };
@@ -59,64 +53,43 @@ const SCRIPTS_BOLD: [Script; 8] = scripts!("Bold");
 
 /// Register Plex ahead of the default proportional stack (emoji / icons stay fallbacks).
 /// The other scripts go after the icons, so a CJK font cannot take an icon's code point.
-pub fn install(ctx: &Context) {
-    let ui = InsertFontFamily {
-        family: FontFamily::Proportional,
-        priority: FontPriority::Highest,
-    };
+pub(crate) fn install(ctx: &Context) {
+    let ui = InsertFontFamily { family: FontFamily::Proportional, priority: FontPriority::Highest };
 
-    ctx.add_font(FontInsert::new(
-        FAMILY_REGULAR,
-        FontData::from_static(REGULAR),
-        vec![ui],
-    ));
+    ctx.add_font(FontInsert::new(FAMILY_REGULAR, FontData::from_static(REGULAR), vec![ui]));
 
     install_named(ctx, FAMILY_MEDIUM, MEDIUM);
     install_named(ctx, FAMILY_BOLD, BOLD);
     egui_material_icons::initialize(ctx);
 
-    install_fallbacks(ctx, FontFamily::Proportional, &SCRIPTS_REGULAR);
-    install_fallbacks(ctx, FontFamily::Name(FAMILY_MEDIUM.into()), &SCRIPTS_MEDIUM);
-    install_fallbacks(ctx, FontFamily::Name(FAMILY_BOLD.into()), &SCRIPTS_BOLD);
+    install_fallbacks(ctx, &FontFamily::Proportional, &SCRIPTS_REGULAR);
+    install_fallbacks(ctx, &FontFamily::Name(FAMILY_MEDIUM.into()), &SCRIPTS_MEDIUM);
+    install_fallbacks(ctx, &FontFamily::Name(FAMILY_BOLD.into()), &SCRIPTS_BOLD);
 }
 
 /// Display / headings (Medium).
 #[must_use]
-pub fn title(size: f32) -> FontId {
+pub(crate) fn title(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FAMILY_MEDIUM.into()))
 }
 
 /// Primary actions (Bold).
 #[must_use]
-pub fn emphasis(size: f32) -> FontId {
+pub(crate) fn emphasis(size: f32) -> FontId {
     FontId::new(size, FontFamily::Name(FAMILY_BOLD.into()))
 }
 
 fn install_named(ctx: &Context, name: &'static str, ttf: &'static [u8]) {
-    let family = InsertFontFamily {
-        family: FontFamily::Name(name.into()),
-        priority: FontPriority::Highest,
-    };
+    let family = InsertFontFamily { family: FontFamily::Name(name.into()), priority: FontPriority::Highest };
 
-    ctx.add_font(FontInsert::new(
-        name,
-        FontData::from_static(ttf),
-        vec![family],
-    ));
+    ctx.add_font(FontInsert::new(name, FontData::from_static(ttf), vec![family]));
 }
 
-fn install_fallbacks(ctx: &Context, family: FontFamily, scripts: &[Script]) {
+fn install_fallbacks(ctx: &Context, family: &FontFamily, scripts: &[Script]) {
     for script in scripts {
-        let fallback = InsertFontFamily {
-            family: family.clone(),
-            priority: FontPriority::Lowest,
-        };
+        let fallback = InsertFontFamily { family: family.clone(), priority: FontPriority::Lowest };
 
-        ctx.add_font(FontInsert::new(
-            script.name,
-            script_data(script),
-            vec![fallback],
-        ));
+        ctx.add_font(FontInsert::new(script.name, script_data(script), vec![fallback]));
     }
 }
 
@@ -139,20 +112,12 @@ mod tests {
         let mut output = ctx.run_ui(egui::RawInput::default(), |_| {});
         output.textures_delta.clear();
 
-        let titles = [
-            "仙逆剧场版：弑仙之战",
-            "進擊的巨人",
-            "すずめの戸締まり",
-            "기생충",
-            "مرحبا",
-            "שלום",
-            "नमस्ते",
-            "สวัสดี",
-        ];
+        let east_asian = ["仙逆剧场版：弑仙之战", "進擊的巨人", "すずめの戸締まり", "기생충"];
+        let other_scripts = ["مرحبا", "שלום", "नमस्ते", "สวัสดี"];
         let fonts = [FontId::proportional(14.0), title(14.0), emphasis(14.0)];
 
         for font in &fonts {
-            for text in titles {
+            for text in east_asian.into_iter().chain(other_scripts) {
                 let drawn = ctx.fonts_mut(|f| f.has_glyphs(font, text));
                 assert!(drawn, "{font:?} has no glyphs for {text}");
             }
@@ -164,11 +129,7 @@ mod tests {
     #[test]
     fn every_script_shares_the_latin_baseline() {
         const SIZE: f32 = 1000.0;
-        let weights = [
-            (REGULAR, &SCRIPTS_REGULAR),
-            (MEDIUM, &SCRIPTS_MEDIUM),
-            (BOLD, &SCRIPTS_BOLD),
-        ];
+        let weights = [(REGULAR, &SCRIPTS_REGULAR), (MEDIUM, &SCRIPTS_MEDIUM), (BOLD, &SCRIPTS_BOLD)];
 
         let samples = ['م', 'ש', 'न', 'ส', '仙', '擊', 'す', '기'];
         for (plex, scripts) in weights {
@@ -177,13 +138,9 @@ mod tests {
                 let family = FontFamily::Proportional;
                 let mut fonts = egui::FontDefinitions::empty();
 
-                fonts
-                    .font_data
-                    .insert("plex".into(), FontData::from_static(plex).into());
+                fonts.font_data.insert("plex".into(), FontData::from_static(plex).into());
 
-                fonts
-                    .font_data
-                    .insert(script.name.into(), script_data(script).into());
+                fonts.font_data.insert(script.name.into(), script_data(script).into());
 
                 let stack = vec!["plex".to_owned(), script.name.to_owned()];
                 fonts.families.insert(family.clone(), stack);
@@ -200,11 +157,7 @@ mod tests {
                 let shown = glyphs[1].pos.y + script.baseline * SIZE;
                 let off = (shown - glyphs[0].pos.y) / SIZE;
 
-                assert!(
-                    off.abs() < 0.002,
-                    "{} is {off:.4} em off the baseline",
-                    script.name
-                );
+                assert!(off.abs() < 0.002, "{} is {off:.4} em off the baseline", script.name);
             }
         }
     }

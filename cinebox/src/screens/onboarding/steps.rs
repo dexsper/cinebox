@@ -21,11 +21,8 @@ use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::{field, focus, overscan};
 
-const LANGUAGES: [(UiLanguage, &str); 3] = [
-    (UiLanguage::English, "English"),
-    (UiLanguage::Russian, "Русский"),
-    (UiLanguage::Ukrainian, "Українська"),
-];
+const LANGUAGES: [(UiLanguage, &str); 3] =
+    [(UiLanguage::English, "English"), (UiLanguage::Russian, "Русский"), (UiLanguage::Ukrainian, "Українська")];
 
 const LINK_H: f32 = 30.0;
 
@@ -106,20 +103,20 @@ impl OnboardingScreen {
 
         ui.add_space(8.0);
         let url = svc.settings.parser.url.clone();
-        let label = t!("settings.url");
-        let spec = Input::url(&label, "parser-url", "http://127.0.0.1:9117");
-        let draft = edit(ui, theme, &spec, &url);
-        if let Some(url) = changed_value(draft, InputKind::Url, &url) {
+        let url_label = t!("settings.url");
+        let url_input = Input::url(&url_label, "parser-url", "http://127.0.0.1:9117");
+        let url_draft = edit(ui, theme, &url_input, &url);
+        if let Some(url) = changed_value(url_draft, InputKind::Url, &url) {
             svc.settings.parser.url = url;
             svc.persist();
             self.check_parser(svc);
         }
 
         let key = svc.settings.parser.api_key.expose().to_owned();
-        let label = t!("settings.api_key");
-        let spec = Input::verbatim(&label, "parser-key");
-        let draft = edit(ui, theme, &spec, &key);
-        if let Some(key) = changed_value(draft, InputKind::Key, &key) {
+        let key_label = t!("settings.api_key");
+        let key_input = Input::verbatim(&key_label, "parser-key");
+        let key_draft = edit(ui, theme, &key_input, &key);
+        if let Some(key) = changed_value(key_draft, InputKind::Key, &key) {
             svc.settings.parser.api_key = SecretString::from(key);
             svc.persist();
             self.check_parser(svc);
@@ -163,20 +160,20 @@ impl OnboardingScreen {
 
     fn torr_auth(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
         let user = svc.settings.torrserver.username.clone();
-        let label = t!("settings.username");
-        let spec = Input::verbatim(&label, "torr-user");
-        let draft = edit(ui, theme, &spec, &user);
-        if let Some(user) = changed_value(draft, InputKind::Plain, &user) {
+        let user_label = t!("settings.username");
+        let user_input = Input::verbatim(&user_label, "torr-user");
+        let user_draft = edit(ui, theme, &user_input, &user);
+        if let Some(user) = changed_value(user_draft, InputKind::Plain, &user) {
             svc.settings.torrserver.username = user;
             svc.persist();
             self.check_torr(svc);
         }
 
         let password = svc.settings.torrserver.password.expose().to_owned();
-        let label = t!("settings.password");
-        let spec = Input::password(&label, "torr-password");
-        let draft = edit(ui, theme, &spec, &password);
-        if let Some(password) = changed_value(draft, InputKind::Raw, &password) {
+        let password_label = t!("settings.password");
+        let password_input = Input::password(&password_label, "torr-password");
+        let password_draft = edit(ui, theme, &password_input, &password);
+        if let Some(password) = changed_value(password_draft, InputKind::Raw, &password) {
             svc.settings.torrserver.password = SecretString::from(password);
             svc.persist();
             self.check_torr(svc);
@@ -456,27 +453,15 @@ struct Input<'a> {
 
 impl<'a> Input<'a> {
     fn verbatim(label: &'a str, id: &'static str) -> Self {
-        Self {
-            label,
-            id,
-            placeholder: "",
-            purpose: TextPurpose::Verbatim,
-        }
+        Self { label, id, placeholder: "", purpose: TextPurpose::Verbatim }
     }
 
     fn url(label: &'a str, id: &'static str, placeholder: &'static str) -> Self {
-        Self {
-            placeholder,
-            purpose: TextPurpose::Url,
-            ..Self::verbatim(label, id)
-        }
+        Self { placeholder, purpose: TextPurpose::Url, ..Self::verbatim(label, id) }
     }
 
     fn password(label: &'a str, id: &'static str) -> Self {
-        Self {
-            purpose: TextPurpose::Secret,
-            ..Self::verbatim(label, id)
-        }
+        Self { purpose: TextPurpose::Secret, ..Self::verbatim(label, id) }
     }
 }
 
@@ -484,9 +469,9 @@ impl<'a> Input<'a> {
 fn edit(ui: &mut Ui, theme: &Theme, input: &Input<'_>, value: &str) -> Option<String> {
     ui.label(small(theme, input.label, theme.muted_bright));
     let id = Id::new(("wizard", input.id));
-    let placeholder = input.placeholder;
+    let prompt = field::Prompt { placeholder: input.placeholder, purpose: input.purpose };
 
-    field::committed_edit(ui, theme, id, value, placeholder, input.purpose)
+    field::committed_edit(ui, theme, id, value, prompt)
 }
 
 fn section(ui: &mut Ui, theme: &Theme, text: &str) {

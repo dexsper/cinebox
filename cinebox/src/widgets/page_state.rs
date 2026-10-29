@@ -14,18 +14,18 @@ const BADGE: f32 = 64.0;
 const BADGE_GAP: f32 = 16.0;
 /// Height of the icon badge and its gap above the title.
 #[cfg(test)]
-pub const BADGE_BLOCK: f32 = BADGE + BADGE_GAP;
+pub(crate) const BADGE_BLOCK: f32 = BADGE + BADGE_GAP;
 const BUTTON_MIN_W: f32 = 140.0;
 const BUTTON_GAP: f32 = 8.0;
 
-pub struct PageAction<T> {
+pub(crate) struct PageAction<T> {
     pub icon: MaterialIcon,
     pub label: String,
     pub tone: Tone,
     pub value: T,
 }
 
-pub struct PageState<'a, T> {
+pub(crate) struct PageState<'a, T> {
     pub icon: MaterialIcon,
     pub accent: Color32,
     pub title: &'a str,
@@ -36,13 +36,13 @@ pub struct PageState<'a, T> {
 }
 
 /// Returns the `value` of the clicked button.
-pub fn page_state<T: Copy>(ui: &mut Ui, theme: &Theme, state: &PageState<'_, T>) -> Option<T> {
+pub(crate) fn page_state<T: Copy>(ui: &mut Ui, theme: &Theme, state: &PageState<'_, T>) -> Option<T> {
     super::in_remaining(ui, |ui| state_body(ui, theme, state)).flatten()
 }
 
 /// What the viewer picked on an [`error_page`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum ErrorChoice {
+pub(crate) enum ErrorChoice {
     Retry,
     Fix(SettingsPage),
 }
@@ -50,7 +50,7 @@ pub enum ErrorChoice {
 impl ErrorChoice {
     /// Navigation for "Open settings"; Retry is up to the screen.
     #[must_use]
-    pub fn nav(self) -> Option<NavAction> {
+    pub(crate) fn nav(self) -> Option<NavAction> {
         let Self::Fix(page) = self else {
             return None;
         };
@@ -60,7 +60,7 @@ impl ErrorChoice {
 }
 
 /// Error with Retry, plus "Open settings" when a settings page can fix it.
-pub fn error_page(ui: &mut Ui, theme: &Theme, error: &UserError) -> Option<ErrorChoice> {
+pub(crate) fn error_page(ui: &mut Ui, theme: &Theme, error: &UserError) -> Option<ErrorChoice> {
     let mut actions = Vec::new();
     if let Some(page) = error.fix {
         actions.push(PageAction {

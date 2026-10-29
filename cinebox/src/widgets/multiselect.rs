@@ -1,4 +1,4 @@
-//! ComboBox that keeps several values checked.
+//! `ComboBox` that keeps several values checked.
 
 use egui::{ComboBox, PopupCloseBehavior, RichText, Ui};
 use rust_i18n::t;
@@ -9,14 +9,14 @@ use super::combo;
 use crate::theme::Theme;
 use crate::widgets::focus;
 
-pub fn show_with<T: Copy + PartialEq>(
+pub(crate) fn show_with<T: Copy + PartialEq>(
     ui: &mut Ui,
     theme: &Theme,
     id: &str,
     selected: &mut Vec<T>,
-    options: &[T],
-    label: impl Fn(T) -> String,
+    choices: combo::Choices<'_, T, impl Fn(T) -> String>,
 ) -> bool {
+    let combo::Choices { options, label } = choices;
     let mut changed = false;
     let width = ui.available_width();
     let text = closed_label(selected, &label);

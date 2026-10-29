@@ -8,8 +8,15 @@ use crate::platform::{self, TextAction, TextInputSpec, TextPurpose};
 use crate::theme::Theme;
 use crate::widgets::focus;
 
-pub const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
-pub const COMMIT_IDLE: f64 = 0.8;
+pub(crate) const INPUT_H: f32 = crate::widgets::button::CONTROL_H;
+pub(crate) const COMMIT_IDLE: f64 = 0.8;
+
+/// What a field shows while empty and what kind of text it takes.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Prompt<'a> {
+    pub placeholder: &'a str,
+    pub purpose: TextPurpose,
+}
 
 /// Text typed into a [`committed_edit`], kept in egui memory between frames.
 #[derive(Clone)]
@@ -21,10 +28,7 @@ struct Draft {
 
 impl Draft {
     fn clean(text: &str) -> Self {
-        Self {
-            text: text.to_owned(),
-            edited_at: None,
-        }
+        Self { text: text.to_owned(), edited_at: None }
     }
 
     fn is_pending(&self) -> bool {
@@ -41,20 +45,13 @@ impl Draft {
 /// Typing edits a draft; the draft is handed back only on Enter, focus loss,
 /// or after [`COMMIT_IDLE`] seconds without a keystroke. Keeps settings,
 /// disk writes, and the network quiet while a key or URL is being typed.
-pub fn committed_edit(
-    ui: &mut Ui,
-    theme: &Theme,
-    id: Id,
-    value: &str,
-    placeholder: &str,
-    purpose: TextPurpose,
-) -> Option<String> {
+pub(crate) fn committed_edit(ui: &mut Ui, theme: &Theme, id: Id, value: &str, prompt: Prompt<'_>) -> Option<String> {
     let now = ui.input(|i| i.time);
     let stored = ui.data(|d| d.get_temp::<Draft>(id));
     let mut draft = stored.unwrap_or_else(|| Draft::clean(value));
 
     let edit_id = id.with("edit");
-    let response = styled_edit(ui, theme, edit_id, &mut draft.text, placeholder, purpose);
+    let response = styled_edit(ui, theme, edit_id, &mut draft.text, prompt);
     if response.changed() {
         draft.edited_at = Some(now);
     }
@@ -86,14 +83,8 @@ fn store_draft(ui: &Ui, id: Id, draft: Draft, focused: bool) {
     ui.data_mut(|d| d.remove::<Draft>(id));
 }
 
-fn styled_edit(
-    ui: &mut Ui,
-    theme: &Theme,
-    edit_id: Id,
-    value: &mut String,
-    placeholder: &str,
-    purpose: TextPurpose,
-) -> egui::Response {
+fn styled_edit(ui: &mut Ui, theme: &Theme, edit_id: Id, value: &mut String, prompt: Prompt<'_>) -> egui::Response {
+    let Prompt { placeholder, purpose } = prompt;
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), INPUT_H), Sense::hover());
     ui.painter().rect(
         rect,
@@ -105,11 +96,7 @@ fn styled_edit(
     let gate = focus::edit_gate(ui, rect, edit_id);
 
     let inner = rect.shrink2(vec2(10.0, 0.0));
-    let mut row = ui.new_child(
-        UiBuilder::new()
-            .max_rect(inner)
-            .layout(Layout::left_to_right(Align::Center)),
-    );
+    let mut row = ui.new_child(UiBuilder::new().max_rect(inner).layout(Layout::left_to_right(Align::Center)));
 
     row.spacing_mut().interact_size.y = INPUT_H;
     let mut edit = TextEdit::singleline(value)
@@ -126,10 +113,7 @@ fn styled_edit(
     }
 
     let mut response = row.add(edit);
-    let spec = TextInputSpec {
-        purpose,
-        action: TextAction::Done,
-    };
+    let spec = TextInputSpec { purpose, action: TextAction::Done };
     platform::text_input::field(&mut response, spec, value);
     focus::edit_done(ui, &response);
     response

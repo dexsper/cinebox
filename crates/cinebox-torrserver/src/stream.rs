@@ -1,6 +1,5 @@
 //! `GET /stream/…` and `GET /play/{hash}/{id}` URL builders, plus preload wait.
 
-use std::fmt::Write;
 use std::time::Duration;
 
 use cinebox_core::{join_url, normalize_base_url};
@@ -47,25 +46,27 @@ impl StreamFlag {
 
 /// Percent-encode a path segment like JS `encodeURIComponent`.
 fn encode_component(raw: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+
     let mut out = String::new();
-    for byte in raw.as_bytes() {
+    for &byte in raw.as_bytes() {
         match byte {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
-                out.push(*byte as char);
+                out.push(char::from(byte));
             }
             _ => {
-                let _ = write!(out, "%{byte:02X}");
+                out.push('%');
+                out.push(char::from(HEX[usize::from(byte >> 4)]));
+                out.push(char::from(HEX[usize::from(byte & 0x0F)]));
             }
         }
     }
+
     out
 }
 
 fn file_name(path: &str) -> &str {
-    path.rsplit(['/', '\\'])
-        .next()
-        .filter(|name| !name.is_empty())
-        .unwrap_or(path)
+    path.rsplit(['/', '\\']).next().filter(|name| !name.is_empty()).unwrap_or(path)
 }
 
 /// `GET /stream/{fname}?link={hash}&index={id}&{flag}`.
@@ -73,23 +74,13 @@ fn file_name(path: &str) -> &str {
 /// # Errors
 ///
 /// Empty base URL.
-pub fn stream_url(
-    base_url: &str,
-    file_path: &str,
-    hash: &str,
-    index: i32,
-    flag: StreamFlag,
-) -> Result<String, Error> {
+pub fn stream_url(base_url: &str, file_path: &str, hash: &str, index: i32, flag: StreamFlag) -> Result<String, Error> {
     let base = normalize_base_url(base_url).map_err(|_| Error::EmptyUrl)?;
     if hash.is_empty() {
         return Err(Error::EmptyHash);
     }
     let name = encode_component(file_name(file_path));
-    Ok(format!(
-        "{}/stream/{name}?link={hash}&index={index}&{}",
-        base,
-        flag.as_str()
-    ))
+    Ok(format!("{}/stream/{name}?link={hash}&index={index}&{}", base, flag.as_str()))
 }
 
 /// `GET /play/{hash}/{id}`.
@@ -108,11 +99,7 @@ pub fn play_url(base_url: &str, hash: &str, index: i32) -> Result<String, Error>
 /// Progress while a preload wait is running.
 #[derive(Clone, Copy, Debug)]
 pub enum PreloadEvent {
-    Progress {
-        preloaded_bytes: i64,
-        preload_size: i64,
-        percent: f64,
-    },
+    Progress { preloaded_bytes: i64, preload_size: i64, percent: f64 },
 }
 
 /// File a preload wait targets: `/stream/{file_path}?link={hash}&index={index}`.
@@ -185,12 +172,10 @@ pub async fn wait_preload_at_bytes(
     // stay open for the whole wait. Only the header wait is bounded.
     let range = format!("bytes={offset_bytes}-");
     let get = client.get(&play).header(reqwest::header::RANGE, range);
-    let send = server.authorize(get).send();
+    let pending = server.authorize(get).send();
     let headers_budget = Duration::from_secs(PRELOAD_GET_SECS);
-    let response = tokio::time::timeout(headers_budget, send)
-        .await
-        .map_err(|_| Error::PreloadTimeout)?
-        .map_err(Error::Request)?;
+    let sent = tokio::time::timeout(headers_budget, pending).await.map_err(|_| Error::PreloadTimeout)?;
+    let response = sent.map_err(Error::Request)?;
 
     check_status(response.status())?;
 
@@ -220,9 +205,7 @@ pub async fn wait_preload_at_bytes(
 
 async fn start_preload(url: &str, server: &Server) -> Result<(), Error> {
     let client = http_client()?;
-    let get = client
-        .get(url)
-        .timeout(Duration::from_secs(PRELOAD_GET_SECS));
+    let get = client.get(url).timeout(Duration::from_secs(PRELOAD_GET_SECS));
 
     let response = server.authorize(get).send().await.map_err(Error::Request)?;
     check_status(response.status())?;
@@ -256,11 +239,7 @@ async fn poll_stat_until_ready(
         let started = status.preload_size > 0 || status.stat_kind() == TorrentStat::Preload;
 
         if !started {
-            on_event(PreloadEvent::Progress {
-                preloaded_bytes: 0,
-                preload_size: 0,
-                percent: 0.0,
-            });
+            on_event(PreloadEvent::Progress { preloaded_bytes: 0, preload_size: 0, percent: 0.0 });
 
             let past_grace = attempt >= STAT_START_GRACE;
             if past_grace {
@@ -292,23 +271,14 @@ mod tests {
 
     #[test]
     fn stream_encodes_spaces_and_basename() {
-        let url = stream_url(
-            "http://127.0.0.1:8090/",
-            r"Season 1\S01E01 Title.mkv",
-            "abc",
-            2,
-            StreamFlag::Play,
-        );
+        let url = stream_url("http://127.0.0.1:8090/", r"Season 1\S01E01 Title.mkv", "abc", 2, StreamFlag::Play);
 
         let url = match url {
             Ok(url) => url,
             Err(error) => panic!("{error}"),
         };
 
-        assert_eq!(
-            url,
-            "http://127.0.0.1:8090/stream/S01E01%20Title.mkv?link=abc&index=2&play"
-        );
+        assert_eq!(url, "http://127.0.0.1:8090/stream/S01E01%20Title.mkv?link=abc&index=2&play");
     }
 
     #[test]

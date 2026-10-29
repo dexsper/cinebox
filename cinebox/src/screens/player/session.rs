@@ -29,7 +29,7 @@ impl MediaSession {
             subtitle,
             duration: state.duration,
             artwork,
-            playing: !state.paused,
+            playing: !state.is_paused,
             position: state.time,
             can_next: state.has_next(),
             can_previous: state.file_index() > 0,
@@ -54,10 +54,7 @@ impl MediaSession {
         }
 
         let image = cached_poster(svc, card);
-        self.artwork = Some(Artwork {
-            card: key,
-            image: image.clone(),
-        });
+        self.artwork = Some(Artwork { card: key, image: image.clone() });
         image
     }
 }

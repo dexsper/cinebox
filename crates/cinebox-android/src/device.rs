@@ -4,8 +4,8 @@
 use std::sync::{Arc, Mutex};
 
 use cinebox::platform::{
-    Device, DeviceEvent, Direction, FieldText, MediaSessionState, SpeechRequest, TextAction,
-    TextInputSpec, TextPurpose, UiSound,
+    Device, DeviceEvent, Direction, FieldText, MediaSessionState, SpeechRequest, TextAction, TextInputSpec,
+    TextPurpose, UiSound,
 };
 use eframe::egui;
 use jni::objects::{JByteArray, JObject, JValue};
@@ -45,11 +45,7 @@ impl AndroidDevice {
     pub fn new(java: Option<Java>) -> Self {
         let speech = java.as_ref().is_some_and(speech_available);
 
-        Self {
-            java,
-            speech,
-            shown: Mutex::new(None),
-        }
+        Self { java, speech, shown: Mutex::new(None) }
     }
 
     fn call<F>(&self, what: &str, call: F)
@@ -84,8 +80,7 @@ impl AndroidDevice {
                 JValue::Object(&artwork),
             ];
             let sig = jni_sig!("(Ljava/lang/String;Ljava/lang/String;J[B)V");
-            env.call_method(activity, jni_str!("setMediaMetadata"), sig, &args)?
-                .v()
+            env.call_method(activity, jni_str!("setMediaMetadata"), sig, &args)?.v()
         });
 
         *shown = Some(metadata);
@@ -97,8 +92,7 @@ impl AndroidDevice {
         }
 
         self.call("clearMediaSession", |env, activity| {
-            env.call_method(activity, jni_str!("clearMediaSession"), jni_sig!("()V"), &[])?
-                .v()
+            env.call_method(activity, jni_str!("clearMediaSession"), jni_sig!("()V"), &[])?.v()
         });
     }
 }
@@ -114,8 +108,7 @@ impl Device for AndroidDevice {
     fn keep_screen_on(&self, on: bool) {
         self.call("keepScreenOn", |env, activity| {
             let args = [JValue::Bool(on)];
-            env.call_method(activity, jni_str!("keepScreenOn"), jni_sig!("(Z)V"), &args)?
-                .v()
+            env.call_method(activity, jni_str!("keepScreenOn"), jni_sig!("(Z)V"), &args)?.v()
         });
     }
 
@@ -123,8 +116,7 @@ impl Device for AndroidDevice {
         let (code, repeat) = sound_code(sound);
         self.call("playUiSound", |env, activity| {
             let args = [JValue::Int(code), JValue::Bool(repeat)];
-            env.call_method(activity, jni_str!("playUiSound"), jni_sig!("(IZ)V"), &args)?
-                .v()
+            env.call_method(activity, jni_str!("playUiSound"), jni_sig!("(IZ)V"), &args)?.v()
         });
     }
 
@@ -143,8 +135,7 @@ impl Device for AndroidDevice {
                 JValue::Bool(state.can_previous),
             ];
             let sig = jni_sig!("(ZJZZ)V");
-            env.call_method(activity, jni_str!("setMediaPlayback"), sig, &args)?
-                .v()
+            env.call_method(activity, jni_str!("setMediaPlayback"), sig, &args)?.v()
         });
     }
 
@@ -157,15 +148,13 @@ impl Device for AndroidDevice {
             let language = env.new_string(&request.language)?;
             let args = [JValue::Object(&language)];
             let sig = jni_sig!("(Ljava/lang/String;)V");
-            env.call_method(activity, jni_str!("startSpeechInput"), sig, &args)?
-                .v()
+            env.call_method(activity, jni_str!("startSpeechInput"), sig, &args)?.v()
         });
     }
 
     fn stop_speech_input(&self) {
         self.call("stopSpeechInput", |env, activity| {
-            env.call_method(activity, jni_str!("stopSpeechInput"), jni_sig!("()V"), &[])?
-                .v()
+            env.call_method(activity, jni_str!("stopSpeechInput"), jni_sig!("()V"), &[])?.v()
         });
     }
 
@@ -187,8 +176,7 @@ impl Device for AndroidDevice {
                 JValue::Int(end),
             ];
             let sig = jni_sig!("(IILjava/lang/String;II)V");
-            env.call_method(activity, jni_str!("startTextInput"), sig, &args)?
-                .v()
+            env.call_method(activity, jni_str!("startTextInput"), sig, &args)?.v()
         });
     }
 
@@ -198,15 +186,13 @@ impl Device for AndroidDevice {
             let text = env.new_string(&field.text)?;
             let args = [JValue::Object(&text), JValue::Int(start), JValue::Int(end)];
             let sig = jni_sig!("(Ljava/lang/String;II)V");
-            env.call_method(activity, jni_str!("updateTextInput"), sig, &args)?
-                .v()
+            env.call_method(activity, jni_str!("updateTextInput"), sig, &args)?.v()
         });
     }
 
     fn stop_text_input(&self) {
         self.call("stopTextInput", |env, activity| {
-            env.call_method(activity, jni_str!("stopTextInput"), jni_sig!("()V"), &[])?
-                .v()
+            env.call_method(activity, jni_str!("stopTextInput"), jni_sig!("()V"), &[])?.v()
         });
     }
 
@@ -225,8 +211,7 @@ fn selection(field: &FieldText) -> (jint, jint) {
 
 fn speech_available(java: &Java) -> bool {
     let available = java.with_activity("isSpeechInputAvailable", |env, activity| {
-        env.call_method(activity, jni_str!("isSpeechInputAvailable"), jni_sig!("()Z"), &[])?
-            .z()
+        env.call_method(activity, jni_str!("isSpeechInputAvailable"), jni_sig!("()Z"), &[])?.z()
     });
 
     available.unwrap_or(false)
@@ -270,7 +255,10 @@ fn millis(seconds: f64) -> i64 {
     (seconds * 1000.0).round() as i64
 }
 
-pub(crate) fn optional_string<'local>(env: &mut Env<'local>, text: Option<&str>) -> jni::errors::Result<JObject<'local>> {
+pub(crate) fn optional_string<'local>(
+    env: &mut Env<'local>,
+    text: Option<&str>,
+) -> jni::errors::Result<JObject<'local>> {
     let Some(text) = text else {
         return Ok(JObject::null());
     };

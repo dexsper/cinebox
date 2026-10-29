@@ -105,7 +105,7 @@ fn path_of(url: &str) -> &str {
     let host_path = rest.split('?').next().unwrap_or(rest);
     let host_path = host_path.split('#').next().unwrap_or(host_path);
 
-    host_path.find('/').map(|i| &host_path[i..]).unwrap_or("")
+    host_path.find('/').map_or("", |i| &host_path[i..])
 }
 
 fn host_of(url: &str) -> &str {
@@ -147,9 +147,7 @@ mod tests {
     use super::*;
 
     fn parse_ok(input: &str) -> String {
-        VideoId::parse(input)
-            .map(|id| id.as_str().to_owned())
-            .unwrap_or_else(|_| panic!("parse {input}"))
+        VideoId::parse(input).map_or_else(|_| panic!("parse {input}"), |id| id.as_str().to_owned())
     }
 
     #[test]
@@ -160,41 +158,23 @@ mod tests {
 
     #[test]
     fn test_watch_url() {
-        assert_eq!(
-            parse_ok("https://www.youtube.com/watch?v=abcdefghijk"),
-            "abcdefghijk"
-        );
-        assert_eq!(
-            parse_ok("https://youtube.com/watch?v=abcdefghijk&t=12"),
-            "abcdefghijk"
-        );
-        assert_eq!(
-            parse_ok("www.youtube.com/watch?v=abcdefghijk"),
-            "abcdefghijk"
-        );
+        assert_eq!(parse_ok("https://www.youtube.com/watch?v=abcdefghijk"), "abcdefghijk");
+        assert_eq!(parse_ok("https://youtube.com/watch?v=abcdefghijk&t=12"), "abcdefghijk");
+        assert_eq!(parse_ok("www.youtube.com/watch?v=abcdefghijk"), "abcdefghijk");
     }
 
     #[test]
     fn test_short_and_embed() {
         assert_eq!(parse_ok("https://youtu.be/abcdefghijk"), "abcdefghijk");
         assert_eq!(parse_ok("youtu.be/abcdefghijk?t=1"), "abcdefghijk");
-        assert_eq!(
-            parse_ok("https://www.youtube.com/embed/abcdefghijk"),
-            "abcdefghijk"
-        );
-        assert_eq!(
-            parse_ok("https://www.youtube.com/shorts/abcdefghijk"),
-            "abcdefghijk"
-        );
+        assert_eq!(parse_ok("https://www.youtube.com/embed/abcdefghijk"), "abcdefghijk");
+        assert_eq!(parse_ok("https://www.youtube.com/shorts/abcdefghijk"), "abcdefghijk");
     }
 
     #[test]
     fn test_rejects_garbage() {
         assert!(matches!(VideoId::parse(""), Err(Error::InvalidUrl)));
         assert!(matches!(VideoId::parse("short"), Err(Error::InvalidUrl)));
-        assert!(matches!(
-            VideoId::parse("https://example.com/watch?v=abcdefghijk"),
-            Err(Error::InvalidUrl)
-        ));
+        assert!(matches!(VideoId::parse("https://example.com/watch?v=abcdefghijk"), Err(Error::InvalidUrl)));
     }
 }

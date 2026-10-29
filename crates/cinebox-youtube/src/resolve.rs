@@ -5,10 +5,9 @@ use serde::Serialize;
 
 use crate::cipher::{self, Decipher};
 use crate::error::Error;
-use crate::formats::{pick, CipherParts, PlayerResponse};
+use crate::formats::{CipherParts, PlayerResponse, pick};
 use crate::http::{
-    send_json, send_text, ANDROID_CLIENT, ANDROID_CLIENT_NAME, ANDROID_UA, ANDROID_VERSION,
-    REQUEST_TIMEOUT,
+    ANDROID_CLIENT, ANDROID_CLIENT_NAME, ANDROID_UA, ANDROID_VERSION, REQUEST_TIMEOUT, send_json, send_text,
 };
 use crate::id::VideoId;
 
@@ -90,13 +89,7 @@ pub async fn resolve(origin: &str, id: &VideoId, net: &NetConfig) -> Result<Play
     let (video_url, audio_url) = pick(&streams)?;
     let http_header_fields = ua_header();
 
-    Ok(Playback {
-        video_url,
-        audio_url,
-        http_header_fields,
-        title: meta.title,
-        duration,
-    })
+    Ok(Playback { video_url, audio_url, http_header_fields, title: meta.title, duration })
 }
 
 fn needs_js(parts: &CipherParts) -> bool {
@@ -147,12 +140,7 @@ async fn fetch_js(net: &NetConfig, url: &str) -> Result<String, Error> {
     send_text(net, |client| client.get(url).timeout(REQUEST_TIMEOUT)).await
 }
 
-async fn fetch_player(
-    origin: &str,
-    id: &VideoId,
-    sts: Option<u32>,
-    net: &NetConfig,
-) -> Result<PlayerResponse, Error> {
+async fn fetch_player(origin: &str, id: &VideoId, sts: Option<u32>, net: &NetConfig) -> Result<PlayerResponse, Error> {
     tracing::debug!(id = id.as_str(), ?sts, "youtube innertube");
 
     let api_url = player_api_url(origin);
@@ -282,7 +270,7 @@ struct ContentPlayback {
     signature_timestamp: Option<u32>,
 }
 
-fn player_body<'a>(video_id: &'a str, sts: Option<u32>) -> PlayerBody<'a> {
+fn player_body(video_id: &str, sts: Option<u32>) -> PlayerBody<'_> {
     PlayerBody {
         context: InnertubeContext {
             client: InnertubeClient {
@@ -298,10 +286,7 @@ fn player_body<'a>(video_id: &'a str, sts: Option<u32>) -> PlayerBody<'a> {
         },
         video_id,
         playback_context: PlaybackContext {
-            content: ContentPlayback {
-                html5_preference: "HTML5_PREF_WANTS",
-                signature_timestamp: sts,
-            },
+            content: ContentPlayback { html5_preference: "HTML5_PREF_WANTS", signature_timestamp: sts },
         },
         content_check_ok: true,
         racy_check_ok: true,
@@ -386,7 +371,7 @@ signatureTimestamp:12345
                     "itag": 18,
                     "url": url,
                     "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
-                    "bitrate": 500000,
+                    "bitrate": 500_000,
                     "width": 640,
                     "height": 360
                 }]
@@ -423,9 +408,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net())
-            .await
-            .unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(play.video_url, media);
         assert!(play.audio_url.is_none());
@@ -450,7 +433,7 @@ signatureTimestamp:12345
                             "itag": 18,
                             "signatureCipher": cipher,
                             "mimeType": "video/mp4; codecs=\"avc1.42001E, mp4a.40.2\"",
-                            "bitrate": 500000,
+                            "bitrate": 500_000,
                             "height": 360
                         }]
                     }
@@ -458,9 +441,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net())
-            .await
-            .unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         let sig = query_param(&play.video_url, "sig");
         assert_eq!(sig.as_deref(), Some("abcd"));
@@ -479,9 +460,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net())
-            .await
-            .unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         let n = query_param(&play.video_url, "n");
         assert_eq!(n.as_deref(), Some("zyx"));
@@ -521,7 +500,7 @@ signatureTimestamp:12345
                                 "itag": 137,
                                 "url": "https://googlevideo.example/video",
                                 "mimeType": "video/mp4; codecs=\"avc1.640028\"",
-                                "bitrate": 2000000,
+                                "bitrate": 2_000_000,
                                 "width": 1920,
                                 "height": 1080
                             },
@@ -529,7 +508,7 @@ signatureTimestamp:12345
                                 "itag": 140,
                                 "url": "https://googlevideo.example/audio",
                                 "mimeType": "audio/mp4; codecs=\"mp4a.40.2\"",
-                                "bitrate": 128000,
+                                "bitrate": 128_000,
                                 "audioQuality": "AUDIO_QUALITY_MEDIUM"
                             }
                         ]
@@ -538,9 +517,7 @@ signatureTimestamp:12345
             })
             .await;
 
-        let play = resolve(&server.base_url(), &id(), &net())
-            .await
-            .unwrap_or_else(|e| panic!("{e}"));
+        let play = resolve(&server.base_url(), &id(), &net()).await.unwrap_or_else(|error| panic!("{error}"));
 
         assert_eq!(play.video_url, "https://googlevideo.example/video");
         assert_eq!(play.audio_url.as_deref(), Some("https://googlevideo.example/audio"));
@@ -549,11 +526,7 @@ signatureTimestamp:12345
     #[tokio::test]
     #[ignore = "hits live youtube"]
     async fn resolve_reaches_youtube() {
-        let net = NetConfig {
-            use_system_proxy: true,
-            dns_bypass: true,
-            custom_doh_url: String::new(),
-        };
+        let net = NetConfig { use_system_proxy: true, dns_bypass: true, custom_doh_url: String::new() };
         let id = VideoId::parse("jNQXAC9IVRw").unwrap_or_else(|_| panic!("id"));
         let result = resolve("https://www.youtube.com", &id, &net).await;
 

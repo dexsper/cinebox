@@ -43,7 +43,7 @@ fn original_rule_fixtures() {
     };
 
     let mut failed = 0usize;
-    let mut report = String::new();
+    let mut report = Vec::new();
 
     for suite in &suites {
         if suite.pairs.is_empty() {
@@ -74,7 +74,7 @@ fn original_rule_fixtures() {
                 failed += 1;
 
                 if failed <= 25 {
-                    report.push_str(&format!(
+                    report.push(format!(
                         "\n--- {} {:?} inner={}\nbefore: {:?}\ngot:    {:?}\nwant:   {:?}\n",
                         suite.name, locales, suite.inner, pair.before, got, pair.after
                     ));
@@ -93,7 +93,7 @@ fn original_rule_fixtures() {
                 failed += 1;
 
                 if failed <= 25 {
-                    report.push_str(&format!(
+                    report.push(format!(
                         "\n--- {} {:?} not idempotent\nfirst: {:?}\nsecond {:?}\nwant: {:?}\n",
                         suite.name, locales, got, again, pair.after
                     ));
@@ -102,7 +102,7 @@ fn original_rule_fixtures() {
         }
     }
 
-    assert_eq!(failed, 0, "{failed} fixture pair(s) failed:{report}");
+    assert_eq!(failed, 0, "{failed} fixture pair(s) failed:{}", report.concat());
 }
 
 fn run(name: &str, locales: &[String], inner: bool, extra: &[String], text: &str) -> String {

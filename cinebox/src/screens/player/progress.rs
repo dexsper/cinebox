@@ -2,7 +2,7 @@
 
 use std::time::{Duration, Instant};
 
-use cinebox_core::WatchHistoryEntry;
+use cinebox_core::{WatchHistoryEntry, WatchKey};
 use tracing::warn;
 
 use crate::services::Services;
@@ -38,15 +38,9 @@ impl PlayerScreen {
 
     /// Persists progress off the UI thread; the returned handle is only
     /// awaited by tests.
-    pub(super) fn save_progress(
-        &mut self,
-        svc: &mut Services,
-        force: bool,
-    ) -> Option<tokio::task::JoinHandle<()>> {
+    pub(super) fn save_progress(&mut self, svc: &mut Services, force: bool) -> Option<tokio::task::JoinHandle<()>> {
         if !force {
-            let recent = self
-                .progress_saved_at
-                .is_some_and(|at| at.elapsed() < Duration::from_secs(10));
+            let recent = self.progress_saved_at.is_some_and(|at| at.elapsed() < Duration::from_secs(10));
 
             if recent {
                 return None;
@@ -96,22 +90,15 @@ impl PlayerScreen {
 
             (entry, hash, time, duration, state.card.clone(), file_id)
         };
-        let (kind, id) = (card.kind, card.id);
 
-        let track = svc.settings.torrserver.track_timecode;
+        let key = WatchKey { kind: card.kind, id: card.id, season: entry.season, episode: entry.episode };
+        let track = svc.settings.torrserver.is_tracking_position();
 
         let db_job = svc.db.clone().map(|db| {
             let history_hash = hash.clone();
 
             egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-                let timeline = db.upsert_watch_timeline(
-                    kind,
-                    id,
-                    entry.season,
-                    entry.episode,
-                    time,
-                    duration,
-                );
+                let timeline = db.upsert_watch_timeline(key, time, duration);
 
                 if let Err(error) = timeline.await {
                     warn!(%error, "failed to save watch timeline");
@@ -120,10 +107,19 @@ impl PlayerScreen {
                 if let Err(error) = db.upsert_watch_history(&entry, Some(&history_hash)).await {
                     warn!(%error, "failed to save watch history");
                 }
+
+                // What goes to `/viewed` below is this device's own, so the sync must not take it back in.
+                if !track {
+                    return;
+                }
+
+                if let Err(error) = db.put_viewed_seen(&history_hash, file_id, time).await {
+                    warn!(%error, "failed to record the sent server position");
+                }
             })
         });
 
-        svc.mark_watched(kind, id);
+        svc.mark_watched(key.kind, key.id);
         svc.mark_watching_if_unset(&card);
         self.progress_saved_at = Some(Instant::now());
 
@@ -133,9 +129,7 @@ impl PlayerScreen {
 
         let torr = jobs::TorrCtx::from(&svc.settings);
         self.viewed_job.request(async move {
-            cinebox_torrserver::viewed_set(&torr.server, &hash, file_id, time)
-                .await
-                .map_err(jobs::JobError::from)
+            cinebox_torrserver::viewed_set(&torr.server, &hash, file_id, time).await.map_err(jobs::JobError::from)
         });
 
         db_job
@@ -144,6 +138,8 @@ impl PlayerScreen {
 
 #[cfg(test)]
 mod tests {
+    use cinebox_core::WatchKey;
+
     use super::super::tests::{spec, youtube_spec};
     use super::super::{PlayerPhase, PlayerScreen, PlayerState};
     use crate::services::{Services, db_block_on};
@@ -169,7 +165,8 @@ mod tests {
 
         let kind = cinebox_core::MediaKind::Tv;
         let id = cinebox_core::TmdbId::new(1);
-        let got = db_block_on(db.get_watch_timeline(kind, id, Some(1), Some(2)))?;
+        let key = WatchKey { kind, id, season: Some(1), episode: Some(2) };
+        let got = db_block_on(db.get_watch_timeline(key))?;
 
         assert_eq!(got, Some((42.0, 2400.0)));
 
@@ -178,6 +175,32 @@ mod tests {
         assert_eq!(recent[0].id, id);
         assert_eq!(recent[0].title, "Show");
         assert!(svc.is_watched(kind, id));
+
+        Ok(())
+    }
+
+    #[test]
+    fn save_progress_marks_the_sent_position_seen() -> Result<(), cinebox_core::StoreError> {
+        let db = std::sync::Arc::new(db_block_on(cinebox_core::Store::memory())?);
+        let mut svc = Services::test_with_db(db.clone());
+        svc.settings.torrserver.url = String::new();
+        svc.settings.torrserver.sync_history = true;
+        let mut screen = PlayerScreen {
+            phase: Some(PlayerPhase::Playing(PlayerState::from_spec(&spec(1, 3)))),
+            ..PlayerScreen::default()
+        };
+
+        if let Some(PlayerPhase::Playing(state)) = &mut screen.phase {
+            state.time = 42.0;
+        }
+
+        if let Some(job) = screen.save_progress(&mut svc, true) {
+            assert!(db_block_on(job).is_ok());
+        }
+
+        let seen = db_block_on(db.viewed_seen("deadbeef"))?;
+        assert_eq!(seen.len(), 1);
+        assert!((seen[0].1 - 42.0).abs() < f64::EPSILON);
 
         Ok(())
     }

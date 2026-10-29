@@ -16,24 +16,18 @@ struct FieldState {
 }
 
 fn field_harness() -> Harness<'static, FieldState> {
-    Harness::builder()
-        .with_size(vec2(400.0, 120.0))
-        .with_step_dt(STEP)
-        .build_ui_state(
-            |ui, state| {
-                let FieldState { theme, value, .. } = state;
-                let committed = field::committed_edit(ui, theme, field_id(), value, "", TextPurpose::Text);
-                if let Some(text) = committed {
-                    state.value.clone_from(&text);
-                    state.commits.push(text);
-                }
-            },
-            FieldState {
-                theme: Theme::dark(),
-                value: String::new(),
-                commits: Vec::new(),
-            },
-        )
+    Harness::builder().with_size(vec2(400.0, 120.0)).with_step_dt(STEP).build_ui_state(
+        |ui, state| {
+            let FieldState { theme, value, .. } = state;
+            let prompt = field::Prompt { placeholder: "", purpose: TextPurpose::Text };
+            let committed = field::committed_edit(ui, theme, field_id(), value, prompt);
+            if let Some(text) = committed {
+                state.value.clone_from(&text);
+                state.commits.push(text);
+            }
+        },
+        FieldState { theme: Theme::dark(), value: String::new(), commits: Vec::new() },
+    )
 }
 
 fn field_id() -> egui::Id {

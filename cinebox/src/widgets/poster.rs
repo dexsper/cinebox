@@ -1,9 +1,9 @@
 //! Catalog poster tiles.
 
+use std::cell::Cell;
+
 use cinebox_core::{CatalogItem, CreditPerson, LibraryMark, MediaKind, PosterSize};
-use egui::{
-    Align2, CornerRadius, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2,
-};
+use egui::{Align2, FontId, Image, Rect, Sense, Stroke, Ui, Vec2, pos2, text::LayoutJob, vec2};
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_BROKEN_IMAGE, ICON_FAVORITE, ICON_HIDE_IMAGE, ICON_PLAY_ARROW};
 
@@ -33,8 +33,7 @@ struct CaptionKey {
 thread_local! {
     /// Caption height for the key above, so a grid of tiles does not lock
     /// the font atlas twice per tile per frame.
-    static CAPTION_H: std::cell::Cell<Option<(CaptionKey, f32)>> =
-        const { std::cell::Cell::new(None) };
+    static CAPTION_H: Cell<Option<(CaptionKey, f32)>> = const { Cell::new(None) };
 }
 
 fn caption_h(ui: &Ui, theme: &Theme, scale: f32) -> f32 {
@@ -63,7 +62,7 @@ fn caption_h(ui: &Ui, theme: &Theme, scale: f32) -> f32 {
     height
 }
 
-pub fn in_load_window(ui: &Ui, rect: Rect) -> bool {
+pub(crate) fn in_load_window(ui: &Ui, rect: Rect) -> bool {
     ui.is_rect_visible(rect.expand(LOAD_MARGIN))
 }
 
@@ -72,7 +71,7 @@ pub fn in_load_window(ui: &Ui, rect: Rect) -> bool {
 /// detail page or the torrents explorer's left-pane poster — those keep
 /// their existing fixed size and are not part of the responsive grid/shelf
 /// scaling driven by [`card_scale`].
-pub const UNSCALED: f32 = 1.0;
+pub(crate) const UNSCALED: f32 = 1.0;
 
 /// Multiplier for card sizes, driven by the width available to the current
 /// row/grid. Today's tile size is the floor: cards never shrink below it,
@@ -83,7 +82,7 @@ pub const UNSCALED: f32 = 1.0;
 /// `Ui`, before entering a `horizontal_wrapped` or `scroll::horizontal` —
 /// a horizontal `ScrollArea`'s inner `Ui` reports an effectively unbounded
 /// width, not the visible viewport width.
-pub fn card_scale(available_w: f32) -> f32 {
+pub(crate) fn card_scale(available_w: f32) -> f32 {
     const FLOOR_W: f32 = 750.0;
     const CEIL_W: f32 = 1900.0;
     const MAX_SCALE: f32 = 1.45;
@@ -98,28 +97,57 @@ pub fn card_scale(available_w: f32) -> f32 {
 
 /// Local state painted over a catalog tile.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
-pub struct TileMarks {
+pub(crate) struct TileMarks {
     /// Playback was started at least once.
     pub watched: bool,
+
     pub library: LibraryMark,
 }
 
-pub fn catalog_tile(
+/// Where tile posters come from and at what size.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Posters<'a> {
+    pub images: &'a ImageCache,
+    pub size: PosterSize,
+}
+
+/// What a tile shows over its poster, and the row's [`card_scale`].
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct TileLook {
+    pub marks: TileMarks,
+    pub scale: f32,
+}
+
+/// How [`wrap_lines`] sets its text.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Wrap {
+    pub color: egui::Color32,
+    pub font_size: f32,
+    pub width: f32,
+    pub max_rows: usize,
+}
+
+/// A round icon badge on a poster.
+#[derive(Clone, Copy)]
+struct Badge {
+    center: egui::Pos2,
+    radius: f32,
+    icon: MaterialIcon,
+    color: egui::Color32,
+}
+
+pub(crate) fn catalog_tile(
     ui: &mut Ui,
-    item: &CatalogItem,
-    images: &ImageCache,
-    size: PosterSize,
     theme: &Theme,
-    marks: TileMarks,
-    scale: f32,
+    item: &CatalogItem,
+    posters: Posters<'_>,
+    look: TileLook,
 ) -> Option<NavAction> {
+    let TileLook { marks, scale } = look;
     let pad = theme.ring_pad();
     let tile_w = theme.tile_w * scale;
     let tile_h = theme.tile_h * scale;
-    let well = vec2(
-        tile_w + pad * 2.0,
-        pad * 2.0 + tile_h + caption_h(ui, theme, scale),
-    );
+    let well = vec2(tile_w + pad * 2.0, pad * 2.0 + tile_h + caption_h(ui, theme, scale));
 
     let (rect, response) = ui.allocate_exact_size(well, Sense::click());
     let response = pointing(response);
@@ -133,7 +161,7 @@ pub fn catalog_tile(
     }
 
     let poster_rect = Rect::from_min_size(rect.min + vec2(pad, pad), vec2(tile_w, tile_h));
-    let poster = images.poster(item, size);
+    let poster = posters.images.poster(item, posters.size);
 
     paint_poster(ui, poster_rect, poster, theme);
     paint_marks(ui, poster_rect, marks, theme, scale);
@@ -146,23 +174,17 @@ pub fn catalog_tile(
         hover_ring(ui, poster_rect, theme);
     }
 
-    let title_pos = pos2(
-        poster_rect.left(),
-        poster_rect.bottom() + CAPTION_GAP * scale,
-    );
+    let title_pos = pos2(poster_rect.left(), poster_rect.bottom() + CAPTION_GAP * scale);
 
     let title = wrap_title(ui, &item.title, theme, tile_w, scale);
-    let title_h = title.size().y;
+    let title_height = title.size().y;
 
     ui.painter().galley(title_pos, title, theme.title);
-    let year = item
-        .year
-        .map(|year| year.to_string())
-        .unwrap_or_else(|| String::from("—"));
+    let year = item.year.map_or_else(|| String::from("—"), |year| year.to_string());
 
     ui.painter().text(
-        title_pos + vec2(0.0, title_h + LINE_GAP * scale),
-        egui::Align2::LEFT_TOP,
+        title_pos + vec2(0.0, title_height + LINE_GAP * scale),
+        Align2::LEFT_TOP,
         year,
         theme.ui_font(theme.text_caption * scale),
         theme.muted,
@@ -190,69 +212,45 @@ fn nav_for_item(item: &CatalogItem) -> NavAction {
     }
 }
 
-pub fn hover_ring(ui: &Ui, poster: Rect, theme: &Theme) {
+pub(crate) fn hover_ring(ui: &Ui, poster: Rect, theme: &Theme) {
     let pad = theme.ring_pad();
     let ring = poster.expand(pad);
     let radius = theme.radius_poster + pad;
 
     ui.painter().rect_stroke(
         ring,
-        CornerRadius::same(radius.round() as u8),
+        theme.rounding(radius),
         Stroke::new(theme.ring_w, theme.ring),
         egui::StrokeKind::Inside,
     );
 }
 
-fn wrap_title(
-    ui: &Ui,
-    title: &str,
-    theme: &Theme,
-    width: f32,
-    scale: f32,
-) -> std::sync::Arc<egui::Galley> {
-    wrap_lines(
-        ui,
-        title,
-        theme.title,
-        theme.text_small * scale,
-        width,
-        2,
-        theme,
-    )
+fn wrap_title(ui: &Ui, title: &str, theme: &Theme, width: f32, scale: f32) -> std::sync::Arc<egui::Galley> {
+    let wrap = Wrap { color: theme.title, font_size: theme.text_small * scale, width, max_rows: 2 };
+
+    wrap_lines(ui, theme, title, wrap)
 }
 
 /// Wrap `text` to `max_rows` at `width`, ellipsizing overflow.
 ///
 /// The actual layout is memoized by egui's galley cache (keyed by the job),
 /// so repeated frames only pay for building the `LayoutJob`.
-pub fn wrap_lines(
-    ui: &Ui,
-    text: &str,
-    color: egui::Color32,
-    font_size: f32,
-    width: f32,
-    max_rows: usize,
-    theme: &Theme,
-) -> std::sync::Arc<egui::Galley> {
-    let mut job = LayoutJob::simple(text.to_owned(), theme.ui_font(font_size), color, width);
-    job.wrap.max_rows = max_rows;
+pub(crate) fn wrap_lines(ui: &Ui, theme: &Theme, text: &str, wrap: Wrap) -> std::sync::Arc<egui::Galley> {
+    let mut job = LayoutJob::simple(text.to_owned(), theme.ui_font(wrap.font_size), wrap.color, wrap.width);
+    job.wrap.max_rows = wrap.max_rows;
     job.wrap.break_anywhere = false;
     job.wrap.overflow_character = Some('…');
     ui.painter().layout_job(job)
 }
 
-pub fn paint_poster(ui: &Ui, rect: Rect, poster: ImageSlot<'_>, theme: &Theme) {
+pub(crate) fn paint_poster(ui: &Ui, rect: Rect, poster: ImageSlot<'_>, theme: &Theme) {
     let rounding = theme.rounding(theme.radius_poster);
-    ui.painter()
-        .rect_filled(rect, rounding, theme.poster_placeholder);
+    ui.painter().rect_filled(rect, rounding, theme.poster_placeholder);
 
     match poster {
         ImageSlot::Ready(texture) => {
-            let image = Image::new(texture)
-                .fit_to_exact_size(rect.size())
-                .corner_radius(rounding)
-                .maintain_aspect_ratio(false);
-            image.paint_at(ui, rect);
+            let image = Image::new(texture).fit_to_exact_size(rect.size()).corner_radius(rounding);
+            image.maintain_aspect_ratio(false).paint_at(ui, rect);
         }
         ImageSlot::Loading => paint_slot_icon(ui, rect, ICON_BROKEN_IMAGE, theme),
         ImageSlot::Missing => paint_slot_icon(ui, rect, ICON_HIDE_IMAGE, theme),
@@ -261,53 +259,40 @@ pub fn paint_poster(ui: &Ui, rect: Rect, poster: ImageSlot<'_>, theme: &Theme) {
 
 fn paint_slot_icon(ui: &Ui, rect: Rect, icon: MaterialIcon, theme: &Theme) {
     let size = (rect.width().min(rect.height()) * 0.34).clamp(28.0, 52.0);
-    let galley = ui.painter().layout_no_wrap(
-        icon.codepoint.to_owned(),
-        FontId::new(size, icon.font_family()),
-        theme.muted,
-    );
+    let font = FontId::new(size, icon.font_family());
+    let galley = ui.painter().layout_no_wrap(icon.codepoint.to_owned(), font, theme.muted);
 
-    let pos = Align2::CENTER_CENTER
-        .anchor_size(rect.center(), galley.size())
-        .min;
+    let pos = Align2::CENTER_CENTER.anchor_size(rect.center(), galley.size()).min;
 
     ui.painter().galley(pos, galley, theme.muted);
 }
 
 /// Status badge top-left, liked heart top-right. The "started" badge only shows
 /// when no status is set, since every status already implies the user knows the title.
-pub fn paint_marks(ui: &Ui, poster: Rect, marks: TileMarks, theme: &Theme, scale: f32) {
+pub(crate) fn paint_marks(ui: &Ui, poster: Rect, marks: TileMarks, theme: &Theme, scale: f32) {
     let radius = 13.0 * scale;
     let inset = radius + 8.0 * scale;
 
     if let Some(status) = marks.library.status {
         let center = pos2(poster.left() + inset, poster.top() + inset);
-        icon_badge(ui, center, radius, super::lists::status_icon(status), theme.title, theme, scale);
+        let icon = super::lists::status_icon(status);
+        icon_badge(ui, theme, Badge { center, radius, icon, color: theme.title }, scale);
     } else if marks.watched {
         watched_badge(ui, poster, theme, scale);
     }
 
     if marks.library.liked {
         let center = pos2(poster.right() - inset, poster.top() + inset);
-        icon_badge(ui, center, radius, ICON_FAVORITE, theme.liked, theme, scale);
+        icon_badge(ui, theme, Badge { center, radius, icon: ICON_FAVORITE, color: theme.liked }, scale);
     }
 }
 
-fn icon_badge(
-    ui: &Ui,
-    center: egui::Pos2,
-    radius: f32,
-    icon: MaterialIcon,
-    color: egui::Color32,
-    theme: &Theme,
-    scale: f32,
-) {
+fn icon_badge(ui: &Ui, theme: &Theme, badge: Badge, scale: f32) {
+    let Badge { center, radius, icon, color } = badge;
     ui.painter().circle_filled(center, radius, theme.badge_bg);
 
     let font = FontId::new(16.0 * scale, icon.font_family());
-    let galley = ui
-        .painter()
-        .layout_no_wrap(icon.codepoint.to_owned(), font, color);
+    let galley = ui.painter().layout_no_wrap(icon.codepoint.to_owned(), font, color);
     let pos = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
     ui.painter().galley(pos, galley, color);
 }
@@ -316,16 +301,14 @@ fn icon_badge(
 ///
 /// `scale` is [`UNSCALED`] for non-tile posters (e.g. the hero poster on the
 /// media detail page), and the row/grid's [`card_scale`] for catalog tiles.
-pub fn watched_badge(ui: &Ui, poster: Rect, theme: &Theme, scale: f32) {
+pub(crate) fn watched_badge(ui: &Ui, poster: Rect, theme: &Theme, scale: f32) {
     let radius = 13.0 * scale;
     let center = pos2(poster.center().x, poster.top() + radius + 8.0 * scale);
     ui.painter().circle_filled(center, radius, theme.badge_bg);
 
     let icon = ICON_PLAY_ARROW;
     let font = FontId::new(16.0 * scale, icon.font_family());
-    let galley = ui
-        .painter()
-        .layout_no_wrap(icon.codepoint.to_owned(), font, theme.title);
+    let galley = ui.painter().layout_no_wrap(icon.codepoint.to_owned(), font, theme.title);
 
     let pos = Align2::CENTER_CENTER.anchor_size(center, galley.size()).min;
     ui.painter().galley(pos, galley, theme.title);
@@ -339,21 +322,13 @@ fn vote_badge(ui: &Ui, poster: Rect, vote: f32, theme: &Theme, scale: f32) {
     let pad = vec2(12.0, 4.0) * scale;
     let margin = 6.0 * scale;
     let size = galley.size() + pad;
-    let rect = Rect::from_min_size(
-        pos2(
-            poster.right() - size.x - margin,
-            poster.bottom() - size.y - margin,
-        ),
-        size,
-    );
+    let rect = Rect::from_min_size(pos2(poster.right() - size.x - margin, poster.bottom() - size.y - margin), size);
 
-    ui.painter()
-        .rect_filled(rect, theme.rounding(theme.radius_badge), theme.badge_bg);
-    ui.painter()
-        .galley(rect.min + pad * 0.5, galley, theme.rate);
+    ui.painter().rect_filled(rect, theme.rounding(theme.radius_badge), theme.badge_bg);
+    ui.painter().galley(rect.min + pad * 0.5, galley, theme.rate);
 }
 
-pub fn rounded_image<'a>(
+pub(crate) fn rounded_image<'a>(
     ui: &mut Ui,
     size: Vec2,
     theme: &Theme,
@@ -397,10 +372,7 @@ mod tests {
 
     #[test]
     fn movie_opens_media() {
-        assert!(matches!(
-            nav_for_item(&item(MediaKind::Movie, "Dune")),
-            NavAction::OpenMedia { .. }
-        ));
+        assert!(matches!(nav_for_item(&item(MediaKind::Movie, "Dune")), NavAction::OpenMedia { .. }));
     }
 
     #[test]

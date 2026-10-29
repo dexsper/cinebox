@@ -1,10 +1,11 @@
-//! Local SQLite via SQLx: TMDB cache, playback prefs, and watch history.
+//! Local SQLite via SQLx: TMDB cache, playback prefs, watch history, and TorrServer sync state.
 
 mod cache;
 mod library;
 mod prefs;
 mod search;
 mod skip;
+mod torrserver;
 mod types;
 mod watch;
 
@@ -19,12 +20,11 @@ use crate::catalog::{HomeCatalog, HomeRow, HomeRowId};
 use crate::paths;
 
 pub use types::{
-    CONFIG_TTL, CacheHit, DETAILS_TTL, HOME_FAST_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME,
-    KIND_MEDIA, KIND_PERSON, KIND_SEASON, KIND_SKIP, MAX_AGE, RECENT_RELEASE_LIMIT,
-    RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT, SEASON_TTL, SKIP_SEGMENTS_TTL,
-    TorrentPlaybackPrefs, WatchHistoryEntry, allowed_image_sizes, home_ttl, image_size_key,
-    language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl, person_cache_id,
-    season_cache_id,
+    CONFIG_TTL, CacheHit, CacheKey, DETAILS_TTL, HOME_FAST_TTL, HOME_SLOW_TTL, KIND_CONFIG, KIND_HOME, KIND_MEDIA,
+    KIND_PERSON, KIND_SEASON, KIND_SKIP, MAX_AGE, RECENT_RELEASE_LIMIT, RECENT_ROW_LIMIT, SEARCH_HISTORY_LIMIT,
+    SEASON_TTL, SKIP_SEGMENTS_TTL, ServerMatch, TorrentPlaybackPrefs, WatchHistoryEntry, WatchKey, allowed_image_sizes,
+    home_ttl, image_size_key, language_key, media_cache_id, media_kind_from_key, media_kind_key, media_ttl,
+    person_cache_id, season_cache_id,
 };
 
 /// Failures opening or talking to the local database.
@@ -49,6 +49,7 @@ pub enum StoreError {
 }
 
 /// Local app database (TMDB cache + watch history).
+#[derive(Debug)]
 pub struct Store {
     pool: SqlitePool,
 }
@@ -75,10 +76,8 @@ impl Store {
     pub async fn open(path: impl AsRef<Path>) -> Result<Self, StoreError> {
         let path = path.as_ref();
         if let Some(parent) = path.parent() {
-            std::fs::create_dir_all(parent).map_err(|source| StoreError::CreateDir {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            std::fs::create_dir_all(parent)
+                .map_err(|source| StoreError::CreateDir { path: parent.to_path_buf(), source })?;
         }
 
         let store = connect(path).await?;
@@ -90,10 +89,10 @@ impl Store {
         drop(store);
         remove_sqlite_files(path);
 
-        let store = connect(path).await?;
-        sqlx::migrate!("./migrations").run(&store.pool).await?;
+        let fresh_store = connect(path).await?;
+        sqlx::migrate!("./migrations").run(&fresh_store.pool).await?;
 
-        Ok(store)
+        Ok(fresh_store)
     }
 
     /// In-memory database for tests.
@@ -107,10 +106,7 @@ impl Store {
             .foreign_keys(true)
             .busy_timeout(Duration::from_secs(5));
 
-        let pool = SqlitePoolOptions::new()
-            .max_connections(1)
-            .connect_with(opts)
-            .await?;
+        let pool = SqlitePoolOptions::new().max_connections(1).connect_with(opts).await?;
 
         sqlx::migrate!("./migrations").run(&pool).await?;
 
@@ -132,10 +128,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite or JSON parse failures.
-    pub async fn home_catalog(
-        &self,
-        language: &str,
-    ) -> Result<Option<(HomeCatalog, bool)>, StoreError> {
+    pub async fn home_catalog(&self, language: &str) -> Result<Option<(HomeCatalog, bool)>, StoreError> {
         let mut cached = self.home_rows(language).await?;
 
         let mut rows = vec![self.recently_watched_row().await?];
@@ -184,9 +177,7 @@ impl Store {
 
         // The SQL is built from a fixed template plus `?` placeholders only.
         let sql = sqlx::AssertSqlSafe(sql);
-        let mut query = sqlx::query_as::<_, (String, i64, String)>(sql)
-            .bind(language)
-            .bind(KIND_HOME);
+        let mut query = sqlx::query_as::<_, (String, i64, String)>(sql).bind(language).bind(KIND_HOME);
         for id in HomeRowId::REMOTE {
             query = query.bind(id.as_key());
         }
@@ -201,8 +192,7 @@ impl Store {
                 continue;
             }
 
-            let value: HomeRow =
-                serde_json::from_str(&payload).map_err(StoreError::Deserialize)?;
+            let value: HomeRow = serde_json::from_str(&payload).map_err(StoreError::Deserialize)?;
 
             // Failures were cached by older versions; they are not a loaded row.
             if value.error.is_some() {
@@ -224,19 +214,20 @@ async fn connect(path: &Path) -> Result<Store, StoreError> {
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(5));
 
-    let pool = SqlitePoolOptions::new()
-        .max_connections(4)
-        .connect_with(opts)
-        .await?;
+    let pool = SqlitePoolOptions::new().max_connections(4).connect_with(opts).await?;
 
     Ok(Store { pool })
 }
 
 fn remove_sqlite_files(path: &Path) {
-    let _ = std::fs::remove_file(path);
     let path_str = path.to_string_lossy();
-    let _ = std::fs::remove_file(format!("{path_str}-wal"));
-    let _ = std::fs::remove_file(format!("{path_str}-shm"));
+    let wal = format!("{path_str}-wal");
+    let shm = format!("{path_str}-shm");
+
+    for file in [path, Path::new(&wal), Path::new(&shm)] {
+        // Best effort: a file left behind makes the following `connect` fail, and that error is returned.
+        drop(std::fs::remove_file(file));
+    }
 }
 
 #[cfg(test)]
@@ -260,11 +251,7 @@ mod tests {
     }
 
     fn sample_row(path: &str) -> HomeRow {
-        HomeRow {
-            id: HomeRowId::NowPlaying,
-            items: vec![sample_item(path)],
-            error: None,
-        }
+        HomeRow { id: HomeRowId::NowPlaying, items: vec![sample_item(path)], error: None }
     }
 
     fn sizes() -> Vec<String> {
@@ -294,12 +281,11 @@ mod tests {
         let row = sample_row("/a.jpg");
 
         store
-            .put_json("en-US", KIND_HOME, row.id.as_key(), &row, &row.image_paths())
+            .put_json(CacheKey { language: "en-US", kind: KIND_HOME, id: row.id.as_key() }, &row, &row.image_paths())
             .await?;
 
-        let got = store
-            .get_json::<HomeRow>("en-US", KIND_HOME, row.id.as_key())
-            .await?;
+        let key = CacheKey { language: "en-US", kind: KIND_HOME, id: row.id.as_key() };
+        let got = store.get_json::<HomeRow>(key).await?;
         assert!(got.is_some());
 
         if let Some(hit) = got {
@@ -308,7 +294,7 @@ mod tests {
 
         assert!(
             store
-                .get_json::<HomeRow>("ru-RU", KIND_HOME, row.id.as_key())
+                .get_json::<HomeRow>(CacheKey { language: "ru-RU", kind: KIND_HOME, id: row.id.as_key() })
                 .await?
                 .is_none()
         );
@@ -323,14 +309,11 @@ mod tests {
         let old = unix_now() - i64::try_from(MAX_AGE.as_secs()).unwrap_or(0) - 10;
 
         store
-            .put_json_at("", KIND_HOME, row.id.as_key(), &row, &row.image_paths(), old)
+            .put_json_at(CacheKey { language: "", kind: KIND_HOME, id: row.id.as_key() }, &row, &row.image_paths(), old)
             .await?;
 
         assert!(
-            store
-                .get_json::<HomeRow>("", KIND_HOME, row.id.as_key())
-                .await?
-                .is_none()
+            store.get_json::<HomeRow>(CacheKey { language: "", kind: KIND_HOME, id: row.id.as_key() }).await?.is_none()
         );
 
         Ok(())
@@ -345,16 +328,13 @@ mod tests {
 
         let row = sample_row("/new.jpg");
         store
-            .put_json("", KIND_HOME, row.id.as_key(), &row, &row.image_paths())
+            .put_json(CacheKey { language: "", kind: KIND_HOME, id: row.id.as_key() }, &row, &row.image_paths())
             .await?;
 
         store.gc_images(&sizes()).await?;
 
         assert!(store.get_image("w500", "/old.jpg").await?.is_none());
-        assert_eq!(
-            store.get_image("w500", "/new.jpg").await?,
-            Some(b"new".to_vec())
-        );
+        assert_eq!(store.get_image("w500", "/new.jpg").await?, Some(b"new".to_vec()));
 
         Ok(())
     }
@@ -365,13 +345,9 @@ mod tests {
         assert!(store.home_catalog("").await?.is_none());
 
         for id in HomeRowId::REMOTE {
-            let row = HomeRow {
-                id,
-                items: vec![sample_item("/a.jpg")],
-                error: None,
-            };
+            let row = HomeRow { id, items: vec![sample_item("/a.jpg")], error: None };
             store
-                .put_json("", KIND_HOME, id.as_key(), &row, &row.image_paths())
+                .put_json(CacheKey { language: "", kind: KIND_HOME, id: id.as_key() }, &row, &row.image_paths())
                 .await?;
         }
 
@@ -390,12 +366,8 @@ mod tests {
     async fn a_cached_failure_is_not_a_fresh_row() -> Result<(), StoreError> {
         let store = Store::memory().await?;
         for id in HomeRowId::REMOTE {
-            let row = HomeRow {
-                id,
-                items: Vec::new(),
-                error: Some(String::from("connect timed out")),
-            };
-            store.put_json("", KIND_HOME, id.as_key(), &row, &[]).await?;
+            let row = HomeRow { id, items: Vec::new(), error: Some(String::from("connect timed out")) };
+            store.put_json(CacheKey { language: "", kind: KIND_HOME, id: id.as_key() }, &row, &[]).await?;
         }
 
         let got = store.home_catalog("").await?;
@@ -410,21 +382,13 @@ mod tests {
         let store = Store::memory().await?;
         assert!(store.get_torrent_prefs("deadbeef").await?.is_none());
 
-        let prefs = TorrentPlaybackPrefs {
-            scale: VideoScale::Zoom130,
-            speed: 1.5,
-            aid: 2,
-            sid: 0,
-        };
+        let prefs = TorrentPlaybackPrefs { scale: VideoScale::Zoom130, speed: 1.5, aid: 2, sid: 0 };
         store.put_torrent_prefs("deadbeef", &prefs).await?;
 
         assert_eq!(store.get_torrent_prefs("deadbeef").await?, Some(prefs));
         assert!(store.get_torrent_prefs("cafebabe").await?.is_none());
 
-        let updated = TorrentPlaybackPrefs {
-            speed: 2.0,
-            ..prefs
-        };
+        let updated = TorrentPlaybackPrefs { speed: 2.0, ..prefs };
         store.put_torrent_prefs("deadbeef", &updated).await?;
 
         assert_eq!(store.get_torrent_prefs("deadbeef").await?, Some(updated));
@@ -445,10 +409,7 @@ mod tests {
 
     #[test]
     fn media_cache_id_is_stable() {
-        assert_eq!(
-            media_cache_id(MediaKind::Movie, TmdbId::new(550)),
-            "movie:550"
-        );
+        assert_eq!(media_cache_id(MediaKind::Movie, TmdbId::new(550)), "movie:550");
 
         assert_eq!(season_cache_id(TmdbId::new(10), 2), "10:2");
     }
@@ -456,42 +417,20 @@ mod tests {
     #[tokio::test]
     async fn watch_timeline_roundtrip() -> Result<(), StoreError> {
         let store = Store::memory().await?;
-        let id = TmdbId::new(10);
+        let episode = WatchKey { kind: MediaKind::Tv, id: TmdbId::new(10), season: Some(1), episode: Some(2) };
+        let next_episode = WatchKey { episode: Some(3), ..episode };
+        let movie = WatchKey { kind: MediaKind::Movie, id: TmdbId::new(7), season: None, episode: None };
 
-        assert!(
-            store
-                .get_watch_timeline(MediaKind::Tv, id, Some(1), Some(2))
-                .await?
-                .is_none()
-        );
+        assert!(store.get_watch_timeline(episode).await?.is_none());
 
-        store
-            .upsert_watch_timeline(MediaKind::Tv, id, Some(1), Some(2), 15.5, 2400.0)
-            .await?;
+        store.upsert_watch_timeline(episode, 15.5, 2400.0).await?;
 
-        assert_eq!(
-            store
-                .get_watch_timeline(MediaKind::Tv, id, Some(1), Some(2))
-                .await?,
-            Some((15.5, 2400.0))
-        );
-        assert!(
-            store
-                .get_watch_timeline(MediaKind::Tv, id, Some(1), Some(3))
-                .await?
-                .is_none()
-        );
+        assert_eq!(store.get_watch_timeline(episode).await?, Some((15.5, 2400.0)));
+        assert!(store.get_watch_timeline(next_episode).await?.is_none());
 
-        store
-            .upsert_watch_timeline(MediaKind::Movie, TmdbId::new(7), None, None, 90.0, 7200.0)
-            .await?;
+        store.upsert_watch_timeline(movie, 90.0, 7200.0).await?;
 
-        assert_eq!(
-            store
-                .get_watch_timeline(MediaKind::Movie, TmdbId::new(7), None, None)
-                .await?,
-            Some((90.0, 7200.0))
-        );
+        assert_eq!(store.get_watch_timeline(movie).await?, Some((90.0, 7200.0)));
 
         Ok(())
     }
@@ -500,15 +439,9 @@ mod tests {
     async fn recently_watched_is_mru_and_one_per_media() -> Result<(), StoreError> {
         let store = Store::memory().await?;
 
-        store
-            .upsert_watch_history(&history_entry(1, "First"), Some("deadbeef"))
-            .await?;
-        store
-            .upsert_watch_history(&history_entry(2, "Second"), None)
-            .await?;
-        store
-            .upsert_watch_history(&history_entry(1, "First again"), Some("deadbeef"))
-            .await?;
+        store.upsert_watch_history(&history_entry(1, "First"), Some("deadbeef")).await?;
+        store.upsert_watch_history(&history_entry(2, "Second"), None).await?;
+        store.upsert_watch_history(&history_entry(1, "First again"), Some("deadbeef")).await?;
 
         let recent = store.recently_watched(20, None).await?;
         assert_eq!(recent.len(), 2);
@@ -519,12 +452,7 @@ mod tests {
         let keys = store.watched_keys().await?;
         assert_eq!(keys.len(), 2);
 
-        assert_eq!(
-            store
-                .watch_release_hashes(MediaKind::Movie, TmdbId::new(1))
-                .await?,
-            vec![String::from("deadbeef")]
-        );
+        assert_eq!(store.watch_release_hashes(MediaKind::Movie, TmdbId::new(1)).await?, vec![String::from("deadbeef")]);
 
         let row = store.recently_watched_row().await?;
         assert_eq!(row.id, HomeRowId::RecentlyWatched);
@@ -536,15 +464,9 @@ mod tests {
     #[tokio::test]
     async fn recently_watched_filters_by_section() -> Result<(), StoreError> {
         let store = Store::memory().await?;
-        let anime = WatchHistoryEntry {
-            kind: MediaKind::Tv,
-            section: Section::Anime,
-            ..history_entry(2, "Anime")
-        };
+        let anime = WatchHistoryEntry { kind: MediaKind::Tv, section: Section::Anime, ..history_entry(2, "Anime") };
 
-        store
-            .upsert_watch_history(&history_entry(1, "Movie"), None)
-            .await?;
+        store.upsert_watch_history(&history_entry(1, "Movie"), None).await?;
         store.upsert_watch_history(&anime, None).await?;
 
         let recent = store.recently_watched(20, Some(Section::Anime)).await?;
@@ -557,18 +479,74 @@ mod tests {
     #[tokio::test]
     async fn legacy_history_rows_fall_back_to_kind_section() -> Result<(), StoreError> {
         let store = Store::memory().await?;
-        let show = WatchHistoryEntry {
-            kind: MediaKind::Tv,
-            section: Section::Tv,
-            ..history_entry(3, "Show")
-        };
+        let show = WatchHistoryEntry { kind: MediaKind::Tv, section: Section::Tv, ..history_entry(3, "Show") };
         store.upsert_watch_history(&show, None).await?;
-        sqlx::query("UPDATE watch_history SET section = NULL")
-            .execute(&store.pool)
-            .await?;
+        sqlx::query("UPDATE watch_history SET section = NULL").execute(&store.pool).await?;
 
         let recent = store.recently_watched(20, Some(Section::Tv)).await?;
         assert_eq!(recent.len(), 1);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_import_never_overwrites_newer_local_history() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Local"), Some("local")).await?;
+
+        let server = WatchHistoryEntry { time: 30.0, ..history_entry(1, "Server") };
+        let written = store.import_watch_history(&server, "server", 1).await?;
+
+        assert!(!written);
+        assert_eq!(store.recently_watched(10, None).await?[0].title, "Local");
+        assert_eq!(store.watch_release_hashes(MediaKind::Movie, TmdbId::new(1)).await?, vec![String::from("local")]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn a_newer_import_moves_the_title_up() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Watched here"), None).await?;
+        store.upsert_watch_history(&history_entry(2, "Older"), None).await?;
+
+        let server = WatchHistoryEntry { time: 30.0, ..history_entry(1, "Watched there") };
+        let written = store.import_watch_history(&server, "aa", unix_now() + 60).await?;
+
+        let recent = store.recently_watched(10, None).await?;
+        assert!(written);
+        assert_eq!(recent[0].title, "Watched there");
+        assert_eq!(store.watch_release_hashes(MediaKind::Movie, TmdbId::new(1)).await?, vec![String::from("aa")]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_unstarted_import_keeps_the_local_position_and_badge() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        store.upsert_watch_history(&history_entry(1, "Started"), None).await?;
+
+        let added = WatchHistoryEntry { time: 0.0, duration: 0.0, ..history_entry(1, "Added elsewhere") };
+        store.import_watch_history(&added, "aa", unix_now() + 60).await?;
+        let never_started = WatchHistoryEntry { time: 0.0, ..history_entry(2, "Never started") };
+        store.import_watch_history(&never_started, "bb", 1).await?;
+
+        let keys = store.watched_keys().await?;
+        assert_eq!(store.recently_watched(10, None).await?.len(), 2);
+        assert_eq!(keys, vec![(MediaKind::Movie, TmdbId::new(1))]);
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn an_imported_position_keeps_the_known_duration() -> Result<(), StoreError> {
+        let store = Store::memory().await?;
+        let movie = WatchKey { kind: MediaKind::Movie, id: TmdbId::new(7), season: None, episode: None };
+        store.upsert_watch_timeline(movie, 90.0, 7200.0).await?;
+
+        store.import_watch_timeline(movie, 1800.0).await?;
+
+        assert_eq!(store.get_watch_timeline(movie).await?, Some((1800.0, 7200.0)));
 
         Ok(())
     }
@@ -578,28 +556,13 @@ mod tests {
         let store = Store::memory().await?;
         let id = TmdbId::new(1);
 
-        store
-            .upsert_watch_history(&history_entry(1, "A"), Some("hash1"))
-            .await?;
-        store
-            .upsert_watch_history(&history_entry(1, "A"), Some("hash2"))
-            .await?;
-        store
-            .upsert_watch_history(&history_entry(1, "A"), Some("hash3"))
-            .await?;
-        store
-            .upsert_watch_history(&history_entry(1, "A"), Some("hash4"))
-            .await?;
+        store.upsert_watch_history(&history_entry(1, "A"), Some("hash1")).await?;
+        store.upsert_watch_history(&history_entry(1, "A"), Some("hash2")).await?;
+        store.upsert_watch_history(&history_entry(1, "A"), Some("hash3")).await?;
+        store.upsert_watch_history(&history_entry(1, "A"), Some("hash4")).await?;
 
         let hashes = store.watch_release_hashes(MediaKind::Movie, id).await?;
-        assert_eq!(
-            hashes,
-            vec![
-                String::from("hash4"),
-                String::from("hash3"),
-                String::from("hash2")
-            ]
-        );
+        assert_eq!(hashes, vec![String::from("hash4"), String::from("hash3"), String::from("hash2")]);
 
         Ok(())
     }
@@ -607,9 +570,7 @@ mod tests {
     #[tokio::test]
     async fn clear_tmdb_keeps_watch_history() -> Result<(), StoreError> {
         let store = Store::memory().await?;
-        store
-            .upsert_watch_history(&history_entry(9, "Kept"), None)
-            .await?;
+        store.upsert_watch_history(&history_entry(9, "Kept"), None).await?;
         store.clear_tmdb().await?;
 
         let recent = store.recently_watched(10, None).await?;
@@ -624,7 +585,7 @@ mod tests {
         let store = Store::memory().await?;
 
         store.record_search("   ").await?;
-        assert!(store.recent_searches(10).await?.is_empty());
+        assert_eq!(store.recent_searches(10).await?, Vec::<String>::new());
 
         store.record_search("Dune").await?;
         store.record_search("Alien").await?;

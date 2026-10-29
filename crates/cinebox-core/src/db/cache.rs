@@ -8,7 +8,7 @@ use serde::de::DeserializeOwned;
 use crate::catalog::normalize_tmdb_path;
 
 use super::types::{IMAGE_BUDGET_BYTES, IMAGE_GC_GRACE, MAX_AGE, age_secs, unix_now};
-use super::{CacheHit, Store, StoreError};
+use super::{CacheHit, CacheKey, Store, StoreError};
 
 impl Store {
     /// Delete every TMDB cache table. Leaves watch history and prefs alone.
@@ -17,17 +17,11 @@ impl Store {
     ///
     /// Sqlite failures.
     pub async fn clear_tmdb(&self) -> Result<(), StoreError> {
-        sqlx::query!("DELETE FROM tmdb_image_ref")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM tmdb_image_ref").execute(&self.pool).await?;
 
-        sqlx::query!("DELETE FROM tmdb_image")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM tmdb_image").execute(&self.pool).await?;
 
-        sqlx::query!("DELETE FROM tmdb_cache")
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM tmdb_cache").execute(&self.pool).await?;
 
         Ok(())
     }
@@ -37,12 +31,8 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite or JSON parse failures.
-    pub async fn get_json<T: DeserializeOwned>(
-        &self,
-        language: &str,
-        kind: &str,
-        id: &str,
-    ) -> Result<Option<CacheHit<T>>, StoreError> {
+    pub async fn get_json<T: DeserializeOwned>(&self, key: CacheKey<'_>) -> Result<Option<CacheHit<T>>, StoreError> {
+        let CacheKey { language, kind, id } = key;
         let row = sqlx::query!(
             r#"
             SELECT fetched_at, payload
@@ -66,10 +56,7 @@ impl Store {
 
         let value = serde_json::from_str(&row.payload).map_err(StoreError::Deserialize)?;
 
-        Ok(Some(CacheHit {
-            value,
-            fetched_at: row.fetched_at,
-        }))
+        Ok(Some(CacheHit { value, fetched_at: row.fetched_at }))
     }
 
     /// Insert or replace a cache row and its image path refs.
@@ -82,25 +69,21 @@ impl Store {
     /// Sqlite or JSON serialize failures.
     pub async fn put_json<T: Serialize>(
         &self,
-        language: &str,
-        kind: &str,
-        id: &str,
+        key: CacheKey<'_>,
         value: &T,
         image_paths: &[String],
     ) -> Result<(), StoreError> {
-        self.put_json_at(language, kind, id, value, image_paths, unix_now())
-            .await
+        self.put_json_at(key, value, image_paths, unix_now()).await
     }
 
     pub(crate) async fn put_json_at<T: Serialize>(
         &self,
-        language: &str,
-        kind: &str,
-        id: &str,
+        key: CacheKey<'_>,
         value: &T,
         image_paths: &[String],
         fetched_at: i64,
     ) -> Result<(), StoreError> {
+        let CacheKey { language, kind, id } = key;
         let payload = serde_json::to_string(value).map_err(StoreError::Serialize)?;
         let mut tx = self.pool.begin().await?;
 
@@ -233,9 +216,7 @@ impl Store {
         let max_age = i64::try_from(MAX_AGE.as_secs()).unwrap_or(i64::MAX);
         let cutoff = unix_now().saturating_sub(max_age);
 
-        sqlx::query!("DELETE FROM tmdb_cache WHERE fetched_at < ?", cutoff)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM tmdb_cache WHERE fetched_at < ?", cutoff).execute(&self.pool).await?;
 
         sqlx::query!(
             r#"
@@ -251,9 +232,7 @@ impl Store {
         .execute(&self.pool)
         .await?;
 
-        sqlx::query!("DELETE FROM tmdb_image WHERE fetched_at < ?", cutoff)
-            .execute(&self.pool)
-            .await?;
+        sqlx::query!("DELETE FROM tmdb_image WHERE fetched_at < ?", cutoff).execute(&self.pool).await?;
 
         Ok(())
     }
@@ -266,18 +245,14 @@ impl Store {
     pub async fn gc_images(&self, allowed_sizes: &[String]) -> Result<(), StoreError> {
         if !allowed_sizes.is_empty() {
             let allowed: HashSet<&str> = allowed_sizes.iter().map(String::as_str).collect();
-            let sizes = sqlx::query!("SELECT DISTINCT size FROM tmdb_image")
-                .fetch_all(&self.pool)
-                .await?;
+            let sizes = sqlx::query!("SELECT DISTINCT size FROM tmdb_image").fetch_all(&self.pool).await?;
 
             for row in sizes {
                 if allowed.contains(row.size.as_str()) {
                     continue;
                 }
 
-                sqlx::query!("DELETE FROM tmdb_image WHERE size = ?", row.size)
-                    .execute(&self.pool)
-                    .await?;
+                sqlx::query!("DELETE FROM tmdb_image WHERE size = ?", row.size).execute(&self.pool).await?;
             }
         }
 
@@ -335,18 +310,10 @@ impl Store {
     }
 
     #[cfg(test)]
-    pub(crate) async fn set_image_accessed_at(
-        &self,
-        path: &str,
-        accessed_at: i64,
-    ) -> Result<(), StoreError> {
-        sqlx::query!(
-            "UPDATE tmdb_image SET accessed_at = ? WHERE path = ?",
-            accessed_at,
-            path
-        )
-        .execute(&self.pool)
-        .await?;
+    pub(crate) async fn set_image_accessed_at(&self, path: &str, accessed_at: i64) -> Result<(), StoreError> {
+        sqlx::query!("UPDATE tmdb_image SET accessed_at = ? WHERE path = ?", accessed_at, path)
+            .execute(&self.pool)
+            .await?;
 
         Ok(())
     }

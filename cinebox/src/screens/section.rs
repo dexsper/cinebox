@@ -10,7 +10,7 @@ use rust_i18n::t;
 
 use super::discover::DiscoverFilters;
 use super::gate;
-use super::shelf::shelf;
+use super::shelf::{Shelf, shelf};
 use super::swr::{Cached, Swr};
 use crate::app::nav::NavAction;
 use crate::i18n::errors::UserError;
@@ -24,18 +24,12 @@ use crate::widgets::{self, scroll};
 type SectionCache = Cached<Vec<ShelfRow>, (Vec<ShelfRow>, bool)>;
 
 #[derive(Default)]
-pub struct SectionScreen {
+pub(crate) struct SectionScreen {
     caches: HashMap<Section, SectionCache>,
 }
 
 impl SectionScreen {
-    pub fn ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        section: Section,
-    ) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, section: Section) -> Option<NavAction> {
         if let Some(problem) = gate::tmdb_key_problem(&svc.settings) {
             return gate::tmdb_key(ui, theme, problem);
         }
@@ -53,8 +47,8 @@ impl SectionScreen {
 
         let fresh = cache.disk.as_ref().is_some_and(|(_, fresh)| *fresh);
         let tmdb = jobs::TmdbCtx::from(&svc.settings);
-        let db = svc.db.clone();
-        let outcome = cache.resolve(fresh, move || jobs::load_section(tmdb, section, db));
+        let store = svc.db.clone();
+        let outcome = cache.resolve(fresh, move || jobs::load_section(tmdb, section, store));
 
         let rows = match outcome.view {
             Swr::Live => match cache.bind.read() {
@@ -63,7 +57,7 @@ impl SectionScreen {
             },
             Swr::Disk => cache.disk.as_ref().map(|(rows, _)| rows.as_slice()),
             Swr::Failed => {
-                let error = UserError::from_read(cache.bind.read());
+                let error = UserError::from_read(cache.bind.read().as_ref());
                 let choice = error_page(ui, theme, &error);
                 if choice == Some(ErrorChoice::Retry) {
                     cache.retry();
@@ -85,7 +79,8 @@ impl SectionScreen {
                     continue;
                 }
 
-                let nav = shelf(ui, row.id, &row.items, row.error.as_deref(), svc, theme);
+                let section_shelf = Shelf { id: row.id, items: &row.items, error: row.error.as_deref() };
+                let nav = shelf(ui, &section_shelf, svc, theme);
                 if nav.is_some() {
                     action = nav;
                 }
@@ -122,19 +117,14 @@ fn header(ui: &mut Ui, section: Section, theme: &Theme) -> Option<NavAction> {
             let pad_y = button::icon_label_pad_y(ui, theme, ICON_TUNE, button::CHIP_H);
             let opts = Opts::primary(vec2(button::CHIP_MIN_W, button::CHIP_H)).pad_y(pad_y);
             if button::icon_label(ui, theme, ICON_TUNE, discover.as_ref(), opts) {
-                action = Some(NavAction::OpenDiscover {
-                    section,
-                    filters: DiscoverFilters::new(kind),
-                });
+                action = Some(NavAction::OpenDiscover { section, filters: DiscoverFilters::new(kind) });
             }
 
             for genre in genres_for(kind) {
                 let name = crate::i18n::genre_name(*genre);
                 if button::label(ui, theme, name.as_ref(), Opts::chip(false)) {
-                    action = Some(NavAction::OpenDiscover {
-                        section,
-                        filters: DiscoverFilters::with_genre(kind, *genre),
-                    });
+                    let filters = DiscoverFilters::with_genre(kind, *genre);
+                    action = Some(NavAction::OpenDiscover { section, filters });
                 }
             }
         });

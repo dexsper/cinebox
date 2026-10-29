@@ -4,16 +4,18 @@ mod catalog;
 mod health;
 mod skip;
 mod torrents;
+mod torrserver_sync;
 mod youtube;
 
-pub use catalog::{
-    cached_section, load_catalog_page, load_discover_page, load_home, load_media, load_person,
-    load_search_page, load_section,
+pub(crate) use catalog::{
+    cached_section, load_catalog_page, load_discover_page, load_home, load_media, load_person, load_search_page,
+    load_section,
 };
-pub use health::{ping_parser, ping_tmdb, ping_torrserver, speed_test};
-pub use skip::{fetch_skip_choices, fetch_skip_segments, save_skip_choice};
-pub use torrents::{load_torrents, open_magnet, wait_stream};
-pub use youtube::resolve_youtube;
+pub(crate) use health::{ping_parser, ping_tmdb, ping_torrserver, speed_test};
+pub(crate) use skip::{fetch_skip_choices, fetch_skip_segments, save_skip_choice, skip_cache_id};
+pub(crate) use torrents::{OpenMagnet, StreamFile, load_torrents, open_magnet, wait_stream};
+pub(crate) use torrserver_sync::{SYNC_INTERVAL, SyncOutcome, sync_from_server};
+pub(crate) use youtube::resolve_youtube;
 
 use cinebox_core::{MediaKind, ParserKind, Settings, TmdbId};
 use cinebox_net::NetConfig;
@@ -23,7 +25,7 @@ use cinebox_torrserver::Server;
 ///
 /// Rendered as a string only at the UI boundary (toasts, error views).
 #[derive(Debug, thiserror::Error)]
-pub enum JobError {
+pub(crate) enum JobError {
     #[error(transparent)]
     Tmdb(#[from] cinebox_tmdb::Error),
     #[error(transparent)]
@@ -39,7 +41,7 @@ pub enum JobError {
 }
 
 /// Network snapshot shared by TMDB and parser jobs (the setting is global).
-pub fn net_config(settings: &Settings) -> NetConfig {
+pub(crate) fn net_config(settings: &Settings) -> NetConfig {
     NetConfig {
         use_system_proxy: settings.general.use_system_proxy,
         dns_bypass: settings.general.dns_bypass,
@@ -58,7 +60,7 @@ fn usable_doh_url(url: &str) -> String {
 
 /// Narrow snapshot of the TMDB settings a job needs.
 #[derive(Clone)]
-pub struct TmdbCtx {
+pub(crate) struct TmdbCtx {
     pub api_key: String,
     pub language: &'static str,
     pub net: NetConfig,
@@ -76,7 +78,7 @@ impl From<&Settings> for TmdbCtx {
 
 /// Narrow snapshot of the parser (Jackett / Prowlarr) settings a job needs.
 #[derive(Clone)]
-pub struct ParserCtx {
+pub(crate) struct ParserCtx {
     pub kind: ParserKind,
     pub url: String,
     pub api_key: String,
@@ -96,9 +98,14 @@ impl From<&Settings> for ParserCtx {
 
 /// Narrow snapshot of the TorrServer settings a job needs.
 #[derive(Clone)]
-pub struct TorrCtx {
+pub(crate) struct TorrCtx {
     pub server: Server,
+
+    /// Positions are read from `/viewed` (see `TorrServerSettings::is_tracking_position`).
     pub track_timecode: bool,
+
+    /// Torrents and positions other clients left on the server are taken in.
+    pub sync_history: bool,
 }
 
 impl From<&Settings> for TorrCtx {
@@ -110,16 +117,13 @@ impl From<&Settings> for TorrCtx {
             password: torrserver.password.expose().to_owned(),
         };
 
-        Self {
-            server,
-            track_timecode: torrserver.track_timecode,
-        }
+        Self { server, track_timecode: torrserver.is_tracking_position(), sync_history: torrserver.sync_history }
     }
 }
 
 /// The media an opened torrent belongs to.
-#[derive(Clone, Copy)]
-pub struct OpenTarget {
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct OpenTarget {
     pub kind: MediaKind,
     pub id: TmdbId,
     pub runtime_minutes: Option<u32>,

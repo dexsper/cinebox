@@ -256,9 +256,7 @@ fn episodes(title: &str) -> Option<EpisodeSpan> {
     {
         return Some(span_from_range(a, b));
     }
-    let (to, counted) = SINGLE
-        .iter()
-        .find_map(|(re, counted)| one(re, title).map(|n| (n, *counted)))?;
+    let (to, counted) = SINGLE.iter().find_map(|(re, counted)| one(re, title).map(|n| (n, *counted)))?;
     let from = if counted { 1 } else { to };
 
     Some(EpisodeSpan { from, to })
@@ -276,11 +274,7 @@ fn span_from_range(a: u32, b: u32) -> EpisodeSpan {
 
 fn year(title: &str) -> Option<u16> {
     static RE: LazyLock<[Regex; 3]> = LazyLock::new(|| {
-        [
-            re(r"\(((?:19|20)\d{2})[-–](?:19|20)\d{2}\)"),
-            re(r"\(((?:19|20)\d{2})\)"),
-            re(r"\b((?:19|20)\d{2})\b"),
-        ]
+        [re(r"\(((?:19|20)\d{2})[-–](?:19|20)\d{2}\)"), re(r"\(((?:19|20)\d{2})\)"), re(r"\b((?:19|20)\d{2})\b")]
     });
     first_one(RE.as_slice(), title).and_then(|y| u16::try_from(y).ok())
 }
@@ -303,10 +297,7 @@ fn source_quality(lower: &str) -> Option<SourceQuality> {
         (SourceQuality::Cam, &["cam"]),
         (SourceQuality::Ts, &["ts"]),
     ];
-    TOKENS
-        .iter()
-        .find(|(_, needles)| needles.iter().any(|needle| token_at(lower, needle)))
-        .map(|(quality, _)| *quality)
+    TOKENS.iter().find(|(_, needles)| needles.iter().any(|needle| token_at(lower, needle))).map(|(quality, _)| *quality)
 }
 
 fn codec(lower: &str) -> Option<Codec> {
@@ -360,10 +351,7 @@ fn resolution(lower: &str) -> Option<Resolution> {
         (Resolution::Ld, &["360p"]),
     ];
 
-    TOKENS
-        .iter()
-        .find(|(_, needles)| contains_any(lower, needles))
-        .map(|(band, _)| *band)
+    TOKENS.iter().find(|(_, needles)| contains_any(lower, needles)).map(|(band, _)| *band)
 }
 
 pub(crate) fn contains_any(haystack: &str, needles: &[&str]) -> bool {
@@ -380,6 +368,7 @@ fn token_at(haystack: &str, needle: &str) -> bool {
 
 /// IEC-ish size label (1024-based), same spirit as the JS helper.
 #[must_use]
+#[expect(clippy::cast_precision_loss, reason = "the label shows at most one decimal")]
 pub fn format_bytes(bytes: u64) -> String {
     const KIB: f64 = 1024.0;
     let n = bytes as f64;
@@ -403,10 +392,7 @@ pub fn format_bytes(bytes: u64) -> String {
 pub fn infohash(link: &str) -> Option<String> {
     let lower = link.to_ascii_lowercase();
     let rest = lower.split("btih:").nth(1)?;
-    let hash: String = rest
-        .chars()
-        .take_while(char::is_ascii_alphanumeric)
-        .collect();
+    let hash: String = rest.chars().take_while(char::is_ascii_alphanumeric).collect();
     (hash.len() == 40 || hash.len() == 32).then_some(hash)
 }
 
@@ -428,10 +414,7 @@ fn one(re: &Regex, title: &str) -> Option<u32> {
 
 fn pair(re: &Regex, title: &str) -> Option<(u32, u32)> {
     let caps = re.captures(title)?;
-    Some((
-        caps.get(1)?.as_str().parse().ok()?,
-        caps.get(2)?.as_str().parse().ok()?,
-    ))
+    Some((caps.get(1)?.as_str().parse().ok()?, caps.get(2)?.as_str().parse().ok()?))
 }
 
 #[cfg(test)]
@@ -462,26 +445,26 @@ mod tests {
 
     #[test]
     fn one_episode_is_not_a_range() {
-        let info = parse_title("Слово пацана / 1 сезон 5 серия [2023]");
-        assert_eq!(info.episodes, Some(EpisodeSpan { from: 5, to: 5 }));
-        assert!(info.seasons_named);
+        let single = parse_title("Слово пацана / 1 сезон 5 серия [2023]");
+        assert_eq!(single.episodes, Some(EpisodeSpan { from: 5, to: 5 }));
+        assert!(single.seasons_named);
 
-        let info = parse_title("Атака титанов [TV] [25 из 25] [2013]");
-        assert_eq!(info.episodes, Some(EpisodeSpan { from: 1, to: 25 }));
-        assert!(!info.seasons_named);
+        let full_run = parse_title("Атака титанов [TV] [25 из 25] [2013]");
+        assert_eq!(full_run.episodes, Some(EpisodeSpan { from: 1, to: 25 }));
+        assert!(!full_run.seasons_named);
     }
 
     #[test]
     fn remux_codec_and_edition() {
-        let info = parse_title("Аватар (Расширенная версия) / Avatar / 2009 / Blu-Ray Remux (1080p) AVC");
-        assert_eq!(info.quality, Some(SourceQuality::Remux));
-        assert_eq!(info.codec, Some(Codec::Avc));
-        assert_eq!(info.edition, Some(Edition::Extended));
+        let remux = parse_title("Аватар (Расширенная версия) / Avatar / 2009 / Blu-Ray Remux (1080p) AVC");
+        assert_eq!(remux.quality, Some(SourceQuality::Remux));
+        assert_eq!(remux.codec, Some(Codec::Avc));
+        assert_eq!(remux.edition, Some(Edition::Extended));
 
-        let info = parse_title("Оппенгеймер / Oppenheimer (IMAX) / 2023 / BDRip [H.265/2160p]");
-        assert_eq!(info.quality, Some(SourceQuality::BdRip));
-        assert_eq!(info.codec, Some(Codec::Hevc));
-        assert_eq!(info.edition, Some(Edition::Imax));
+        let rip = parse_title("Оппенгеймер / Oppenheimer (IMAX) / 2023 / BDRip [H.265/2160p]");
+        assert_eq!(rip.quality, Some(SourceQuality::BdRip));
+        assert_eq!(rip.codec, Some(Codec::Hevc));
+        assert_eq!(rip.edition, Some(Edition::Imax));
     }
 
     #[test]
@@ -544,8 +527,7 @@ mod tests {
     fn size_and_hash() {
         assert_eq!(format_bytes(1024), "1 KB");
         assert_eq!(
-            infohash("magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=x")
-                .as_deref(),
+            infohash("magnet:?xt=urn:btih:ABCDEF0123456789ABCDEF0123456789ABCDEF01&dn=x").as_deref(),
             Some("abcdef0123456789abcdef0123456789abcdef01")
         );
         assert_eq!(infohash("http://example/file.torrent"), None);

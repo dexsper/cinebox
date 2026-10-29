@@ -2,9 +2,7 @@
 
 use std::collections::HashMap;
 
-use cinebox_core::{
-    CatalogItem, LibraryEntry, LibraryList, LibraryMark, ListStatus, MediaKind, Section, TmdbId,
-};
+use cinebox_core::{CatalogItem, LibraryEntry, LibraryList, LibraryMark, ListStatus, MediaKind, Section, TmdbId};
 
 struct Slot {
     /// Higher is more recently changed.
@@ -13,14 +11,14 @@ struct Slot {
 }
 
 #[derive(Default)]
-pub struct Library {
+pub(crate) struct Library {
     slots: HashMap<(MediaKind, TmdbId), Slot>,
     next_seq: u64,
 }
 
 impl Library {
     /// `entries` must be newest first, as [`cinebox_core::Store::library_entries`] returns them.
-    pub fn from_entries(entries: Vec<LibraryEntry>) -> Self {
+    pub(crate) fn from_entries(entries: Vec<LibraryEntry>) -> Self {
         let next_seq = entries.len() as u64;
         let slots = entries
             .into_iter()
@@ -32,20 +30,15 @@ impl Library {
             })
             .collect();
 
-        Self {
-            slots,
-            next_seq: next_seq + 1,
-        }
+        Self { slots, next_seq: next_seq + 1 }
     }
 
-    pub fn mark(&self, kind: MediaKind, id: TmdbId) -> LibraryMark {
-        self.slots
-            .get(&(kind, id))
-            .map_or_else(LibraryMark::default, |slot| slot.entry.mark)
+    pub(crate) fn mark(&self, kind: MediaKind, id: TmdbId) -> LibraryMark {
+        self.slots.get(&(kind, id)).map_or_else(LibraryMark::default, |slot| slot.entry.mark)
     }
 
     /// Entries in `list`, optionally one section only, most recently changed first.
-    pub fn list(&self, list: LibraryList, section: Option<Section>) -> Vec<&LibraryEntry> {
+    pub(crate) fn list(&self, list: LibraryList, section: Option<Section>) -> Vec<&LibraryEntry> {
         let mut slots: Vec<&Slot> = self
             .slots
             .values()
@@ -57,7 +50,7 @@ impl Library {
         slots.into_iter().map(|slot| &slot.entry).collect()
     }
 
-    pub fn count(&self, list: LibraryList, section: Option<Section>) -> usize {
+    pub(crate) fn count(&self, list: LibraryList, section: Option<Section>) -> usize {
         self.slots
             .values()
             .filter(|slot| slot.entry.mark.in_list(list))
@@ -65,16 +58,16 @@ impl Library {
             .count()
     }
 
-    pub fn set_status(&mut self, item: &CatalogItem, section: Section, status: Option<ListStatus>) {
+    pub(crate) fn set_status(&mut self, item: &CatalogItem, section: Section, status: Option<ListStatus>) {
         self.update(item, section, |mark| mark.status = status);
     }
 
-    pub fn set_liked(&mut self, item: &CatalogItem, section: Section, liked: bool) {
+    pub(crate) fn set_liked(&mut self, item: &CatalogItem, section: Section, liked: bool) {
         self.update(item, section, |mark| mark.liked = liked);
     }
 
     /// Returns `true` when the status was empty and is now [`ListStatus::Watching`].
-    pub fn mark_watching_if_unset(&mut self, item: &CatalogItem, section: Section) -> bool {
+    pub(crate) fn mark_watching_if_unset(&mut self, item: &CatalogItem, section: Section) -> bool {
         if self.mark(item.kind, item.id).status.is_some() {
             return false;
         }
@@ -95,11 +88,7 @@ impl Library {
 
         let seq = self.next_seq;
         self.next_seq += 1;
-        let entry = LibraryEntry {
-            item: item.clone(),
-            section,
-            mark,
-        };
+        let entry = LibraryEntry { item: item.clone(), section, mark };
         self.slots.insert(key, Slot { seq, entry });
     }
 }
@@ -140,10 +129,7 @@ mod tests {
         let entry = |id| LibraryEntry {
             item: movie(id),
             section: Section::Movies,
-            mark: LibraryMark {
-                status: None,
-                liked: true,
-            },
+            mark: LibraryMark { status: None, liked: true },
         };
         let library = Library::from_entries(vec![entry(5), entry(3)]);
 

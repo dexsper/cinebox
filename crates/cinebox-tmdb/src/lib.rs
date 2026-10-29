@@ -7,6 +7,7 @@ mod details;
 mod details_dto;
 mod details_map;
 mod discover;
+mod episode_groups;
 mod genres;
 mod home;
 mod search;
@@ -22,7 +23,7 @@ use serde::de::DeserializeOwned;
 pub use discover::{Date, DiscoverQuery, DiscoverSort};
 pub use genres::{classify, company, genre, genres_for, keyword};
 pub use home::{CatalogPage, MAX_ROW_ITEMS};
-pub use search::SearchKind;
+pub use search::{SearchKind, SearchQuery, TitleMatch};
 pub use shelves::{SectionRow, ShelfId, ShelfRow, ShelfSource, section_rows};
 
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(5);
@@ -51,25 +52,25 @@ pub enum Error {
     Json(#[from] serde_json::Error),
 }
 
-pub(crate) fn hide_url(err: reqwest::Error) -> reqwest::Error {
-    err.without_url()
+pub(crate) fn hide_url(error: reqwest::Error) -> reqwest::Error {
+    error.without_url()
 }
 
-fn request_reason(err: &reqwest::Error) -> String {
-    let mut out = err.to_string();
-    let mut cause = std::error::Error::source(err);
+fn request_reason(error: &reqwest::Error) -> String {
+    let mut out = error.to_string();
+    let mut cause = std::error::Error::source(error);
 
-    while let Some(err) = cause {
+    while let Some(source) = cause {
         out.push_str(": ");
-        out.push_str(&err.to_string());
-        cause = err.source();
+        out.push_str(&source.to_string());
+        cause = source.source();
     }
 
     out
 }
 
-pub(crate) fn into_request(err: reqwest::Error) -> Error {
-    Error::Request(hide_url(err))
+pub(crate) fn into_request(error: reqwest::Error) -> Error {
+    Error::Request(hide_url(error))
 }
 
 pub(crate) fn check_tmdb_status(status: reqwest::StatusCode) -> Result<(), Error> {
@@ -88,9 +89,7 @@ pub(crate) async fn send<F>(net: &NetConfig, build: F) -> Result<reqwest::Respon
 where
     F: Fn(&reqwest::Client) -> reqwest::RequestBuilder,
 {
-    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build)
-        .await
-        .map_err(into_request)
+    cinebox_net::send_resilient(net, CONNECT_TIMEOUT, None, build).await.map_err(into_request)
 }
 
 pub(crate) async fn send_json<T: DeserializeOwned, F>(net: &NetConfig, build: F) -> Result<T, Error>
@@ -125,13 +124,8 @@ pub(crate) fn prepare_api_key(api_key: &str) -> Result<&str, Error> {
 pub async fn check_api_key(api_key: &str, net: &NetConfig) -> Result<String, Error> {
     let api_key = prepare_api_key(api_key)?;
 
-    let response = send(net, |client| {
-        client
-            .get(CONFIG_URL)
-            .timeout(Duration::from_secs(15))
-            .query(&[("api_key", api_key)])
-    })
-    .await?;
+    let query = [("api_key", api_key)];
+    let response = send(net, |client| client.get(CONFIG_URL).timeout(Duration::from_secs(15)).query(&query)).await?;
 
     check_tmdb_status(response.status())?;
     Ok(String::from("TMDB key ok"))
@@ -142,11 +136,7 @@ pub async fn check_api_key(api_key: &str, net: &NetConfig) -> Result<String, Err
 /// # Errors
 ///
 /// Empty key or HTTP client build failure. Per-row HTTP errors are stored on the row.
-pub async fn fetch_home(
-    api_key: &str,
-    language: Option<&str>,
-    net: &NetConfig,
-) -> Result<HomeCatalog, Error> {
+pub async fn fetch_home(api_key: &str, language: Option<&str>, net: &NetConfig) -> Result<HomeCatalog, Error> {
     home::fetch_home(api_key, language, net).await
 }
 
@@ -200,7 +190,7 @@ pub async fn fetch_section(
     Ok(shelves::fetch_section(net, api_key, language, section).await)
 }
 
-/// One TMDB name-search page (`page` starts at 1).
+/// One TMDB name-search page.
 ///
 /// Empty queries return an empty page without calling TMDB.
 ///
@@ -209,13 +199,26 @@ pub async fn fetch_section(
 /// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
 pub async fn fetch_search_page(
     api_key: &str,
-    query: &str,
-    kind: SearchKind,
-    page: u32,
+    search: SearchQuery<'_>,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
-    search::fetch_search_page(api_key, query, kind, page, language, net).await
+    search::fetch_search_page(api_key, search, language, net).await
+}
+
+/// First-page results of a movie or show name search, with their original titles, for telling which
+/// title a release name means. A person search and an empty query find nothing without calling TMDB.
+///
+/// # Errors
+///
+/// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
+pub async fn fetch_title_matches(
+    api_key: &str,
+    search: SearchQuery<'_>,
+    language: Option<&str>,
+    net: &NetConfig,
+) -> Result<Vec<TitleMatch>, Error> {
+    search::fetch_title_matches(api_key, search, language, net).await
 }
 
 /// Movie/TV card: details, credits, videos, recs, similar, collection.
@@ -249,6 +252,9 @@ pub async fn fetch_person(
 
 /// TV season episodes: names and `still_path` for the file-list preview.
 ///
+/// Seasons TMDB lacks are looked up through the show's Digital episode group,
+/// so a release numbered by streaming "parts" still matches.
+///
 /// # Errors
 ///
 /// Empty key or HTTP/JSON failures. Unknown seasons are omitted.
@@ -258,7 +264,7 @@ pub async fn fetch_season_episodes(
     seasons: &[u32],
     language: Option<&str>,
     net: &NetConfig,
-) -> Result<Vec<seasons::SeasonEpisode>, Error> {
+) -> Result<Vec<SeasonEpisode>, Error> {
     seasons::fetch_season_episodes(api_key, tv_id, seasons, language, net).await
 }
 
@@ -270,10 +276,7 @@ pub use seasons::SeasonEpisode;
 ///
 /// HTTP failures or a non-success status.
 pub async fn download_image(url: &str, net: &NetConfig) -> Result<Vec<u8>, Error> {
-    let response = send(net, |client| {
-        client.get(url).timeout(Duration::from_secs(20))
-    })
-    .await?;
+    let response = send(net, |client| client.get(url).timeout(Duration::from_secs(20))).await?;
 
     let status = response.status();
     if !status.is_success() {
@@ -291,24 +294,15 @@ mod tests {
     #[test]
     fn rejects_empty_and_jwt_access_token() {
         assert!(matches!(prepare_api_key("  "), Err(Error::EmptyKey)));
-        assert!(matches!(
-            prepare_api_key("eyJhbGciOiJIUzI1NiJ9.e30.sig"),
-            Err(Error::AccessToken)
-        ));
+        assert!(matches!(prepare_api_key("eyJhbGciOiJIUzI1NiJ9.e30.sig"), Err(Error::AccessToken)));
         assert_eq!(prepare_api_key(" abc123 ").ok(), Some("abc123"));
     }
 
     #[tokio::test]
     #[ignore = "hits live TMDB"]
     async fn configuration_reaches_tmdb() {
-        let net = NetConfig {
-            use_system_proxy: true,
-            ..NetConfig::direct()
-        };
+        let net = NetConfig { use_system_proxy: true, ..NetConfig::direct() };
         let result = check_api_key("invalid-key", &net).await;
-        assert!(
-            matches!(result, Err(Error::Unauthorized | Error::Http(_))),
-            "expected HTTP rejection, got {result:?}"
-        );
+        assert!(matches!(result, Err(Error::Unauthorized | Error::Http(_))), "expected HTTP rejection, got {result:?}");
     }
 }

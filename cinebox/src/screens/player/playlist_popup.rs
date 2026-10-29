@@ -12,17 +12,32 @@ const ROW_GAP: f32 = 6.0;
 const ROW_MARGIN: f32 = 8.0;
 const VISIBLE_ROWS: f32 = 3.0;
 
+/// The files of the torrent and the one playing.
+#[derive(Clone, Copy)]
+pub(super) struct Playlist<'a> {
+    pub files: &'a [TorrentFileRow],
+    pub current: usize,
+}
+
+/// How one file row is drawn this frame.
+#[derive(Clone, Copy)]
+struct RowLook {
+    still: Vec2,
+    is_current: bool,
+    is_scroll_target: bool,
+}
+
 /// Rows for every file; clicking one returns its index.
 ///
 /// `scroll_to_current` centers the current row once, then resets to `false`.
-pub fn paint(
+pub(super) fn paint(
     ui: &mut Ui,
     theme: &Theme,
     svc: &Services,
-    files: &[TorrentFileRow],
-    current: usize,
+    playlist: Playlist<'_>,
     scroll_to_current: &mut bool,
 ) -> Option<usize> {
+    let Playlist { files, current } = playlist;
     let mut jump = None;
     let row_h = theme.still_h * STILL_SCALE + 2.0 * ROW_MARGIN;
     let max_h = VISIBLE_ROWS * row_h + (VISIBLE_ROWS - 1.0) * ROW_GAP;
@@ -35,8 +50,8 @@ pub fn paint(
         ui.spacing_mut().item_spacing.y = ROW_GAP;
         for (index, file) in files.iter().enumerate() {
             let is_current = index == current;
-            let scroll = is_current && *scroll_to_current;
-            if file_row(ui, theme, svc, file, still, is_current, scroll) {
+            let look = RowLook { still, is_current, is_scroll_target: is_current && *scroll_to_current };
+            if file_row(ui, theme, svc, file, look) {
                 jump = Some(index);
             }
         }
@@ -47,62 +62,36 @@ pub fn paint(
     jump
 }
 
-fn file_row(
-    ui: &mut Ui,
-    theme: &Theme,
-    svc: &Services,
-    file: &TorrentFileRow,
-    still: Vec2,
-    current: bool,
-    scroll_to_me: bool,
-) -> bool {
+fn file_row(ui: &mut Ui, theme: &Theme, svc: &Services, file: &TorrentFileRow, look: RowLook) -> bool {
     let id = ui.id().with(("player-playlist-file", file.id));
-    let idle = if current {
-        theme.card_selected
-    } else {
-        theme.panel
-    };
-    let fill = button::fill_for_hover(ui, id, idle, theme.widget_hover);
+    let idle = if look.is_current { theme.card_selected } else { theme.panel };
+    let background = button::fill_for_hover(ui, id, idle, theme.widget_hover);
 
-    let shown = Frame::new()
-        .fill(fill)
-        .corner_radius(6)
-        .inner_margin(ROW_MARGIN)
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.spacing_mut().item_spacing.x = 10.0;
-                poster::rounded_image(ui, still, theme, || {
-                    svc.images.slot(file.still_url.as_deref())
-                });
+    let shown = Frame::new().fill(background).corner_radius(6).inner_margin(ROW_MARGIN).show(ui, |ui| {
+        ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = 10.0;
+            poster::rounded_image(ui, look.still, theme, || svc.images.slot(file.still_url.as_deref()));
 
-                ui.vertical(|ui| {
-                    ui.set_min_width(ui.available_width());
-                    ui.label(
-                        RichText::new(&file.title)
-                            .size(theme.text_body)
-                            .color(theme.title),
-                    );
+            ui.vertical(|ui| {
+                ui.set_min_width(ui.available_width());
+                ui.label(RichText::new(&file.title).size(theme.text_body).color(theme.title));
 
-                    if let Some(line) = episode_line(file) {
-                        ui.label(
-                            RichText::new(line)
-                                .size(theme.text_caption)
-                                .color(theme.muted),
-                        );
-                    }
+                if let Some(line) = episode_line(file) {
+                    ui.label(RichText::new(line).size(theme.text_caption).color(theme.muted));
+                }
 
-                    ui.add_space(4.0);
-                    progress(ui, file.progress(), theme);
-                });
+                ui.add_space(4.0);
+                progress(ui, file.progress(), theme);
             });
         });
+    });
 
-    if scroll_to_me {
+    if look.is_scroll_target {
         shown.response.scroll_to_me(Some(Align::Center));
     }
 
     let response = button::click_rect(ui, id, shown.response.rect);
-    if current {
+    if look.is_current {
         focus::prefer(&response);
     }
 
@@ -117,8 +106,7 @@ fn episode_line(file: &TorrentFileRow) -> Option<String> {
 
 fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
     let (rect, _) = ui.allocate_exact_size(vec2(ui.available_width(), 3.0), Sense::hover());
-    ui.painter()
-        .rect_filled(rect, CornerRadius::same(3), theme.progress_track);
+    ui.painter().rect_filled(rect, CornerRadius::same(3), theme.progress_track);
 
     if value <= 0.0 {
         return;
@@ -126,6 +114,5 @@ fn progress(ui: &mut Ui, value: f32, theme: &Theme) {
 
     let mut fill = rect;
     fill.max.x = rect.left() + rect.width() * value.clamp(0.0, 1.0);
-    ui.painter()
-        .rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
+    ui.painter().rect_filled(fill, CornerRadius::same(3), theme.progress_fill);
 }

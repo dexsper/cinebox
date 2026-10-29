@@ -1,6 +1,8 @@
 //! `static native` methods of `io.github.dexsper.cinebox.Natives`, called on
 //! the Java UI thread. The symbol names are that class's JNI names.
 
+#![expect(unsafe_code, reason = "JNI entry points need `#[unsafe(no_mangle)]`")]
+
 use cinebox::platform::{DeviceEvent, FieldText, MediaCommand, SpeechEvent, TextInputEvent};
 use cinebox_player::SEEK_SECS;
 use jni::errors::ThrowRuntimeExAndDefault;
@@ -67,10 +69,7 @@ pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onSpeechResult<'ca
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onSpeechEnded(
-    _env: EnvUnowned<'_>,
-    _class: JClass<'_>,
-) {
+pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onSpeechEnded(_env: EnvUnowned<'_>, _class: JClass<'_>) {
     events::push(speech(SpeechEvent::Ended));
 }
 
@@ -86,19 +85,13 @@ pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onTextEdited<'call
     let start = usize::try_from(start).unwrap_or(0);
     let end = usize::try_from(end).unwrap_or(0);
     with_text(&mut env, &text, |text| {
-        let field = FieldText {
-            text,
-            selection: start..end,
-        };
+        let field = FieldText { text, selection: start..end };
         typed(TextInputEvent::Edited(field))
     });
 }
 
 #[unsafe(no_mangle)]
-pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onEditorAction(
-    _env: EnvUnowned<'_>,
-    _class: JClass<'_>,
-) {
+pub extern "system" fn Java_io_github_dexsper_cinebox_Natives_onEditorAction(_env: EnvUnowned<'_>, _class: JClass<'_>) {
     events::push(typed(TextInputEvent::Action));
 }
 

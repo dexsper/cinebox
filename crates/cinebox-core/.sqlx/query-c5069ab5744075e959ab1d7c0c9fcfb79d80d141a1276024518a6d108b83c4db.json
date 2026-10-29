@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "DELETE FROM torrserver_match",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 0
+    },
+    "nullable": []
+  },
+  "hash": "c5069ab5744075e959ab1d7c0c9fcfb79d80d141a1276024518a6d108b83c4db"
+}

@@ -35,7 +35,10 @@ async fn browse(service: &str, window: Duration) -> Vec<String> {
     };
 
     let urls = collect_announced(&daemon, service, window).await;
-    let _ = daemon.shutdown();
+
+    // A daemon that fails to shut down has already stopped; discovery has its answer either way.
+    drop(daemon.shutdown());
+
     urls
 }
 
@@ -89,14 +92,8 @@ async fn confirm(urls: Vec<String>) -> Vec<FoundServer> {
 }
 
 async fn check(url: String) -> Option<FoundServer> {
-    let server = Server {
-        url,
-        ..Server::default()
-    };
+    let server = Server { url, ..Server::default() };
     let version = echo(&server).await.ok()?;
 
-    Some(FoundServer {
-        url: server.url,
-        version,
-    })
+    Some(FoundServer { url: server.url, version })
 }

@@ -20,13 +20,7 @@ pub enum Voiceover {
 }
 
 impl Voiceover {
-    pub const ALL: [Self; 5] = [
-        Self::Dubbing,
-        Self::Polyphonic,
-        Self::TwoVoice,
-        Self::Author,
-        Self::OneVoice,
-    ];
+    pub const ALL: [Self; 5] = [Self::Dubbing, Self::Polyphonic, Self::TwoVoice, Self::Author, Self::OneVoice];
 }
 
 /// What a title says about the sound and subtitles.
@@ -74,12 +68,7 @@ fn words(text: &str) -> Vec<&str> {
 /// Codes count with the number before them (`7 x` code, `2x MVO`); a kind
 /// written out as a word only says the kind is there, since kinozal repeats
 /// its codes that way after a `|`.
-fn tally(
-    words: &[&str],
-    counted: &mut [u8; 5],
-    named: &mut [bool; 5],
-    code: impl Fn(&str) -> Option<Voiceover>,
-) {
+fn tally(words: &[&str], counted: &mut [u8; 5], named: &mut [bool; 5], code: impl Fn(&str) -> Option<Voiceover>) {
     for (at, word) in words.iter().enumerate() {
         if let Some(kind) = code(word) {
             let slot = slot(kind);
@@ -204,7 +193,7 @@ mod tests {
     fn single_letters_before_a_bar_are_words() {
         let info = audio("A Quiet Place / Тихое место (2018) BDRip");
 
-        assert!(info.tracks.is_empty());
+        assert_eq!(info.tracks, []);
     }
 
     #[test]
@@ -219,6 +208,6 @@ mod tests {
     fn a_studio_named_like_a_kind_is_not_a_track() {
         let info = audio("Одни из нас / The Last of Us (2023) WEB-DL 1080p | Dubbing-Pro");
 
-        assert!(info.tracks.is_empty());
+        assert_eq!(info.tracks, []);
     }
 }

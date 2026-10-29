@@ -1,0 +1,38 @@
+{
+  "db_name": "SQLite",
+  "query": "SELECT file_index, timecode FROM torrserver_viewed_seen WHERE hash = ?",
+  "describe": {
+    "columns": [
+      {
+        "name": "file_index",
+        "ordinal": 0,
+        "type_info": "Integer",
+        "origin": {
+          "Table": {
+            "table": "torrserver_viewed_seen",
+            "name": "file_index"
+          }
+        }
+      },
+      {
+        "name": "timecode",
+        "ordinal": 1,
+        "type_info": "Float",
+        "origin": {
+          "Table": {
+            "table": "torrserver_viewed_seen",
+            "name": "timecode"
+          }
+        }
+      }
+    ],
+    "parameters": {
+      "Right": 1
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "7bc6467ea0bca63304aebc86b8e5b285a7f88b02b41586ac7c7fa3a56963291e"
+}

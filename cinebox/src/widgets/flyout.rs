@@ -10,84 +10,63 @@ use crate::widgets::focus;
 const ANCHOR_GAP: f32 = 10.0;
 
 /// Default padding between the frame edge and the content.
-pub const PAD: i8 = 10;
+pub(crate) const PAD: i8 = 10;
 
-pub struct FlyoutOut {
+pub(crate) struct FlyoutOut {
     /// Painted popup rect (for hover checks).
     pub rect: Rect,
+
     /// A press landed outside both the popup and its anchor.
     pub dismissed: bool,
+}
+
+/// Which popup it is, what it hangs off, and how wide its content is.
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct Placement {
+    pub id: &'static str,
+    pub anchor: Rect,
+    pub width: f32,
 }
 
 /// Paint an anchored popup just above `anchor`, right edges aligned.
 ///
 /// Dismissal on Escape is the caller's job (the player consumes Escape before
 /// navigation does); this only reports outside presses.
-pub fn show(
+pub(crate) fn show(
     ctx: &egui::Context,
-    id: &'static str,
-    anchor: Rect,
     theme: &Theme,
-    width: f32,
-    margin: Margin,
+    placement: Placement,
     content: impl FnOnce(&mut Ui, &Theme),
 ) -> FlyoutOut {
-    let spec = Spec {
-        id,
-        anchor,
-        theme,
-        width,
-        margin,
-        align: Align2::RIGHT_BOTTOM,
-        pos: pos2(anchor.right(), anchor.top() - ANCHOR_GAP),
-    };
+    let anchor = placement.anchor;
+    let pos = pos2(anchor.right(), anchor.top() - ANCHOR_GAP);
 
-    show_at(ctx, spec, content)
+    show_at(ctx, theme, placement, (Align2::RIGHT_BOTTOM, pos), content)
 }
 
 /// Paint an anchored popup just below `anchor`, left edges aligned.
-pub fn show_below(
+pub(crate) fn show_below(
     ctx: &egui::Context,
-    id: &'static str,
-    anchor: Rect,
     theme: &Theme,
-    width: f32,
-    margin: Margin,
+    placement: Placement,
     content: impl FnOnce(&mut Ui, &Theme),
 ) -> FlyoutOut {
-    let spec = Spec {
-        id,
-        anchor,
-        theme,
-        width,
-        margin,
-        align: Align2::LEFT_TOP,
-        pos: pos2(anchor.left(), anchor.bottom() + ANCHOR_GAP),
-    };
+    let anchor = placement.anchor;
+    let pos = pos2(anchor.left(), anchor.bottom() + ANCHOR_GAP);
 
-    show_at(ctx, spec, content)
+    show_at(ctx, theme, placement, (Align2::LEFT_TOP, pos), content)
 }
 
-struct Spec<'a> {
-    id: &'static str,
-    anchor: Rect,
-    theme: &'a Theme,
-    width: f32,
-    margin: Margin,
-    align: Align2,
-    pos: Pos2,
-}
-
-fn show_at(ctx: &egui::Context, spec: Spec<'_>, content: impl FnOnce(&mut Ui, &Theme)) -> FlyoutOut {
-    let Spec {
-        id,
-        anchor,
-        theme,
-        width,
-        margin,
-        align,
-        pos,
-    } = spec;
+/// `pin` is the corner of the popup that sits on the point.
+fn show_at(
+    ctx: &egui::Context,
+    theme: &Theme,
+    placement: Placement,
+    pin: (Align2, Pos2),
+    content: impl FnOnce(&mut Ui, &Theme),
+) -> FlyoutOut {
+    let Placement { id, anchor, width } = placement;
+    let (align, pos) = pin;
 
     let response = Area::new(Id::new(id))
         .order(Order::Foreground)
@@ -100,7 +79,7 @@ fn show_at(ctx: &egui::Context, spec: Spec<'_>, content: impl FnOnce(&mut Ui, &T
                 .fill(theme.panel_elevated)
                 .stroke(Stroke::new(1.0, theme.window_edge))
                 .corner_radius(theme.rounding(theme.radius_dialog))
-                .inner_margin(margin)
+                .inner_margin(Margin::same(PAD))
                 .show(ui, |ui| {
                     ui.set_width(width);
                     content(ui, theme);

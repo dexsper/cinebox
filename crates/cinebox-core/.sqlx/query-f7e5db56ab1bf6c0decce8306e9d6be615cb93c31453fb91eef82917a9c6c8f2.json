@@ -1,6 +1,6 @@
 {
   "db_name": "SQLite",
-  "query": "SELECT kind, id FROM watch_history",
+  "query": "SELECT kind, id FROM watch_history WHERE time > 0",
   "describe": {
     "columns": [
       {
@@ -34,5 +34,5 @@
       false
     ]
   },
-  "hash": "af611746cf1b0a1108679e45a0cc888861b8e96c3a8f00d9a95f42a45ad1fe6e"
+  "hash": "f7e5db56ab1bf6c0decce8306e9d6be615cb93c31453fb91eef82917a9c6c8f2"
 }

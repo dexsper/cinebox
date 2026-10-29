@@ -6,8 +6,8 @@ use rust_i18n::t;
 
 use crate::i18n::errors::UserError;
 use crate::theme::Theme;
-use crate::widgets::page_state::{self, ErrorChoice};
 use crate::widgets;
+use crate::widgets::page_state::{self, ErrorChoice};
 
 const TOOLBAR_H: f32 = 40.0;
 const PANE_W: f32 = 640.0;
@@ -22,39 +22,31 @@ struct PaneState {
 }
 
 fn pane_harness(show_error: bool) -> Harness<'static, PaneState> {
-    let mut harness = Harness::builder()
-        .with_size(vec2(PANE_W, PANE_H))
-        .build_ui_state(
-            |ui, state| {
-                if !state.fonts {
-                    crate::theme::fonts::install(ui.ctx());
-                    state.theme.apply(ui.ctx());
-                    state.fonts = true;
-                    return;
-                }
+    let mut harness = Harness::builder().with_size(vec2(PANE_W, PANE_H)).build_ui_state(
+        |ui, state| {
+            if !state.fonts {
+                crate::theme::fonts::install(ui.ctx());
+                state.theme.apply(ui.ctx());
+                state.fonts = true;
+                return;
+            }
 
-                let theme = &state.theme;
-                let bar_size = vec2(ui.available_width(), TOOLBAR_H);
-                let (bar, _) = ui.allocate_exact_size(bar_size, Sense::hover());
-                state.toolbar_bottom = bar.bottom();
+            let theme = &state.theme;
+            let bar_size = vec2(ui.available_width(), TOOLBAR_H);
+            let (bar, _) = ui.allocate_exact_size(bar_size, Sense::hover());
+            state.toolbar_bottom = bar.bottom();
 
-                if state.show_error {
-                    let error = UserError::new(t!("torrents.need_parser"));
-                    let choice = page_state::error_page(ui, theme, &error);
-                    state.retry |= choice == Some(ErrorChoice::Retry);
-                    return;
-                }
+            if state.show_error {
+                let error = UserError::new(t!("torrents.need_parser"));
+                let choice = page_state::error_page(ui, theme, &error);
+                state.retry |= choice == Some(ErrorChoice::Retry);
+                return;
+            }
 
-                widgets::page_spinner(ui, theme);
-            },
-            PaneState {
-                theme: Theme::dark(),
-                fonts: false,
-                toolbar_bottom: 0.0,
-                retry: false,
-                show_error,
-            },
-        );
+            widgets::page_spinner(ui, theme);
+        },
+        PaneState { theme: Theme::dark(), fonts: false, toolbar_bottom: 0.0, retry: false, show_error },
+    );
     harness.run_steps(4);
     harness
 }
@@ -70,33 +62,21 @@ fn spinner_centers_below_toolbar() {
     let spinner = harness.get_by_role(Role::ProgressIndicator).rect();
     let mid = remaining_mid_y(&harness);
 
-    assert!(
-        (spinner.center().y - mid).abs() < 24.0,
-        "spinner y {} vs pane mid {}",
-        spinner.center().y,
-        mid
-    );
+    assert!((spinner.center().y - mid).abs() < 24.0, "spinner y {} vs pane mid {}", spinner.center().y, mid);
 }
 
 #[test]
 fn parser_error_centers_below_toolbar() {
     let mut harness = pane_harness(true);
-    let retry = harness
-        .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
-        .rect();
+    let retry = harness.get_by_role_and_label(Role::Button, t!("common.retry").as_ref()).rect();
     let copy = harness.get_by_label(t!("torrents.need_parser").as_ref()).rect();
     let group_top = copy.top() - page_state::BADGE_BLOCK;
-    let group_mid = (group_top + retry.bottom()) * 0.5;
+    let group_mid = f32::midpoint(group_top, retry.bottom());
     let mid = remaining_mid_y(&harness);
 
-    assert!(
-        (group_mid - mid).abs() < 36.0,
-        "error group y {group_mid} vs pane mid {mid}"
-    );
+    assert!((group_mid - mid).abs() < 36.0, "error group y {group_mid} vs pane mid {mid}");
 
-    harness
-        .get_by_role_and_label(Role::Button, t!("common.retry").as_ref())
-        .click();
+    harness.get_by_role_and_label(Role::Button, t!("common.retry").as_ref()).click();
     harness.run();
     assert!(harness.state().retry);
 }

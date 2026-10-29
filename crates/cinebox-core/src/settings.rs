@@ -45,8 +45,8 @@ impl From<&str> for SecretString {
 }
 
 impl fmt::Debug for SecretString {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str("***")
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str("***")
     }
 }
 
@@ -110,8 +110,8 @@ impl UiLanguage {
 }
 
 impl fmt::Display for UiLanguage {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::English => "English",
             Self::Russian => "Russian",
             Self::Ukrainian => "Ukrainian",
@@ -133,8 +133,8 @@ impl ParserKind {
 }
 
 impl fmt::Display for ParserKind {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::Jackett => "Jackett",
             Self::Prowlarr => "Prowlarr",
         })
@@ -159,18 +159,12 @@ pub enum VideoScale {
 }
 
 impl VideoScale {
-    pub const ALL: &[Self] = &[
-        Self::Default,
-        Self::Expand,
-        Self::Fill,
-        Self::Zoom115,
-        Self::Zoom130,
-    ];
+    pub const ALL: &[Self] = &[Self::Default, Self::Expand, Self::Fill, Self::Zoom115, Self::Zoom130];
 }
 
 impl fmt::Display for VideoScale {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(match self {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(match self {
             Self::Default => "Default",
             Self::Expand => "Expand",
             Self::Fill => "Fill",
@@ -208,8 +202,8 @@ impl QualityBand {
 }
 
 impl fmt::Display for QualityBand {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.label())
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.label())
     }
 }
 
@@ -240,8 +234,8 @@ impl PosterSize {
 }
 
 impl fmt::Display for PosterSize {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        f.write_str(self.tmdb_path())
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(self.tmdb_path())
     }
 }
 
@@ -334,6 +328,7 @@ impl Default for GeneralSettings {
 /// Per-type skip toggles for the player.  All default to `true`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent user toggles, stored as JSON booleans")]
 pub struct SkipSegmentsSettings {
     pub intro: bool,
     pub recap: bool,
@@ -343,12 +338,7 @@ pub struct SkipSegmentsSettings {
 
 impl Default for SkipSegmentsSettings {
     fn default() -> Self {
-        Self {
-            intro: true,
-            recap: true,
-            credits: true,
-            preview: true,
-        }
+        Self { intro: true, recap: true, credits: true, preview: true }
     }
 }
 
@@ -388,12 +378,22 @@ pub struct ParserSettings {
 /// External TorrServer category.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
+#[expect(clippy::struct_excessive_bools, reason = "independent user toggles, stored as JSON booleans")]
 pub struct TorrServerSettings {
     pub url: String,
+
     pub save_to_db: bool,
+
     pub wait_preload: bool,
+
+    /// Playback positions go to the server's `/viewed`. See [`Self::is_tracking_position`].
     pub track_timecode: bool,
+
+    /// Torrents, cards and positions other clients leave on the server show up here. For a personal server.
+    pub sync_history: bool,
+
     pub username: String,
+
     pub password: SecretString,
 }
 
@@ -404,9 +404,18 @@ impl Default for TorrServerSettings {
             save_to_db: false,
             wait_preload: false,
             track_timecode: false,
+            sync_history: false,
             username: String::new(),
             password: SecretString::default(),
         }
+    }
+}
+
+impl TorrServerSettings {
+    /// Positions are read from and written to the server: asked for, or needed by `sync_history`.
+    #[must_use]
+    pub fn is_tracking_position(&self) -> bool {
+        self.track_timecode || self.sync_history
     }
 }
 
@@ -443,9 +452,7 @@ impl SettingsStore {
     /// Returns [`SettingsError::NoConfigDir`] if this platform has no config directory.
     pub fn system() -> Result<Self, SettingsError> {
         let dirs = paths::AppDirs::system().map_err(SettingsError::NoConfigDir)?;
-        Ok(Self {
-            path: dirs.config.join("settings.json"),
-        })
+        Ok(Self { path: dirs.config.join("settings.json") })
     }
 
     /// Use an explicit file path (tests, overrides).
@@ -470,15 +477,10 @@ impl SettingsStore {
             return Ok(Settings::default());
         }
 
-        let json = fs::read_to_string(&self.path).map_err(|source| SettingsError::Read {
-            path: self.path.clone(),
-            source,
-        })?;
+        let read_error = |source| SettingsError::Read { path: self.path.clone(), source };
+        let json = fs::read_to_string(&self.path).map_err(read_error)?;
 
-        serde_json::from_str(&json).map_err(|source| SettingsError::Parse {
-            path: self.path.clone(),
-            source,
-        })
+        serde_json::from_str(&json).map_err(|source| SettingsError::Parse { path: self.path.clone(), source })
     }
 
     /// Create parent dirs and write pretty JSON.
@@ -488,19 +490,13 @@ impl SettingsStore {
     /// Returns IO or serialize errors.
     pub fn save(&self, settings: &Settings) -> Result<(), SettingsError> {
         if let Some(parent) = self.path.parent() {
-            fs::create_dir_all(parent).map_err(|source| SettingsError::CreateDir {
-                path: parent.to_path_buf(),
-                source,
-            })?;
+            fs::create_dir_all(parent)
+                .map_err(|source| SettingsError::CreateDir { path: parent.to_path_buf(), source })?;
         }
 
-        let json = serde_json::to_string_pretty(settings)
-            .map_err(|source| SettingsError::Serialize { source })?;
+        let json = serde_json::to_string_pretty(settings).map_err(|source| SettingsError::Serialize { source })?;
 
-        fs::write(&self.path, json).map_err(|source| SettingsError::Write {
-            path: self.path.clone(),
-            source,
-        })
+        fs::write(&self.path, json).map_err(|source| SettingsError::Write { path: self.path.clone(), source })
     }
 }
 
@@ -510,12 +506,20 @@ mod tests {
     use std::time::{SystemTime, UNIX_EPOCH};
 
     fn temp_settings_path() -> PathBuf {
-        let nanos = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0);
+        let nanos = SystemTime::now().duration_since(UNIX_EPOCH).map_or(0, |elapsed| elapsed.as_nanos());
 
         std::env::temp_dir().join(format!("cinebox-settings-{nanos}.json"))
+    }
+
+    #[test]
+    fn continuing_elsewhere_tracks_the_position_too() {
+        let cases = [(false, false, false), (true, false, true), (false, true, true), (true, true, true)];
+
+        for (track_timecode, sync_history, expected) in cases {
+            let torrserver = TorrServerSettings { track_timecode, sync_history, ..TorrServerSettings::default() };
+
+            assert_eq!(torrserver.is_tracking_position(), expected, "{track_timecode} {sync_history}");
+        }
     }
 
     #[test]
@@ -585,7 +589,7 @@ mod tests {
         store.save(&settings)?;
 
         let loaded = store.load()?;
-        let _ = fs::remove_file(&path);
+        fs::remove_file(&path).expect("the settings file was saved above");
 
         assert_eq!(loaded.general.language, UiLanguage::Russian);
         assert_eq!(loaded.parser.kind, ParserKind::Prowlarr);
@@ -623,8 +627,7 @@ mod tests {
 
     #[test]
     fn legacy_scale_field_is_ignored() -> Result<(), serde_json::Error> {
-        let parsed: Settings =
-            serde_json::from_str(r#"{"player":{"scale":"keep_aspect","loudnorm":true}}"#)?;
+        let parsed: Settings = serde_json::from_str(r#"{"player":{"scale":"keep_aspect","loudnorm":true}}"#)?;
 
         assert!(parsed.player.loudnorm);
         assert!((parsed.player.volume - 90.0).abs() < f64::EPSILON);

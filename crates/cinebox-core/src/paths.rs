@@ -20,10 +20,7 @@ impl AppDirs {
     pub fn system() -> io::Result<Self> {
         let dir = exe_dir()?;
 
-        Ok(Self {
-            config: dir.clone(),
-            data: dir,
-        })
+        Ok(Self { config: dir.clone(), data: dir })
     }
 
     /// XDG base directories. The executable's folder may be read-only
@@ -34,11 +31,7 @@ impl AppDirs {
     /// Neither the XDG variables nor `HOME` give an absolute path.
     #[cfg(target_os = "linux")]
     pub fn system() -> io::Result<Self> {
-        xdg_dirs(
-            std::env::var_os("XDG_CONFIG_HOME"),
-            std::env::var_os("XDG_DATA_HOME"),
-            std::env::var_os("HOME"),
-        )
+        xdg_dirs(std::env::var_os("XDG_CONFIG_HOME"), std::env::var_os("XDG_DATA_HOME"), std::env::var_os("HOME"))
     }
 
     /// The app's internal storage, handed over by the Android entry point
@@ -50,16 +43,10 @@ impl AppDirs {
     #[cfg(target_os = "android")]
     pub fn system() -> io::Result<Self> {
         let Some(root) = ANDROID_ROOT.get() else {
-            return Err(io::Error::new(
-                io::ErrorKind::NotFound,
-                "the Android internal storage path was not set",
-            ));
+            return Err(io::Error::new(io::ErrorKind::NotFound, "the Android internal storage path was not set"));
         };
 
-        Ok(Self {
-            config: root.join("config"),
-            data: root.join("data"),
-        })
+        Ok(Self { config: root.join("config"), data: root.join("data") })
     }
 
     /// # Errors
@@ -67,10 +54,7 @@ impl AppDirs {
     /// Always: no storage location is defined for this platform.
     #[cfg(not(any(target_os = "windows", target_os = "linux", target_os = "android")))]
     pub fn system() -> io::Result<Self> {
-        Err(io::Error::new(
-            io::ErrorKind::Unsupported,
-            "no settings or data location is defined for this platform",
-        ))
+        Err(io::Error::new(io::ErrorKind::Unsupported, "no settings or data location is defined for this platform"))
     }
 }
 
@@ -93,10 +77,7 @@ pub fn exe_dir() -> io::Result<PathBuf> {
     let exe = std::env::current_exe()?;
     match exe.parent() {
         Some(dir) if !dir.as_os_str().is_empty() => Ok(dir.to_path_buf()),
-        _ => Err(io::Error::new(
-            io::ErrorKind::NotFound,
-            "executable has no parent directory",
-        )),
+        _ => Err(io::Error::new(io::ErrorKind::NotFound, "executable has no parent directory")),
     }
 }
 
@@ -158,13 +139,7 @@ mod tests {
         fn honours_absolute_xdg_variables() -> io::Result<()> {
             let dirs = xdg_dirs(Some("/cfg".into()), Some("/data".into()), None)?;
 
-            assert_eq!(
-                dirs,
-                AppDirs {
-                    config: PathBuf::from("/cfg/cinebox"),
-                    data: PathBuf::from("/data/cinebox"),
-                }
-            );
+            assert_eq!(dirs, AppDirs { config: PathBuf::from("/cfg/cinebox"), data: PathBuf::from("/data/cinebox") });
             Ok(())
         }
 

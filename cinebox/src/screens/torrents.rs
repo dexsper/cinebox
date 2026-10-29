@@ -4,15 +4,12 @@ mod files;
 mod list;
 mod state;
 
-pub use state::{
-    FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState,
-    season_episode_line,
+pub(crate) use state::{
+    FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState, season_episode_line,
 };
 
-use cinebox_core::{
-    MediaDetails, MediaKind, QualityBand, Store, StoreError, TmdbId, tmdb_image_url,
-};
-use cinebox_torrserver::AddSpec;
+use cinebox_core::{MediaDetails, MediaKind, QualityBand, Store, StoreError, TmdbId, tmdb_image_url};
+use cinebox_torrserver::{AddSpec, TorrCard, encode_data};
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
 use egui_async::Bind;
 use futures_util::future::OptionFuture;
@@ -20,7 +17,8 @@ use rust_i18n::t;
 use tokio::task::JoinHandle;
 use tracing::warn;
 
-use crate::app::nav::{NavAction, SettingsPage};
+use self::list::ListOutcome;
+use crate::app::nav::{MediaRef, NavAction, SettingsPage};
 use crate::i18n::errors::UserError;
 use crate::screens::play::PlaySource;
 use crate::screens::player::Played;
@@ -31,7 +29,7 @@ use crate::widgets::drawer::Overlay;
 use crate::widgets::page_state::ErrorChoice;
 use crate::widgets::{self, intro, poster, scroll};
 
-pub struct TorrentsScreen {
+pub(crate) struct TorrentsScreen {
     state: Option<TorrentState>,
     details: Option<MediaDetails>,
     hits: Bind<Vec<cinebox_indexer::TorrentHit>, JobError>,
@@ -60,7 +58,7 @@ impl Default for TorrentsScreen {
 }
 
 impl TorrentsScreen {
-    pub fn ensure_open(&mut self, details: &MediaDetails, default_quality: &[QualityBand]) {
+    pub(crate) fn ensure_open(&mut self, details: &MediaDetails, default_quality: &[QualityBand]) {
         if let Some(state) = &mut self.state {
             let same = state.matches(details.kind, details.id);
             if same {
@@ -79,11 +77,11 @@ impl TorrentsScreen {
         self.filters.snap_shut();
     }
 
-    pub fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
+    pub(crate) fn take_play(&mut self) -> Option<crate::screens::play::PlayRequest> {
         self.pending_play.take()
     }
 
-    pub fn leave_files_if_open(&mut self) -> bool {
+    pub(crate) fn leave_files_if_open(&mut self) -> bool {
         let Some(state) = &mut self.state else {
             return false;
         };
@@ -95,7 +93,7 @@ impl TorrentsScreen {
         true
     }
 
-    pub fn on_back(&mut self, now: f64) -> bool {
+    pub(crate) fn on_back(&mut self, now: f64) -> bool {
         if self.leave_files_if_open() {
             return true;
         }
@@ -105,7 +103,7 @@ impl TorrentsScreen {
 
     /// Back from the player: the files take its progress, and the release just
     /// played may have a new watch mark.
-    pub fn after_playback(&mut self, svc: &Services, played: Option<Played>) {
+    pub(crate) fn after_playback(&mut self, svc: &Services, played: Option<Played>) {
         // Not read back from the database: the player saves in the background.
         let source = played.as_ref().map(|played| &played.source);
         if let Some(PlaySource::Torrent { hash, files, file_index, .. }) = source {
@@ -129,31 +127,21 @@ impl TorrentsScreen {
         }
     }
 
-    pub fn hide(&mut self) {
+    pub(crate) fn hide(&mut self) {
         self.on_screen = false;
         self.filters.snap_shut();
     }
 
-    pub fn intro_animating(&self, now: f64) -> bool {
+    pub(crate) fn intro_animating(&self, now: f64) -> bool {
         intro::running(self.intro_at, now)
     }
 
-    pub fn ui(
-        &mut self,
-        ui: &mut Ui,
-        svc: &mut Services,
-        theme: &Theme,
-        kind: MediaKind,
-        id: TmdbId,
-    ) -> Option<NavAction> {
+    pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, media: MediaRef) -> Option<NavAction> {
         let now = ui.input(|i| i.time);
         let arriving = !self.on_screen;
         self.on_screen = true;
 
-        let matches = self
-            .state
-            .as_ref()
-            .is_some_and(|state| state.matches(kind, id));
+        let matches = self.state.as_ref().is_some_and(|state| state.matches(media.kind, media.id));
         if !matches {
             widgets::page_spinner(ui, theme);
             return None;
@@ -169,11 +157,7 @@ impl TorrentsScreen {
         self.poll_opened(svc, ui.ctx());
 
         let t = intro::t(self.intro_at, ui.input(|i| i.time));
-        let mut hits_choice = None;
-        let mut pick = None;
-        let mut pick_file = None;
-        let mut files_choice = None;
-        let mut close_files = false;
+        let mut listed = ListOutcome::default();
 
         let full = ui.available_rect_before_wrap();
         ui.advance_cursor_after_rect(full);
@@ -181,39 +165,18 @@ impl TorrentsScreen {
         let left_w = theme.explorer_left;
         let gap = 12.0;
         let left_rect = Rect::from_min_size(full.min, Vec2::new(left_w, full.height()));
-        let right_rect = Rect::from_min_max(
-            pos2(left_rect.right() + gap, full.top()),
-            full.right_bottom(),
-        );
+        let right_rect = Rect::from_min_max(pos2(left_rect.right() + gap, full.top()), full.right_bottom());
 
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(left_rect)
-                .layout(Layout::top_down(Align::Min)),
-            |ui| {
-                ui.set_clip_rect(ui.clip_rect().intersect(left_rect));
-                self.left_pane(ui, svc, theme, t);
-            },
-        );
-        ui.scope_builder(
-            UiBuilder::new()
-                .max_rect(right_rect)
-                .layout(Layout::top_down(Align::Min)),
-            |ui| {
-                ui.set_clip_rect(ui.clip_rect().intersect(right_rect));
-                if let Some(state) = &mut self.state {
-                    list::list_pane(
-                        ui,
-                        state,
-                        theme,
-                        &mut hits_choice,
-                        &mut pick,
-                        t,
-                        &mut self.filters,
-                    );
-                }
-            },
-        );
+        ui.scope_builder(UiBuilder::new().max_rect(left_rect).layout(Layout::top_down(Align::Min)), |ui| {
+            ui.set_clip_rect(ui.clip_rect().intersect(left_rect));
+            self.left_pane(ui, svc, theme, t);
+        });
+        ui.scope_builder(UiBuilder::new().max_rect(right_rect).layout(Layout::top_down(Align::Min)), |ui| {
+            ui.set_clip_rect(ui.clip_rect().intersect(right_rect));
+            if let Some(state) = &mut self.state {
+                listed = list::list_pane(ui, state, theme, t, &mut self.filters);
+            }
+        });
 
         let mut overlay = std::mem::take(&mut self.filters);
         if let Some(state) = &mut self.state {
@@ -223,42 +186,32 @@ impl TorrentsScreen {
         }
         self.filters = overlay;
 
-        if let Some(state) = &mut self.state {
-            if state.files.is_open() {
-                files::files_modal(
-                    ui.ctx(),
-                    state,
-                    svc,
-                    theme,
-                    &mut pick_file,
-                    &mut files_choice,
-                    &mut close_files,
-                );
-            }
-        }
+        let open_files = self.state.as_mut().filter(|state| state.files.is_open());
+        let modal = open_files.map(|state| files::files_modal(ui.ctx(), state, svc, theme));
+        let files = modal.unwrap_or_default();
 
-        if hits_choice == Some(ErrorChoice::Retry) {
+        if listed.error_choice == Some(ErrorChoice::Retry) {
             self.refresh_hits();
         }
 
-        if let Some(index) = pick {
+        if let Some(index) = listed.pick {
             self.pick_torrent(svc, index);
         }
 
-        if files_choice == Some(ErrorChoice::Retry) {
+        if files.error_choice == Some(ErrorChoice::Retry) {
             self.retry_files(svc);
         }
 
-        if let Some(file_id) = pick_file {
+        if let Some(file_id) = files.pick_file {
             self.pick_file(file_id);
         }
 
-        let files_fix = files_choice.and_then(ErrorChoice::nav);
-        if close_files || files_fix.is_some() {
+        let files_fix = files.error_choice.and_then(ErrorChoice::nav);
+        if files.is_closed || files_fix.is_some() {
             self.leave_files_if_open();
         }
 
-        hits_choice.and_then(ErrorChoice::nav).or(files_fix)
+        listed.error_choice.and_then(ErrorChoice::nav).or(files_fix)
     }
 
     fn left_pane(&self, ui: &mut Ui, svc: &Services, theme: &Theme, t: f32) {
@@ -276,33 +229,21 @@ impl TorrentsScreen {
             // The order of the hero on the media page, in a narrow column.
             ui.horizontal_top(|ui| {
                 ui.spacing_mut().item_spacing.x = 16.0;
-                let poster =
-                    poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
-                        svc.images.poster_key(
-                            state.kind,
-                            state.id,
-                            state.movie.poster_path.as_deref(),
-                            svc.settings.tmdb.poster_size,
-                        )
-                    });
+                let poster = poster::rounded_image(ui, Vec2::new(poster_w, poster_h), theme, || {
+                    svc.images.poster_path(state.movie.poster_path.as_deref(), svc.settings.tmdb.poster_size)
+                });
                 let marks = svc.tile_marks(state.kind, state.id);
                 poster::paint_marks(ui, poster, marks, theme, poster::UNSCALED);
 
                 ui.vertical(|ui| {
                     ui.set_max_width(ui.available_width());
                     if !head.is_empty() {
-                        ui.label(
-                            RichText::new(head)
-                                .size(theme.text_section)
-                                .color(theme.title),
-                        );
+                        ui.label(RichText::new(head).size(theme.text_section).color(theme.title));
                         ui.add_space(4.0);
                     }
 
                     ui.label(
-                        RichText::new(&state.movie.title)
-                            .font(theme.title_font(theme.text_display))
-                            .color(theme.title),
+                        RichText::new(&state.movie.title).font(theme.title_font(theme.text_display)).color(theme.title),
                     );
                     ui.add_space(8.0);
 
@@ -319,11 +260,7 @@ impl TorrentsScreen {
                     }
 
                     ui.add_space(6.0);
-                    ui.label(
-                        RichText::new(&state.movie.genres_line)
-                            .size(theme.text_small)
-                            .color(theme.muted),
-                    );
+                    ui.label(RichText::new(&state.movie.genres_line).size(theme.text_small).color(theme.muted));
                 });
             });
 
@@ -332,11 +269,7 @@ impl TorrentsScreen {
             };
 
             ui.add_space(18.0);
-            ui.label(
-                RichText::new(overview)
-                    .size(overview_size)
-                    .color(theme.body),
-            );
+            ui.label(RichText::new(overview).size(overview_size).color(theme.body));
         });
     }
 }
@@ -356,9 +289,7 @@ impl TorrentsScreen {
         let kind = state.kind;
         let id = state.id;
         self.local_hashes.refresh(async move {
-            let hashes = watched_releases(&db, kind, id, saved)
-                .await
-                .map_err(|error| error.to_string())?;
+            let hashes = watched_releases(&db, kind, id, saved).await.map_err(|error| error.to_string())?;
 
             Ok((kind, id, hashes))
         });
@@ -400,10 +331,7 @@ impl TorrentsScreen {
         }
 
         let bind_settled = self.hits.read().is_some();
-        let waiting = self
-            .state
-            .as_ref()
-            .is_some_and(|state| matches!(state.hits, TorrentHits::Loading));
+        let waiting = self.state.as_ref().is_some_and(|state| matches!(state.hits, TorrentHits::Loading));
 
         if bind_settled && !waiting {
             return;
@@ -416,10 +344,7 @@ impl TorrentsScreen {
         let parser = jobs::ParserCtx::from(&svc.settings);
         let torr = jobs::TorrCtx::from(&svc.settings);
         let db = svc.db.clone();
-        let Some(result) = self
-            .hits
-            .read_or_request(move || jobs::load_torrents(parser, torr, details, db))
-        else {
+        let Some(result) = self.hits.read_or_request(move || jobs::load_torrents(parser, torr, details, db)) else {
             ctx.request_repaint();
             return;
         };
@@ -442,10 +367,7 @@ impl TorrentsScreen {
     }
 
     fn poll_opened(&mut self, svc: &mut Services, ctx: &egui::Context) {
-        let loading = self
-            .state
-            .as_ref()
-            .is_some_and(|state| matches!(state.files, FilesPane::Loading));
+        let loading = self.state.as_ref().is_some_and(|state| matches!(state.files, FilesPane::Loading));
         if !loading {
             return;
         }
@@ -492,32 +414,27 @@ impl TorrentsScreen {
             MediaKind::Tv => "tv",
             MediaKind::Movie | MediaKind::Person => "movie",
         };
-        let poster = tmdb_image_url(
-            state.movie.poster_path.as_deref(),
-            svc.settings.tmdb.poster_size.tmdb_path(),
-        )
-        .unwrap_or_default();
+        let poster = tmdb_image_url(state.movie.poster_path.as_deref(), svc.settings.tmdb.poster_size.tmdb_path())
+            .unwrap_or_default();
+        let card = self.details.as_ref().map(|details| TorrCard::from_details(details, &poster));
         let spec = AddSpec {
             link: hit.magnet.clone(),
             title: state.movie.title.clone(),
             poster,
             category: category.to_owned(),
+            data: card.as_ref().map(encode_data).unwrap_or_default(),
             save_to_db: svc.settings.torrserver.save_to_db,
         };
         self.request_open(svc, spec);
     }
 
     fn retry_files(&mut self, svc: &Services) {
-        let Some(state) = &self.state else {
-            return;
-        };
-        let Some(spec) = state.pending_add.clone() else {
-            return;
-        };
+        let Some(state) = &mut self.state else { return };
+
+        let Some(spec) = state.pending_add.clone() else { return };
+
         if svc.settings.torrserver.url.trim().is_empty() {
-            if let Some(state) = &mut self.state {
-                state.files = FilesPane::Failed(needs_torrserver());
-            }
+            state.files = FilesPane::Failed(needs_torrserver());
             return;
         }
 
@@ -535,20 +452,10 @@ impl TorrentsScreen {
         let torr = jobs::TorrCtx::from(&svc.settings);
         let tmdb = jobs::TmdbCtx::from(&svc.settings);
         let movie = state.movie.clone();
-        let target = jobs::OpenTarget {
-            kind: state.kind,
-            id: state.id,
-            runtime_minutes: state.runtime_minutes,
-        };
+        let target = jobs::OpenTarget { kind: state.kind, id: state.id, runtime_minutes: state.runtime_minutes };
+        let request = jobs::OpenMagnet { spec, movie, target };
         self.opened.clear();
-        self.opened.request(jobs::open_magnet(
-            torr,
-            tmdb,
-            spec,
-            movie,
-            target,
-            svc.db.clone(),
-        ));
+        self.opened.request(jobs::open_magnet(torr, tmdb, request, svc.db.clone()));
     }
 
     /// Hand off to the player immediately; buffering (if any) is the player's job.
@@ -580,7 +487,7 @@ impl TorrentsScreen {
             },
             title: file.title.clone(),
             backdrop_path: state.movie.backdrop_path.clone(),
-            source: crate::screens::play::PlaySource::Torrent {
+            source: PlaySource::Torrent {
                 hash: ready.hash.clone(),
                 files: ready.files.clone(),
                 file_index,
@@ -619,11 +526,7 @@ mod tests {
 
     #[test]
     fn intro_finishes_and_restarts_after_hide() {
-        let mut screen = TorrentsScreen {
-            intro_at: Some(0.0),
-            on_screen: true,
-            ..TorrentsScreen::default()
-        };
+        let mut screen = TorrentsScreen { intro_at: Some(0.0), on_screen: true, ..TorrentsScreen::default() };
         assert!(!screen.intro_animating(10.0));
 
         screen.hide();
@@ -661,7 +564,7 @@ mod tests {
             pending_add: None,
             view_key: None,
             visible: Vec::new(),
-            rows: crate::widgets::lazy_rows::LazyRows::default(),
+            rows: widgets::lazy_rows::LazyRows::default(),
         }
     }
 
@@ -669,17 +572,11 @@ mod tests {
     fn refresh_hits_retries_failed() {
         let state = Some(test_state(TorrentHits::Failed(UserError::new("down"))));
 
-        let mut screen = TorrentsScreen {
-            state,
-            ..TorrentsScreen::default()
-        };
+        let mut screen = TorrentsScreen { state, ..TorrentsScreen::default() };
 
         screen.refresh_hits();
 
-        assert!(matches!(
-            screen.state.as_ref().map(|state| &state.hits),
-            Some(TorrentHits::Loading)
-        ));
+        assert!(matches!(screen.state.as_ref().map(|torrent| &torrent.hits), Some(TorrentHits::Loading)));
     }
 
     #[test]
@@ -732,9 +629,7 @@ mod tests {
         let history_hash = hash.clone();
         let saved = egui_async::bind::ASYNC_RUNTIME.spawn(async move {
             tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            let written = writer
-                .upsert_watch_history(&entry, Some(&history_hash))
-                .await;
+            let written = writer.upsert_watch_history(&entry, Some(&history_hash)).await;
             assert!(written.is_ok(), "{written:?}");
         });
 

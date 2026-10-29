@@ -20,9 +20,7 @@ pub(crate) fn sanitize_query(raw: &str) -> String {
     let mut out = String::with_capacity(raw.len());
     for ch in raw.chars() {
         let mapped = match ch {
-            ':' | '/' | '\\' | '"' | '\'' | '[' | ']' | '{' | '}' | '!' | '(' | ')' | '&' | '|' => {
-                ' '
-            }
+            ':' | '/' | '\\' | '"' | '\'' | '[' | ']' | '{' | '}' | '!' | '(' | ')' | '&' | '|' => ' ',
             other => other,
         };
 
@@ -54,10 +52,7 @@ mod tests {
 
     #[test]
     fn sanitize_strips_lucene_colon() {
-        assert_eq!(
-            search_text("Spider-Man: Brand New Day"),
-            "Spider-Man Brand New Day"
-        );
+        assert_eq!(search_text("Spider-Man: Brand New Day"), "Spider-Man Brand New Day");
         assert_eq!(search_text("Dune:  Part Two"), "Dune Part Two");
     }
 }

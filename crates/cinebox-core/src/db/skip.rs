@@ -18,11 +18,7 @@ impl Store {
     /// # Errors
     ///
     /// Sqlite failures.
-    pub async fn get_skip_choices(
-        &self,
-        kind: &str,
-        tmdb_id: i64,
-    ) -> Result<HashMap<String, bool>, StoreError> {
+    pub async fn get_skip_choices(&self, kind: &str, tmdb_id: i64) -> Result<HashMap<String, bool>, StoreError> {
         let rows = sqlx::query!(
             r#"
             SELECT segment_type, armed

@@ -1,0 +1,12 @@
+{
+  "db_name": "SQLite",
+  "query": "\n            INSERT OR REPLACE INTO torrserver_match (hash, kind, id, checked_at)\n            VALUES (?, ?, ?, ?)\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Right": 4
+    },
+    "nullable": []
+  },
+  "hash": "764728fcd04be56753bbb0302761f0eeec5f909e94e97d90653c5617cb69045b"
+}

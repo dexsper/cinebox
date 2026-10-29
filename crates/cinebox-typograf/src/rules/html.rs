@@ -5,25 +5,57 @@ use crate::engine::{Context, Typograf};
 use crate::re;
 
 const BLOCK: &[&str] = &[
-    "address", "article", "aside", "blockquote", "canvas", "dd", "div", "dl", "fieldset",
-    "figcaption", "figure", "footer", "form", "h1", "h2", "h3", "h4", "h5", "h6", "header",
-    "hgroup", "hr", "li", "main", "nav", "noscript", "ol", "output", "p", "pre", "section",
-    "table", "tfoot", "ul", "video",
+    "address",
+    "article",
+    "aside",
+    "blockquote",
+    "canvas",
+    "dd",
+    "div",
+    "dl",
+    "fieldset",
+    "figcaption",
+    "figure",
+    "footer",
+    "form",
+    "h1",
+    "h2",
+    "h3",
+    "h4",
+    "h5",
+    "h6",
+    "header",
+    "hgroup",
+    "hr",
+    "li",
+    "main",
+    "nav",
+    "noscript",
+    "ol",
+    "output",
+    "p",
+    "pre",
+    "section",
+    "table",
+    "tfoot",
+    "ul",
+    "video",
 ];
 
-pub fn e_mail<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn e_mail<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
+        let pattern = "(^|[\\s;(])([\\w\\-.]{2,64})@([\\w\\-.]{2,64})\\.([a-z]{2,64})([)\\s.,!?]|$)";
+        re::compile_i(pattern)
+    });
+
     if ctx.is_html {
         return Cow::Borrowed(text);
     }
 
-    static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile_i("(^|[\\s;(])([\\w\\-.]{2,64})@([\\w\\-.]{2,64})\\.([a-z]{2,64})([)\\s.,!?]|$)")
-    });
-
     re::replace_all(&RE, text, "$1<a href=\"mailto:$2@$3.$4\">$2@$3.$4</a>$5")
 }
 
-pub fn escape<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn escape<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     let needs_escape = text.contains(['&', '<', '>', '"', '\'', '/']);
 
     if !needs_escape {
@@ -47,15 +79,16 @@ pub fn escape<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, 
     Cow::Owned(out)
 }
 
-pub fn nbr<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn nbr<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("([^\\n>])\\n(?=[^\\n])"));
 
     re::replace_all(&RE, text, "$1<br/>\n")
 }
 
-pub fn p<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn p<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static BLOCK_RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile_i(&format!("<({})[>\\s]", BLOCK.join("|")))
+        let pattern = format!("<({})[>\\s]", BLOCK.join("|"));
+        re::compile_i(&pattern)
     });
     static OPENED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^(\\s*)"));
     static CLOSED: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(\\s*)$"));
@@ -78,12 +111,11 @@ pub fn p<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> 
     Cow::Owned(buffer.join("\n\n"))
 }
 
-pub fn processing_attrs<'a>(tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
-    static RE_TAG: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile("(<[-\\w]+\\s)([^>]+?)(?=>)")
-    });
+pub(super) fn processing_attrs<'a>(tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
+    static RE_TAG: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("(<[-\\w]+\\s)([^>]+?)(?=>)"));
     static RE_ATTRS: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile_i("(^|\\s)(title|placeholder)=(\"[^\"]*?\"|'[^']*?')")
+        let pattern = "(^|\\s)(title|placeholder)=(\"[^\"]*?\"|'[^']*?')";
+        re::compile_i(pattern)
     });
 
     re::replace_all_fn(&RE_TAG, text, |caps| {
@@ -98,11 +130,7 @@ pub fn processing_attrs<'a>(tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> 
             let inner: String = {
                 let v: Vec<char> = attr_value.chars().collect();
 
-                if v.len() < 2 {
-                    String::new()
-                } else {
-                    v[1..v.len() - 1].iter().collect()
-                }
+                if v.len() < 2 { String::new() } else { v[1..v.len() - 1].iter().collect() }
             };
             let rquote = attr_value.chars().last().unwrap_or('"');
             let nested = tp.execute_nested(&inner, ctx);
@@ -114,7 +142,7 @@ pub fn processing_attrs<'a>(tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> 
     })
 }
 
-pub fn quot<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn quot<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     if !text.contains("&quot;") {
         return Cow::Borrowed(text);
     }
@@ -122,26 +150,27 @@ pub fn quot<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, st
     Cow::Owned(text.replace("&quot;", "\""))
 }
 
-pub fn strip_tags<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
+pub(super) fn strip_tags<'a>(_tp: &Typograf, text: &'a str, _ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("<[^>]+>"));
 
     re::replace_all(&RE, text, "")
 }
 
-pub fn url<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
-    if ctx.is_html {
-        return Cow::Borrowed(text);
-    }
-
+pub(super) fn url<'a>(_tp: &Typograf, text: &'a str, ctx: &Context<'_>) -> Cow<'a, str> {
     static RE: LazyLock<fancy_regex::Regex> = LazyLock::new(|| {
-        re::compile("(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)")
+        let pattern = "(https?|file|ftp)://([a-zA-Z0-9/+-=%&:_.~?]+[a-zA-Z0-9#+]*)";
+        re::compile(pattern)
     });
-    
+
     static TRAIL: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("([^/]+/?)(\\?|#)$"));
     static ROOT: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)/$"));
     static PORT80: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)(:80)([^\\d]|/|$)"));
     static PORT443: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^([^/]+)(:443)([^\\d]|/|$)"));
     static WWW: LazyLock<fancy_regex::Regex> = LazyLock::new(|| re::compile("^www\\."));
+
+    if ctx.is_html {
+        return Cow::Borrowed(text);
+    }
 
     re::replace_all_fn(&RE, text, |caps| {
         let protocol = &caps[1];
