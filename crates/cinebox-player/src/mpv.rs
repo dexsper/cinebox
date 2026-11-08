@@ -87,6 +87,14 @@ impl MpvPlayer {
                     Err(error) => return Err(error),
                 }
 
+                // OS media session (SMTC on Windows): headset buttons and media
+                // keys reach the player. libmpv leaves it off; older system
+                // libmpv on Linux has no such option.
+                match init.set_option("media-controls", true) {
+                    Ok(()) | Err(libmpv2::Error::Raw(libmpv2::mpv_error::OptionNotFound)) => {}
+                    Err(error) => return Err(error),
+                }
+
                 Ok(())
             })
             .map_err(|_| Error::MpvInit)?,
