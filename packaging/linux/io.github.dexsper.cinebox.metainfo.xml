@@ -103,6 +103,12 @@
   <content_rating type="oars-1.1"/>
 
   <releases>
+    <release version="0.8.1" date="2026-11-10">
+      <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.8.1</url>
+      <description>
+        <p>Episodes with a saved position play again in the .deb and the AppImage, and anime sequels are matched to their own season.</p>
+      </description>
+    </release>
     <release version="0.8.0" date="2026-10-29">
       <url type="details">https://github.com/dexsper/cinebox/releases/tag/v0.8.0</url>
       <description>

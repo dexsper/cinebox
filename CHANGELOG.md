@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.8.1] - 2026-11-10
+
+### Added
+
+- On Windows, Play/Pause from headphones and keyboard media keys works in the player, even when the window is not focused, and the Windows media flyout shows what is playing. Thanks to [@Flockey23](https://github.com/Flockey23) for the contribution ([#12](https://github.com/dexsper/cinebox/pull/12)).
+
+### Fixed
+
+- In the .deb and the AppImage, an episode with a saved position plays again instead of failing with `mpv: Raw(-4)`.
+- Anime sequels named like `Title 2 - 07` or `2nd Season` are read as their own season, so watched marks, episode names, and stills no longer land on season 1.
+
+Thanks to [@Logini228](https://github.com/Logini228) for reporting both fixes ([#11](https://github.com/dexsper/cinebox/issues/11)).
+
 ## [0.8.0] - 2026-10-29
 
 ### Added
@@ -179,7 +192,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.8.0...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.8.1...HEAD
+[0.8.1]: https://github.com/dexsper/cinebox/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/dexsper/cinebox/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/dexsper/cinebox/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/dexsper/cinebox/compare/v0.7.0...v0.7.1
