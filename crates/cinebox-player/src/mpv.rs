@@ -142,10 +142,7 @@ impl Player for MpvPlayer {
         let engine = self.engine();
         apply_play_opts(&engine.mpv, media)?;
 
-        let owned = loadfile_args(media.url, media.start_seconds);
-        let args: Vec<&str> = owned.iter().map(String::as_str).collect();
-
-        engine.mpv.command("loadfile", &args).map_err(Error::mpv)
+        engine.mpv.command("loadfile", &[media.url, "replace"]).map_err(Error::mpv)
     }
 
     fn stop(&self) {
@@ -351,21 +348,21 @@ fn display_size(width: i64, height: i64) -> Option<[u32; 2]> {
     Some([width, height])
 }
 
-/// mpv 0.38+ parses the 3rd `loadfile` argument as playlist index, not options.
-/// `start=12` there is `MPV_ERROR_INVALID_PARAMETER` (-4).
-fn loadfile_args(url: &str, start_seconds: f64) -> Vec<String> {
-    let start = start_seconds.max(0.0);
-    if start > 0.5 {
-        return vec![url.to_owned(), String::from("replace"), String::from("-1"), format!("start={start}")];
-    }
+/// mpv's `start` option for a resume position; `none` plays from the beginning.
+fn start_option(start_seconds: f64) -> String {
+    let is_resume = start_seconds.is_finite() && start_seconds > 0.5;
 
-    vec![url.to_owned(), String::from("replace")]
+    if is_resume { format!("{start_seconds}") } else { String::from("none") }
 }
 
-/// Header fields, external audio, proxy and `af` are always written (an empty
-/// string clears them) so one load cannot inherit another's.
+/// Header fields, external audio, proxy, start and `af` are always written (an
+/// empty string or `none` clears them) so one load cannot inherit another's.
 fn apply_play_opts(mpv: &Mpv, media: &Media<'_>) -> Result<(), Error> {
     set_prop(mpv, "http-header-fields", media.headers.join(","))?;
+
+    // A property, not a `loadfile` option: mpv 0.38 put a playlist index before the options
+    // argument, and the 0.35 the Linux packages ship rejects that form with -4.
+    set_prop(mpv, "start", start_option(media.start_seconds))?;
 
     let audio = media.audio_url.unwrap_or("");
     set_prop(mpv, "audio-files", audio.to_owned())?;
@@ -428,33 +425,19 @@ mod tests {
     }
 
     #[test]
-    fn loadfile_resume_uses_index_then_start_option() {
-        let args = loadfile_args("http://ts/stream", 42.5);
-        assert_eq!(
-            args,
-            vec![
-                String::from("http://ts/stream"),
-                String::from("replace"),
-                String::from("-1"),
-                String::from("start=42.5"),
-            ]
-        );
+    fn resume_position_becomes_start_seconds() {
+        assert_eq!(start_option(42.5), "42.5");
+        assert_eq!(start_option(0.51), "0.51");
+        assert_eq!(start_option(5_400.0), "5400");
     }
 
     #[test]
-    fn loadfile_without_resume_has_no_start_option() {
-        let args = loadfile_args("http://ts/stream", 0.0);
-        assert_eq!(args, vec![String::from("http://ts/stream"), String::from("replace")]);
-    }
-
-    #[test]
-    fn loadfile_half_second_threshold() {
-        assert_eq!(loadfile_args("u", 0.5).len(), 2);
-        assert_eq!(loadfile_args("u", -3.0).len(), 2);
-
-        let args = loadfile_args("u", 0.51);
-        assert_eq!(args.len(), 4);
-        assert_eq!(args[3], "start=0.51");
+    fn short_or_invalid_resume_starts_from_the_beginning() {
+        assert_eq!(start_option(0.0), "none");
+        assert_eq!(start_option(0.5), "none");
+        assert_eq!(start_option(-3.0), "none");
+        assert_eq!(start_option(f64::NAN), "none");
+        assert_eq!(start_option(f64::INFINITY), "none");
     }
 
     #[test]
