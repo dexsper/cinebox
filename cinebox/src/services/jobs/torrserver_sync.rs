@@ -395,6 +395,16 @@ mod tests {
     }
 
     #[test]
+    fn an_anime_sequel_file_is_keyed_by_its_season() {
+        let path = "Kabushikigaisha Magilumiere 2 [WEB-DL 1080p]/Kabushikigaisha Magilumiere 2 - 07 [1080p].mkv";
+        let files = [FileStat { id: 1, path: path.to_owned(), length: 1 }];
+
+        let key = watch_key(MediaKind::Tv, TmdbId::new(5), &files, 1);
+
+        assert_eq!(key, Some(WatchKey { kind: MediaKind::Tv, id: TmdbId::new(5), season: Some(2), episode: Some(7) }));
+    }
+
+    #[test]
     fn a_disabled_sync_sends_no_request() -> Result<(), JobError> {
         let server = httpmock::MockServer::start();
         let any = server.mock(|when, then| {
