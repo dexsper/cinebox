@@ -45,6 +45,8 @@ pub enum Error {
     EmptyKey,
     #[error("use the TMDB API key (32 hex), not the access token")]
     AccessToken,
+    #[error("tmdb proxy address is plain http to a remote host")]
+    InsecureProxy,
     #[error("tmdb request failed: {}", request_reason(.0))]
     Request(#[source] reqwest::Error),
     #[error("tmdb api key was rejected")]
@@ -64,6 +66,8 @@ pub enum Error {
 pub enum KeyError {
     Empty,
     AccessToken,
+    /// The address would carry the key in clear text; the caller decides which addresses are safe.
+    InsecureProxy,
 }
 
 impl From<KeyError> for Error {
@@ -71,6 +75,7 @@ impl From<KeyError> for Error {
         match error {
             KeyError::Empty => Self::EmptyKey,
             KeyError::AccessToken => Self::AccessToken,
+            KeyError::InsecureProxy => Self::InsecureProxy,
         }
     }
 }

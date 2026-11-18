@@ -11,7 +11,10 @@ pub(crate) enum InputKind {
     /// Kept byte for byte (passwords).
     Raw,
     Plain,
+    /// An address of a service usually on the local network; a bare host gets `http://`.
     Url,
+    /// A TMDB proxy address, which carries the viewer's key; a bare host gets `https://`.
+    TmdbUrl,
     Key,
 }
 
@@ -21,7 +24,7 @@ impl InputKind {
     pub(crate) fn text_purpose(self) -> crate::platform::TextPurpose {
         match self {
             Self::Plain => crate::platform::TextPurpose::Text,
-            Self::Url => crate::platform::TextPurpose::Url,
+            Self::Url | Self::TmdbUrl => crate::platform::TextPurpose::Url,
             Self::Raw | Self::Key => crate::platform::TextPurpose::Verbatim,
         }
     }
@@ -47,6 +50,7 @@ pub(crate) fn normalize(kind: InputKind, raw: &str) -> String {
         InputKind::Raw => raw.to_owned(),
         InputKind::Plain => raw.trim().to_owned(),
         InputKind::Url => normalize_url(raw),
+        InputKind::TmdbUrl => normalize_url_with(raw, "https://"),
         InputKind::Key => normalize_key(raw),
     }
 }
@@ -66,6 +70,11 @@ pub(crate) fn changed_value(draft: Option<String>, kind: InputKind, current: &st
 /// Trim, default to `http://` when no scheme is given, drop trailing slashes.
 #[must_use]
 pub(crate) fn normalize_url(raw: &str) -> String {
+    normalize_url_with(raw, "http://")
+}
+
+/// Like [`normalize_url`], with `default_scheme` (`http://` or `https://`) for an address given without one.
+fn normalize_url_with(raw: &str, default_scheme: &str) -> String {
     let trimmed = raw.trim();
     if trimmed.is_empty() {
         return String::new();
@@ -76,7 +85,7 @@ pub(crate) fn normalize_url(raw: &str) -> String {
         return bare.to_owned();
     }
 
-    format!("http://{bare}")
+    format!("{default_scheme}{bare}")
 }
 
 /// Drop every whitespace character; pasted keys often carry a newline or a space.

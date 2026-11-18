@@ -110,7 +110,9 @@ impl ImageCache {
         // Images that failed through the old host may load through the new one.
         if self.proxy_url != proxy_url {
             proxy_url.clone_into(&mut self.proxy_url);
-            self.images_base = cinebox_tmdb::images_base(proxy_url);
+            // A proxy the catalog refuses as insecure gets no image traffic either; the official host serves them.
+            let is_usable = crate::services::settings_input::tmdb_url_ok(proxy_url);
+            self.images_base = if is_usable { cinebox_tmdb::images_base(proxy_url) } else { String::new() };
             self.failed.clear();
         }
 

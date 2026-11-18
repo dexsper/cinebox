@@ -71,6 +71,7 @@ fn tmdb(error: &cinebox_tmdb::Error) -> UserError {
     match error {
         Error::EmptyKey => brief("tmdb_no_key").fix(SettingsPage::Tmdb),
         Error::AccessToken => advised("tmdb_access_token").fix(SettingsPage::Tmdb),
+        Error::InsecureProxy => advised("tmdb_insecure_proxy").fix(SettingsPage::Tmdb),
         Error::Unauthorized => advised("tmdb_rejected").fix(SettingsPage::Tmdb),
         Error::Request(_) => advised("tmdb_offline").fix(SettingsPage::General),
         Error::Http(code) => http_status("TMDB", *code),

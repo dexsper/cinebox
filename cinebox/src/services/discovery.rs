@@ -11,7 +11,7 @@ use futures_util::future::{join_all, join3};
 use tracing::warn;
 
 use crate::services::jobs::JobError;
-use crate::services::settings_input::normalize_url;
+use crate::services::settings_input::{InputKind, normalize};
 
 const MDNS_WINDOW: Duration = Duration::from_secs(2);
 const PARSER_WAIT: Duration = Duration::from_secs(5);
@@ -170,7 +170,7 @@ async fn probe_proxies(presets: &[TmdbPreset], net: &NetConfig) -> Vec<FoundProx
 }
 
 async fn probe_proxy(preset: &TmdbPreset, net: &NetConfig) -> Option<FoundProxy> {
-    let url = normalize_url(&preset.url);
+    let url = normalize(InputKind::TmdbUrl, &preset.url);
     let info = cinebox_tmdb::probe_proxy(&url, net).await?;
 
     Some(FoundProxy { url, key_required: info.key_required })

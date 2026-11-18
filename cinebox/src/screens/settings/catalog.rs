@@ -364,7 +364,7 @@ const TMDB: &[Field] = &[
         label: "settings.tmdb_proxy_url",
         hint: Some("settings.tmdb_proxy_url_hint"),
         placeholder: "https://tmdb.example.com",
-        kind: InputKind::Url,
+        kind: InputKind::TmdbUrl,
         check: Some(check_tmdb_url),
         get: |s| s.tmdb.proxy_url.clone(),
         set: |s, v| s.tmdb.proxy_url = v,

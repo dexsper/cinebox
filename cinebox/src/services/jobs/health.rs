@@ -60,7 +60,14 @@ fn api_fingerprint(api: &cinebox_tmdb::Api) -> u64 {
 }
 
 /// Whether the server at `proxy_url` is a `cinebox-tmdb-proxy`, and if so whether it needs the viewer's key.
+///
+/// `None` without a request for an address the catalog refuses as insecure: an answer over plain http could be
+/// forged to switch keyless mode on.
 pub(crate) async fn probe_tmdb_proxy(proxy_url: String, net: NetConfig) -> Option<cinebox_tmdb::ProxyInfo> {
+    if !crate::services::settings_input::tmdb_url_ok(&proxy_url) {
+        return None;
+    }
+
     cinebox_tmdb::probe_proxy(&proxy_url, &net).await
 }
 

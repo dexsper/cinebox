@@ -20,6 +20,7 @@ pub(crate) use youtube::resolve_youtube;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use cinebox_core::settings::TmdbSettings;
 use cinebox_core::{MediaKind, ParserKind, Settings, TmdbId};
 use cinebox_net::NetConfig;
 use cinebox_torrserver::Server;
@@ -61,6 +62,19 @@ fn usable_doh_url(url: &str) -> String {
     String::new()
 }
 
+/// An `http://` proxy on another host would carry the key and the viewer's requests in clear text, so it is refused
+/// outright rather than replaced by the official TMDB, which a keyless setup could not use anyway.
+fn tmdb_api(tmdb: &TmdbSettings) -> Result<cinebox_tmdb::Api, cinebox_tmdb::KeyError> {
+    if !crate::services::settings_input::tmdb_url_ok(&tmdb.proxy_url) {
+        return Err(cinebox_tmdb::KeyError::InsecureProxy);
+    }
+
+    let key = (!tmdb.keyless).then(|| tmdb.api_key.expose());
+    let base = cinebox_tmdb::api_base(&tmdb.proxy_url);
+
+    cinebox_tmdb::Api::new(&base, key)
+}
+
 /// Raised by a TMDB job when the proxy refused a request sent without a key, taken by the app once a frame.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KeylessRefusal(Arc<AtomicBool>);
@@ -94,11 +108,9 @@ pub(crate) struct TmdbCtx {
 impl TmdbCtx {
     pub(crate) fn new(settings: &Settings, refusal: &KeylessRefusal) -> Self {
         let tmdb = &settings.tmdb;
-        let key = (!tmdb.keyless).then(|| tmdb.api_key.expose());
-        let base = cinebox_tmdb::api_base(&tmdb.proxy_url);
 
         Self {
-            api: cinebox_tmdb::Api::new(&base, key),
+            api: tmdb_api(tmdb),
             language: settings.general.language.tmdb_code(),
             net: net_config(settings),
             refusal: tmdb.keyless.then(|| refusal.clone()),
