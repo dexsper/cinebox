@@ -69,9 +69,14 @@ pub(crate) async fn discover_services(ctx: DiscoveryCtx) -> Result<Discovery, Jo
     Ok(Discovery { torrservers, parsers, proxies })
 }
 
+/// The built-in list fills in what the published copy lacks, so a copy cached before an entry was added does not
+/// hide that entry for a day.
 async fn load_presets(ctx: &DiscoveryCtx) -> ServicePresets {
-    let latest = latest_presets(ctx).await;
-    let base = latest.unwrap_or_else(ServicePresets::bundled);
+    let bundled = ServicePresets::bundled();
+    let base = match latest_presets(ctx).await {
+        Some(latest) => latest.merged_with(bundled),
+        None => bundled,
+    };
 
     let config_dir = ctx.config_dir.as_deref();
     let user = config_dir.and_then(ServicePresets::load_user);

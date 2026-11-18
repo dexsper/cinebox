@@ -1,7 +1,7 @@
 //! Suggested service addresses for first-run discovery, kept as data.
 //!
 //! The list lives in `presets/services.json` at the repository root. The app
-//! fetches the latest copy from [`presets_url`], falls back to the copy built
+//! fetches the latest copy from [`presets_url`], fills it in from the copy built
 //! into the binary, and appends entries from a `presets.json` the user may put
 //! next to `settings.json`. Presets only suggest addresses: every candidate is
 //! probed and nothing is applied until the viewer picks it.
