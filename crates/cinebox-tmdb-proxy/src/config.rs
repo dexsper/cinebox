@@ -12,7 +12,7 @@ use clap::{ArgAction, Parser};
 use thiserror::Error;
 
 use crate::cache::CacheConfig;
-use crate::keys::OperatorKey;
+use crate::keys::{KeyError, OperatorKey};
 use crate::upstream::{Ttls, UpstreamConfig};
 
 const KIBIBYTE: u64 = 1_024;
@@ -34,6 +34,9 @@ const MIN_MEMORY_CACHE_BYTES: u64 = 16 * MEBIBYTE;
 const MAX_MEMORY_CACHE_BYTES: u64 = GIBIBYTE;
 const FALLBACK_MEMORY_CACHE_BYTES: u64 = 128 * MEBIBYTE;
 
+#[cfg(target_os = "linux")]
+const CGROUP_ROOT: &str = "/sys/fs/cgroup";
+
 /// Distinct keys that may wait on upstream at once, per upstream slot; beyond it a miss gets a fast 503.
 const FLIGHTS_PER_UPSTREAM_SLOT: usize = 16;
 
@@ -53,7 +56,7 @@ pub(crate) struct Args {
     #[arg(long, env = "CACHE_DIR", default_value = "./cache")]
     cache_dir: PathBuf,
 
-    /// Disk cache budget, clamped to 80% of the free space.
+    /// Disk cache budget, clamped to 80% of the free space plus what the cache already holds.
     #[arg(long = "disk-cache", value_name = "SIZE", env = "DISK_CACHE", default_value = "5GiB", value_parser = parse_size)]
     disk_cache_bytes: u64,
 
@@ -102,9 +105,9 @@ pub(crate) struct Args {
         default_missing_value = "true", value_parser = BoolishValueParser::new())]
     trust_forwarded_for: bool,
 
-    /// Operator mode: send this TMDB key upstream and let clients go without one.
-    #[arg(long, env = "TMDB_API_KEY", hide_env_values = true)]
-    tmdb_key: Option<OperatorKey>,
+    /// Operator mode: send this TMDB key upstream and let clients go without one; empty means passthrough mode.
+    #[arg(long, env = "TMDB_API_KEY", hide_env_values = true, value_parser = parse_tmdb_key)]
+    tmdb_key: Option<KeyArg>,
 
     /// Freshness of `configuration`.
     #[arg(long, env = "TTL_CONFIG", default_value = "7d", value_parser = humantime::parse_duration)]
@@ -163,6 +166,10 @@ enum Auto<T> {
     Auto,
     Fixed(T),
 }
+
+/// `--tmdb-key` as given; `None` for a blank value, as an empty `TMDB_API_KEY=` in an env file leaves it.
+#[derive(Debug, Clone)]
+struct KeyArg(Option<OperatorKey>);
 
 /// The settings in effect, with every `auto` resolved.
 #[derive(Debug)]
@@ -273,7 +280,7 @@ impl Config {
             rate_limit: args.rate_limit,
             rate_burst: args.rate_burst,
             trust_forwarded_for: args.trust_forwarded_for,
-            operator_key: args.tmdb_key,
+            operator_key: args.tmdb_key.and_then(|key| key.0),
             known_key_ttl: args.known_key_ttl,
             stats_interval: args.stats_interval,
         }
@@ -397,6 +404,14 @@ fn parse_public_url(text: &str) -> Result<String, ArgError> {
     Ok(trimmed.to_owned())
 }
 
+fn parse_tmdb_key(text: &str) -> Result<KeyArg, KeyError> {
+    if text.trim().is_empty() {
+        return Ok(KeyArg(None));
+    }
+
+    text.parse().map(|key| KeyArg(Some(key)))
+}
+
 fn parse_interval(text: &str) -> Result<Duration, ArgError> {
     let interval = humantime::parse_duration(text).map_err(|_| ArgError::Interval(text.to_owned()))?;
 
@@ -416,16 +431,33 @@ fn auto_memory_cache_bytes() -> u64 {
     share - (share % MEBIBYTE)
 }
 
-/// The smaller of the physical memory and the cgroup v2 limit, as Docker `mem_limit` sets it.
+/// The smaller of the physical memory and the cgroup v2 limits, as Docker `mem_limit` and systemd `MemoryMax=` set them.
 #[cfg(target_os = "linux")]
 fn detect_memory_bytes() -> Option<u64> {
     let total = std::fs::read_to_string("/proc/meminfo").ok().as_deref().and_then(parse_mem_total);
-    let limit = std::fs::read_to_string("/sys/fs/cgroup/memory.max").ok().as_deref().and_then(parse_cgroup_limit);
+    let limit = cgroup_memory_limit();
 
     match (total, limit) {
         (Some(total), Some(limit)) => Some(total.min(limit)),
         (total, limit) => total.or(limit),
     }
+}
+
+/// The lowest `memory.max` of the process's own cgroup and its ancestors; a limit on a parent slice binds as well.
+#[cfg(target_os = "linux")]
+fn cgroup_memory_limit() -> Option<u64> {
+    let membership = std::fs::read_to_string("/proc/self/cgroup").unwrap_or_default();
+    let own_path = membership.lines().find_map(|line| line.strip_prefix("0::")).unwrap_or("/");
+    let root = std::path::Path::new(CGROUP_ROOT);
+    let relative = std::path::Path::new(own_path.trim_start_matches('/'));
+    // Outside the cgroup namespace of its creator the path climbs with `..`, which would leave the mount.
+    let is_inside = relative.components().all(|component| matches!(component, std::path::Component::Normal(_)));
+    let own_dir = if is_inside { root.join(relative) } else { root.to_path_buf() };
+
+    let dirs = own_dir.ancestors().take_while(|dir| dir.starts_with(root));
+    let limits = dirs.filter_map(|dir| std::fs::read_to_string(dir.join("memory.max")).ok());
+
+    limits.filter_map(|memory_max| parse_cgroup_limit(&memory_max)).min()
 }
 
 #[cfg(not(target_os = "linux"))]

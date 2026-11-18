@@ -1,6 +1,6 @@
 //! Routes, the whitelist that keeps the proxy from being an open one, and responses built from cache entries.
 
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -30,6 +30,10 @@ const MAX_QUERY_BYTES: usize = 2 * 1_024;
 const MAX_IMAGE_SIZE_DIGITS: usize = 5;
 const IMAGE_EXTENSIONS: [&str; 4] = ["jpg", "png", "webp", "svg"];
 const RESPONSE_HEADER_CAPACITY: usize = 8;
+const MAX_AGE_PREFIX: &str = "public, max-age=";
+const IMMUTABLE_SUFFIX: &str = ", immutable";
+const U64_MAX_DIGITS: usize = 20;
+const CACHE_CONTROL_MAX_BYTES: usize = MAX_AGE_PREFIX.len() + U64_MAX_DIGITS + IMMUTABLE_SUFFIX.len();
 
 /// gzip bodies of TMDB JSON usually shrink to a fifth or less, so the plain body is sized for that up front.
 const GUNZIP_CAPACITY_FACTOR: usize = 5;
@@ -292,10 +296,20 @@ fn cache_control(head: &Head, route: Route) -> HeaderValue {
 
     let remaining = head.expires_at().saturating_sub(unix_now());
     let is_immutable = route == Route::Image && head.status() == StatusCode::OK && remaining > 0;
-    let immutable = if is_immutable { ", immutable" } else { "" };
-    let value = format!("public, max-age={remaining}{immutable}");
+    let immutable = if is_immutable { IMMUTABLE_SUFFIX } else { "" };
 
-    HeaderValue::try_from(value).unwrap_or_else(|_| NO_STORE.clone())
+    // Formatted on the stack: this runs for every hit, and `HeaderValue` copies the bytes anyway.
+    let mut buffer = [0; CACHE_CONTROL_MAX_BYTES];
+    let mut unwritten = &mut buffer[..];
+
+    if write!(unwritten, "{MAX_AGE_PREFIX}{remaining}{immutable}").is_err() {
+        return NO_STORE.clone();
+    }
+
+    let written_len = CACHE_CONTROL_MAX_BYTES - unwritten.len();
+    let written = buffer.get(..written_len).unwrap_or_default();
+
+    HeaderValue::from_bytes(written).unwrap_or_else(|_| NO_STORE.clone())
 }
 
 /// A memory body goes out without a copy, a file body as a stream.

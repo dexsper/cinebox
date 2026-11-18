@@ -14,6 +14,12 @@ const MAX_KEY_BYTES: usize = 128;
 /// Bounds the memory of the known keys; each entry is a 32-byte hash plus moka's bookkeeping.
 const KNOWN_KEYS_CAPACITY: u64 = 65_536;
 
+/// Bounds the memory of the keys TMDB refused, so that a flood of made-up keys cannot grow it.
+const REJECTED_KEYS_CAPACITY: u64 = 16_384;
+
+/// How long a key TMDB answered 401 to is refused without asking upstream again.
+const REJECTED_KEY_TTL: Duration = Duration::from_mins(10);
+
 /// The operator's TMDB key; `Debug` never shows it.
 #[derive(Clone)]
 pub(crate) struct OperatorKey(String);
@@ -22,13 +28,21 @@ pub(crate) struct OperatorKey(String);
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub(crate) struct Fingerprint([u8; blake3::OUT_LEN]);
 
-type KnownKeys = moka::sync::Cache<Fingerprint, ()>;
+type KeySet = moka::sync::Cache<Fingerprint, ()>;
+
+/// What TMDB said about client keys lately; cheap to clone, the clones share the sets.
+#[derive(Debug, Clone)]
+pub(crate) struct ClientKeys {
+    known: KeySet,
+    rejected: KeySet,
+}
 
 /// The key policy of the proxy.
 #[derive(Debug)]
 pub(crate) enum Keys {
-    /// Clients bring their own key; only keys TMDB accepted read the shared cache without a trip upstream.
-    Passthrough(KnownKeys),
+    /// Clients bring their own key; only keys TMDB accepted read the shared cache without a trip upstream, and keys it
+    /// refused lately are refused here without one.
+    Passthrough(ClientKeys),
 
     /// The operator's key goes upstream, and clients need none.
     Operator(OperatorKey),
@@ -43,7 +57,7 @@ pub(crate) struct Access {
 
 /// Learns from the upstream answer whether a client key is good; cheap to clone into a fetch.
 #[derive(Debug, Clone)]
-pub(crate) struct KeyFeedback(Option<(KnownKeys, Fingerprint)>);
+pub(crate) struct KeyFeedback(Option<(ClientKeys, Fingerprint)>);
 
 #[derive(Debug, Error)]
 pub(crate) enum KeyError {
@@ -52,6 +66,9 @@ pub(crate) enum KeyError {
 
     #[error("a TMDB key is required")]
     Missing,
+
+    #[error("TMDB refused this key in the last few minutes")]
+    Rejected,
 }
 
 impl FromStr for OperatorKey {
@@ -81,9 +98,10 @@ impl Keys {
             return Self::Operator(key);
         }
 
-        let known = moka::sync::Cache::builder().max_capacity(KNOWN_KEYS_CAPACITY).time_to_live(known_key_ttl).build();
+        let known = key_set(KNOWN_KEYS_CAPACITY, known_key_ttl);
+        let rejected = key_set(REJECTED_KEYS_CAPACITY, REJECTED_KEY_TTL);
 
-        Self::Passthrough(known)
+        Self::Passthrough(ClientKeys { known, rejected })
     }
 
     #[must_use]
@@ -91,12 +109,13 @@ impl Keys {
         matches!(self, Self::Passthrough(_))
     }
 
-    /// In passthrough mode a missing or malformed client key is refused; a key TMDB has not accepted yet goes upstream
-    /// even when the cache holds the answer, so that the shared cache never serves an unchecked key.
+    /// In passthrough mode a missing or malformed client key is refused, and so is a key TMDB refused lately; a key
+    /// TMDB has not accepted yet goes upstream even when the cache holds the answer, so that the shared cache never
+    /// serves an unchecked key.
     pub(crate) fn check(&self, client_key: Option<&str>) -> Result<Access, KeyError> {
-        let known = match self {
+        let client_keys = match self {
             Self::Operator(_) => return Ok(Access { mode: Mode::Cached, feedback: KeyFeedback(None) }),
-            Self::Passthrough(known) => known,
+            Self::Passthrough(client_keys) => client_keys,
         };
 
         let key = client_key.ok_or(KeyError::Missing)?;
@@ -106,8 +125,13 @@ impl Keys {
         }
 
         let fingerprint = Fingerprint(*blake3::hash(key.as_bytes()).as_bytes());
-        let mode = if known.contains_key(&fingerprint) { Mode::Cached } else { Mode::Revalidate };
-        let feedback = KeyFeedback(Some((known.clone(), fingerprint)));
+
+        if client_keys.rejected.contains_key(&fingerprint) {
+            return Err(KeyError::Rejected);
+        }
+
+        let mode = if client_keys.known.contains_key(&fingerprint) { Mode::Cached } else { Mode::Revalidate };
+        let feedback = KeyFeedback(Some((client_keys.clone(), fingerprint)));
 
         Ok(Access { mode, feedback })
     }
@@ -123,9 +147,9 @@ impl Keys {
 }
 
 impl KeyFeedback {
-    /// Remembers the key on a 2xx and forgets it on a 401; failures say nothing about the key.
+    /// Remembers the key as accepted on a 2xx and as refused on a 401; failures say nothing about the key.
     pub(crate) fn record(&self, fetched: &Fetched) {
-        let Some((known, fingerprint)) = &self.0 else { return };
+        let Some((client_keys, fingerprint)) = &self.0 else { return };
 
         let entry = match fetched {
             Fetched::Cacheable { entry, .. } | Fetched::Uncacheable(entry) => entry,
@@ -135,14 +159,20 @@ impl KeyFeedback {
         let status = entry.head().status();
 
         if status.is_success() {
-            known.insert(*fingerprint, ());
+            client_keys.rejected.invalidate(fingerprint);
+            client_keys.known.insert(*fingerprint, ());
             return;
         }
 
         if status == StatusCode::UNAUTHORIZED {
-            known.invalidate(fingerprint);
+            client_keys.known.invalidate(fingerprint);
+            client_keys.rejected.insert(*fingerprint, ());
         }
     }
+}
+
+fn key_set(capacity: u64, ttl: Duration) -> KeySet {
+    moka::sync::Cache::builder().max_capacity(capacity).time_to_live(ttl).build()
 }
 
 fn is_well_formed(key: &str) -> bool {

@@ -25,6 +25,8 @@ use crate::limit::RateLimit;
 use crate::routes::App;
 use crate::upstream::Upstream;
 
+const SIZE_HINT_INTERVAL: Duration = Duration::from_mins(5);
+
 #[global_allocator]
 static ALLOCATOR: mimalloc::MiMalloc = mimalloc::MiMalloc;
 
@@ -57,7 +59,8 @@ async fn run(config: Config) -> anyhow::Result<()> {
     let app = Arc::new(App::new(cache.clone(), upstream, keys, Arc::clone(&limit)));
 
     let mut background = JoinSet::new();
-    background.spawn(log_stats(cache, config.stats_interval));
+    background.spawn(log_stats(cache.clone(), config.stats_interval));
+    background.spawn(save_size_hints(cache.clone()));
 
     if limit.is_enabled() {
         background.spawn(async move { limit.prune_forever().await });
@@ -67,6 +70,7 @@ async fn run(config: Config) -> anyhow::Result<()> {
     server::serve(listener, routes::router(app), config.max_connections, server::shutdown_signal()).await;
 
     background.shutdown().await;
+    cache.save_size_hint().await;
     tracing::info!("stopped");
 
     Ok(())
@@ -79,6 +83,18 @@ fn init_tracing() {
     let is_terminal = std::io::stdout().is_terminal();
 
     tracing_subscriber::fmt().with_env_filter(filter).with_ansi(is_terminal).init();
+}
+
+// A crash skips the save at shutdown, so the hint is refreshed on a timer too.
+async fn save_size_hints(cache: Cache) {
+    let mut ticks = tokio::time::interval(SIZE_HINT_INTERVAL);
+    ticks.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
+    ticks.tick().await;
+
+    loop {
+        ticks.tick().await;
+        cache.save_size_hint().await;
+    }
 }
 
 /// One line of cache totals per interval; no addresses, paths or keys.

@@ -16,6 +16,9 @@ const MAGIC: [u8; 4] = *b"CBTP";
 const FORMAT_VERSION: u8 = 1;
 const FIXED_HEADER_LEN: usize = MAGIC.len() + size_of::<u8>() * 2 + size_of::<u16>() * 2 + size_of::<u64>() * 3;
 const TMP_DIR: &str = "tmp";
+
+/// Holds the bytes the cache took at the last save, in decimal, so that startup can count them as space it may use.
+const SIZE_HINT_FILE: &str = "size";
 const FREE_SPACE_PERCENT: u64 = 80;
 const DELETE_BATCH: usize = 256;
 
@@ -118,6 +121,18 @@ impl Disk {
         Some(loaded)
     }
 
+    /// Records the bytes the cache holds for the budget at the next start; skipped until the startup walk has counted
+    /// every file, and failures are logged.
+    pub(super) async fn save_size_hint(self: &Arc<Self>) {
+        let disk = Arc::clone(self);
+
+        match tokio::task::spawn_blocking(move || disk.save_size_hint_blocking()).await {
+            Ok(Ok(())) => {}
+            Ok(Err(error)) => tracing::debug!(%error, "cannot write the cache size hint"),
+            Err(error) => tracing::debug!(%error, "cache size hint task failed"),
+        }
+    }
+
     /// Writes the entry through a temporary file and a rename; failures are logged, since the cache is optional.
     pub(super) async fn store(self: &Arc<Self>, key: Key, entry: Arc<Entry>) {
         let disk = Arc::clone(self);
@@ -184,6 +199,33 @@ impl Disk {
         Ok(())
     }
 
+    fn save_size_hint_blocking(&self) -> io::Result<()> {
+        // Acquire pairs with the Release store at the end of the walk, as in `load`.
+        if !self.is_indexed.load(Ordering::Acquire) {
+            return Ok(());
+        }
+
+        self.index.run_pending_tasks();
+
+        let size = self.index.weighted_size().to_string();
+        // Relaxed: the counter only has to hand out distinct numbers.
+        let sequence = self.tmp_sequence.fetch_add(1, Ordering::Relaxed);
+        let tmp_path = self.tmp.join(format!("{SIZE_HINT_FILE}.{sequence}"));
+
+        if let Err(error) = fs::write(&tmp_path, size) {
+            remove_quietly(&tmp_path);
+            return Err(error);
+        }
+
+        let renamed = fs::rename(&tmp_path, self.root.join(SIZE_HINT_FILE));
+
+        if renamed.is_err() {
+            remove_quietly(&tmp_path);
+        }
+
+        renamed
+    }
+
     fn rebuild_index(&self) {
         let shards = match fs::read_dir(&self.root) {
             Ok(shards) => shards,
@@ -203,6 +245,10 @@ impl Disk {
         self.index.run_pending_tasks();
 
         tracing::info!(entries = self.index.entry_count(), bytes = self.index.weighted_size(), "disk cache indexed");
+
+        if let Err(error) = self.save_size_hint_blocking() {
+            tracing::debug!(%error, "cannot write the cache size hint");
+        }
     }
 
     fn index_shard(&self, shard: &Path) {
@@ -266,7 +312,14 @@ fn prepare(root: &Path, budget_bytes: u64) -> io::Result<u64> {
 
     clear_tmp(&tmp);
 
-    Ok(clamp_budget(root, budget_bytes))
+    Ok(clamp_budget(root, budget_bytes, read_size_hint(root)))
+}
+
+/// 0 when there is no hint yet or it is unreadable, which only makes the budget stricter.
+fn read_size_hint(root: &Path) -> u64 {
+    let Ok(text) = fs::read_to_string(root.join(SIZE_HINT_FILE)) else { return 0 };
+
+    text.trim().parse().unwrap_or(0)
 }
 
 fn clear_tmp(tmp: &Path) {
@@ -277,7 +330,8 @@ fn clear_tmp(tmp: &Path) {
     }
 }
 
-fn clamp_budget(root: &Path, budget_bytes: u64) -> u64 {
+// What the cache already holds counts as room it may use, or every restart of a full cache would shrink the budget.
+fn clamp_budget(root: &Path, budget_bytes: u64, cached_bytes: u64) -> u64 {
     let available = match fs4::available_space(root) {
         Ok(available) => available,
         Err(error) => {
@@ -286,7 +340,8 @@ fn clamp_budget(root: &Path, budget_bytes: u64) -> u64 {
         }
     };
 
-    let allowed = available / 100 * FREE_SPACE_PERCENT;
+    let usable = available.saturating_add(cached_bytes);
+    let allowed = usable / 100 * FREE_SPACE_PERCENT;
 
     if budget_bytes <= allowed {
         return budget_bytes;
@@ -295,7 +350,8 @@ fn clamp_budget(root: &Path, budget_bytes: u64) -> u64 {
     tracing::warn!(
         configured = budget_bytes,
         clamped = allowed,
-        "disk cache budget is over {FREE_SPACE_PERCENT}% of the free space on its volume, clamped"
+        cached = cached_bytes,
+        "disk cache budget is over {FREE_SPACE_PERCENT}% of the free space plus the cached bytes, clamped"
     );
 
     allowed

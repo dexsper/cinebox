@@ -18,8 +18,8 @@ services:
       PUBLIC_URL: https://${DOMAIN:?set DOMAIN in .env}
       # Only a reverse proxy on this machine can reach the port, and it must replace X-Forwarded-For.
       TRUST_FORWARDED_FOR: "true"
-      # Operator mode: uncomment and set TMDB_API_KEY in .env. An empty key is an error.
-      # TMDB_API_KEY: ${TMDB_API_KEY:?set TMDB_API_KEY in .env}
+      # Operator mode when TMDB_API_KEY is set in .env; empty or unset means passthrough mode.
+      TMDB_API_KEY: ${TMDB_API_KEY:-}
     ports:
       - "127.0.0.1:8080:8080"
     volumes:

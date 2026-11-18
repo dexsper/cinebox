@@ -32,7 +32,7 @@ type Flight = watch::Receiver<Option<Arc<Entry>>>;
 pub(crate) struct CacheConfig {
     pub(crate) cache_dir: PathBuf,
 
-    /// Clamped at startup to 80% of the free space on the volume of `cache_dir`.
+    /// Clamped at startup to 80% of the free space on the volume of `cache_dir` plus what the cache already holds.
     pub(crate) disk_budget_bytes: u64,
 
     pub(crate) memory_budget_bytes: u64,
@@ -70,8 +70,7 @@ pub(crate) enum Mode {
     Cached,
 
     /// Always fetch with this caller's own request, never shared with others, as for an api key not yet seen.
-    /// The result replaces the entry when cacheable; when the fetch fails, an entry within the stale window is
-    /// served instead.
+    /// The result replaces the entry when cacheable; a failed fetch is served as is, never the cached entry.
     Revalidate,
 }
 
@@ -165,6 +164,11 @@ impl Cache {
         self.inner.stats.record_served(bytes);
     }
 
+    /// Records how many bytes the disk tier holds, for the budget at the next start.
+    pub(crate) async fn save_size_hint(&self) {
+        self.inner.disk.save_size_hint().await;
+    }
+
     #[must_use]
     pub(crate) fn stats(&self) -> StatsSnapshot {
         let tiers = TierSizes {
@@ -204,25 +208,16 @@ impl Cache {
         F: FnOnce() -> Fut + Send + 'static,
         Fut: Future<Output = Fetched> + Send + 'static,
     {
-        let fetched = fetch().await;
-
-        let failed = match fetched {
+        // A failure says nothing about the key, so it never falls back to the cache: that would serve a key TMDB has not
+        // accepted whenever upstream is slow or down.
+        match fetch().await {
             Fetched::Cacheable { entry, ttl } => {
                 let entry = self.admit(key, entry, ttl).await;
                 tokio::spawn(store_on_disk(Arc::clone(&self.inner.disk), key, Arc::clone(&entry)));
-                return Served::miss(entry);
+                Served::miss(entry)
             }
-            Fetched::Uncacheable(entry) => return Served::miss(Arc::new(entry)),
-            Fetched::Failed(entry) => entry,
-        };
-
-        let Some(payload) = self.find(key).await else { return Served::miss(Arc::new(failed)) };
-
-        if payload.head().freshness(unix_now(), self.inner.stale_window) == Freshness::Expired {
-            return Served::miss(Arc::new(failed));
+            Fetched::Uncacheable(entry) | Fetched::Failed(entry) => Served::miss(Arc::new(entry)),
         }
-
-        Served { status: CacheStatus::Stale, payload }
     }
 
     async fn find(&self, key: Key) -> Option<Payload> {
