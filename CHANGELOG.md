@@ -7,10 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.9.0] - 2026-11-18
+
 ### Added
 
 - Where TMDB is blocked, the catalog and posters can come through a proxy: Settings > TMDB > Proxy address. If the proxy has its own key, you need none. The first-run wizard offers ready proxies and a field for your own.
-- `cinebox-tmdb-proxy`, a TMDB proxy to run on your own server ([README](packaging/tmdb-proxy/README.md)).
+- `cinebox-tmdb-proxy`, a TMDB proxy to run on your own server ([README](https://github.com/dexsper/cinebox/blob/master/packaging/tmdb-proxy/README.md)).
 - A Refresh button on the torrents screen. The release list also refreshes by itself when you open it and it is more than 15 minutes old, so new releases no longer need a restart.
 - The torrents toolbar shows how many releases were found and how many filters are on.
 
@@ -203,7 +205,8 @@ First public release
 - Settings checks for the TMDB key, the parser, and TorrServer, plus a speed test and cache clear.
 - Portable data: `settings.json` and `cinebox.sqlite` sit next to the executable.
 
-[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.8.1...HEAD
+[Unreleased]: https://github.com/dexsper/cinebox/compare/v0.9.0...HEAD
+[0.9.0]: https://github.com/dexsper/cinebox/compare/v0.8.1...v0.9.0
 [0.8.1]: https://github.com/dexsper/cinebox/compare/v0.8.0...v0.8.1
 [0.8.0]: https://github.com/dexsper/cinebox/compare/v0.7.2...v0.8.0
 [0.7.2]: https://github.com/dexsper/cinebox/compare/v0.7.1...v0.7.2
