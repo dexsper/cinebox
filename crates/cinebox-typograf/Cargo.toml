@@ -10,7 +10,7 @@ homepage.workspace = true
 description = "Rust port of typograf (https://github.com/typograf/typograf) for ru and en-US"
 
 [dependencies]
-fancy-regex = "0.19.2"
+fancy-regex = "0.20.2"
 thiserror.workspace = true
 
 [dev-dependencies]

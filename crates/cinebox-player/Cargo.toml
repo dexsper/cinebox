@@ -15,16 +15,16 @@ thiserror.workspace = true
 tracing.workspace = true
 
 [target.'cfg(target_os = "windows")'.dependencies]
-libmpv2 = { version = "6.0.0", features = ["build_libmpv"] }
+libmpv2 = { version = "7.0.1", features = ["build_libmpv"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
-libmpv2 = "6.0.0"
+libmpv2 = "7.0.1"
 
 [build-dependencies]
 cc = "1.10"
 goblin = { version = "0.10", default-features = false, features = ["std", "pe64"] }
 pkg-config = "0.3"
-sevenz-rust2 = "0.22"
+sevenz-rust2 = "0.25"
 sha2 = "0.11.1"
 ureq = { version = "3.5", default-features = false, features = ["rustls"] }
 

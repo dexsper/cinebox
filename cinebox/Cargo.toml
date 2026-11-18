@@ -48,8 +48,8 @@ eframe = { workspace = true, features = ["android-native-activity"] }
 
 [build-dependencies]
 anyhow.workspace = true
-ico = "0.5.0"
-resvg = "0.48.1"
+ico = "0.6.0"
+resvg = "0.50.0"
 winresource = "0.1.34"
 
 [dev-dependencies]
