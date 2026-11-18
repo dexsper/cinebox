@@ -7,6 +7,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- Where TMDB is blocked, the catalog and posters can come through a proxy: Settings > TMDB > Proxy address. If the proxy has its own key, you need none. The first-run wizard offers ready proxies and a field for your own.
+- `cinebox-tmdb-proxy`, a TMDB proxy to run on your own server ([README](packaging/tmdb-proxy/README.md)).
+- A Refresh button on the torrents screen. The release list also refreshes by itself when you open it and it is more than 15 minutes old, so new releases no longer need a restart.
+- The torrents toolbar shows how many releases were found and how many filters are on.
+
+### Fixed
+
+- On Linux the screen no longer blanks in the middle of a film.
+
 ## [0.8.1] - 2026-11-10
 
 ### Added

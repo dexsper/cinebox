@@ -16,6 +16,8 @@ Cinebox - нативное приложение для Windows, Linux и Android
 
 С TMDB отдельная история. В регионах, где `api.themoviedb.org` режут по DNS (в том числе в РФ), LAMPA ходит через чужой TMDB-прокси. Cinebox ходит на TMDB сам. Если обычный DNS хост не резолвит, срабатывает встроенный DNS-over-HTTPS: можно указать свой сервер, иначе Quad9 / DNS.SB / AliDNS. Отдельный плагин и чужой прокси не нужны.
 
+Если TMDB режут ещё и по IP, Cinebox может ходить через кэширующий прокси: свой или публичный из мастера первого запуска. Это одно поле: «Настройки > TMDB > Адрес прокси». Сам прокси, [`cinebox-tmdb-proxy`](packaging/tmdb-proxy/README.md), лежит в каждом релизе, как его поднять, написано в его README. Если у прокси свой ключ TMDB, пользователям ключ не нужен.
+
 ## Возможности
 
 **Каталог**
@@ -165,6 +167,7 @@ APK для Android TV: JDK 17+, Android SDK с NDK r28 (`ANDROID_HOME`), Rust-т
 | `cinebox-skip`       | Данные о сегментах для пропуска (TheIntroDB; расширяемо) |
 | `cinebox-typograf`   | Типографика заголовков (ru / en-US)             |
 | `cinebox-android`    | Точка входа Android TV; Java-часть (ExoPlayer, MediaSession, голосовой ввод, клавиатура) лежит в `android/` |
+| `cinebox-tmdb-proxy` | Кэширующий прокси TMDB для своего сервера, отдельный бинарь ([установка](packaging/tmdb-proxy/README.md)) |
 
 ## Планы
 

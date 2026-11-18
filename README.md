@@ -16,6 +16,8 @@ The stack is the same one people already use in **LAMPA MX**: TMDB, Jackett or P
 
 TMDB is a separate story. In regions where `api.themoviedb.org` is DNS-blocked (including Russia), LAMPA goes through someone else's TMDB proxy. Cinebox talks to TMDB itself. If regular DNS cannot resolve the host, built-in DNS-over-HTTPS kicks in: you can set your own server, otherwise Quad9 / DNS.SB / AliDNS. No extra plugin and no third-party proxy.
 
+If TMDB is blocked by IP too, Cinebox can go through a caching proxy: your own or a public one from the first-run wizard. It is one field, Settings > TMDB > Proxy address. The proxy, [`cinebox-tmdb-proxy`](packaging/tmdb-proxy/README.md), comes with every release, and its README says how to run it. If the proxy has its own TMDB key, users need none.
+
 ## Features
 
 **Catalog**
@@ -157,6 +159,7 @@ The repo is split into crates. The window and screens live in `cinebox`, the res
 | `cinebox-skip` | Skip-segment data (TheIntroDB; extensible for other sources) |
 | `cinebox-typograf` | Title typography (ru / en-US) |
 | `cinebox-android` | Android TV entry point; the Java side (ExoPlayer, MediaSession, voice input, keyboard) is in `android/` |
+| `cinebox-tmdb-proxy` | Self-hostable TMDB caching proxy, a separate binary ([setup](packaging/tmdb-proxy/README.md)) |
 
 ## Roadmap
 
