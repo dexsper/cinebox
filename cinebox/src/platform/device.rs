@@ -3,8 +3,7 @@
 use std::ops::Range;
 use std::sync::Arc;
 
-/// One per platform entry point. Every method has a do-nothing default, which
-/// is all the desktop needs today.
+/// One per platform entry point. Every method has a do-nothing default.
 pub trait Device: Send + Sync {
     /// Called with the app's context, so events raised on other threads can
     /// wake the UI. May be called more than once with the same context.

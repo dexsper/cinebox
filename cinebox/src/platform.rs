@@ -4,6 +4,10 @@
 //! desktop tests can drive the TV layout too.
 
 mod device;
+#[cfg(target_os = "linux")]
+mod idle_inhibit;
+#[cfg(target_os = "linux")]
+mod linux;
 mod media_session;
 mod profile;
 pub(crate) mod text_input;
@@ -36,8 +40,18 @@ pub struct Host {
 impl Host {
     #[must_use]
     pub fn desktop() -> Self {
-        Self { profile: Profile::desktop(), device: Arc::new(NoDevice), player: None }
+        Self { profile: Profile::desktop(), device: desktop_device(), player: None }
     }
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_device() -> Arc<dyn Device> {
+    Arc::new(linux::LinuxDevice::new())
+}
+
+#[cfg(not(target_os = "linux"))]
+fn desktop_device() -> Arc<dyn Device> {
+    Arc::new(NoDevice)
 }
 
 impl fmt::Debug for Host {
