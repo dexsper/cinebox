@@ -118,7 +118,7 @@ impl PersonScreen {
             return None;
         }
 
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         let db = svc.db.clone();
         let fresh = self.cache.disk.as_ref().is_some_and(|hit| hit.is_fresh(DETAILS_TTL));
 

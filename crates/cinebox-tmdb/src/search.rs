@@ -6,7 +6,7 @@ use serde::Deserialize;
 
 use crate::catalog_map::{CatalogListItem, catalog_items_from, person_items_from};
 use crate::home::{CatalogPage, MAX_ROW_ITEMS, page_bounds};
-use crate::{API_BASE, Error, send_json};
+use crate::{Api, Error, send_json};
 
 /// Which TMDB search endpoint to hit.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,7 +62,7 @@ struct ListResponse {
 ///
 /// Empty key, HTTP client build failure, or a TMDB HTTP/JSON error.
 pub(crate) async fn fetch_search_page(
-    api_key: &str,
+    api: &Api,
     search: SearchQuery<'_>,
     language: Option<&str>,
     net: &NetConfig,
@@ -73,7 +73,7 @@ pub(crate) async fn fetch_search_page(
         return Ok(CatalogPage { items: Vec::new(), page, total_pages: 1 });
     }
 
-    let parsed = fetch_list(api_key, search, language, net).await?;
+    let parsed = fetch_list(api, search, language, net).await?;
     let raw = parsed.results.unwrap_or_default();
     let items = match kind {
         SearchKind::Person => person_items_from(raw, MAX_ROW_ITEMS),
@@ -88,7 +88,7 @@ pub(crate) async fn fetch_search_page(
 /// First-page movie or show results for `search` with their original titles. A person search and an empty
 /// query find nothing.
 pub(crate) async fn fetch_title_matches(
-    api_key: &str,
+    api: &Api,
     search: SearchQuery<'_>,
     language: Option<&str>,
     net: &NetConfig,
@@ -99,7 +99,7 @@ pub(crate) async fn fetch_title_matches(
         return Ok(Vec::new());
     }
 
-    let parsed = fetch_list(api_key, search, language, net).await?;
+    let parsed = fetch_list(api, search, language, net).await?;
     let raw = parsed.results.unwrap_or_default();
     let mut matches = Vec::new();
     for row in raw {
@@ -115,20 +115,18 @@ pub(crate) async fn fetch_title_matches(
 }
 
 async fn fetch_list(
-    api_key: &str,
+    api: &Api,
     search: SearchQuery<'_>,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<ListResponse, Error> {
-    let api_key = crate::prepare_api_key(api_key)?.to_owned();
     let page_s = search.page.max(1).to_string();
-    let url = format!("{API_BASE}/{}", search.kind.path());
+    let url = api.url(search.kind.path());
     let language = language.filter(|s| !s.is_empty()).map(str::to_owned);
     let query = search.text.trim().to_owned();
 
     send_json(net, |client| {
-        let mut request = client.get(&url).timeout(std::time::Duration::from_secs(20)).query(&[
-            ("api_key", api_key.as_str()),
+        let mut request = api.get(client, &url).timeout(std::time::Duration::from_secs(20)).query(&[
             ("query", query.as_str()),
             ("page", page_s.as_str()),
             ("include_adult", "false"),
@@ -147,11 +145,15 @@ async fn fetch_list(
 mod tests {
     use super::*;
 
+    fn keyless() -> Api {
+        Api::new("", None).expect("an api without a key has nothing to reject")
+    }
+
     #[tokio::test]
     async fn empty_query_skips_network() {
         let net = NetConfig::direct();
         let search = SearchQuery { text: "  ", kind: SearchKind::Movie, page: 1 };
-        let result = fetch_search_page("key", search, None, &net).await;
+        let result = fetch_search_page(&keyless(), search, None, &net).await;
         let Ok(page) = result else {
             panic!("empty query should skip the network");
         };
@@ -167,8 +169,8 @@ mod tests {
         let people = SearchQuery { text: "Dune", kind: SearchKind::Person, page: 1 };
         let empty = SearchQuery { text: " ", kind: SearchKind::Tv, page: 1 };
 
-        let found_people = fetch_title_matches("key", people, None, &net).await;
-        let found_empty = fetch_title_matches("key", empty, None, &net).await;
+        let found_people = fetch_title_matches(&keyless(), people, None, &net).await;
+        let found_empty = fetch_title_matches(&keyless(), empty, None, &net).await;
 
         assert!(found_people.is_ok_and(|found| found.is_empty()));
         assert!(found_empty.is_ok_and(|found| found.is_empty()));

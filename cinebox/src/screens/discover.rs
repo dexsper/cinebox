@@ -178,7 +178,7 @@ impl DiscoverScreen {
         }
 
         if out.is_page_wanted {
-            let tmdb = jobs::TmdbCtx::from(&svc.settings);
+            let tmdb = svc.tmdb_ctx();
             let query = self.filters.query(section);
             self.grid.request(move |page| jobs::load_discover_page(tmdb, query, page));
         }

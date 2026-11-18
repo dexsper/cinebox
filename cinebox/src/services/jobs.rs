@@ -11,11 +11,14 @@ pub(crate) use catalog::{
     cached_section, load_catalog_page, load_discover_page, load_home, load_media, load_person, load_search_page,
     load_section,
 };
-pub(crate) use health::{ping_parser, ping_tmdb, ping_torrserver, speed_test};
+pub(crate) use health::{ping_parser, ping_tmdb, ping_torrserver, probe_tmdb_proxy, speed_test};
 pub(crate) use skip::{fetch_skip_choices, fetch_skip_segments, save_skip_choice, skip_cache_id};
 pub(crate) use torrents::{OpenMagnet, StreamFile, load_torrents, open_magnet, wait_stream};
 pub(crate) use torrserver_sync::{SYNC_INTERVAL, SyncOutcome, sync_from_server};
 pub(crate) use youtube::resolve_youtube;
+
+use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 use cinebox_core::{MediaKind, ParserKind, Settings, TmdbId};
 use cinebox_net::NetConfig;
@@ -58,20 +61,72 @@ fn usable_doh_url(url: &str) -> String {
     String::new()
 }
 
+/// Raised by a TMDB job when the proxy refused a request sent without a key, taken by the app once a frame.
+#[derive(Clone, Debug, Default)]
+pub(crate) struct KeylessRefusal(Arc<AtomicBool>);
+
+impl KeylessRefusal {
+    // Relaxed: the flag guards no other data, and a refusal seen a frame late changes nothing.
+    fn raise(&self) {
+        self.0.store(true, Ordering::Relaxed);
+    }
+
+    /// Whether a refusal came in since the last call.
+    pub(crate) fn take(&self) -> bool {
+        self.0.swap(false, Ordering::Relaxed)
+    }
+}
+
 /// Narrow snapshot of the TMDB settings a job needs.
 #[derive(Clone)]
 pub(crate) struct TmdbCtx {
-    pub api_key: String,
+    /// `Err` is why the key cannot be sent; a job reports it once it needs TMDB.
+    pub api: Result<cinebox_tmdb::Api, cinebox_tmdb::KeyError>,
+
     pub language: &'static str,
+
     pub net: NetConfig,
+
+    /// Set while requests go without a key, so that a 401 can tell the app the proxy wants one now.
+    refusal: Option<KeylessRefusal>,
 }
 
-impl From<&Settings> for TmdbCtx {
-    fn from(settings: &Settings) -> Self {
+impl TmdbCtx {
+    pub(crate) fn new(settings: &Settings, refusal: &KeylessRefusal) -> Self {
+        let tmdb = &settings.tmdb;
+        let key = (!tmdb.keyless).then(|| tmdb.api_key.expose());
+        let base = cinebox_tmdb::api_base(&tmdb.proxy_url);
+
         Self {
-            api_key: settings.tmdb.api_key.expose().to_owned(),
+            api: cinebox_tmdb::Api::new(&base, key),
             language: settings.general.language.tmdb_code(),
             net: net_config(settings),
+            refusal: tmdb.keyless.then(|| refusal.clone()),
+        }
+    }
+
+    pub(crate) fn api(&self) -> Result<&cinebox_tmdb::Api, cinebox_tmdb::Error> {
+        self.api.as_ref().map_err(|error| cinebox_tmdb::Error::from(*error))
+    }
+
+    /// Passes `result` through; a keyless request the server refused raises the refusal.
+    pub(crate) fn note<T>(&self, result: Result<T, cinebox_tmdb::Error>) -> Result<T, cinebox_tmdb::Error> {
+        let is_refused = matches!(result, Err(cinebox_tmdb::Error::Unauthorized));
+        if is_refused && let Some(refusal) = &self.refusal {
+            refusal.raise();
+        }
+
+        result
+    }
+
+    /// Like [`Self::note`], for shelves that keep their failure as text.
+    pub(crate) fn note_shelf_errors<'a>(&self, errors: impl IntoIterator<Item = Option<&'a str>>) {
+        let Some(refusal) = &self.refusal else { return };
+
+        let refused = cinebox_tmdb::Error::Unauthorized.to_string();
+        let mut texts = errors.into_iter().flatten();
+        if texts.any(|text| text == refused) {
+            refusal.raise();
         }
     }
 }

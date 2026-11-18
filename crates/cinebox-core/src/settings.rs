@@ -424,7 +424,14 @@ impl TorrServerSettings {
 #[serde(default)]
 pub struct TmdbSettings {
     pub api_key: SecretString,
+
     pub poster_size: PosterSize,
+
+    /// Root of a `cinebox-tmdb-proxy` such as `https://tmdb.example.com`. Empty means the official TMDB.
+    pub proxy_url: String,
+
+    /// The proxy at `proxy_url` supplies its own key, as its last `/info` answer said.
+    pub keyless: bool,
 }
 
 /// All settings categories from the ТЗ.

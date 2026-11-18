@@ -199,7 +199,7 @@ impl SearchScreen {
     }
 
     fn start_load(&mut self, svc: &Services) {
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         let query = self.query.clone();
         let kind = self.tab.kind();
 

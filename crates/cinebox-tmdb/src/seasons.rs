@@ -5,7 +5,7 @@ use cinebox_net::NetConfig;
 use serde::{Deserialize, Serialize};
 
 use crate::episode_groups::{Renumber, digital_numbering};
-use crate::{API_BASE, Error, prepare_api_key, send_json};
+use crate::{Api, Error, send_json};
 
 /// One episode from a season payload.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -44,48 +44,41 @@ struct EpisodeBody {
 ///
 /// When TMDB lacks one of the seasons, the release is taken to count seasons
 /// the way the show's Digital episode group does, and every season is
-/// renumbered through it.
-///
-/// # Errors
-///
-/// Empty key. A failed season is logged and skipped instead of failing the
-/// whole batch.
+/// renumbered through it. A failed season is logged and skipped instead of failing the whole batch.
 pub(crate) async fn fetch_season_episodes(
-    api_key: &str,
+    api: &Api,
     tv_id: TmdbId,
     seasons: &[u32],
     language: Option<&str>,
     net: &NetConfig,
-) -> Result<Vec<SeasonEpisode>, Error> {
-    let api_key = prepare_api_key(api_key)?;
-
+) -> Vec<SeasonEpisode> {
     let mut wanted: Vec<u32> = seasons.iter().copied().filter(|s| *s > 0).collect();
     wanted.sort_unstable();
     wanted.dedup();
 
-    let results = fetch_seasons(net, api_key, tv_id, &wanted, language).await;
+    let results = fetch_seasons(net, api, tv_id, &wanted, language).await;
 
     let is_missing = results.iter().any(|(_, result)| matches!(result, Err(Error::Http(404))));
 
     if is_missing {
-        match regrouped(net, api_key, tv_id, &wanted, language).await {
-            Ok(Some(episodes)) => return Ok(episodes),
+        match regrouped(net, api, tv_id, &wanted, language).await {
+            Ok(Some(episodes)) => return episodes,
             Ok(None) => {}
             Err(error) => tracing::warn!(%error, "tmdb episode group fetch failed"),
         }
     }
 
-    Ok(fetched_episodes(results))
+    fetched_episodes(results)
 }
 
 async fn fetch_seasons(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     tv_id: TmdbId,
     seasons: &[u32],
     language: Option<&str>,
 ) -> Vec<(u32, Result<Vec<SeasonEpisode>, Error>)> {
-    let fetches = seasons.iter().map(|season| fetch_one_season(net, api_key, tv_id, *season, language));
+    let fetches = seasons.iter().map(|season| fetch_one_season(net, api, tv_id, *season, language));
 
     let results = futures_util::future::join_all(fetches).await;
     seasons.iter().copied().zip(results).collect()
@@ -106,12 +99,12 @@ fn fetched_episodes(results: Vec<(u32, Result<Vec<SeasonEpisode>, Error>)>) -> V
 
 async fn regrouped(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     tv_id: TmdbId,
     wanted: &[u32],
     language: Option<&str>,
 ) -> Result<Option<Vec<SeasonEpisode>>, Error> {
-    let Some(numbering) = digital_numbering(net, api_key, tv_id, wanted).await? else {
+    let Some(numbering) = digital_numbering(net, api, tv_id, wanted).await? else {
         return Ok(None);
     };
 
@@ -121,7 +114,7 @@ async fn regrouped(
     tmdb_seasons.dedup();
 
     // Names and stills come from the seasons, not the group: TMDB never translates a group payload.
-    let results = fetch_seasons(net, api_key, tv_id, &tmdb_seasons, language).await;
+    let results = fetch_seasons(net, api, tv_id, &tmdb_seasons, language).await;
     let catalog = fetched_episodes(results);
 
     Ok(Some(renumbered(&numbering, &catalog)))
@@ -144,14 +137,14 @@ fn renumbered(numbering: &[Renumber], catalog: &[SeasonEpisode]) -> Vec<SeasonEp
 
 async fn fetch_one_season(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     tv_id: TmdbId,
     season: u32,
     language: Option<&str>,
 ) -> Result<Vec<SeasonEpisode>, Error> {
-    let url = format!("{API_BASE}/tv/{}/season/{season}", tv_id.get());
+    let url = api.url(&format!("tv/{}/season/{season}", tv_id.get()));
     let body: SeasonBody = send_json(net, |client| {
-        let mut request = client.get(&url).timeout(std::time::Duration::from_secs(25)).query(&[("api_key", api_key)]);
+        let mut request = api.get(client, &url).timeout(std::time::Duration::from_secs(25));
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
             request = request.query(&[("language", language)]);

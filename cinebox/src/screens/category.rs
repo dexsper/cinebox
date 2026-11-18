@@ -60,7 +60,7 @@ impl CategoryScreen {
         let out = self.grid.ui(ui, svc, theme, view);
 
         if out.is_page_wanted {
-            let tmdb = jobs::TmdbCtx::from(&svc.settings);
+            let tmdb = svc.tmdb_ctx();
             self.grid.request(move |page| jobs::load_catalog_page(tmdb, id, page));
         }
 

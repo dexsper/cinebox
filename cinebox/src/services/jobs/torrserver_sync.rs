@@ -132,7 +132,8 @@ impl<'a> SyncPass<'a> {
             for kind in kinds {
                 let query = SearchQuery { text: name, kind: *kind, page: 1 };
                 let language = Some(self.tmdb.language);
-                let found = fetch_title_matches(&self.tmdb.api_key, query, language, &self.tmdb.net).await?;
+                let fetched = fetch_title_matches(self.tmdb.api()?, query, language, &self.tmdb.net).await;
+                let found = self.tmdb.note(fetched)?;
 
                 if let Some(title) = found.iter().find(|found| is_same_title(found, name, info.year)) {
                     return Ok(Some(Some((title.item.kind, title.item.id))));
@@ -242,8 +243,8 @@ pub(crate) async fn sync_from_server(
 ) -> Result<SyncOutcome, JobError> {
     let Some(db) = db.filter(|_| torr.sync_history) else { return Ok(SyncOutcome::default()) };
 
-    // Titles are named through TMDB; without a key the home screen asks for one first.
-    if tmdb.api_key.is_empty() {
+    // Titles are named through TMDB; without a usable key the home screen asks for one first.
+    if tmdb.api.is_err() {
         return Ok(SyncOutcome::default());
     }
 
@@ -345,6 +346,7 @@ mod tests {
 
     use super::*;
     use crate::services::db_block_on;
+    use crate::services::jobs::KeylessRefusal;
 
     fn found(kind: MediaKind, title: &str, original: Option<&str>, year: u16) -> TitleMatch {
         let item = CatalogItem {
@@ -417,7 +419,8 @@ mod tests {
         settings.tmdb.api_key = cinebox_core::SecretString::from("0123456789abcdef0123456789abcdef");
         let db = Arc::new(db_block_on(Store::memory())?);
 
-        let outcome = db_block_on(sync_from_server(TorrCtx::from(&settings), TmdbCtx::from(&settings), Some(db)))?;
+        let tmdb = TmdbCtx::new(&settings, &KeylessRefusal::default());
+        let outcome = db_block_on(sync_from_server(TorrCtx::from(&settings), tmdb, Some(db)))?;
 
         assert!(!outcome.changed);
         assert_eq!(any.calls(), 0);

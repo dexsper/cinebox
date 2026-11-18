@@ -4,7 +4,10 @@ mod catalog;
 mod controls;
 mod speed;
 
+use std::convert::Infallible;
+
 use cinebox_core::{HomeRowId, ParserKind, PosterSize, QualityBand, SecretString, UiLanguage};
+use cinebox_tmdb::ProxyInfo;
 use egui::Ui;
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_KEY, ICON_NETWORK_PING, ICON_SEARCH};
@@ -13,7 +16,7 @@ use rust_i18n::t;
 use crate::app::nav::{NavAction, SettingsPage};
 use crate::services::Services;
 use crate::services::jobs::{self, JobError};
-use crate::services::settings_input::changed_value;
+use crate::services::settings_input::{adopt_proxy_info, changed_value};
 use crate::theme::Theme;
 use crate::widgets::combo::Choices;
 use crate::widgets::drawer::Overlay;
@@ -21,8 +24,8 @@ use crate::widgets::{focus, scroll};
 use catalog::{CategoryId, Check, Field, MultiSelectId, SelectId, catalog, category};
 use controls::{
     Action, Labeled, TextRow, category_row, clear_cache_row, drawer_title, error_line, field_warning,
-    multiselect_chip_row, nav_header, probe_row, secret_row, select_row, select_row_with, speed_test_row, text_row,
-    toggle_row, visibility_chip_row, wizard_row,
+    multiselect_chip_row, nav_header, probe_row, probe_spinner, secret_row, select_row, select_row_with,
+    speed_test_row, text_row, toggle_row, visibility_chip_row, wizard_row,
 };
 use speed::SpeedMeter;
 
@@ -34,6 +37,8 @@ pub(crate) struct SettingsScreen {
     torr: Bind<String, JobError>,
     parser: Bind<String, JobError>,
     tmdb: Bind<String, JobError>,
+    /// What the server at a newly committed API address says about itself; its answer lands in `tmdb`.
+    proxy: Bind<Option<ProxyInfo>, Infallible>,
     speed: Bind<(), JobError>,
     speed_meter: SpeedMeter,
     wizard_requested: bool,
@@ -48,6 +53,7 @@ impl Default for SettingsScreen {
             torr: Bind::new(true),
             parser: Bind::new(true),
             tmdb: Bind::new(true),
+            proxy: Bind::new(true),
             speed: Bind::new(true),
             speed_meter: SpeedMeter::new(),
             wizard_requested: false,
@@ -100,6 +106,8 @@ impl SettingsScreen {
 
     /// Returns navigation the drawer asks for (the setup wizard).
     pub(crate) fn ui(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) -> Option<NavAction> {
+        self.take_proxy_answer(svc);
+
         let now = ui.input(|i| i.time);
         if !self.overlay.is_blocking(now) {
             self.category = None;
@@ -118,6 +126,27 @@ impl SettingsScreen {
 
     fn leave_category(&mut self) {
         self.left_category = self.category.take();
+    }
+
+    /// Asks the server at the committed proxy address whether it is a Cinebox proxy and needs a key.
+    fn probe_proxy(&mut self, svc: &Services) {
+        let proxy_url = svc.settings.tmdb.proxy_url.clone();
+        let net = jobs::net_config(&svc.settings);
+
+        self.tmdb.clear();
+        self.proxy.refresh(async move { Ok(jobs::probe_tmdb_proxy(proxy_url, net).await) });
+    }
+
+    /// Applied even with the drawer closed, so that the gate follows the answer.
+    fn take_proxy_answer(&mut self, svc: &mut Services) {
+        let Some(info) = self.proxy.take_ok() else { return };
+
+        adopt_proxy_info(&mut svc.settings.tmdb, info.as_ref());
+        svc.persist();
+
+        let Some(info) = info else { return };
+
+        self.tmdb.fill(Ok(proxy_note(&info)));
     }
 
     fn paint_body(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
@@ -165,6 +194,7 @@ impl SettingsScreen {
         paint_errors(ui, svc, theme);
         ui.add_space(8.0);
 
+        let proxy_url = (id == CategoryId::Tmdb).then(|| svc.settings.tmdb.proxy_url.clone());
         let mut persist = false;
         scroll::vertical(ui, ("settings-fields", cat.id.as_key()), |ui| {
             ui.spacing_mut().item_spacing.y = 10.0;
@@ -173,8 +203,13 @@ impl SettingsScreen {
             }
         });
 
-        if persist {
-            svc.persist();
+        if !persist {
+            return;
+        }
+
+        svc.persist();
+        if proxy_url.is_some_and(|before| before != svc.settings.tmdb.proxy_url) {
+            self.probe_proxy(svc);
         }
     }
 
@@ -232,6 +267,13 @@ impl SettingsScreen {
 
                 self.paint_field(ui, svc, theme, field)
             }
+            Field::When { visible, field } => {
+                if !visible(&svc.settings) {
+                    return false;
+                }
+
+                self.paint_field(ui, svc, theme, field)
+            }
             Field::ProbeParser => {
                 let parser = jobs::ParserCtx::from(&svc.settings);
                 let label = t!("settings.test_parser");
@@ -247,11 +289,14 @@ impl SettingsScreen {
                 false
             }
             Field::ProbeTmdb => {
-                let tmdb = jobs::TmdbCtx::from(&svc.settings);
+                let tmdb = svc.tmdb_ctx();
                 let db = svc.db.clone();
                 let label = t!("settings.check_api_key");
                 let action = Action { icon: ICON_KEY, label: label.as_ref() };
                 probe_row(ui, theme, action, &mut self.tmdb, || jobs::ping_tmdb(tmdb, db));
+                if self.proxy.is_pending() {
+                    probe_spinner(ui, theme);
+                }
                 false
             }
             Field::SpeedTest => {
@@ -292,6 +337,15 @@ fn paint_toggle(ui: &mut Ui, svc: &mut Services, theme: &Theme, field: &Field) -
 
     set(&mut svc.settings, value);
     true
+}
+
+fn proxy_note(info: &ProxyInfo) -> String {
+    let version = info.version.as_str();
+    if info.key_required {
+        return t!("settings.tmdb_proxy_with_key", version = version).into_owned();
+    }
+
+    t!("settings.tmdb_proxy_keyless", version = version).into_owned()
 }
 
 fn show_check(ui: &mut Ui, theme: &Theme, check: Option<Check>, value: &str) {

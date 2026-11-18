@@ -463,7 +463,7 @@ impl TorrentsScreen {
         state.pick_gen += 1;
         state.files = FilesPane::Loading;
         let torr = jobs::TorrCtx::from(&svc.settings);
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         let movie = state.movie.clone();
         let target = jobs::OpenTarget { kind: state.kind, id: state.id, runtime_minutes: state.runtime_minutes };
         let request = jobs::OpenMagnet { spec, movie, target };

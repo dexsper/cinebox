@@ -8,9 +8,8 @@ use serde::Deserialize;
 use crate::catalog_map::{CatalogListItem, catalog_items_from};
 use crate::discover::{Date, DiscoverQuery};
 use crate::shelves::{ShelfId, ShelfSource, SourcePage, fetch_source_page};
-use crate::{Error, send_json};
+use crate::{Api, Error, send_json};
 
-const API_BASE: &str = crate::API_BASE;
 pub const MAX_ROW_ITEMS: usize = 20;
 
 /// One TMDB list page for a shelf.
@@ -58,20 +57,20 @@ pub(crate) fn page_bounds(
 
 pub(crate) async fn fetch_list(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     language: Option<&str>,
     request: &ListRequest<'_>,
     page: u32,
 ) -> Result<CatalogPage, Error> {
-    let url = format!("{API_BASE}/{}", request.path);
+    let url = api.url(request.path);
     let page = page.max(1);
     let page_s = page.to_string();
 
     let parsed: ListResponse = send_json(net, |client| {
-        let mut builder = client
-            .get(&url)
+        let mut builder = api
+            .get(client, &url)
             .timeout(std::time::Duration::from_secs(20))
-            .query(&[("api_key", api_key), ("page", page_s.as_str())])
+            .query(&[("page", page_s.as_str())])
             .query(request.params);
 
         if let Some(language) = language.filter(|s| !s.is_empty()) {
@@ -97,29 +96,28 @@ pub(crate) async fn fetch_list(
     Ok(CatalogPage { items, page, total_pages })
 }
 
-async fn fetch_row(net: &NetConfig, api_key: &str, language: Option<&str>, id: HomeRowId, today: Date) -> HomeRow {
+async fn fetch_row(net: &NetConfig, api: &Api, language: Option<&str>, id: HomeRowId, today: Date) -> HomeRow {
     let source = ShelfId::Home(id).source(today);
     let request = SourcePage { source: &source, page: 1, today };
-    match fetch_source_page(net, api_key, language, request).await {
+    match fetch_source_page(net, api, language, request).await {
         Ok(page) => HomeRow { id, items: page.items, error: None },
         Err(error) => HomeRow { id, items: Vec::new(), error: Some(error.to_string()) },
     }
 }
 
-pub(crate) async fn fetch_home(api_key: &str, language: Option<&str>, net: &NetConfig) -> Result<HomeCatalog, Error> {
-    let api_key = crate::prepare_api_key(api_key)?;
+pub(crate) async fn fetch_home(api: &Api, language: Option<&str>, net: &NetConfig) -> HomeCatalog {
     let today = Date::today();
-    let futs = HomeRowId::REMOTE.into_iter().map(|id| fetch_row(net, api_key, language, id, today));
+    let futs = HomeRowId::REMOTE.into_iter().map(|id| fetch_row(net, api, language, id, today));
 
     let mut rows = Vec::with_capacity(HomeRowId::ALL.len());
     rows.extend(HomeRowId::LOCAL.into_iter().map(HomeRow::empty));
     rows.extend(join_all(futs).await);
 
-    Ok(HomeCatalog { rows })
+    HomeCatalog { rows }
 }
 
 pub(crate) async fn fetch_catalog_page(
-    api_key: &str,
+    api: &Api,
     id: ShelfId,
     page: u32,
     language: Option<&str>,
@@ -131,22 +129,20 @@ pub(crate) async fn fetch_catalog_page(
         return Ok(CatalogPage { items: Vec::new(), page: page.max(1), total_pages: 1 });
     }
 
-    let api_key = crate::prepare_api_key(api_key)?;
-    fetch_source_page(net, api_key, language, SourcePage { source: &source, page, today }).await
+    fetch_source_page(net, api, language, SourcePage { source: &source, page, today }).await
 }
 
 pub(crate) async fn fetch_discover_page(
-    api_key: &str,
+    api: &Api,
     query: &DiscoverQuery,
     page: u32,
     language: Option<&str>,
     net: &NetConfig,
 ) -> Result<CatalogPage, Error> {
-    let api_key = crate::prepare_api_key(api_key)?;
     let source = ShelfSource::Discover(Box::new(query.clone()));
     let request = SourcePage { source: &source, page, today: Date::today() };
 
-    fetch_source_page(net, api_key, language, request).await
+    fetch_source_page(net, api, language, request).await
 }
 
 #[cfg(test)]

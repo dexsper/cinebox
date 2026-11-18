@@ -224,7 +224,7 @@ impl MediaScreen {
             return None;
         }
 
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         let db = svc.db.clone();
         let cache = self.cache.disk.as_ref();
         let fresh = cache.is_some_and(|hit| hit.is_fresh(media_ttl(&hit.value)));

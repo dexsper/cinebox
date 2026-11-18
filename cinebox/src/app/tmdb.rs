@@ -12,6 +12,8 @@ use crate::services::settings_input::tmdb_key_hint;
 /// The settings TMDB data depends on, as of the last sync.
 pub(super) struct TmdbView {
     api_key: String,
+    proxy_url: String,
+    keyless: bool,
     language: UiLanguage,
     poster_size: PosterSize,
     net: cinebox_net::NetConfig,
@@ -20,9 +22,9 @@ pub(super) struct TmdbView {
 #[derive(Debug, PartialEq, Eq)]
 enum TmdbChange {
     None,
-    /// The key was removed: nothing can be fetched, cached TMDB data goes too.
+    /// The viewer removed the key: nothing can be fetched, cached TMDB data goes too.
     KeyCleared,
-    /// Key or network changed: refetch everything, images included.
+    /// Key, proxy address, keyless mode or network changed: refetch everything, images included.
     Catalog,
     Language,
     PosterSize,
@@ -30,24 +32,39 @@ enum TmdbChange {
 
 impl TmdbView {
     pub(super) fn from_settings(settings: &Settings) -> Self {
+        let tmdb = &settings.tmdb;
+
         Self {
-            api_key: settings.tmdb.api_key.expose().to_owned(),
+            api_key: tmdb.api_key.expose().to_owned(),
+            proxy_url: tmdb.proxy_url.clone(),
+            keyless: tmdb.keyless,
             language: settings.general.language,
-            poster_size: settings.tmdb.poster_size,
+            poster_size: tmdb.poster_size,
             net: jobs::net_config(settings),
         }
     }
 
     /// Checked every frame, so without cloning the api key.
     fn matches(&self, settings: &Settings) -> bool {
-        self.api_key == settings.tmdb.api_key.expose()
+        let tmdb = &settings.tmdb;
+
+        self.api_key == tmdb.api_key.expose()
+            && self.proxy_url == tmdb.proxy_url
+            && self.keyless == tmdb.keyless
             && self.language == settings.general.language
-            && self.poster_size == settings.tmdb.poster_size
+            && self.poster_size == tmdb.poster_size
             && self.net == jobs::net_config(settings)
     }
 
+    /// A key is set, or the proxy at `proxy_url` needs none.
+    fn has_access(&self) -> bool {
+        self.keyless || !self.api_key.is_empty()
+    }
+
     fn change_from(&self, next: &Self) -> TmdbChange {
-        let key_cleared = next.api_key.is_empty() && !self.api_key.is_empty();
+        // Only a key the viewer removed wipes the cache: a proxy that turns `keyless` off after a 401, or a new
+        // proxy address, leaves no key behind either, but the cached data is still good.
+        let key_cleared = !self.api_key.is_empty() && !next.has_access();
         if key_cleared {
             return TmdbChange::KeyCleared;
         }
@@ -55,15 +72,17 @@ impl TmdbView {
         // Without a usable key there is nothing to reload; a malformed one would
         // only earn a 401 and a flash of the error page.
         let key_unusable = next.api_key.is_empty() || tmdb_key_hint(&next.api_key).is_some();
-        if key_unusable {
+        if !next.keyless && key_unusable {
             return TmdbChange::None;
         }
 
-        let key_changed = next.api_key != self.api_key;
+        let key_changed = !next.keyless && next.api_key != self.api_key;
+        let source_changed = next.proxy_url != self.proxy_url;
+        let access_changed = key_changed || next.keyless != self.keyless;
         let language_changed = next.language != self.language;
         let net_changed = next.net != self.net;
 
-        if key_changed || net_changed {
+        if access_changed || source_changed || net_changed {
             return TmdbChange::Catalog;
         }
 
@@ -148,6 +167,8 @@ mod change_from {
     fn view(api_key: &str) -> TmdbView {
         TmdbView {
             api_key: api_key.to_owned(),
+            proxy_url: String::new(),
+            keyless: false,
             language: UiLanguage::English,
             poster_size: PosterSize::W500,
             net: cinebox_net::NetConfig::default(),

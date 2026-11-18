@@ -146,8 +146,9 @@ impl eframe::App for App {
 
         self.handle_device_events(ctx);
         let net = jobs::net_config(&self.services.settings);
-        self.services.images.poll(ctx, &net);
+        self.services.images.poll(ctx, &net, &self.services.settings.tmdb.proxy_url);
 
+        self.services.drop_refused_keyless();
         self.sync_tmdb();
         self.sync_torrserver(ctx);
 

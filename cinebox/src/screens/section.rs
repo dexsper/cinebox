@@ -46,7 +46,7 @@ impl SectionScreen {
         }
 
         let fresh = cache.disk.as_ref().is_some_and(|(_, fresh)| *fresh);
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         let store = svc.db.clone();
         let outcome = cache.resolve(fresh, move || jobs::load_section(tmdb, section, store));
 

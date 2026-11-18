@@ -8,7 +8,7 @@ use cinebox_net::NetConfig;
 use serde::Deserialize;
 use serde::de::DeserializeOwned;
 
-use crate::{API_BASE, Error, send_json};
+use crate::{Api, Error, send_json};
 
 const DIGITAL_GROUP_TYPE: u8 = 4;
 const REQUEST_TIMEOUT: Duration = Duration::from_secs(25);
@@ -65,7 +65,7 @@ struct GroupEpisode {
 /// season in `wanted`, part N standing for season N. `None` when no group fits.
 pub(crate) async fn digital_numbering(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     tv_id: TmdbId,
     wanted: &[u32],
 ) -> Result<Option<Vec<Renumber>>, Error> {
@@ -73,8 +73,8 @@ pub(crate) async fn digital_numbering(
         return Ok(None);
     };
 
-    let list_url = format!("{API_BASE}/tv/{}/episode_groups", tv_id.get());
-    let group_list: GroupListBody = fetch(net, api_key, &list_url).await?;
+    let list_url = api.url(&format!("tv/{}/episode_groups", tv_id.get()));
+    let group_list: GroupListBody = fetch(net, api, &list_url).await?;
 
     let groups = group_list.results.into_iter();
     let candidates = groups.filter(|group| may_cover(group, last_season));
@@ -85,8 +85,8 @@ pub(crate) async fn digital_numbering(
             continue;
         }
 
-        let group_url = format!("{API_BASE}/tv/episode_group/{}", group.id);
-        let body: GroupBody = fetch(net, api_key, &group_url).await?;
+        let group_url = api.url(&format!("tv/episode_group/{}", group.id));
+        let body: GroupBody = fetch(net, api, &group_url).await?;
 
         if let Some(found) = numbering(body, wanted) {
             return Ok(Some(found));
@@ -96,8 +96,8 @@ pub(crate) async fn digital_numbering(
     Ok(None)
 }
 
-async fn fetch<T: DeserializeOwned>(net: &NetConfig, api_key: &str, url: &str) -> Result<T, Error> {
-    send_json(net, |client| client.get(url).timeout(REQUEST_TIMEOUT).query(&[("api_key", api_key)])).await
+async fn fetch<T: DeserializeOwned>(net: &NetConfig, api: &Api, url: &str) -> Result<T, Error> {
+    send_json(net, |client| api.get(client, url).timeout(REQUEST_TIMEOUT)).await
 }
 
 fn may_cover(group: &GroupSummary, last: u32) -> bool {

@@ -5,6 +5,7 @@ use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 use cinebox_core::{CONFIG_TTL, CacheKey, KIND_CONFIG, Store};
+use cinebox_net::NetConfig;
 use tracing::warn;
 
 use super::{JobError, ParserCtx, TmdbCtx, TorrCtx};
@@ -22,7 +23,8 @@ pub(crate) async fn ping_parser(parser: ParserCtx) -> Result<String, JobError> {
 }
 
 pub(crate) async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<String, JobError> {
-    let fp = key_fingerprint(&tmdb.api_key);
+    let api = tmdb.api()?;
+    let fp = api_fingerprint(api);
     let cache_id = format!("ping:{fp:x}");
     if let Some(db) = &db {
         let cached = db.get_json::<String>(CacheKey { language: "", kind: KIND_CONFIG, id: &cache_id }).await;
@@ -34,7 +36,8 @@ pub(crate) async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<S
         }
     }
 
-    let result = cinebox_tmdb::check_api_key(&tmdb.api_key, &tmdb.net).await;
+    let checked = cinebox_tmdb::check_api_key(api, &tmdb.net).await;
+    let result = tmdb.note(checked);
 
     if let Ok(msg) = &result
         && let Some(db) = db
@@ -49,10 +52,16 @@ pub(crate) async fn ping_tmdb(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<S
     Ok(result?)
 }
 
-fn key_fingerprint(key: &str) -> u64 {
+/// Covers the base too, so that a key checked against one server is checked again against another.
+fn api_fingerprint(api: &cinebox_tmdb::Api) -> u64 {
     let mut hasher = DefaultHasher::new();
-    key.hash(&mut hasher);
+    api.hash(&mut hasher);
     hasher.finish()
+}
+
+/// Whether the server at `proxy_url` is a `cinebox-tmdb-proxy`, and if so whether it needs the viewer's key.
+pub(crate) async fn probe_tmdb_proxy(proxy_url: String, net: NetConfig) -> Option<cinebox_tmdb::ProxyInfo> {
+    cinebox_tmdb::probe_proxy(&proxy_url, &net).await
 }
 
 pub(crate) async fn speed_test(

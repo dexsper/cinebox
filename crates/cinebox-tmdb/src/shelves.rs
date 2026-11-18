@@ -5,10 +5,10 @@ use cinebox_net::NetConfig;
 use futures_util::future::join_all;
 use serde::{Deserialize, Serialize};
 
-use crate::Error;
 use crate::discover::{Date, DiscoverQuery, DiscoverSort};
 use crate::genres::{company, genre, keyword};
 use crate::home::{CatalogPage, ListRequest, fetch_list};
+use crate::{Api, Error};
 
 /// A themed shelf on a section hub.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -333,7 +333,7 @@ pub(crate) struct SourcePage<'a> {
 
 pub(crate) async fn fetch_source_page(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     language: Option<&str>,
     source_page: SourcePage<'_>,
 ) -> Result<CatalogPage, Error> {
@@ -343,7 +343,7 @@ pub(crate) async fn fetch_source_page(
         ShelfSource::Local => Ok(CatalogPage { items: Vec::new(), page: page.max(1), total_pages: 1 }),
         ShelfSource::List { path, kind } => {
             let request = ListRequest { path, params: &[], kind: *kind, exclude_language: None };
-            fetch_list(net, api_key, language, &request, page).await
+            fetch_list(net, api, language, &request, page).await
         }
         ShelfSource::Discover(query) => {
             let params = query.params(today);
@@ -353,14 +353,14 @@ pub(crate) async fn fetch_source_page(
                 kind: Some(query.kind),
                 exclude_language: query.exclude_original_language,
             };
-            fetch_list(net, api_key, language, &request, page).await
+            fetch_list(net, api, language, &request, page).await
         }
     }
 }
 
 pub(crate) async fn fetch_section(
     net: &NetConfig,
-    api_key: &str,
+    api: &Api,
     language: Option<&str>,
     section: Section,
 ) -> Vec<ShelfRow> {
@@ -370,7 +370,7 @@ pub(crate) async fn fetch_section(
         let source = id.source(today);
         let request = SourcePage { source: &source, page: 1, today };
 
-        match fetch_source_page(net, api_key, language, request).await {
+        match fetch_source_page(net, api, language, request).await {
             Ok(page) => ShelfRow { id, items: page.items, error: None },
             Err(error) => ShelfRow { id, items: Vec::new(), error: Some(error.to_string()) },
         }

@@ -1,5 +1,7 @@
 //! Bodies of the wizard steps and the small pieces they share.
 
+use std::borrow::Cow;
+
 use cinebox_core::{ParserKind, SecretString, Settings, UiLanguage};
 use egui::{Color32, Id, OpenUrl, RichText, Ui};
 use egui_async::Bind;
@@ -14,9 +16,9 @@ use crate::i18n::errors::UserError;
 use crate::platform::TextPurpose;
 use crate::screens::gate::{self, TmdbKeyProblem};
 use crate::services::Services;
-use crate::services::discovery::{Discovery, FoundParser};
+use crate::services::discovery::{Discovery, FoundParser, FoundProxy};
 use crate::services::jobs::{self, JobError};
-use crate::services::settings_input::{InputKind, changed_value};
+use crate::services::settings_input::{InputKind, adopt_proxy_info, changed_value, tmdb_url_ok};
 use crate::theme::Theme;
 use crate::widgets::button::{self, Opts};
 use crate::widgets::{field, focus, overscan};
@@ -30,7 +32,7 @@ const LINK_H: f32 = 30.0;
 pub(super) fn is_set(step: Step, settings: &Settings) -> bool {
     match step {
         Step::Language | Step::Screen | Step::Done => true,
-        Step::Tmdb => !settings.tmdb.api_key.is_empty(),
+        Step::Tmdb => settings.tmdb.keyless || !settings.tmdb.api_key.is_empty(),
         Step::Parser => !settings.parser.url.is_empty(),
         Step::TorrServer => !settings.torrserver.url.is_empty(),
     }
@@ -67,11 +69,25 @@ pub(super) fn screen(ui: &mut Ui, svc: &mut Services, theme: &Theme, arrived: bo
 
 impl OnboardingScreen {
     pub(super) fn tmdb_step(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
-        if link(ui, theme, ICON_OPEN_IN_NEW, &t!("gate.tmdb_get_key")) {
-            ui.ctx().open_url(OpenUrl::new_tab(gate::TMDB_KEY_URL));
+        self.take_proxy_answer(svc);
+        if let Some(source) = tmdb_source(ui, theme, &mut self.discovery, svc) {
+            self.use_tmdb_source(source, svc);
         }
 
-        ui.add_space(12.0);
+        ui.add_space(16.0);
+        section(ui, theme, &t!("wizard.manual"));
+        self.tmdb_proxy_url(ui, svc, theme);
+
+        if !svc.settings.tmdb.keyless {
+            ui.add_space(16.0);
+            self.tmdb_key(ui, svc, theme);
+        }
+
+        probe_status(ui, theme, &mut self.probes.tmdb);
+    }
+
+    /// The key field with its "Get key" link under it, so the link never reads as part of the proxy field.
+    fn tmdb_key(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
         let current = svc.settings.tmdb.api_key.expose().to_owned();
         let label = t!("settings.api_key");
         let spec = Input::verbatim(&label, "tmdb-key");
@@ -86,7 +102,70 @@ impl OnboardingScreen {
             key_problem(ui, theme, problem);
         }
 
-        probe_status(ui, theme, &mut self.probes.tmdb);
+        if link(ui, theme, ICON_OPEN_IN_NEW, &t!("gate.tmdb_get_key")) {
+            ui.ctx().open_url(OpenUrl::new_tab(gate::TMDB_KEY_URL));
+        }
+    }
+
+    /// A proxy of the viewer's own; the key field waits for its `/info` answer.
+    fn tmdb_proxy_url(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
+        let current = svc.settings.tmdb.proxy_url.clone();
+        let label = t!("settings.tmdb_proxy_url");
+        let spec = Input::url(&label, "tmdb-proxy-url", "https://tmdb.example.com");
+        let draft = edit(ui, theme, &spec, &current);
+        if let Some(url) = changed_value(draft, InputKind::TmdbUrl, &current) {
+            let tmdb = &mut svc.settings.tmdb;
+            tmdb.proxy_url = url;
+            tmdb.keyless = false;
+            svc.persist();
+            self.probe_proxy(svc);
+        }
+
+        if !tmdb_url_ok(&svc.settings.tmdb.proxy_url) {
+            ui.label(small(theme, t!("settings.tmdb_url_needs_https"), theme.err));
+        }
+    }
+
+    fn probe_proxy(&mut self, svc: &Services) {
+        if svc.settings.tmdb.proxy_url.is_empty() {
+            self.probes.proxy.clear();
+            self.check_tmdb(svc);
+            return;
+        }
+
+        let proxy_url = svc.settings.tmdb.proxy_url.clone();
+        let net = jobs::net_config(&svc.settings);
+
+        self.probes.tmdb.clear();
+        self.probes.proxy.refresh(async move { Ok(jobs::probe_tmdb_proxy(proxy_url, net).await) });
+    }
+
+    fn take_proxy_answer(&mut self, svc: &mut Services) {
+        let Some(info) = self.probes.proxy.take_ok() else { return };
+
+        adopt_proxy_info(&mut svc.settings.tmdb, info.as_ref());
+
+        svc.persist();
+        self.check_tmdb(svc);
+    }
+
+    fn use_tmdb_source(&mut self, source: TmdbSource, svc: &mut Services) {
+        self.probes.proxy.clear();
+        let tmdb = &mut svc.settings.tmdb;
+
+        match source {
+            TmdbSource::Official => {
+                tmdb.proxy_url.clear();
+                tmdb.keyless = false;
+            }
+            TmdbSource::Proxy(proxy) => {
+                tmdb.proxy_url = proxy.url;
+                tmdb.keyless = !proxy.key_required;
+            }
+        }
+
+        svc.persist();
+        self.check_tmdb(svc);
     }
 
     pub(super) fn parser_step(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme) {
@@ -241,7 +320,7 @@ impl OnboardingScreen {
             return;
         }
 
-        let tmdb = jobs::TmdbCtx::from(&svc.settings);
+        let tmdb = svc.tmdb_ctx();
         restart(&mut self.probes.tmdb, jobs::ping_tmdb(tmdb, svc.db.clone()));
     }
 
@@ -289,6 +368,45 @@ fn discovered<'a>(ui: &mut Ui, theme: &Theme, bind: &'a mut Bind<Discovery, JobE
     };
 
     Some(discovery)
+}
+
+/// Where the catalog comes from.
+enum TmdbSource {
+    Official,
+    Proxy(FoundProxy),
+}
+
+/// "Official TMDB" and the proxies discovery found; the one picked this frame.
+fn tmdb_source(ui: &mut Ui, theme: &Theme, bind: &mut Bind<Discovery, JobError>, svc: &Services) -> Option<TmdbSource> {
+    let proxy_url = svc.settings.tmdb.proxy_url.as_str();
+    let mut picked = None;
+    ui.spacing_mut().item_spacing.y = 8.0;
+
+    let official = t!("wizard.tmdb_official");
+    let official_note = t!("wizard.tmdb_official_note");
+    if card::choice(ui, theme, &official, Some(&official_note), proxy_url.is_empty()) {
+        picked = Some(TmdbSource::Official);
+    }
+
+    let Some(discovery) = discovered(ui, theme, bind) else { return picked };
+
+    for proxy in &discovery.proxies {
+        let selected = proxy_url == proxy.url;
+        let note = proxy_note(proxy);
+        if card::choice(ui, theme, bare_host(&proxy.url), Some(&note), selected) {
+            picked = Some(TmdbSource::Proxy(proxy.clone()));
+        }
+    }
+
+    picked
+}
+
+fn proxy_note(proxy: &FoundProxy) -> Cow<'static, str> {
+    if proxy.key_required {
+        return t!("wizard.tmdb_proxy_needs_key");
+    }
+
+    t!("wizard.tmdb_proxy_keyless")
 }
 
 fn found_parser(
@@ -496,4 +614,9 @@ fn icon_text(theme: &Theme, icon: MaterialIcon, color: Color32) -> RichText {
 fn host(url: &str) -> &str {
     let without_scheme = url.split("://").nth(1);
     without_scheme.unwrap_or(url)
+}
+
+/// `https://tmdb.example.com/3` → `tmdb.example.com`.
+fn bare_host(url: &str) -> &str {
+    host(url).split('/').next().unwrap_or_default()
 }

@@ -8,6 +8,9 @@
     { "kind": "jackett", "url": "http://127.0.0.1:9117" },
     { "kind": "prowlarr", "url": "http://127.0.0.1:9696" }
   ],
+  "tmdb": [
+    { "url": "https://tmdb.dexsper.ru" }
+  ],
   "torrserver": {
     "mdns_service": "_torrserver._tcp.local.",
     "fallback": ["http://127.0.0.1:8090"]

@@ -409,9 +409,14 @@ fn hit_on_top(ui: &mut Ui, rect: Rect, id: &str) -> egui::Response {
     crate::widgets::button::pointing(ui.interact(rect, ui.id().with(id), Sense::click()))
 }
 
+/// What a running check shows in place of its result.
+pub(super) fn probe_spinner(ui: &mut Ui, theme: &Theme) {
+    ui.add(egui::Spinner::new().color(theme.muted));
+}
+
 fn show_probe(ui: &mut Ui, bind: &mut Bind<String, JobError>, theme: &Theme) {
     if bind.is_pending() {
-        ui.add(egui::Spinner::new().color(theme.muted));
+        probe_spinner(ui, theme);
         return;
     }
 

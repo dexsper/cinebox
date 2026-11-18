@@ -37,6 +37,7 @@ pub(crate) struct Services {
     pub library: Library,
     watched: HashSet<(MediaKind, TmdbId)>,
     home_needs_refresh: bool,
+    keyless_refusal: jobs::KeylessRefusal,
     torr_sync: Bind<jobs::SyncOutcome, jobs::JobError>,
     torr_sync_at: Option<f64>,
 }
@@ -68,6 +69,7 @@ impl Services {
             library,
             watched,
             home_needs_refresh: false,
+            keyless_refusal: jobs::KeylessRefusal::default(),
             torr_sync: Bind::new(true),
             torr_sync_at: None,
         };
@@ -93,6 +95,7 @@ impl Services {
             library: Library::default(),
             watched: HashSet::new(),
             home_needs_refresh: false,
+            keyless_refusal: jobs::KeylessRefusal::default(),
             torr_sync: Bind::new(true),
             torr_sync_at: None,
         }
@@ -195,6 +198,23 @@ impl Services {
         std::mem::take(&mut self.home_needs_refresh)
     }
 
+    /// What a TMDB job needs from the current settings.
+    #[must_use]
+    pub(crate) fn tmdb_ctx(&self) -> jobs::TmdbCtx {
+        jobs::TmdbCtx::new(&self.settings, &self.keyless_refusal)
+    }
+
+    /// A proxy that refused a keyless request wants the viewer's key now: the key field and the gate come back.
+    pub(crate) fn drop_refused_keyless(&mut self) {
+        let is_refused = self.keyless_refusal.take();
+        if !is_refused || !self.settings.tmdb.keyless {
+            return;
+        }
+
+        self.settings.tmdb.keyless = false;
+        self.persist();
+    }
+
     /// Starts a sync with TorrServer when `sync_history` is on and none ran in the last `SYNC_INTERVAL`.
     /// `now` is the egui time.
     pub(crate) fn start_torrserver_sync(&mut self, now: f64) {
@@ -209,7 +229,7 @@ impl Services {
 
         self.torr_sync_at = Some(now);
         let torr = jobs::TorrCtx::from(&self.settings);
-        let tmdb = jobs::TmdbCtx::from(&self.settings);
+        let tmdb = self.tmdb_ctx();
         self.torr_sync.request(jobs::sync_from_server(torr, tmdb, self.db.clone()));
     }
 

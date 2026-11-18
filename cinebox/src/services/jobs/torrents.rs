@@ -194,9 +194,11 @@ async fn season_catalog(
     tmdb: &TmdbCtx,
     db: Option<Arc<Store>>,
 ) -> Vec<cinebox_tmdb::SeasonEpisode> {
-    if !serial || tmdb.api_key.is_empty() {
+    if !serial {
         return Vec::new();
     }
+
+    let Ok(api) = &tmdb.api else { return Vec::new() };
 
     let mut seasons: Vec<u32> = files.iter().filter_map(|file| parse_file_episode(&file.path, true).season).collect();
 
@@ -240,10 +242,7 @@ async fn season_catalog(
         return out;
     }
 
-    let fetched = fetch_season_episodes(&tmdb.api_key, id, &need, language, &tmdb.net)
-        .await
-        .inspect_err(|error| warn!(%error, "season episode catalog failed"))
-        .unwrap_or_default();
+    let fetched = fetch_season_episodes(api, id, &need, language, &tmdb.net).await;
 
     if let Some(db) = db {
         for season in need {

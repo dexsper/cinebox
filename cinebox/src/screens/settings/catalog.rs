@@ -4,7 +4,7 @@ use cinebox_core::{SecretString, Settings};
 use cinebox_player::Features;
 
 use crate::app::nav::SettingsPage;
-use crate::services::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint};
+use crate::services::settings_input::{InputKind, KeyHint, doh_url_ok, tmdb_key_hint, tmdb_url_ok};
 use egui_material_icons::MaterialIcon;
 use egui_material_icons::icons::{ICON_CLOUD, ICON_MOVIE, ICON_PLAY_CIRCLE, ICON_SEARCH, ICON_TUNE};
 
@@ -103,6 +103,11 @@ pub(super) enum Field {
         needs: fn(&Features) -> bool,
         field: &'static Self,
     },
+    /// `field`, while `visible` says the current settings give it a use.
+    When {
+        visible: fn(&Settings) -> bool,
+        field: &'static Self,
+    },
     ProbeParser,
     ProbeTorr,
     ProbeTmdb,
@@ -122,6 +127,10 @@ fn check_tmdb_key(key: &str) -> Option<&'static str> {
 
 fn check_doh_url(url: &str) -> Option<&'static str> {
     (!doh_url_ok(url)).then_some("settings.doh_needs_https")
+}
+
+fn check_tmdb_url(url: &str) -> Option<&'static str> {
+    (!tmdb_url_ok(url)).then_some("settings.tmdb_url_needs_https")
 }
 
 pub(super) fn catalog() -> &'static [Category] {
@@ -351,13 +360,26 @@ const TORRSERVER: &[Field] = &[
 ];
 
 const TMDB: &[Field] = &[
-    Field::Secret {
-        label: "settings.api_key",
-        hint: Some("settings.tmdb_api_key_hint"),
-        kind: InputKind::Key,
-        check: Some(check_tmdb_key),
-        get: |s| s.tmdb.api_key.clone(),
-        set: |s, v| s.tmdb.api_key = v,
+    Field::Text {
+        label: "settings.tmdb_proxy_url",
+        hint: Some("settings.tmdb_proxy_url_hint"),
+        placeholder: "https://tmdb.example.com",
+        kind: InputKind::Url,
+        check: Some(check_tmdb_url),
+        get: |s| s.tmdb.proxy_url.clone(),
+        set: |s, v| s.tmdb.proxy_url = v,
+    },
+    Field::When {
+        // A proxy that sends its own key has no use for the viewer's.
+        visible: |s| !s.tmdb.keyless,
+        field: &Field::Secret {
+            label: "settings.api_key",
+            hint: Some("settings.tmdb_api_key_hint"),
+            kind: InputKind::Key,
+            check: Some(check_tmdb_key),
+            get: |s| s.tmdb.api_key.clone(),
+            set: |s, v| s.tmdb.api_key = v,
+        },
     },
     Field::Select { id: "poster-size", label: "settings.poster_size", hint: None, which: SelectId::PosterSize },
     Field::ProbeTmdb,

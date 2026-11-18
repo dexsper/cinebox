@@ -57,6 +57,12 @@ struct CachedTexture {
     last_used: Cell<u64>,
 }
 
+/// How one download reaches the network. The URL itself stays canonical, as the disk cache keys on it.
+struct Source {
+    net: NetConfig,
+    images_base: String,
+}
+
 pub(crate) struct ImageCache {
     textures: HashMap<String, CachedTexture>,
     resident_bytes: usize,
@@ -64,6 +70,8 @@ pub(crate) struct ImageCache {
     pending: RefCell<HashSet<String>>,
     failed: HashSet<String>,
     net: NetConfig,
+    proxy_url: String,
+    images_base: String,
     tx: Sender<Loaded>,
     rx: Receiver<Loaded>,
     db: Option<Arc<Store>>,
@@ -85,15 +93,25 @@ impl ImageCache {
             pending: RefCell::new(HashSet::new()),
             failed: HashSet::new(),
             net: NetConfig::direct(),
+            proxy_url: String::new(),
+            images_base: String::new(),
             tx,
             rx,
             db,
         }
     }
 
-    pub(crate) fn poll(&mut self, ctx: &Context, net: &NetConfig) {
+    /// `proxy_url` is `TmdbSettings::proxy_url`, empty for the official image host.
+    pub(crate) fn poll(&mut self, ctx: &Context, net: &NetConfig, proxy_url: &str) {
         if self.net != *net {
             self.net = net.clone();
+        }
+
+        // Images that failed through the old host may load through the new one.
+        if self.proxy_url != proxy_url {
+            proxy_url.clone_into(&mut self.proxy_url);
+            self.images_base = cinebox_tmdb::images_base(proxy_url);
+            self.failed.clear();
         }
 
         let epoch = self.epoch.get();
@@ -172,12 +190,12 @@ impl ImageCache {
         }
 
         let url = url.to_owned();
-        let net = self.net.clone();
+        let source = Source { net: self.net.clone(), images_base: self.images_base.clone() };
         let tx = self.tx.clone();
         let db = self.db.clone();
 
         egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-            let result = load_image(url.clone(), soften, net, db).await;
+            let result = load_image(url.clone(), soften, source, db).await;
 
             // The cache was dropped while the image loaded, so nothing waits for it or needs a repaint.
             if tx.send((url, result)).is_err() {
@@ -294,7 +312,7 @@ fn request_repaint() {
 async fn load_image(
     url: String,
     soften: bool,
-    net: NetConfig,
+    source: Source,
     db: Option<Arc<Store>>,
 ) -> Result<ColorImage, ImageError> {
     let cached = match db.as_deref().zip(cache_key(&url, soften)) {
@@ -307,11 +325,11 @@ async fn load_image(
         return decode(&bytes);
     }
 
-    download(url, soften, net, db).await
+    download(url, soften, source, db).await
 }
 
-async fn download(url: String, soften: bool, net: NetConfig, db: Option<Arc<Store>>) -> Result<ColorImage, ImageError> {
-    let downloaded = cinebox_tmdb::download_image(&url, &net).await?;
+async fn download(url: String, soften: bool, source: Source, db: Option<Arc<Store>>) -> Result<ColorImage, ImageError> {
+    let downloaded = cinebox_tmdb::download_image(&url, &source.images_base, &source.net).await?;
     let bytes = if soften { soften_or_keep(downloaded) } else { downloaded };
 
     let Some((store, (key, path))) = db.as_deref().zip(cache_key(&url, soften)) else { return decode(&bytes) };

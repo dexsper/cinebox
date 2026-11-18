@@ -15,7 +15,7 @@ pub mod settings;
 
 pub use catalog::{
     CatalogItem, HomeCatalog, HomeRow, HomeRowId, normalize_tmdb_path, parse_tmdb_image_url, poster_paths,
-    tmdb_image_url, year_from_date,
+    rehost_image_url, tmdb_image_url, year_from_date,
 };
 pub use cinebox_typograf::{decode_entities, typograph};
 pub use db::{
@@ -29,7 +29,7 @@ pub use ids::{MediaKind, TmdbId};
 pub use library::{LibraryEntry, LibraryList, LibraryMark, ListStatus};
 pub use media::{CreditPerson, MediaDetails, PersonDetails, Trailer, decode_certification, format_money};
 pub use paths::AppDirs;
-pub use presets::{ParserPreset, ServicePresets, TorrPresets};
+pub use presets::{ParserPreset, ServicePresets, TmdbPreset, TorrPresets};
 pub use section::Section;
 pub use settings::{
     GeneralSettings, Overscan, ParserKind, ParserSettings, PlayerSettings, PosterSize, QualityBand, SecretString,

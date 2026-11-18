@@ -9,6 +9,7 @@
 use std::fs;
 use std::path::Path;
 
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Deserializer, Serialize};
 
 use crate::settings::ParserKind;
@@ -33,6 +34,15 @@ pub struct ServicePresets {
     pub parsers: Vec<ParserPreset>,
     #[serde(default)]
     pub torrserver: TorrPresets,
+    #[serde(default, deserialize_with = "skip_bad_entries")]
+    pub tmdb: Vec<TmdbPreset>,
+}
+
+/// A public TMDB caching proxy.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TmdbPreset {
+    /// Proxy root such as `https://tmdb.example.com`.
+    pub url: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -81,6 +91,7 @@ impl ServicePresets {
         }
 
         presets.parsers.retain(ParserPreset::is_usable);
+        presets.tmdb.retain(TmdbPreset::is_usable);
         Some(presets)
     }
 
@@ -107,7 +118,21 @@ impl ServicePresets {
             }
         }
 
+        for proxy in extra.tmdb {
+            let known = self.tmdb.iter().any(|known| known.url == proxy.url);
+            if !known {
+                self.tmdb.push(proxy);
+            }
+        }
+
         self
+    }
+}
+
+impl TmdbPreset {
+    /// Every proxy is reached over the internet, so it must use TLS.
+    fn is_usable(&self) -> bool {
+        self.url.starts_with("https://")
     }
 }
 
@@ -123,9 +148,10 @@ impl ParserPreset {
 }
 
 /// A malformed entry drops only itself, not the whole list.
-fn skip_bad_entries<'de, D>(deserializer: D) -> Result<Vec<ParserPreset>, D::Error>
+fn skip_bad_entries<'de, D, T>(deserializer: D) -> Result<Vec<T>, D::Error>
 where
     D: Deserializer<'de>,
+    T: DeserializeOwned,
 {
     let raw = Vec::<serde_json::Value>::deserialize(deserializer)?;
     let parsed = raw.into_iter().filter_map(parse_entry);
@@ -133,7 +159,7 @@ where
     Ok(parsed.collect())
 }
 
-fn parse_entry(value: serde_json::Value) -> Option<ParserPreset> {
+fn parse_entry<T: DeserializeOwned>(value: serde_json::Value) -> Option<T> {
     serde_json::from_value(value).ok()
 }
 
@@ -201,6 +227,7 @@ mod tests {
             version: 1,
             parsers: vec![base.parsers[0].clone(), mine],
             torrserver: TorrPresets::default(),
+            tmdb: Vec::new(),
         };
 
         let merged = base.merged_with(extra);

@@ -1,5 +1,7 @@
 //! Home catalog rows and tiles.
 
+use std::borrow::Cow;
+
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{MediaKind, TmdbId};
@@ -37,6 +39,22 @@ pub fn parse_tmdb_image_url(url: &str) -> Option<(String, String)> {
     }
 
     Some((size.to_owned(), format!("/{path}")))
+}
+
+/// Point a canonical `https://image.tmdb.org/t/p/...` URL at `base` (such as `https://proxy.example/t/p`).
+///
+/// An empty `base` or a URL that is not a canonical TMDB image comes back unchanged.
+#[must_use]
+pub fn rehost_image_url<'a>(url: &'a str, base: &str) -> Cow<'a, str> {
+    let base = base.trim().trim_end_matches('/');
+    if base.is_empty() {
+        return Cow::Borrowed(url);
+    }
+
+    let Some(rest) = url.strip_prefix(IMAGE_BASE) else { return Cow::Borrowed(url) };
+    let Some(rest) = rest.strip_prefix('/') else { return Cow::Borrowed(url) };
+
+    Cow::Owned(format!("{base}/{rest}"))
 }
 
 /// A home-screen shelf.

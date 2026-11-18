@@ -6,7 +6,9 @@ mod card;
 mod steps;
 
 use std::borrow::Cow;
+use std::convert::Infallible;
 
+use cinebox_tmdb::ProxyInfo;
 use egui::{Align, Context, Layout, RichText, Ui, vec2};
 use egui_async::Bind;
 use egui_material_icons::icons::{ICON_ARROW_BACK, ICON_ARROW_FORWARD, ICON_CLOSE};
@@ -86,13 +88,14 @@ enum WizardNav {
 /// One connection check per service, started when its address or key commits.
 struct Probes {
     tmdb: Bind<String, JobError>,
+    proxy: Bind<Option<ProxyInfo>, Infallible>,
     parser: Bind<String, JobError>,
     torr: Bind<String, JobError>,
 }
 
 impl Default for Probes {
     fn default() -> Self {
-        Self { tmdb: Bind::new(true), parser: Bind::new(true), torr: Bind::new(true) }
+        Self { tmdb: Bind::new(true), proxy: Bind::new(true), parser: Bind::new(true), torr: Bind::new(true) }
     }
 }
 
@@ -180,7 +183,7 @@ impl OnboardingScreen {
     fn card_contents(&mut self, ui: &mut Ui, svc: &mut Services, theme: &Theme, max_body_h: f32) -> Option<WizardNav> {
         let later = self.header(ui, theme);
         ui.add_space(16.0);
-        self.title(ui, theme);
+        self.title(ui, svc, theme);
         ui.add_space(20.0);
 
         egui::ScrollArea::vertical()
@@ -225,8 +228,8 @@ impl OnboardingScreen {
         later.then_some(WizardNav::Finish)
     }
 
-    fn title(&self, ui: &mut Ui, theme: &Theme) {
-        let (title, subtitle) = step_copy(self.step);
+    fn title(&self, ui: &mut Ui, svc: &Services, theme: &Theme) {
+        let (title, subtitle) = step_copy(self.step, svc);
         let title_font = theme.title_font(theme.text_display);
         ui.label(RichText::new(title).font(title_font).color(theme.title));
         ui.add_space(6.0);
@@ -302,15 +305,23 @@ impl OnboardingScreen {
     }
 }
 
-fn step_copy(step: Step) -> (Cow<'static, str>, Cow<'static, str>) {
+fn step_copy(step: Step, svc: &Services) -> (Cow<'static, str>, Cow<'static, str>) {
     match step {
         Step::Language => (t!("wizard.language_title"), t!("wizard.language_body")),
         Step::Screen => (t!("wizard.screen_title"), t!("wizard.screen_body")),
-        Step::Tmdb => (t!("wizard.tmdb_title"), t!("wizard.tmdb_body")),
+        Step::Tmdb => (t!("wizard.tmdb_title"), tmdb_body(svc)),
         Step::Parser => (t!("wizard.parser_title"), t!("wizard.parser_body")),
         Step::TorrServer => (t!("wizard.torr_title"), t!("wizard.torr_body")),
         Step::Done => (t!("wizard.done_title"), t!("wizard.done_body")),
     }
+}
+
+fn tmdb_body(svc: &Services) -> Cow<'static, str> {
+    if svc.settings.tmdb.keyless {
+        return t!("wizard.tmdb_body_keyless");
+    }
+
+    t!("wizard.tmdb_body")
 }
 
 fn discovery_ctx(svc: &Services) -> DiscoveryCtx {

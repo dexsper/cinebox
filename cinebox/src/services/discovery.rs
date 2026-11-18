@@ -1,16 +1,17 @@
-//! First-run discovery: which TorrServer and parser addresses answer right now.
+//! First-run discovery: which TorrServer, parser and TMDB proxy addresses answer right now.
 
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use cinebox_core::{CacheKey, KIND_CONFIG, ParserKind, ParserPreset, ServicePresets, Store, presets};
+use cinebox_core::{CacheKey, KIND_CONFIG, ParserKind, ParserPreset, ServicePresets, Store, TmdbPreset, presets};
 use cinebox_net::NetConfig;
 use cinebox_torrserver::FoundServer;
-use futures_util::future::{join, join_all};
+use futures_util::future::{join_all, join3};
 use tracing::warn;
 
 use crate::services::jobs::JobError;
+use crate::services::settings_input::normalize_url;
 
 const MDNS_WINDOW: Duration = Duration::from_secs(2);
 const PARSER_WAIT: Duration = Duration::from_secs(5);
@@ -30,10 +31,20 @@ pub(crate) struct FoundParser {
     pub latency_ms: u64,
 }
 
+/// A TMDB proxy from the presets that answered at `/info`, in preset order in [`Discovery::proxies`].
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) struct FoundProxy {
+    /// Proxy address as the settings store it.
+    pub url: String,
+    /// The proxy forwards the viewer's key instead of sending its own.
+    pub key_required: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Discovery {
     pub torrservers: Vec<FoundServer>,
     pub parsers: Vec<FoundParser>,
+    pub proxies: Vec<FoundProxy>,
 }
 
 /// Where discovery reads the preset list from.
@@ -52,9 +63,10 @@ pub(crate) async fn discover_services(ctx: DiscoveryCtx) -> Result<Discovery, Jo
 
     let servers = cinebox_torrserver::discover(&torr.mdns_service, &torr.fallback, MDNS_WINDOW);
     let parsers = probe_parsers(&presets.parsers, &ctx.net);
-    let (torrservers, parsers) = join(servers, parsers).await;
+    let proxies = probe_proxies(&presets.tmdb, &ctx.net);
+    let (torrservers, parsers, proxies) = join3(servers, parsers, proxies).await;
 
-    Ok(Discovery { torrservers, parsers })
+    Ok(Discovery { torrservers, parsers, proxies })
 }
 
 async fn load_presets(ctx: &DiscoveryCtx) -> ServicePresets {
@@ -148,4 +160,18 @@ async fn probe_parser(preset: &ParserPreset, net: &NetConfig) -> Option<FoundPar
         needs_key,
         latency_ms: u64::try_from(latency).unwrap_or(u64::MAX),
     })
+}
+
+async fn probe_proxies(presets: &[TmdbPreset], net: &NetConfig) -> Vec<FoundProxy> {
+    let probes = presets.iter().map(|preset| probe_proxy(preset, net));
+    let answers = join_all(probes).await;
+
+    answers.into_iter().flatten().collect()
+}
+
+async fn probe_proxy(preset: &TmdbPreset, net: &NetConfig) -> Option<FoundProxy> {
+    let url = normalize_url(&preset.url);
+    let info = cinebox_tmdb::probe_proxy(&url, net).await?;
+
+    Some(FoundProxy { url, key_required: info.key_required })
 }

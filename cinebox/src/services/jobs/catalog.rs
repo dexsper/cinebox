@@ -21,9 +21,9 @@ pub(crate) async fn load_catalog_page(
     page: u32,
 ) -> Result<cinebox_tmdb::CatalogPage, JobError> {
     let language = Some(tmdb.language);
-    let page = fetch_catalog_page(&tmdb.api_key, id, page, language, &tmdb.net).await?;
+    let fetched = fetch_catalog_page(tmdb.api()?, id, page, language, &tmdb.net).await;
 
-    Ok(page)
+    Ok(tmdb.note(fetched)?)
 }
 
 pub(crate) async fn load_discover_page(
@@ -32,9 +32,9 @@ pub(crate) async fn load_discover_page(
     page: u32,
 ) -> Result<cinebox_tmdb::CatalogPage, JobError> {
     let language = Some(tmdb.language);
-    let page = fetch_discover_page(&tmdb.api_key, &query, page, language, &tmdb.net).await?;
+    let fetched = fetch_discover_page(tmdb.api()?, &query, page, language, &tmdb.net).await;
 
-    Ok(page)
+    Ok(tmdb.note(fetched)?)
 }
 
 /// Section hub from disk. `fresh` is true when every remote shelf is within its TTL.
@@ -82,7 +82,8 @@ pub(crate) async fn load_section(
     db: Option<Arc<Store>>,
 ) -> Result<Vec<ShelfRow>, JobError> {
     let language = Some(tmdb.language);
-    let fetched = fetch_section(&tmdb.api_key, section, language, &tmdb.net).await?;
+    let fetched = fetch_section(tmdb.api()?, section, language, &tmdb.net).await;
+    tmdb.note_shelf_errors(fetched.iter().map(|row| row.error.as_deref()));
 
     let Some(db) = db else {
         return Ok(fetched);
@@ -146,12 +147,15 @@ pub(crate) async fn load_search_page(
     let language = Some(tmdb.language);
     let search = cinebox_tmdb::SearchQuery { text: &query, kind, page };
 
-    Ok(fetch_search_page(&tmdb.api_key, search, language, &tmdb.net).await?)
+    let fetched = fetch_search_page(tmdb.api()?, search, language, &tmdb.net).await;
+
+    Ok(tmdb.note(fetched)?)
 }
 
 pub(crate) async fn load_home(tmdb: TmdbCtx, db: Option<Arc<Store>>) -> Result<HomeCatalog, JobError> {
     let language = Some(tmdb.language);
-    let fetched = fetch_home(&tmdb.api_key, language, &tmdb.net).await?;
+    let fetched = fetch_home(tmdb.api()?, language, &tmdb.net).await;
+    tmdb.note_shelf_errors(fetched.rows.iter().map(|row| row.error.as_deref()));
 
     let Some(db) = db else {
         return Ok(fetched);
@@ -216,7 +220,8 @@ pub(crate) async fn load_media(
     db: Option<Arc<Store>>,
 ) -> Result<Box<MediaDetails>, JobError> {
     let language = Some(tmdb.language);
-    let mut details = fetch_media(&tmdb.api_key, kind, id, language, &tmdb.net).await?;
+    let fetched = fetch_media(tmdb.api()?, kind, id, language, &tmdb.net).await;
+    let mut details = tmdb.note(fetched)?;
 
     if let Some(db) = db {
         let lang = language_key(language);
@@ -239,7 +244,8 @@ pub(crate) async fn load_person(
     db: Option<Arc<Store>>,
 ) -> Result<Box<PersonDetails>, JobError> {
     let language = Some(tmdb.language);
-    let mut details = fetch_person(&tmdb.api_key, id, language, &tmdb.net).await?;
+    let fetched = fetch_person(tmdb.api()?, id, language, &tmdb.net).await;
+    let mut details = tmdb.note(fetched)?;
 
     if let Some(db) = db {
         let lang = language_key(language);

@@ -1,5 +1,10 @@
 //! Normalization and format checks applied when a settings field commits.
 
+use std::net::{Ipv4Addr, Ipv6Addr};
+
+use cinebox_core::settings::TmdbSettings;
+use cinebox_tmdb::ProxyInfo;
+
 /// How a committed text field is cleaned up before it reaches [`cinebox_core::Settings`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum InputKind {
@@ -32,6 +37,9 @@ pub(crate) enum KeyHint {
 }
 
 const TMDB_KEY_LEN: usize = 32;
+
+/// Names that only resolve on this machine or through mDNS on the local network.
+const LOCAL_SUFFIXES: [&str; 2] = [".localhost", ".local"];
 
 #[must_use]
 pub(crate) fn normalize(kind: InputKind, raw: &str) -> String {
@@ -99,6 +107,54 @@ pub(crate) fn tmdb_key_hint(key: &str) -> Option<KeyHint> {
 #[must_use]
 pub(crate) fn doh_url_ok(url: &str) -> bool {
     url.is_empty() || url.starts_with("https://")
+}
+
+/// A TMDB address goes over `https://`, or over `http://` only to a host on this machine or the local network.
+/// Empty means the official TMDB.
+#[must_use]
+pub(crate) fn tmdb_url_ok(url: &str) -> bool {
+    if url.is_empty() || url.starts_with("https://") {
+        return true;
+    }
+
+    let Some(rest) = url.strip_prefix("http://") else { return false };
+
+    is_local_host(url_host(rest))
+}
+
+/// The host of an address without its scheme: no user, port, path or IPv6 brackets.
+fn url_host(rest: &str) -> &str {
+    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
+    let host_port = authority.rsplit('@').next().unwrap_or_default();
+
+    if let Some(bracketed) = host_port.strip_prefix('[') {
+        return bracketed.split(']').next().unwrap_or_default();
+    }
+
+    host_port.split(':').next().unwrap_or_default()
+}
+
+fn is_local_host(host: &str) -> bool {
+    let host = host.to_ascii_lowercase();
+    let is_local_name = host == "localhost" || LOCAL_SUFFIXES.iter().any(|suffix| host.ends_with(suffix));
+    if is_local_name {
+        return true;
+    }
+
+    if let Ok(ip) = host.parse::<Ipv4Addr>() {
+        return ip.is_loopback() || ip.is_private();
+    }
+
+    if let Ok(ip) = host.parse::<Ipv6Addr>() {
+        return ip.is_loopback() || ip.is_unique_local();
+    }
+
+    false
+}
+
+/// Takes in what the server at `tmdb.proxy_url` said at `/info`; `None` means it is no Cinebox proxy.
+pub(crate) fn adopt_proxy_info(tmdb: &mut TmdbSettings, info: Option<&ProxyInfo>) {
+    tmdb.keyless = info.is_some_and(|info| !info.key_required);
 }
 
 #[cfg(test)]

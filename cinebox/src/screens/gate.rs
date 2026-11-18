@@ -24,6 +24,10 @@ pub(crate) enum TmdbKeyProblem {
 
 #[must_use]
 pub(crate) fn tmdb_key_problem(settings: &Settings) -> Option<TmdbKeyProblem> {
+    if settings.tmdb.keyless {
+        return None;
+    }
+
     let key = settings.tmdb.api_key.expose();
     if key.is_empty() {
         return Some(TmdbKeyProblem::Missing);
