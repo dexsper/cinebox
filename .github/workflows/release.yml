@@ -712,9 +712,244 @@ jobs:
           if-no-files-found: error
           retention-days: 14
 
+  proxy:
+    name: TMDB proxy ${{ matrix.name }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    strategy:
+      fail-fast: true
+      matrix:
+        include:
+          - name: Windows x64
+            target: x86_64-pc-windows-msvc
+            runner: windows-latest
+            suffix: windows-x64
+          - name: Linux x86_64
+            target: x86_64-unknown-linux-musl
+            runner: ubuntu-latest
+            suffix: linux-x86_64
+          - name: Linux aarch64
+            target: aarch64-unknown-linux-musl
+            runner: ubuntu-24.04-arm
+            suffix: linux-aarch64
+          # 32-bit Raspberry Pi OS, routers and TV boxes; no native runner, so zig links it.
+          - name: Linux armv7
+            target: armv7-unknown-linux-musleabihf
+            runner: ubuntu-latest
+            suffix: linux-armv7
+            zigbuild: true
+    defaults:
+      run:
+        shell: bash
+    env:
+      TARGET: ${{ matrix.target }}
+      CARGO_ZIGBUILD_VERSION: 0.23.4
+      ZIG_URL: https://ziglang.org/download/0.15.2/zig-x86_64-linux-0.15.2.tar.xz
+      ZIG_SHA256: 02aa270f183da276e5b5920b1dac44a63f1a49e55050ebde3aecc9eb82f93239
+    outputs:
+      # The same on every leg; publish appends each suffix.
+      name: ${{ steps.meta.outputs.name }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Read workspace metadata
+        id: meta
+        env:
+          SUFFIX: ${{ matrix.suffix }}
+        run: |
+          set -euo pipefail
+
+          field() {
+            local value
+            value="$(sed -n "s/^$1 = \"\([^\"]*\)\"/\1/p" Cargo.toml | head -n1)"
+            if [[ -z "$value" ]]; then
+              echo "Cargo.toml is missing $1" >&2
+              exit 1
+            fi
+            printf '%s' "$value"
+          }
+
+          version="$(field version)"
+          msrv="$(field rust-version)"
+          name="cinebox-tmdb-proxy-$version"
+          {
+            echo "version=$version"
+            echo "msrv=$msrv"
+            echo "name=$name"
+            echo "archive=$name-$SUFFIX"
+          } >> "$GITHUB_OUTPUT"
+
+          if [[ "$GITHUB_REF" != refs/tags/* ]]; then
+            exit 0
+          fi
+
+          if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
+            echo "Tag $GITHUB_REF_NAME does not match Cargo.toml version $version" >&2
+            exit 1
+          fi
+
+      - name: Install Rust ${{ steps.meta.outputs.msrv }}
+        uses: dtolnay/rust-toolchain@d1031067263f94b142dd6c0ce24c5eb9d02d52a0 # master
+        with:
+          toolchain: ${{ steps.meta.outputs.msrv }}
+          target: ${{ env.TARGET }}
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: ${{ matrix.target }}
+          cache-targets: false
+          cache-on-failure: true
+
+      # cc looks for a target-prefixed gcc that Ubuntu does not ship; musl-gcc is the one.
+      - name: Install musl-tools
+        if: runner.os == 'Linux' && !matrix.zigbuild
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends musl-tools
+          echo "CC_${TARGET//-/_}=musl-gcc" >> "$GITHUB_ENV"
+
+      - name: Install zig and cargo-zigbuild
+        if: matrix.zigbuild
+        run: |
+          set -euo pipefail
+          curl -fsSL --retry 3 -o "$RUNNER_TEMP/zig.tar.xz" "$ZIG_URL"
+          echo "$ZIG_SHA256  $RUNNER_TEMP/zig.tar.xz" | sha256sum --check --strict
+          mkdir -p "$RUNNER_TEMP/zig"
+          tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP/zig" --strip-components=1
+          echo "$RUNNER_TEMP/zig" >> "$GITHUB_PATH"
+          cargo install --locked cargo-zigbuild --version "$CARGO_ZIGBUILD_VERSION"
+
+      - name: Build
+        env:
+          ZIGBUILD: ${{ matrix.zigbuild }}
+        run: |
+          set -euo pipefail
+          build=build
+          if [[ "$ZIGBUILD" == "true" ]]; then
+            build=zigbuild
+          fi
+          cargo "$build" --locked --release -p cinebox-tmdb-proxy --target "$TARGET"
+
+      - name: Package zip
+        if: runner.os == 'Windows'
+        env:
+          ARCHIVE: ${{ steps.meta.outputs.archive }}
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+
+          $archive = $env:ARCHIVE
+          $exe = Join-Path "target" $env:TARGET "release" "cinebox-tmdb-proxy.exe"
+          if (-not (Test-Path $exe)) {
+            throw "cinebox-tmdb-proxy.exe was not built at $exe"
+          }
+
+          & $exe --version
+          if ($LASTEXITCODE -ne 0) {
+            throw "cinebox-tmdb-proxy.exe --version exited with $LASTEXITCODE"
+          }
+
+          $dist = Join-Path $pwd "dist"
+          $stage = Join-Path $dist $archive
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+
+          Copy-Item -Path $exe, "LICENSE", "packaging/tmdb-proxy/README.md" -Destination $stage
+
+          $zipName = "$archive.zip"
+          $zipPath = Join-Path $dist $zipName
+          if (Test-Path $zipPath) {
+            Remove-Item -Force $zipPath
+          }
+
+          $sevenZip = "7z"
+          if (-not (Get-Command 7z -ErrorAction SilentlyContinue)) {
+            $sevenZip = "C:\Program Files\7-Zip\7z.exe"
+          }
+
+          Push-Location $dist
+          & $sevenZip a -tzip $zipName $archive
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z exited with $LASTEXITCODE"
+          }
+
+          & $sevenZip t $zipName
+          if ($LASTEXITCODE -ne 0) {
+            throw "7z test failed with $LASTEXITCODE"
+          }
+
+          $listing = & $sevenZip l -ba $zipName
+          $hasExe = $listing | Where-Object { $_ -match "cinebox-tmdb-proxy\.exe$" }
+          if ($null -eq $hasExe) {
+            throw "zip is missing cinebox-tmdb-proxy.exe"
+          }
+
+          Pop-Location
+
+          $hash = (Get-FileHash -Algorithm SHA256 -Path $zipPath).Hash.ToLowerInvariant()
+          $sumLine = "$hash  $zipName`n"
+          [System.IO.File]::WriteAllText((Join-Path $dist "$zipName.sha256"), $sumLine)
+          Write-Host $sumLine.TrimEnd()
+
+          Remove-Item -Recurse -Force $stage
+
+      - name: Package tar.gz
+        if: runner.os == 'Linux'
+        env:
+          ARCHIVE: ${{ steps.meta.outputs.archive }}
+          ZIGBUILD: ${{ matrix.zigbuild }}
+        run: |
+          set -euo pipefail
+
+          bin="target/$TARGET/release/cinebox-tmdb-proxy"
+          if [[ ! -x "$bin" ]]; then
+            echo "cinebox-tmdb-proxy was not built at $bin" >&2
+            exit 1
+          fi
+
+          # A dynamic binary would fail on the routers and boxes this is for.
+          info="$(file -b "$bin")"
+          echo "$info"
+          if ! grep -Eq 'statically linked|static-pie linked' <<< "$info"; then
+            echo "$bin is not statically linked" >&2
+            exit 1
+          fi
+
+          # Only the native builds can run here.
+          if [[ "$ZIGBUILD" != "true" ]]; then
+            "$bin" --version
+          fi
+
+          stage="dist/$ARCHIVE"
+          mkdir -p "$stage"
+          install -m 0755 "$bin" "$stage/"
+          install -m 0644 LICENSE packaging/tmdb-proxy/README.md packaging/tmdb-proxy/cinebox-tmdb-proxy.service "$stage/"
+
+          tar -C dist --owner=0 --group=0 --numeric-owner -czf "dist/$ARCHIVE.tar.gz" "$ARCHIVE"
+          listing="$(tar -tzf "dist/$ARCHIVE.tar.gz")"
+          printf '%s\n' "$listing"
+          grep -qx "$ARCHIVE/cinebox-tmdb-proxy" <<< "$listing"
+          grep -qx "$ARCHIVE/cinebox-tmdb-proxy.service" <<< "$listing"
+
+          (cd dist && sha256sum "$ARCHIVE.tar.gz" > "$ARCHIVE.tar.gz.sha256" && cat "$ARCHIVE.tar.gz.sha256")
+          rm -rf "$stage"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ${{ steps.meta.outputs.archive }}
+          path: |
+            dist/${{ steps.meta.outputs.archive }}.*
+          if-no-files-found: error
+          retention-days: 14
+
   publish:
     name: Publish GitHub Release
-    needs: [windows, linux, flatpak, android]
+    needs: [windows, linux, flatpak, android, proxy]
     if: startsWith(github.ref, 'refs/tags/')
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -754,6 +989,7 @@ jobs:
           DEB: ${{ needs.linux.outputs.deb }}
           BUNDLE: ${{ needs.flatpak.outputs.bundle }}
           APK: ${{ needs.android.outputs.apk }}
+          PROXY: ${{ needs.proxy.outputs.name }}
         run: |
           set -euo pipefail
           ls -la
@@ -777,6 +1013,15 @@ jobs:
           test -s "${APK}"
           sha256sum --check --strict "${APK}.sha256"
           unzip -t "${APK}" > /dev/null
+          test -s "${PROXY}-windows-x64.zip"
+          sha256sum --check --strict "${PROXY}-windows-x64.zip.sha256"
+          unzip -Z1 "${PROXY}-windows-x64.zip" | grep -E 'cinebox-tmdb-proxy\.exe$'
+          for arch in x86_64 aarch64 armv7; do
+            tarball="${PROXY}-linux-${arch}.tar.gz"
+            test -s "$tarball"
+            sha256sum --check --strict "${tarball}.sha256"
+            tar -tzf "$tarball" | grep -E '/cinebox-tmdb-proxy$'
+          done
 
       - name: Append commit range
         working-directory: dist
@@ -828,6 +1073,10 @@ jobs:
             dist/${{ needs.linux.outputs.deb }}
             dist/${{ needs.flatpak.outputs.bundle }}
             dist/${{ needs.android.outputs.apk }}
+            dist/${{ needs.proxy.outputs.name }}-windows-x64.zip
+            dist/${{ needs.proxy.outputs.name }}-linux-x86_64.tar.gz
+            dist/${{ needs.proxy.outputs.name }}-linux-aarch64.tar.gz
+            dist/${{ needs.proxy.outputs.name }}-linux-armv7.tar.gz
 
       - name: Publish GitHub Release
         working-directory: dist
@@ -838,6 +1087,7 @@ jobs:
           DEB: ${{ needs.linux.outputs.deb }}
           BUNDLE: ${{ needs.flatpak.outputs.bundle }}
           APK: ${{ needs.android.outputs.apk }}
+          PROXY: ${{ needs.proxy.outputs.name }}
         run: |
           set -euo pipefail
           extras=(--title "Cinebox $TAG" --notes-file RELEASE_NOTES.md)
@@ -851,6 +1101,10 @@ jobs:
             "${DEB}" "${DEB}.sha256"
             "${BUNDLE}" "${BUNDLE}.sha256"
             "${APK}" "${APK}.sha256"
+            "${PROXY}-windows-x64.zip" "${PROXY}-windows-x64.zip.sha256"
+            "${PROXY}-linux-x86_64.tar.gz" "${PROXY}-linux-x86_64.tar.gz.sha256"
+            "${PROXY}-linux-aarch64.tar.gz" "${PROXY}-linux-aarch64.tar.gz.sha256"
+            "${PROXY}-linux-armv7.tar.gz" "${PROXY}-linux-armv7.tar.gz.sha256"
           )
 
           if gh release view "$TAG" >/dev/null 2>&1; then

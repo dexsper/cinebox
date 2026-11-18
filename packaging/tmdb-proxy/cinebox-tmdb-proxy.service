@@ -1,0 +1,64 @@
+# systemd unit for cinebox-tmdb-proxy.
+#
+#   sudo install -m 0755 cinebox-tmdb-proxy /usr/local/bin/
+#   sudo install -m 0644 cinebox-tmdb-proxy.service /etc/systemd/system/
+#   sudo systemctl edit cinebox-tmdb-proxy     # set PUBLIC_URL and other overrides
+#   sudo systemctl enable --now cinebox-tmdb-proxy
+#
+# The cache lives in /var/cache/cinebox-tmdb-proxy. The proxy speaks plain HTTP; put
+# Caddy or nginx in front for TLS.
+
+[Unit]
+Description=Cinebox TMDB caching proxy
+Documentation=https://github.com/dexsper/cinebox/tree/master/packaging/tmdb-proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=exec
+ExecStart=/usr/local/bin/cinebox-tmdb-proxy
+Restart=on-failure
+RestartSec=2s
+
+Environment=LISTEN=127.0.0.1:8080
+#Environment=PUBLIC_URL=https://tmdb.example.com
+Environment=CACHE_DIR=%C/cinebox-tmdb-proxy
+# Behind a reverse proxy on this machine that sets X-Forwarded-For:
+#Environment=TRUST_FORWARDED_FOR=true
+# Secrets such as TMDB_API_KEY=... go in this root-only (0600) file, not in the unit.
+EnvironmentFile=-/etc/cinebox-tmdb-proxy.env
+
+DynamicUser=yes
+CacheDirectory=cinebox-tmdb-proxy
+CacheDirectoryMode=0700
+UMask=0077
+# Up to 16384 connections by default; the soft limit of 1024 would run out first.
+LimitNOFILE=65536
+
+# Hardening
+CapabilityBoundingSet=
+AmbientCapabilities=
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+ProtectProc=invisible
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallErrorNumber=EPERM
+
+[Install]
+WantedBy=multi-user.target

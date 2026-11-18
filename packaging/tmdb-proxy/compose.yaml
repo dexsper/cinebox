@@ -1,0 +1,51 @@
+# cinebox-tmdb-proxy, reachable on the host at 127.0.0.1:8080 for your own reverse proxy.
+#
+#   cp .env.example .env                           # set DOMAIN
+#   docker compose up -d --build                   # proxy only
+#   docker compose --profile caddy up -d --build   # proxy and Caddy with HTTPS for DOMAIN
+#
+# The proxy image is built from this checkout; nothing is pulled from a registry
+# except the Rust builder and Caddy.
+name: cinebox-tmdb-proxy
+
+services:
+  proxy:
+    build:
+      context: ../..
+      dockerfile: packaging/tmdb-proxy/Dockerfile
+    image: cinebox-tmdb-proxy:local
+    environment:
+      PUBLIC_URL: https://${DOMAIN:?set DOMAIN in .env}
+      # Only a reverse proxy on this machine can reach the port, and it must replace X-Forwarded-For.
+      TRUST_FORWARDED_FOR: "true"
+      # Operator mode: uncomment and set TMDB_API_KEY in .env. An empty key is an error.
+      # TMDB_API_KEY: ${TMDB_API_KEY:?set TMDB_API_KEY in .env}
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - cache:/cache
+    # The memory cache sizes itself from this limit (1/8 of it).
+    mem_limit: 512m
+    restart: unless-stopped
+
+  caddy:
+    image: caddy:2
+    profiles: [caddy]
+    environment:
+      DOMAIN: ${DOMAIN:?set DOMAIN in .env}
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+      - caddy-config:/config
+    depends_on:
+      - proxy
+    restart: unless-stopped
+
+volumes:
+  cache:
+  caddy-data:
+  caddy-config:

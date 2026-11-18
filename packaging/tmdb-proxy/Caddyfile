@@ -1,0 +1,9 @@
+# Caddy gets the certificate for DOMAIN (from .env) and forwards to the proxy over h2c.
+# Caddy writes no access log unless a `log` directive asks for one; keep it that way.
+{$DOMAIN} {
+	reverse_proxy proxy:8080 {
+		transport http {
+			versions h2c 1.1
+		}
+	}
+}
