@@ -8,6 +8,8 @@ pub(crate) use state::{
     FilesPane, MovieBits, ReadyFiles, TorrentFileRow, TorrentHits, TorrentState, season_episode_line,
 };
 
+use std::time::Duration;
+
 use cinebox_core::{MediaDetails, MediaKind, QualityBand, Store, StoreError, TmdbId, tmdb_image_url};
 use cinebox_torrserver::{AddSpec, TorrCard, encode_data};
 use egui::{Align, Layout, Rect, RichText, Ui, UiBuilder, Vec2, pos2};
@@ -28,6 +30,9 @@ use crate::theme::Theme;
 use crate::widgets::drawer::Overlay;
 use crate::widgets::page_state::ErrorChoice;
 use crate::widgets::{self, intro, poster, scroll};
+
+/// Releases loaded longer ago are searched again when the page is opened.
+const STALE_AFTER: Duration = Duration::from_mins(15);
 
 pub(crate) struct TorrentsScreen {
     state: Option<TorrentState>,
@@ -150,6 +155,7 @@ impl TorrentsScreen {
         if arriving {
             self.intro_at = Some(now);
             self.retag_local_hits(svc, None);
+            self.refresh_stale_hits();
         }
         self.apply_local_hits();
 
@@ -190,7 +196,7 @@ impl TorrentsScreen {
         let modal = open_files.map(|state| files::files_modal(ui.ctx(), state, svc, theme));
         let files = modal.unwrap_or_default();
 
-        if listed.error_choice == Some(ErrorChoice::Retry) {
+        if listed.is_refresh_requested || listed.error_choice == Some(ErrorChoice::Retry) {
             self.refresh_hits();
         }
 
@@ -317,8 +323,15 @@ impl TorrentsScreen {
             return;
         };
 
-        if matches!(state.hits, TorrentHits::Failed(_)) {
-            state.set_hits(TorrentHits::Loading);
+        state.set_hits(TorrentHits::Loading);
+    }
+
+    fn refresh_stale_hits(&mut self) {
+        // The page reopened for the same title keeps its releases, so without this a release added to the
+        // tracker later would only show up after a restart.
+        let is_stale = self.hits.is_finished() && self.hits.since_completed() > STALE_AFTER.as_secs_f64();
+        if is_stale {
+            self.refresh_hits();
         }
     }
 
@@ -628,7 +641,7 @@ mod tests {
         let writer = db.clone();
         let history_hash = hash.clone();
         let saved = egui_async::bind::ASYNC_RUNTIME.spawn(async move {
-            tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_millis(50)).await;
             let written = writer.upsert_watch_history(&entry, Some(&history_hash)).await;
             assert!(written.is_ok(), "{written:?}");
         });

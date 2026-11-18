@@ -54,6 +54,22 @@ fn pad_y(ui: &Ui) -> f32 {
     ((HEIGHT - content_h) / 2.0).clamp(0.0, PAD_Y)
 }
 
+/// The closed combo's width for the longest of `labels`, so it fits every choice and keeps its size on a new one.
+#[must_use]
+pub(crate) fn fit_width(ui: &Ui, labels: impl IntoIterator<Item = String>) -> f32 {
+    let font = TextStyle::Button.resolve(ui.style());
+    let mut widest = 0.0_f32;
+    for label in labels {
+        let galley = ui.painter().layout_no_wrap(label, font.clone(), Color32::WHITE);
+        widest = widest.max(galley.size().x);
+    }
+
+    let spacing = ui.spacing();
+    let arrow = spacing.icon_spacing + spacing.icon_width;
+
+    widest + arrow + (2.0 * PAD_X)
+}
+
 pub(crate) fn popup_style(theme: &Theme) -> StyleModifier {
     let fill = theme.panel_elevated;
     let hover = theme.widget_hover;

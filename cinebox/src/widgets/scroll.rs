@@ -23,7 +23,7 @@ const BOTTOM_FADE_STRENGTH: f32 = 0.72;
 const BOTTOM_FADE_BANDS: u8 = 12;
 
 /// Gutter kept clear on the scrollbar side so the floating bar never sits on top of content.
-const SCROLL_GUTTER: i8 = 10;
+pub(crate) const SCROLL_GUTTER: i8 = 10;
 
 const EDGE_EPS: f32 = 0.5;
 

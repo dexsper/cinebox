@@ -71,7 +71,7 @@ flowchart LR
 ```
 
 1. **Catalog.** Cinebox calls TMDB with your key: home, sections, discover, search, title pages, seasons, images. Responses and posters go into SQLite so a bad network does not force a full reload.
-2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that.
+2. **Releases.** The Watch button sends the title to Jackett or Prowlarr. Quality, HDR, voice, and episodes are parsed out of release names, then the list is filtered on that. The refresh button next to Filters reloads the list, and it reloads itself after 15 minutes.
 3. **Stream.** The magnet goes to TorrServer. You can wait for preload, then the stream opens in the player. No browser in this path.
 4. **Watch history.** Progress is written to local SQLite as you watch, keyed by title or episode, not by torrent. With "Remember position on the server" on, the same time goes to TorrServer, and on open the local position wins. With "Continue on other devices" on, torrents on the server join Recently watched, matched to TMDB by the card in the torrent or by name, and a position another device moved wins. Cards are written in the format LAMPA reads, so each app sees the other's torrents.
 5. **Player settings.** Open the same torrent again and the last audio track, subtitles, speed, and video scale come back. Subtitle size and delay last for the current playback only. Volume is app-wide.

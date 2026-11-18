@@ -1,13 +1,16 @@
 //! Hit list, sort, and filters.
 
+use std::sync::Arc;
+
 use cinebox_core::{MediaKind, QualityBand};
 use cinebox_indexer::{
     AudioLang, SortMode, TriChoice, VoiceFilter, hit_bitrate_mbps, season_options, voice_filter_options, year_options,
 };
 use egui::{
-    Align, Color32, CornerRadius, Frame, Layout, Rect, RichText, Sense, Stroke, StrokeKind, Ui, Vec2, pos2, vec2,
+    Align, Color32, CornerRadius, Direction, FontId, Frame, Galley, Layout, Margin, Rect, Response, RichText, Sense,
+    Stroke, StrokeKind, Ui, Vec2, WidgetInfo, WidgetType, pos2, vec2,
 };
-use egui_material_icons::icons::{ICON_FILTER_LIST, ICON_RESTART_ALT};
+use egui_material_icons::icons::{ICON_CLOSE, ICON_FILTER_LIST, ICON_REFRESH, ICON_RESTART_ALT};
 use rust_i18n::t;
 
 use super::state::{TorrentHits, TorrentState};
@@ -19,13 +22,18 @@ use crate::widgets::page_state::{ErrorChoice, error_page};
 use crate::widgets::{self, chips, combo, focus, multiselect, scroll};
 
 const FILTERS_BTN_W: f32 = 152.0;
+const TOOLBAR_GAP: f32 = 8.0;
 
 /// What the user did in the hit list this frame.
 #[derive(Debug, Default)]
 pub(super) struct ListOutcome {
     pub error_choice: Option<ErrorChoice>,
+
     /// Index of the picked hit in the unfiltered list.
     pub pick: Option<usize>,
+
+    /// The refresh button asked the parser for the releases again.
+    pub is_refresh_requested: bool,
 }
 
 /// `intro` is how far the page intro has run, from 0 to 1.
@@ -42,8 +50,7 @@ pub(super) fn list_pane(
         return outcome;
     }
 
-    toolbar(ui, state, theme, filters);
-    state.apply_filter_sort();
+    outcome.is_refresh_requested = toolbar(ui, state, theme, filters);
 
     match &state.hits {
         TorrentHits::Loading => {
@@ -56,17 +63,13 @@ pub(super) fn list_pane(
             let visible = &state.visible;
             let rows = &mut state.rows;
 
-            ui.label(
-                RichText::new(format!("{} / {}", visible.len(), hits.len())).size(theme.text_small).color(theme.label),
-            );
-
             if visible.is_empty() {
                 widgets::page_message(ui, theme, t!("torrents.none").as_ref(), theme.muted);
                 return outcome;
             }
 
             scroll::vertical(ui, "torrent-hits", |ui| {
-                let ring_room = egui::Margin { left: RING_INSET, right: 0, top: RING_INSET, bottom: 0 };
+                let ring_room = Margin { left: RING_INSET, right: 0, top: RING_INSET, bottom: 0 };
 
                 let context = RowContext { kind: state.kind, runtime: state.runtime_minutes, year: state.year };
 
@@ -98,62 +101,155 @@ pub(super) fn list_pane(
     outcome
 }
 
-fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut Overlay) {
-    ui.horizontal(|ui| {
-        ui.spacing_mut().item_spacing.x = 8.0;
-        let combo_w = (ui.available_width() - FILTERS_BTN_W - 8.0).max(160.0);
+/// `true` when the refresh button was clicked. Also sorts and filters the hits, before the count it shows.
+fn toolbar(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut Overlay) -> bool {
+    let is_loading = matches!(state.hits, TorrentHits::Loading);
+    let sort_labels = SortMode::ALL.iter().map(|&mode| sort_label(mode).into_owned());
+    let sort_size = vec2(combo::fit_width(ui, sort_labels), combo::HEIGHT);
+    let refresh_size = vec2(refresh_width(ui, theme), combo::HEIGHT);
 
-        ui.allocate_ui_with_layout(vec2(combo_w, combo::HEIGHT), Layout::left_to_right(Align::Center), |ui| {
-            let label = |mode| sort_label(mode).into_owned();
-            combo::show_with(ui, theme, "torrent-sort", &mut state.sort, Choices { options: SortMode::ALL, label });
+    // The list's own insets, so the toolbar edges line up with the rows: focus ring room and scrollbar gutter.
+    let edges = Margin { left: RING_INSET, right: scroll::SCROLL_GUTTER, ..Margin::ZERO };
+
+    let frame = Frame::new().inner_margin(edges).show(ui, |ui| {
+        let row = ui.horizontal(|ui| {
+            ui.spacing_mut().item_spacing.x = TOOLBAR_GAP;
+            ui.allocate_ui_with_layout(sort_size, Layout::left_to_right(Align::Center), |ui| {
+                let label = |mode| sort_label(mode).into_owned();
+                let choices = Choices { options: SortMode::ALL, label };
+                combo::show_with(ui, theme, "torrent-sort", &mut state.sort, choices);
+            });
+
+            filter_buttons(ui, state, theme, filters);
+            state.apply_filter_sort();
+
+            let count = hit_count(ui, state, theme);
+            let count_w = count.as_ref().map_or(0.0, |galley| pill_width(galley) + TOOLBAR_GAP);
+
+            // The cursor already stands one gap past the last button, so this puts the count and refresh flush
+            // with the right edge.
+            ui.add_space((ui.available_width() - count_w - refresh_size.x).max(0.0));
+
+            if let Some(count) = count {
+                count_pill(ui, theme, count);
+            }
+
+            // Justified, so the button takes exactly the width reserved for it above and centers its icon.
+            let layout = Layout::centered_and_justified(Direction::LeftToRight);
+            ui.allocate_ui_with_layout(refresh_size, layout, |ui| {
+                if is_loading {
+                    ui.disable();
+                }
+
+                refresh_button(ui, theme)
+            })
+            .inner
         });
 
-        let open = filters.is_open();
-        if filters_button(ui, theme, open, state.filter.active_count()) {
-            filters.toggle(ui.input(|i| i.time));
-        }
+        row.inner
     });
+
+    frame.inner
 }
 
-fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, count: usize) -> bool {
-    let active = count > 0;
-    let label = filters_label(active);
-    let selected = open || active;
+/// How many releases were found, once they are in, at the size of the button labels next to it.
+fn hit_count(ui: &Ui, state: &TorrentState, theme: &Theme) -> Option<Arc<Galley>> {
+    let TorrentHits::Ready(hits) = &state.hits else { return None };
+
+    let text = count_text(state.visible.len(), hits.len());
+
+    Some(ui.painter().layout_no_wrap(text, theme.ui_font(theme.text_body), theme.label))
+}
+
+fn pill_width(text: &Galley) -> f32 {
+    text.size().x + (2.0 * button::PAD_X)
+}
+
+/// The count on the fill and outline of the buttons beside it, so it stays readable over a light backdrop.
+fn count_pill(ui: &mut Ui, theme: &Theme, text: Arc<Galley>) {
+    let size = vec2(pill_width(&text), combo::HEIGHT);
+    let (rect, response) = ui.allocate_exact_size(size, Sense::hover());
+    let label = text.text().to_owned();
+    response.widget_info(|| WidgetInfo::labeled(WidgetType::Label, true, &label));
+
+    let stroke = Stroke::new(1.0, theme.window_edge);
+    let radius = theme.rounding(theme.radius_card);
+    ui.painter().rect(rect, radius, theme.input_bg, stroke, StrokeKind::Inside);
+
+    let pos = rect.center() - (text.size() * 0.5);
+    ui.painter().galley(pos, text, theme.label);
+}
+
+fn count_text(shown: usize, total: usize) -> String {
+    if shown == total {
+        return crate::i18n::format_releases(total);
+    }
+
+    t!("torrents.shown", shown = shown, total = total).into_owned()
+}
+
+/// The icon and the button padding on both sides, which is never less than what the button needs.
+fn refresh_width(ui: &Ui, theme: &Theme) -> f32 {
+    let font = FontId::new(theme.text_icon, ICON_REFRESH.font_family());
+    let icon = ui.painter().layout_no_wrap(ICON_REFRESH.codepoint.to_owned(), font, theme.title);
+
+    icon.size().x + (2.0 * button::PAD_X)
+}
+
+fn refresh_button(ui: &mut Ui, theme: &Theme) -> bool {
+    let label = t!("torrents.refresh");
+    let icon_font = FontId::new(theme.text_icon, ICON_REFRESH.font_family());
+    let pad_y = button::fit_pad_y(ui, combo::HEIGHT, &[icon_font]);
+    let opts = Opts::secondary(vec2(combo::HEIGHT, combo::HEIGHT)).pad_y(pad_y);
+    let icon = ICON_REFRESH.rich_text().size(theme.text_icon).color(theme.title);
+
+    let response = button::add_named(ui, theme, icon, opts, Some(&label));
+
+    response.on_hover_text(label.as_ref()).clicked()
+}
+
+/// Filters with the count of active ones, as on the discover page, and a chip that clears them.
+fn filter_buttons(ui: &mut Ui, state: &mut TorrentState, theme: &Theme, filters: &mut Overlay) {
+    let count = state.filter.active_count();
+    let open = filters.is_open();
+    let filters_response = filters_button(ui, theme, open, count);
+    if filters_response.clicked() {
+        filters.toggle(ui.input(|i| i.time));
+    }
+
+    if count == 0 {
+        return;
+    }
+
+    let reset = reset_chip(ui, theme);
+    if !reset.clicked() {
+        return;
+    }
+
+    // The chip goes away with the filters, so the remote's focus moves to Filters instead of getting lost.
+    if reset.has_focus() {
+        filters_response.request_focus();
+    }
+
+    state.filter = cinebox_indexer::TorrentFilter::default();
+}
+
+fn filters_button(ui: &mut Ui, theme: &Theme, open: bool, count: usize) -> Response {
+    let title = t!("filter.filters");
+    let label = if count > 0 { format!("{title} ({count})") } else { title.into_owned() };
+
     let size = vec2(FILTERS_BTN_W, combo::HEIGHT);
     let pad_y = button::icon_label_pad_y(ui, theme, ICON_FILTER_LIST, combo::HEIGHT);
-    let opts = Opts::secondary(size).selected(selected).pad_y(pad_y);
-    let fg = theme.title;
-    let icon = ICON_FILTER_LIST.rich_text().size(theme.text_icon).color(fg);
-    let text = RichText::new(&label).size(theme.text_body).color(fg);
-    let atoms = (egui::Atom::grow(), icon, text, egui::Atom::grow());
+    let opts = Opts::secondary(size).selected(open || count > 0).pad_y(pad_y);
 
-    let response = button::add_named(ui, theme, atoms, opts, Some(&label));
-    if count > 0 {
-        paint_count_badge(ui, response.rect, count, theme);
-    }
-
-    response.clicked()
+    button::icon_label_response(ui, theme, ICON_FILTER_LIST, &label, opts)
 }
 
-fn paint_count_badge(ui: &Ui, button: Rect, count: usize, theme: &Theme) {
-    let text = count.to_string();
-    let font = theme.ui_font(theme.text_caption);
-    let galley = ui.painter().layout_no_wrap(text, font, Color32::WHITE);
-    let radius = 9.0;
-    let center = pos2(button.right() - 2.0, button.top() + 2.0);
-    ui.painter().circle_filled(center, radius, theme.err);
+fn reset_chip(ui: &mut Ui, theme: &Theme) -> Response {
+    let pad_y = button::icon_label_pad_y(ui, theme, ICON_CLOSE, combo::HEIGHT);
+    let opts = Opts::chip(true).pad_y(pad_y);
 
-    let x = center.x - galley.size().x * 0.5;
-    let y = center.y - galley.size().y * 0.5;
-    ui.painter().galley(pos2(x, y), galley, Color32::WHITE);
-}
-
-fn filters_label(active: bool) -> String {
-    if active {
-        return format!("{} · {}", t!("filter.filters"), t!("filter.on"));
-    }
-
-    t!("filter.filters").into_owned()
+    button::icon_label_response(ui, theme, ICON_CLOSE, t!("filter.reset").as_ref(), opts)
 }
 
 pub(super) fn filters_drawer(ui: &mut Ui, state: &mut TorrentState, theme: &Theme) {
@@ -291,7 +387,7 @@ fn hit_row(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext, 
     let shown = Frame::new()
         .fill(theme.card)
         .corner_radius(theme.rounding(theme.radius_card))
-        .inner_margin(egui::Margin::symmetric(16, 16))
+        .inner_margin(Margin::symmetric(16, 16))
         .show(ui, |ui| {
             ui.set_width(ui.available_width());
             let name = name_galley(ui, &hit.name, theme);
@@ -323,7 +419,7 @@ fn hit_row(ui: &mut Ui, hit: &cinebox_indexer::TorrentHit, context: RowContext, 
 }
 
 /// Up to two lines; the full title has no place left that needs it.
-fn name_galley(ui: &Ui, name: &str, theme: &Theme) -> std::sync::Arc<egui::Galley> {
+fn name_galley(ui: &Ui, name: &str, theme: &Theme) -> Arc<Galley> {
     let font = theme.title_font(theme.text_subtitle);
     let width = ui.available_width();
     let mut job = egui::text::LayoutJob::simple(name.to_owned(), font, theme.title, width);
@@ -619,7 +715,7 @@ fn metric_pair(ui: &mut Ui, label: &str, value: &str, theme: &Theme) {
 
 /// Fixed `METRIC_VAL_H` content height keeps every pill in the row the same height.
 fn pill(ui: &mut Ui, theme: &Theme, text: &str, bg: Color32, fg: Color32) {
-    Frame::new().fill(bg).corner_radius(4).inner_margin(egui::Margin::symmetric(9, 4)).show(ui, |ui| {
+    Frame::new().fill(bg).corner_radius(4).inner_margin(Margin::symmetric(9, 4)).show(ui, |ui| {
         let font = theme.ui_font(META_SIZE);
         let galley = ui.painter().layout_no_wrap(text.to_owned(), font, fg);
         let size = Vec2::new(galley.size().x, METRIC_VAL_H);

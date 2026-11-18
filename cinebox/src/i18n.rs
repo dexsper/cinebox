@@ -242,6 +242,25 @@ fn format_episodes(count: u32) -> String {
     t!("media.episodes.other", count = count).into_owned()
 }
 
+/// "134 releases", with the plural form of the UI language.
+#[must_use]
+pub(crate) fn format_releases(count: usize) -> String {
+    let count = u32::try_from(count).unwrap_or(u32::MAX);
+    if uses_slavic_plural() {
+        return match slavic_plural(count) {
+            SlavicPlural::One => t!("torrents.count.one", count = count).into_owned(),
+            SlavicPlural::Few => t!("torrents.count.few", count = count).into_owned(),
+            SlavicPlural::Many => t!("torrents.count.many", count = count).into_owned(),
+        };
+    }
+
+    if count == 1 {
+        return t!("torrents.count.one", count = count).into_owned();
+    }
+
+    t!("torrents.count.other", count = count).into_owned()
+}
+
 fn uses_slavic_plural() -> bool {
     matches!(&*rust_i18n::locale(), "ru" | "uk")
 }
