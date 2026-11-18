@@ -59,6 +59,7 @@ futures-util = { version = "0.3", default-features = false, features = ["std"] }
 regex = "1"
 aho-corasick = "1"
 httpmock = "0.8.3"
+zbus = "6.3.0"
 
 [workspace.lints.rust]
 unsafe_code = "deny"

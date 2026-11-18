@@ -41,7 +41,7 @@ sys-locale = "0.3.2"
 [target.'cfg(target_os = "linux")'.dependencies]
 eframe = { workspace = true, features = ["wayland", "x11"] }
 raw-window-handle = "0.6"
-zbus = "6.3.0"
+zbus.workspace = true
 
 [target.'cfg(target_os = "android")'.dependencies]
 eframe = { workspace = true, features = ["android-native-activity"] }

@@ -19,7 +19,7 @@ tracing.workspace = true
 winreg = "0.55"
 
 [target.'cfg(target_os = "linux")'.dependencies]
-zbus = "5.19"
+zbus.workspace = true
 
 [dev-dependencies]
 httpmock.workspace = true

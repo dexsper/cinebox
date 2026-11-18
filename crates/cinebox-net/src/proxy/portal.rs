@@ -46,27 +46,28 @@ pub(super) fn system_proxy() -> Option<SystemProxy> {
 
 const PROBE_HOST: &str = "example.com";
 
+/// zbus 6 has no blocking API. Each call blocks its thread in `zbus::block_on`
+/// as the blocking proxy did; between calls, zbus drives the connection on a
+/// helper thread, so a lookup from any thread gets its reply.
 struct Resolver {
-    portal: ProxyResolverProxyBlocking<'static>,
+    portal: ProxyResolverProxy<'static>,
     cache: Mutex<HashMap<String, Option<String>>>,
+}
+
+async fn connect() -> zbus::Result<ProxyResolverProxy<'static>> {
+    let connection = zbus::Connection::session().await?;
+    ProxyResolverProxy::new(&connection).await
 }
 
 fn resolver() -> Option<&'static Resolver> {
     static RESOLVER: OnceLock<Option<Resolver>> = OnceLock::new();
 
     RESOLVER
-        .get_or_init(|| {
-            let connect = || -> zbus::Result<ProxyResolverProxyBlocking<'static>> {
-                let connection = zbus::blocking::Connection::session()?;
-                ProxyResolverProxyBlocking::new(&connection)
-            };
-
-            match connect() {
-                Ok(portal) => Some(Resolver { portal, cache: Mutex::new(HashMap::new()) }),
-                Err(error) => {
-                    tracing::warn!(%error, "proxy resolver portal unavailable; connecting directly");
-                    None
-                }
+        .get_or_init(|| match zbus::block_on(connect()) {
+            Ok(portal) => Some(Resolver { portal, cache: Mutex::new(HashMap::new()) }),
+            Err(error) => {
+                tracing::warn!(%error, "proxy resolver portal unavailable; connecting directly");
+                None
             }
         })
         .as_ref()
@@ -86,7 +87,7 @@ fn lookup(scheme: &str, host: &str, port: Option<u16>) -> Option<String> {
         return answer.clone();
     }
 
-    let answer = match resolver.portal.lookup(&origin) {
+    let answer = match zbus::block_on(resolver.portal.lookup(&origin)) {
         Ok(proxies) => first_usable(&proxies),
         Err(error) => {
             tracing::warn!(%error, "proxy resolver portal lookup failed; connecting directly");
